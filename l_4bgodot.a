@@ -1,0 +1,1078 @@
+
+!src "..\godotlib.lib"
+*	= $c000
+
+; ------------------------------------------------------------ 
+;
+; ldr.4BitGoDot
+; loader for the genuine GoDot 4Bit graphics format
+; retrieves either images (320x200) or clips (up to 2040x2040; 
+; note: clips larger than 320x200 aren't yet supported by GoDot
+; itself and crash it on load)
+; Images may be retrieved to certain places within the current
+; image, depending on which setting you choose concerning Clips
+;
+;    1.08, 09.01.94, European PPE release
+;    1.10, 20.07.98, added clips
+;    1.11, 23.07.98, bug fixes
+;          15.11.00, completely rewrote comments
+;    1.12, 28.01.01, modified MIX routine
+;    1.13, 11.06.03, crash on Big Clips fixed
+;    1.14, 05.08.03, suddenly didn't load Clips to Full anymore
+;    1.15, 25.11.16, no Image Info on Compose anymore
+;
+; ------------------------------------------------------------ 
+
+; ----------------------------------------- Equates
+;
+	filetype	= $30
+	counter	= $31
+	gbyte	= $33
+	pfvek	= $34
+	pfbank	= $36
+	brmerk	= $37
+	readvek	= $38
+	dst	= $3a
+	bbreite	= $3c
+	rrand	= $3e
+	adcnt	= $3f
+	skip	= $40
+	doit	= $42
+
+	status	= $90
+	packbyte	= $ad	; a constant
+	offx	= $b2
+	offy	= offx+1
+
+	vdc	= $d600
+	vdcdata	= $d601
+	bswitch	= $de80
+
+; ----------------------------------------- Header
+header	jmp start
+	!by $80
+	!by 4
+	!by 1
+	!wo modend
+	!wo 0
+	!pet "native 4Bit ldr "
+	!pet "1.15"
+	!pet "25.11.16"
+	!pet "A.Dettke/W.Kling"
+; ----------------------------------------- Leave Module
+cancel	lda #$ff
+	sta used
+cn2	sec
+	rts
+; ----------------------------------------- Subroutines to Main 
+jrequ	jmp requ
+jerror	jmp error
+; ----------------------------------------- Main
+start	ldx #0
+	stx sc_texttab+1
+	jsr mchar		; define listbox char
+	ldx used		; first call?
+	bmi jrequ		; yes, pre-requester
+	beq cancel	; error and finished
+	cpx #3		; all finished?
+	bcs cancel
+; ----------------------------------------- Read a new Image
+st0	ldy #0		; init width and copy of
+	sty breite	; width ("breite" means width)
+	sty breite+1
+	sty bbreite
+	sty bbreite+1
+	sty filetype	; init filetype
+	jsr setfull	; init addresses
+	jsr gd_sproff	; Sprites off
+;
+	jsr setsource	; select data source
+	beq ob7		; when 0: Floppy
+
+	cmp #1		; when 1: Temp
+	bne ob6
+	jsr srt2		; enter vector 
+	bcc ld61
+
+ob6	cmp #3		; when 3: VDC
+	beq ld61
+	jsr srt7		; when 2: Undo, enter vector
+	bcc ld61
+;
+ob7	jsr getname	; when 0: prepare for Image Info 
+	jsr gd_xopen	; open File
+	jsr onebyte	; get first byte ("G")
+	bne jerror	; on error: break
+	tay		; when $00:
+	beq ld60		; uncompressed
+	jsr onebyte	; otherwise: get "O"...
+	bne jerror
+	jsr onebyte	; and "D"
+	bne jerror
+ld60	jsr onebyte	; finally "0" or "1"
+	bne jerror
+	sta filetype	; store as filetype
+	tya
+	bne ld61
+	sta filetype
+ld61	asl filetype	; make it more conveniently
+	lda filetype
+	and #2		; Clipfile?
+	beq ob50
+	jsr getfclip	; yes, get data
+	lda clpbr		; new width for Full
+	sta brmerk
+	jsr gbh2
+
+ob50	lda wclip		; how to proceed?
+	bne ob51		; when 0: no Clip
+	jsr setfullscr	; set parameters for full 4bit
+	jmp ob5
+
+ob51	cmp #1
+	bne ob52
+	jsr set2clip	; when 1: "to Clip"
+	bne ob5
+
+ob52	cmp #2
+	bne ob53
+	jsr setin2clip	; when 2: "into Clip"
+	bne ob5
+
+ob53	jsr setorigin	; when 3: "to Origin"
+
+ob5	ldx which		; Replace/Compose?
+	bne ld62
+	ldx #<(pureraw)	; set vector for Replace
+	ldy #>(pureraw)
+	jsr setdoit
+
+ld62	jsr gd_clrms	; prepare Activity display
+	stx offy
+	stx counter
+	stx counter+1
+	lda #200
+	sta adcnt
+	lda #7
+	sta offx
+; ----------------------------------------- get Image
+ld0	ldx breite	; Bytecounter for 1 true row
+	stx ls_vekta8
+	ldy breite+1
+	sty ls_vekta8+1
+	ldx bbreite	; counter for clip
+	stx skip
+	ldy bbreite+1
+	sty skip+1
+
+ld01	ldy #0
+	jsr readfile	; get data byte 
+	ldx status	; Floppy error?
+	bne ld5		; yes, break
+	jsr readbytes	; process data byte
+	tax
+	lda skip		; Skip? ("into Clip")
+	ora skip+1
+	beq ld1
+	txa
+	sta (sc_texttab),y	; no, result to 4Bit 
+	inc sc_texttab	; increment vector
+	bne ld10
+	inc sc_texttab+1
+ld10	lda skip		; Skip counter
+	bne ld11
+	dec skip+1
+ld11	dec skip
+; ----------------------------------------- Activity
+	dec adcnt 
+	bne ld1
+	lda #200
+	sta adcnt
+	ldy offy
+	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld1
+	inc offy
+	lda #7
+	sta offx
+; ----------------------------------------- 
+ld1	lda ls_vekta8	; count bytes (one row)
+	bne ld2
+	dec ls_vekta8+1
+ld2	dec ls_vekta8
+ld4	lda status	; Floppy error?
+	bne ld5		; no, continue
+	lda ls_vekta8
+	ora ls_vekta8+1
+	bne ld01		; row finished when 0
+
+	clc		; next row $500 below
+	lda dst+1
+	adc #5
+	sta dst+1
+	sta sc_texttab+1
+	lda dst
+	sta sc_texttab
+	dec hoehe		; File finished when 0
+	beq ld3
+	jmp ld0
+; ----------------------------------------- epilogue
+ld3	lda flag4		; which data source?
+	bne ld6		; not zero: any RAM device
+
+	ldx which		; when 0: File; no errors?
+	bne ld5
+	lda wclip		; loading to Clips?			# 1.15
+	bne ld5		; yes, don't create Image Info
+	lda (doit,x)	; check for Replace/Compose
+	cmp #$60		; Replace?
+	bne ld5		; no, don't create Image Info 	# -- bis hier
+	jsr setinfo	; yes, create Image Info
+
+ld5	jsr gd_xclose	; close file
+	jsr gd_xmess	; show Floppy status
+ld7	jsr gd_spron	; Sprites on
+	ldx #20		; init Activity display
+	lda #32
+ld8	sta mess,x
+	dex
+	bpl ld8
+	jmp cancel	; finished
+; ----------------------------------------- 
+ld6	jsr srt4		; enter values
+	jsr vw2		; re-build mainscreen 
+	jmp ld7		; finish
+; ----------------------------------------- select byte processing
+readbytes	jmp (doit)
+; ----------------------------------------- Subroutines
+messout	ldx #<(message)
+	ldy #>(message)
+	jmp gd_xtxout2
+;
+error	jsr ld7
+	clc
+	rts
+;
+onebyte	jsr basin
+	ldx status
+	rts
+; ----------------------------------------- Variables
+mflag	!by 0
+flag4	!by 0
+banks	!by $ff,$ff,0,0,3,7,$ff,$ff,1,0
+bank	!by 7
+ramtype	!by 0
+abuf	!by 0
+bbuf	!by 0
+byte	!by 0
+; doit	!wo 0
+list	!wo 0
+clpzl	!by 0
+clpsp	!by 0
+clpbr	!by 40
+clpho	!by 25
+mclip	!by 0,0,40,25
+full	!by 0,0,40,25
+breite	!wo 0
+hoehe	!by 25
+ymerk	!by 0
+used	!by $ff
+which	!by 0
+wclip	!by 0
+clipoffs	!by 8,17,26,35
+listchar	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
+dreifach	!by 0,3,6,9,12,15,18,21	; times 3
+	!by 24,27,30,33,36,39,42,45
+ratenum	!pet "255075"
+wcliptx	!scr " to Full  to Clip into Clipto Origin"
+fromwhich	!scr "ClipDiskTempUndoVDC2"
+mixtx	!scr "FGrall"
+mixfl	!by 1
+reuinit	!by <(gbyte),>(gbyte),0,$83,7,1,0
+	!by 0,$c0,0,0,0,0,$10
+; ----------------------------------------- 
+filltab	!by 160,93,103,127,126,124,105,109
+message	!scr " Reading  "
+mess	!fill 22,32
+	!by 0
+; ----------------------------------------- Display First Requester
+requ	lda list+1	; repeated call?
+	bne rq1		; no, first one
+	ldx sc_screenvek	; initialize: re-build main screen
+	ldy sc_screenvek+1
+	stx list
+	sty list+1
+rq1	inc used		; now: 0
+	ldx #0
+	stx status
+	ldx #<(fourlst)
+	ldy #>(fourlst)
+	jsr gd_xmloop
+rq0	jmp start
+; ----------------------------------------- Define new char
+mchar	ldx #7
+mc0	lda listchar,x
+	sta sc_undochar,x
+	dex
+	bpl mc0
+	rts
+; ----------------------------------------- Select Secondary Requester
+sevcomp	inc used		; compose: 2
+sevrepl	inc used		; replace: 1
+	ldx used
+	dex
+	stx which
+	bne compose
+	lda flag4		; any ram active?
+	bne rq2		; yes
+; ----------------------------------------- Replace
+filereq	ldx #1		; otherwise: open file requester for load
+	jsr gd_xload
+cn3	lda #3		; flag if successful
+	sta used
+	sec		; then leave module
+	rts
+; ----------------------------------------- Compose (Secondary Requester)
+compose	ldx #<(complst)	; build new requester
+	ldy #>(complst)
+	jsr gd_screen
+	jsr gd_eloop	; wait for events
+	ldx used
+	cpx #3
+	bcs rq0
+	lda flag4
+	bne rq2
+	jmp filereq
+; ----------------------------------------- Gauge (Third Requester)
+rq2	jmp gaugeout	; when RAM
+; ----------------------------------------- Option 'Mix'
+sevmerge	ldx #<(merge)	; set vector to routine
+	ldy #>(merge)
+	bne setdoit
+; ----------------------------------------- Option 'Background'
+sevback	ldx #<(back)	; set vector to routine
+	ldy #>(back)
+	bne setdoit
+; ----------------------------------------- Option 'Foreground'
+sevfront	ldx #<(front)	; set vector to routine
+	ldy #>(front)
+
+setdoit	stx doit
+	sty doit+1
+	sec
+	rts
+; ----------------------------------------- Foreground: Routines
+front	tax		; image data value from file to .x
+	lda (sc_texttab),y	; get current image data
+	sta byte
+	txa
+	and #$f0		; file data (left pixel) = $00?
+	beq nexta		; yes, ignore file pixel
+	sta bbuf		; no, set new pixel
+	lda byte
+	and #$0f
+	ora bbuf
+	sta byte
+
+nexta	txa
+	and #$0f		; file data (right pixel) = $00?
+	beq oka		; yes, take current image's pixel
+	sta bbuf		; no, set new pixel
+	lda byte
+	and #$f0
+	ora bbuf
+	sta byte
+
+oka	lda byte		; get processed pixel
+nix	rts
+; ----------------------------------------- Background: Routines
+back	sta byte		; store image data value 
+	lda (sc_texttab),y	; get current image pixel
+	pha
+	and #$f0		; is it $00? (left)
+	beq nextb		; yes, ignore 4bit pixel
+	sta bbuf		; no, set new pixel
+	lda byte
+	and #$0f
+	ora bbuf
+	sta byte
+nextb	pla
+	and #$0f		; is it $00? (right)
+	beq okb		; yes, ignore
+	sta bbuf
+	lda byte
+	and #$f0
+	ora bbuf
+	sta byte
+
+okb	lda byte		; get processed pixel
+	rts
+; ----------------------------------------- Mix: Routines
+merge	pha		; save image data from file to stack
+	lsr		; shift left pixel down
+	lsr
+	lsr
+	lsr
+	sta bbuf
+	ora mixfl
+	php
+	lda (sc_texttab),y	; get current pixel
+	lsr		; shift down either
+	lsr
+	lsr
+	lsr
+	sta abuf
+	plp
+	bne mg0
+	sta bbuf		; otherwise not
+mg0	jsr bewerten	; mix both values
+	asl		; shift up now
+	asl
+	asl
+	asl
+	sta byte
+
+	pla
+	and #$0f		; and now: right pixel
+	sta bbuf
+	ora mixfl
+	php
+	lda (sc_texttab),y
+	and #$0f
+	sta abuf
+	plp
+	bne mg1
+	sta bbuf
+mg1	jsr bewerten	; mix values
+	ora byte
+; ----------------------------------------- Replace: Routine
+pureraw     rts		; no processing
+; ----------------------------------------- belongs to Mix
+bewerten	ldx mflag 	; get flag
+	beq bwt0
+	bpl bwt1
+	tax		; is negative: mix 25%
+	lda dreifach,x
+	sta abuf
+	jmp bwt2
+bwt1	ldx bbuf		; is positive: mix 75%
+	lda dreifach,x
+	sta bbuf
+	jmp bwt2
+bwt0	asl abuf		; is zero: mix 50%
+	asl bbuf
+bwt2	clc
+	lda abuf
+	adc bbuf
+	lsr
+	lsr
+	rts
+; ----------------------------------------- Option: adjust Mix rate
+sevmrate	lda mflag		; inc up to 1
+	cmp #1
+	bne mrt0
+	lda #$fe		; otherwise: start over at -1
+	sta mflag
+mrt0	inc mflag
+	lda mflag
+	beq mrt1
+	bmi mrt2
+	ldx #5		; show 
+	!by $2c
+mrt1	ldx #3
+	!by $2c
+mrt2	ldx #1
+	ldy #1
+mrt3	lda ratenum,x
+	sta ratetx,y
+	dex
+	dey
+	bpl mrt3
+	jsr gettab
+	ldy #6		; text out
+	jmp gd_xtxout1
+; ----------------------------------------- Subevent Set Mixtype
+sevmtype	lda mixfl
+	eor #1
+	sta mixfl
+	bne mx0
+	ldx #2
+	!by $2c
+mx0	ldx #5
+	ldy #2
+mx1	lda mixtx,x
+	sta mixtype,y
+	dex
+	dey
+	bpl mx1
+	lda #<(mix)
+	sta sc_screentab
+	lda #>(mix)
+	jsr gettab2
+	ldy #6
+	jmp gd_xtxout1
+; ----------------------------------------- init text output
+gettab	lda #<(rate)
+	sta sc_screentab
+	lda #>(rate)
+gettab2	sta sc_screentab+1
+	lda #0
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #3
+	bne gt0
+	stx sc_ho
+	jsr gd_trim
+	jmp gd_initmove
+; ----------------------------------------- Screenlist for RAM-Read
+gaugelst	!by 0,22,3,34,3,$02,0,0,$80
+; ----------------------------------------- Screenlist First Requester
+fourlst	!by 0
+	!by 3,11,18,19,$81,0,0
+	!scr "Load GoDot 4Bit@"
+from4	!by 7,21,6,3,$c0,<(sev4from),>(sev4from)
+fromtx4	!scr "Disk@"
+clipgad	!by 10,18,11,3,$cf,<(evclip),>(evclip)
+cliptxt	!scr " to Full @"
+	!by 13,11,18,3,$ca,<(sevrepl),>(sevrepl)
+	!scr "Replace@"
+	!by 16,11,18,3,$ca,<(sevcomp),>(sevcomp)
+	!scr "Compose@"
+	!by 19,11,18,3,$c9,<(cn2),>(cn2)
+	!scr "Cancel Load@"
+	!by $c0,5,16,6
+	!scr "Select@"
+	!by $c0,7,12,7
+	!scr "Source:@"
+	!by $c0,10,12,4
+	!scr "Load@"
+	!by $80 
+; ----------------------------------------- Screenlist Secondary Requester
+complst	!by 0
+	!by 3,11,18,19,$81,0,0
+	!scr "Compose@"
+	!by 9,11,18,3,$ca,<(sevback),>(sevback)
+	!scr "Background@"
+	!by 12,11,18,3,$ca,<(sevfront),>(sevfront)
+	!scr "Foreground@"
+	!by 15,11,5,3,$c8,<(sevmerge),>(sevmerge)
+	!scr "Mix@"
+mix	!by 15,16,6,3,$c0,<(sevmtype),>(sevmtype),223
+mixtype	!scr "all@"
+rate	!by 15,22,7,3,$cf,<(sevmrate),>(sevmrate),32
+ratetx	!scr "50% @"
+	!by 19,11,18,3,$c9,<(cn3),>(cn3)
+	!scr "Cancel Load@"
+	!by $c0,6,15,7
+	!scr "Load as@"
+	!by $80
+; ----------------------------------------- Image Info
+	picname=$1fa8
+	iloader=picname+$16
+	imode=picname+$22
+	idrive=picname+$2e
+;
+getname	ldx #0
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+;
+getdatac	ldx #4
+	!by $2c
+getdatag	ldx #9
+	ldy #4
+sinfo0	lda dtextc,x
+	sta datatype,y
+	dex
+	dey
+	bpl sinfo0
+	rts
+;
+setinfo	jsr getdatag
+	jsr setname
+	jsr setloader
+	jsr setmode
+	jmp setdata
+;
+setname	lda #0
+	ldx #<(picname)
+	ldy #>(picname)
+	bne si3
+setloader	lda #17
+	ldx #<(iloader)
+	ldy #>(iloader)
+	bne si3
+setmode	lda #25
+	ldx #<(imode)
+	ldy #>(imode)
+	bne si3
+setdata	lda #33
+	ldx #<(idrive)
+	ldy #>(idrive)
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+;
+nbuf	!fill 16,32
+	!by 0
+	!scr "4BitGod@"
+modetx	!scr "320x200@"
+datatype	!scr "Color@"
+ttext	!scr "Text   "
+htext	!scr "320x200"
+mtext	!scr "160x200"
+dtextc	!scr "Color"
+dtextg	!scr "Gray "
+; ----------------------------------------- re-build Mainscreen 
+vw2	ldx list
+	ldy list+1
+	jsr gd_screen
+	sec
+	rts
+; ----------------------------------------- Select data source
+setsource	lda flag4		; get settings
+	pha
+	beq ob3		; is Null? (default: Disk)
+
+	cmp #3		; is three?
+	bne ob31
+ob32	sei		; yes, VDC
+	ldx #$12		; set start address to $8300 
+	lda #$83
+	jsr setvdc
+	jsr clrlo
+	cli
+	ldx #<(readvdc)
+	ldy #>(readvdc)
+	bne ob4
+
+ob31	lda ramtype	; RAMType: which RAM?
+	cmp #4		; when >3: REU/SuperRAM
+	bcs ob30
+	cmp #3		; when <3: VDC
+	bne ob32
+
+	lda #$80		; so =3: Pagefox
+	ldx #0		; select upper bank 
+	sta pfvek+1
+	stx pfvek
+	lda #8
+	sta pfbank
+	ldx #<(readpfox)
+	ldy #>(readpfox)
+	bne ob4
+
+ob30	cmp #7		; SuperRAM?
+	beq ob3		; not yet implemented: Disk
+
+	ldx #<(readreu)	; REU
+	ldy #>(readreu)
+	bne ob4
+
+ob3	ldx #<(readdisk)	; default is Floppy
+	ldy #>(readdisk)
+ob4	stx readvek
+	sty readvek+1
+	pla
+	rts
+; ----------------------------------------- Gauge for RAM
+gaugeout	inc used		; show "requester"
+	lda sc_screenvek
+	pha
+	lda sc_screenvek+1
+	pha
+	ldx #<(gaugelst)
+	ldy #>(gaugelst)
+	jsr gd_screen
+	pla
+	sta sc_screenvek+1
+	sta gr_redisp
+	pla
+	sta sc_screenvek
+	jmp st0
+; ----------------------------------------- device distributor
+readfile	jmp (readvek)
+; ----------------------------------------- Read VDC Temp
+readvdc	sei
+	ldx #$1f
+	stx vdc
+tv2	bit vdc
+	bpl tv2
+	lda vdcdata
+	cli
+	rts
+;
+clrlo	inx
+	lda #0
+setvdc	stx vdc
+tv5	bit vdc
+	bpl tv5
+	sta vdcdata
+	rts
+; ----------------------------------------- Read PFox Temp
+readpfox	sei
+	sty ymerk		; save .y
+	inc 1		; BASIC on
+	ldy #0
+	lda pfbank	; switch PFox bank (8) on 
+	sta bswitch
+	lda (pfvek),y	; get byte
+	sta gbyte
+	lda #$ff		; switch PFox off
+	sta bswitch
+	inc pfvek		; inc vector
+	bne pw0
+	inc pfvek+1
+pw0	lda pfvek+1	; first 16 KB passed?
+	cmp #$c0
+	bne pw1		; no, leave
+	lda pfbank	; second 16 KB passed?
+	cmp #10
+	beq pw1		; yes, leave
+	lda #10		; no, switch second bank (10) on
+	sta pfbank
+	lda #$80		; start over at $8000
+	sta pfvek+1
+pw1	dec 1		; BASIC off
+	cli
+	ldy ymerk		; re-get .y
+	lda gbyte		; get image data
+	rts
+; ----------------------------------------- Read REU Temp/Undo
+readreu	lda #$91
+	jsr gd_reu
+	inc rm_werte+2
+	bne rr0
+	inc rm_werte+3
+rr0	iny
+	lda gbyte
+	rts
+; ----------------------------------------- Read Floppy File/decompress
+readdisk	lda counter	; repeated byte?
+	ora counter+1
+	bne getit2	; yes, re-get value
+
+	inc counter	; no, counter to 1
+	jsr basin		; get 1 byte
+	cmp #packbyte	; compression flag? (=$ad)
+	bne getit1	; no
+
+	bit filetype	; file compressed?
+	bvc getit1	; no
+
+	jsr basin		; compressed: get counter
+	sta counter
+	beq rb2		; $00 equals 256 bytes
+	lda #0
+	beq rb3
+rb2	lda #1
+rb3	sta counter+1
+	jsr basin		; get byte to compress
+
+getit1	sta gbyte		; and store
+
+getit2	lda counter	; count repetition
+	bne rb4
+	dec counter+1
+rb4	dec counter
+	lda gbyte		; re-get byte
+	rts
+; ----------------------------------------- RAM: Select source
+sev4from	lda ls_drive+6	; Drive 12: which RAMType?
+	and #15
+	sta ramtype
+	tay
+	lda banks,y	; set max. bank number (accordingly)
+	sta bank
+	cpy #9		; no RAM?
+	beq ok		; yes, finished
+
+next	lda flag4		; inc source
+	cmp #3		; start over at 4
+	bne srt0
+	lda #$ff
+	sta flag4
+srt0	inc flag4		; when 0: 'Disk', REU standard values
+	beq srt1
+
+	lda flag4		; when 1: REU to 'Temp'
+	cmp #1
+	beq srt2
+
+	cmp #3		; when 3: 'VDC2' (Temp)
+	beq srt8
+
+	lda rm_ramundo	; when 2: Undo 4Bit?
+	and #1
+	beq next		; no, proceed
+
+srt7	ldx #$10		; else: enter Undo address
+	lda #0
+	jsr srt3
+	ldx #15		; enter text 'Undo'
+	bne text4
+; ----------------------------------------- 
+srt3	stx reuinit+3	; adjust REU:
+	sta reuinit+4
+	ldx #6		; new values
+	!by $2c
+srt4	ldx #13		; standard values
+	ldy #6
+srt5	lda reuinit,x
+	sta rm_werte,y
+	dex
+	dey
+	bpl srt5
+ok	 clc
+	rts
+; ----------------------------------------- 
+srt2	lda rm_tmpsaved	; Temp on REU or on Pagefox?
+	and #1
+next1	beq next		; no, proceed
+
+	ldx #$83		; else: set bank for REU
+	lda bank
+	jsr srt3		; adjust REU values
+	ldx #11		; enter text 'Temp' 
+	bne text4
+; ----------------------------------------- 
+srt1	jsr srt4		; REU to Standard
+	ldx #7		; enter text 'Disk'
+; ----------------------------------------- 
+text4	lda sc_texttab+1	; enter Text 
+	bne ok		; but only in first requester
+
+	ldy #3 
+srt6	lda fromwhich,x
+	sta fromtx4,y
+	dex
+	dey
+	bpl srt6
+	lda #<(from4)
+	sta sc_screentab
+	lda #>(from4)
+srt9	jsr gettab2
+	ldy #6		; text out
+	jmp gd_xtxout1
+; ----------------------------------------- 
+srt8	lda rm_tmpsaved	; Temp on VDC?
+	and #2
+	beq next1		; no, proceed
+
+	ldx #19		; enter text 'VDC2' 
+	bne text4
+;
+; ---------------------------------------- Adjust Clip settings
+evclip	lda wclip
+	cmp #3
+	bne ecl0
+	lda #$ff
+	sta wclip
+ecl0	inc wclip
+
+	ldx wclip
+	lda clipoffs,x
+	tay
+	ldx #8
+ecl1	lda wcliptx,y
+	sta cliptxt,x
+	dey
+	dex
+	bpl ecl1
+	lda #<clipgad
+	sta sc_screentab
+	lda #>clipgad
+	jmp srt9
+; ----------------------------------------- Read Clip values
+jerror2	jmp error
+getfclip	jsr onebyte	; row
+	bne jerror2	; break on error
+	sta clpzl
+	jsr onebyte	; column
+	bne jerror2
+	sta clpsp
+	jsr onebyte	; width
+	bne jerror2
+gf1	sta clpbr
+	jsr onebyte	; height
+	bne jerror2
+	cmp #25		; too high? (Big Clip)
+	bcc gf0
+	lda #25		; set delimiter value
+gf0	sta clpho
+	rts
+; ----------------------------------------- set Full (Screen)
+setfull	lda filetype	; true Clip?
+	ldx full+2
+	and #2
+	beq gm9		; no
+	ldx brmerk	; else: save width
+gm9	ldy #3
+gm0	lda full,y
+	sta mclip,y
+	sta clpzl,y
+	dey
+	bpl gm0
+	jsr setclip
+	lda full+3	; height 25
+	sta hoehe
+	txa
+	sta rrand		; right border 40 or width
+	jmp gbh2		; compute width (breite) and skip (bbreite)
+; ---------------------------------------- Start address of Clip
+setclip	lda #$40		; $4000
+	sta sc_texttab+1
+	ldy #0
+	sty sc_texttab 
+stcl	lda mclip		; plus row * 1280
+	beq scp1
+	sta clpzl
+scp4	clc
+	lda sc_texttab+1
+	adc #5
+	sta sc_texttab+1
+	dec clpzl
+	bne scp4
+
+scp1	lda mclip+1	; plus column * 32
+	beq scp5
+	sta clpsp
+scp6	clc
+	lda sc_texttab
+	adc #$20
+	sta sc_texttab
+	bcc scp7
+	inc sc_texttab+1
+scp7	dec clpsp
+	bne scp6		; makes start address 
+
+scp5	lda sc_texttab
+	ldy sc_texttab+1
+	sta dst
+	sty dst+1
+	rts 
+; ----------------------------------------- set top of Clip/File
+set2clip	ldy #3		; width/height from file
+gm8	lda clpzl,y
+	sta mclip,y
+	dey
+	bpl gm8
+	lda full+2	; right border to 40
+	sta rrand
+	ldy #1
+gm1	lda sc_lastclpzl,y	; row/column from clip
+	sta mclip,y
+	dey
+	bpl gm1
+gm4	lda clpho		; height fits?
+gm5	clc
+	adc sc_lastclpzl
+	cmp #25
+	bcc gm7
+	lda #25		; too high, delimit
+	sbc sc_lastclpzl
+gm7	ldx clpbr		; width from file
+	sta hoehe
+	jsr getbbr	; compute surplus (bbreite)
+gm6	jsr getbr		; compute true width (breite)
+	beq setclip	; (=jmp setclip)
+; ----------------------------------------- set Clip from GoDot 
+setin2clip
+	ldy #3
+gm2	lda sc_lastclpzl,y
+	sta mclip,y
+	dey
+	bpl gm2
+	clc		; right border = clipsp+clipbr
+	lda sc_lastclpzl+1
+	adc sc_lastclpzl+2
+	sta rrand
+	lda sc_lastclpzl+3	; height from Clip 
+	bne gm7
+; ----------------------------------------- set Clip from File 
+setorigin	ldy #3		; row and column from File
+gm3	lda clpzl,y
+	sta mclip,y
+	dey
+	bpl gm3
+	lda full+2	; right border = 40
+	sta rrand
+	lda sc_lastclpzl+1	; ignore GoDot clip
+	pha
+	lda clpsp		; overwrite instead by Fileclip 
+	sta sc_lastclpzl+1
+	lda clpho
+	jsr gm7		; width and height from file
+	pla		; re-get GoDot clip 
+	sta sc_lastclpzl+1
+	rts
+; ----------------------------------------- set full 4bit values
+setfullscr
+	ldy #3		; row and column from full
+gm41	lda full,y
+	sta mclip,y
+	dey
+	bpl gm41
+	lda full+2	; right border = 40
+	sta rrand
+	lda sc_lastclpzl+1	; ignore GoDot clip
+	pha
+	lda #0		; overwrite instead by left border 
+	sta sc_lastclpzl+1
+	lda clpho
+	jsr gm7		; width and height from file
+	pla		; re-get GoDot clip 
+	sta sc_lastclpzl+1
+	rts
+
+; ----------------------------------------- Get image width
+getbr	ldy #0		; .x is amount of tiles
+	sty breite
+	sty breite+1
+gbh0	clc		; width * 32
+	lda breite
+	adc #$20
+	sta breite
+	bcc gbh1
+	inc breite+1
+gbh1	dex
+	bne gbh0		; makes counter for width 
+	rts
+; ----------------------------------------- true width of Clip
+getbbr	stx brmerk	; save width
+	txa
+	clc
+	adc sc_lastclpzl+1	; width plus start too wide?
+	cmp rrand
+	bcc gbh2
+	lda rrand		; yes, delimit
+	sec
+	sbc sc_lastclpzl+1
+
+gbh2	tax		; .a (amount of tiles) times 32
+	jsr getbr
+	lda breite	; result
+	sta bbreite	; and store
+	lda breite+1
+	sta bbreite+1
+
+	ldx brmerk	; re-get width
+	rts
+
+modend	!eof

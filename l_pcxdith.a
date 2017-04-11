@@ -1,0 +1,1045 @@
+
+!src "..\godotlib.lib"
+*	= $c000
+
+; ---------------------------
+;
+;    ldr.PCX-VGAd
+;    Lader für PCX 256 colors 
+;    bis zu einer Größe von 320x200
+;    erzeugt Multicolor-Dithering
+;
+;    0.99: 14.06.94, first release
+;    1.00: 10.11.16, added Balancing and Level
+;                    improved dithering tables at gray0 and gray
+;                    removed destroying of screen on dithering
+;
+; ---------------------------
+
+; --------------------------- Equates
+
+	status		= $90
+	shift		= $028d
+
+	xbuf		= $30
+	ybuf		= $31
+	dst		= $32
+	offx		= $34
+	red		= $35
+	grn		= $36
+	blu		= $37
+	min		= $38
+	gsum		= min
+	minx		= $3a
+	counter		= $3c
+	gpx		= $3d
+	rbuf		= $3e
+	gbyte		= $3f
+	adcnt		= $40
+	nflg		= $41
+	zflg		= $42
+	zp0		= $43
+	zp1		= $45
+	zp2		= $47
+	zp3		= $49
+	zp4		= $4b
+	min0		= $4d
+	minx0		= $4f
+	dfak		= $50
+
+	name		= $b0
+	spalte		= $b1
+	offy		= $b2
+
+	dst0		= $f7
+	bbuf		= $f9
+	lcnt8		= $fa
+	lcnt		= $fb
+	bcnt		= $fc
+	planes		= $fd
+	bytes		= $fe
+
+	pal		= $ca00
+	pal1		= $cb00
+	palr		= $cc00
+	p0		= $cd00
+	dbuf		= $3f40
+	dbuf1		= dbuf+16
+
+; --------------------------- Header
+
+header	jmp start
+	!by $80
+	!by 4
+	!by 1
+	!wo modend
+	!wo 0
+	!pet "PCX 256 Cols dhi"
+	!pet "1.00"
+	!pet "10.11.16"
+	!pet "W.Kling/A.Dettke"
+addtext	!pet "max 320 Breite  "
+	!pet "8 Bit/1 Plane   "
+	!by 0
+;
+; --------------------------- Main
+
+start	ldx #47
+stt0	lda gr_rgb,x
+	sta cred,x
+	dex
+	bpl stt0
+
+stt1	ldx used
+	bmi requ
+	beq cancel
+	cpx #3
+	bcs cancel
+;
+	dec used
+	jsr getname
+	jsr gd_xopen
+	jsr gd_clrms
+	ldx #0
+	jsr tcopy
+	sty counter	; .y=0
+	iny
+	sty adcnt
+	sty cntwert
+
+	jsr gethd
+	jsr checkpcx
+	jsr getbody
+	lda which
+	beq cl01
+	jsr getdatac
+	beq cl02
+cl01	jsr getdatag
+
+cl02	jsr cancel
+err	jsr gd_xclose
+	lda #$03
+	sta $d015
+	jsr gd_xmess
+	bcc cn2
+
+; --------------------------- Exit Loader
+
+cancel	lda #$ff		; SE: Leave Loader
+	sta used
+	lda shift		; Shift (-Lock) gedrückt?
+	and #1
+	bne cn2		; ja, Sprung
+
+	ldy #16		; sonst: Balancing-Tabelle initialisieren
+	sty gr_ctr
+	sty gr_brt
+lll	dey 
+	tya 
+	sta gr_btab,y
+	bne lll
+
+cn2	sec 		; Leave Loader to Main Screen
+	rts 
+;
+; ---------------------------
+
+requ	inc used
+	ldx #<(pcxlst)
+	ldy #>(pcxlst)
+	jsr gd_xmloop
+	jmp stt1
+;
+; ---------------------------
+
+sevcol	inc used
+sevgray   inc used
+	ldx used
+	dex
+	stx which
+	ldx #1
+	jsr gd_xload
+	lda #3
+	sta used
+	sec
+	rts
+;
+; ----------------------------------------- 
+
+messout	ldx #<(message)
+	ldy #>(message)
+	jmp gd_xtxout2
+;
+tcopy	ldy #0
+tc0	lda txt,x
+	beq clrms
+	sta message,y
+	inx
+	iny
+	bne tc0
+;
+clrms	ldx #25
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0
+	ldx #7
+	sty offy
+	stx offx
+	rts
+;
+adinc	dec adcnt
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts
+
+filltab	!by 160,93,103,127,126,124,105,109
+
+txt	!scr " PCX  @"	; 0
+	!scr " Dith @"	; 7
+message	!scr " PCX  "
+mess	!fill 26,32
+	!by 0
+
+;
+; ---------------------------
+
+err1	!scr "ERROR: Width greater 320 pixels."	; 0
+err2	!scr "    ERROR: Not a PCX file.      "	; 32
+err4	!scr "    ERROR: Too many colors.     "	; 64
+err5	!scr "        Use ldr.PCX-EGA.        "	; 96
+
+; ---------------------------
+
+checkpcx	lda colplanes	; mehr als 5 Planes?
+	cmp #5
+	bcs faild		; ja, Fehler 4
+	adc bits		; 4 Bits/Pixel?
+	cmp #5
+	beq faile		; ja, EGA-Lader benutzen (müssen 8 sein)
+	sec 
+	lda #<(320)	; zu breit?
+	sbc xmax
+	lda #>(320)
+	sbc xmax+1
+	bcc failc		; ja, Fehler 4
+
+; ---------------------------
+
+setconv	ldx used		; welcher Modus?
+	beq il3
+	lda #<(assigncol)	; Color
+	ldy #>(assigncol)
+	bne il4
+il3	lda #<(makegray)	; Gray
+	ldy #>(makegray)
+il4	sta convmode
+	sty convmode+1
+	rts 
+;
+; ---------------------------
+
+convcol	jmp (convmode)
+convmode	!by 0,0
+;
+; ---------------------------
+
+faila	ldx #32
+	!by $2c
+failc	ldx #0
+	!by $2c
+faild	ldx #64
+	!by $2c
+faile	ldx #96
+	ldy #0
+fl0	lda err1,x
+	sta message,y
+	inx 
+	iny 
+	cpy #32
+	bne fl0
+	jsr err
+	jsr gd_clrms
+	jsr messout
+	clc 
+	jmp fail3
+;
+; ---------------------------
+
+fl1	jsr err
+	jmp fail3
+;
+gethd	ldx #0		; PCX-Headere einlesen
+	stx status
+	jsr basin
+	cmp #$0a		; ist PCX?
+	bne faila		; nein, Fehler 2
+
+	sta hdbuf		; Header puffern
+	inx 
+	stx colplanes
+hdloop	lda status
+	bne hd1
+	jsr basin
+	sta hdbuf,x
+	inx 
+	cpx #128
+	bne hdloop
+hd1	bmi fl1
+
+	lsr bytepline+1	; Anzahl Farben
+	ror bytepline
+	lda colplanes
+	beq faild
+	cmp #9		; zu viele: Fehler 4
+	bcs faild
+
+	tax 
+	lda cols,x
+	sta col
+	lda pltab,x
+	sta planes
+	ldy #0		; Pufferzeiger setzen
+	sty zp0
+	lda #>(p0)
+	sta zp0+1
+	sta zp1+1
+	sta zp2+1
+	sta zp3+1
+	sta zp4+1
+	clc 
+
+	lda bytepline
+hd0	sta bytes
+	sta zp1,y
+	adc bytepline
+	iny 
+	iny 
+	dex 
+	bne hd0
+	rts 
+;
+; ---------------------------
+
+getpal	ldx type		; Typ des Bildes?
+	dex 
+	bmi getp
+	beq getp
+	dex 
+	bne getp
+	ldx which
+	bne col1
+;
+gr1	ldx #15		; 16-Grau-Palette
+gr0	lda dnib,x
+	sta pal,x
+	dex 
+	bpl gr0
+	rts 
+;
+col1	ldx #15		; 5-Grau-Palette
+col0	lda gray,x
+	tay 
+	lda cpref,y
+	tay 
+	lda dnib,y
+	sta pal,x
+	dex 
+	bpl col0
+	rts 
+;
+; --------------------------- 256-Farben-Palette
+
+getp	ldx #0
+gpl4	jsr basin
+	lsr 
+	lsr 
+	lsr 
+	lsr 
+	tay
+	lda gr_btab,y
+	sta red
+;
+	jsr basin
+	lsr 
+	lsr 
+	lsr 
+	lsr 
+	tay
+	lda gr_btab,y
+	sta grn
+;
+	jsr basin
+	lsr 
+	lsr 
+	lsr 
+	lsr 
+	tay
+	lda gr_btab,y
+	sta blu
+;
+	stx gpx
+	jsr convcol	; gives back dithered colors in .a and .y
+	ldx gpx
+	sta pal,x
+	tya 
+	sta pal1,x
+	lda rbuf
+	sta palr,x
+	inx 
+	bne gpl4
+	rts 
+;
+; ---------------------------
+
+readline	ldy #0
+next	jsr readpcx
+	sta p0,y
+	jsr readpcx
+	iny 
+	cpy bytes
+	bcc next
+	rts 
+;
+; ---------------------------
+
+readpcx	lda comp
+	beq getit0
+	lda counter
+	bne getit2
+	inc counter
+	jsr basin
+	ldx status
+	bne fail4
+b1	tax 
+	and #$c0
+	cmp #$c0
+	bne getit1
+	txa 
+	and #$3f
+	sta counter
+getit0	jsr basin
+	ldx status
+	bne fail5
+b2	tax 
+getit1	txa 
+	sta gbyte
+getit2	dec counter
+	lda gbyte
+	rts 
+;
+; ---------------------------
+
+fail4	pha 
+	txa 
+	and #$4f
+	bne b3
+	pla 
+	jmp fail2
+b3	pla 
+	jmp b1
+;
+; ---------------------------
+
+fail5	pha 
+	txa 
+	and #$4f
+	bne b4
+	pla 
+	jmp fail2
+b4	pla 
+	jmp b2
+;
+; ---------------------------
+
+fail2	pla 
+	pla 
+fail3	pla 
+	pla 
+	inc used
+	rts 
+;
+; ---------------------------
+
+cols	!by 0,2,4,8,16
+;
+pltab	!by 0,1,3,7,15
+;
+; ---------------------------
+
+getbody	lda #<($4000)
+	ldx #>($4000)
+	sta dst0
+	sta dst
+	stx dst0+1
+	stx dst+1
+	lda #25
+	sta lcnt8
+lnloop8	lda #8
+	sta lcnt
+lnloop	jsr adinc
+	jsr readline
+lcs	ldy #0
+	lda #4
+	sta bcnt
+	ldx #0
+byloop	cpy bytepline
+	bcs s6
+	lda p0,y
+	sta (dst,x)
+s6	inc dst
+	bne s3
+	inc dst+1
+s3	dec bcnt
+	bne s4
+	lda #4
+	sta bcnt
+	lda dst
+	clc 
+	adc #28
+	sta dst
+	bcc s4
+	inc dst+1
+s4	iny 
+	cpy #160
+	bne byloop
+	lda dst0
+	clc 
+	adc #4
+	sta dst0
+	sta dst
+	bcc s5
+	inc dst0+1
+s5	lda dst0+1
+	sta dst+1
+	dec lcnt
+	beq rdy
+	jmp lnloop
+rdy	lda dst0
+	clc 
+	adc #<(1248)
+	sta dst0
+	sta dst
+	lda dst0+1
+	adc #>(1248)
+	sta dst0+1
+	sta dst+1
+	dec lcnt8
+	beq rdy1
+	jmp lnloop8
+rdy1	jsr basin		; $0c (Delimiter)
+	jsr getpal
+;
+	lda #160
+	sta cntwert
+	lda #1
+	sta adcnt
+	ldx #7
+	jsr tcopy
+	sty dst
+	ldx #$40
+	stx dst+1
+hloop	sty ybuf
+	jsr adinc
+	ldy ybuf
+	lda (dst),y
+	jsr dither
+	sta (dst),y
+	iny 
+	bne hloop
+	inc dst+1
+	lda dst+1
+	cmp #$bd
+	bne hloop
+	rts 
+;
+; ---------------------------
+
+col	!by 0
+used	!by $ff
+cntwert	!by 1
+which	!by 0
+level	!by 3
+lvlnum	!pet "012345"
+;
+; ---------------------------
+
+pcxlst	!by 0
+	!by 4,11,18,16,$81,0,0
+	!scr "Load MsDos PCX@"
+	!by 9,11,18,3,$ca,<(sevgray),>(sevgray)
+	!scr "Grey Scale@"
+	!by 12,11,11,3,$c8,<(sevcol),>(sevcol)
+	!scr "Color@"
+lvlgad	!by 12,22,7,3,$cf,<(sevlvl),>(sevlvl)
+	!scr "Lvl "
+lvltx	!by $33,0
+	!by 15,11,18,3,$ca,<(cn2),>(cn2)
+	!scr "Cancel Load@"
+	!by $c0,6,14,10
+	!scr "Convert to@"
+	!by $80
+;
+; ---------------------------
+
+sevlvl	lda spalte
+	cmp #25
+	bcs lvlinc
+lvldec	dec level
+	bpl lvl0
+	lda #4
+	sta level
+lvlinc	inc level
+lvl0	ldx level
+	cpx #6
+	bcc lvl1
+	ldx #0
+	stx level
+lvl1	lda lvlnum,x
+	sta lvltx
+	jsr gettab
+	ldy #6
+	jmp gd_xtxout1
+;
+; ---------------------------
+
+gettab	lda #<(lvlgad)
+	sta sc_screentab
+	lda #>(lvlgad)
+	sta sc_screentab+1
+	lda #0
+	tax 
+	tay 
+gt0	jsr gd_setpos
+	cpx #3
+	bne gt0
+	stx sc_ho
+	jsr gd_trim
+	jmp gd_initmove
+;
+; ---------------------------
+
+getname	ldx #0
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx 
+	cpx #16
+	bcc si0
+si1	rts 
+;
+getdatac	ldx #4
+	!by $2c
+getdatag	ldx #9
+	ldy #4
+sinfo0	lda dtextc,x
+	sta datatype,y
+	dex 
+	dey 
+	bpl sinfo0
+	jsr setname
+	jsr setloader
+	jsr setmode
+	jmp setdata
+;
+setname	lda #0
+	ldx #<(ls_picname)
+	ldy #>(ls_picname)
+	bne si3
+setloader	lda #17
+	ldx #<(ls_iloader)
+	ldy #>(ls_iloader)
+	bne si3
+setmode	lda #25
+	ldx #<(ls_imode)
+	ldy #>(ls_imode)
+	bne si3
+setdata	lda #33
+	ldx #<(ls_idrive)
+	ldy #>(ls_idrive)
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax 
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx 
+	iny 
+	bne si4
+si5	rts 
+;
+nbuf	!fill 16,32
+	!by 0
+	!scr "PCX    @"
+modetx	!scr "320x200@"
+datatype	!scr "Color@"
+ttext	!scr "Text   "
+htext	!scr "320x200"
+mtext	!scr "160x200"
+dtextc	!scr "Color"
+dtextg	!scr "Gray "
+;
+; --------------------------- PCX Header
+
+hdbuf	!by 0
+version	!by 0
+comp	!by 0
+bits	!by 0
+xmin	!wo 0
+ymin	!wo 0
+xmax	!wo 0
+ymax	!wo 0
+xsize	!wo 0
+ysize	!wo 0
+palette	!by 0,0,0
+	!by 0,0,0
+	!by 0,0,0
+	!by 0,0,0
+	!by 0,0,0
+	!by 0,0,0
+	!by 0,0,0
+	!by 0,0,0
+	!by 0,0,0
+	!by 0,0,0
+	!by 0,0,0
+	!by 0,0,0
+	!by 0,0,0
+	!by 0,0,0
+	!by 0,0,0
+	!by 0,0,0
+reserved	!by 0
+colplanes	!by 0
+bytepline	!wo 0
+type	!wo 0
+dummy	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+	!by 0,0
+;
+; ---------------------------
+
+assigncol	lda red
+	clc 
+	adc grn
+	adc blu
+	tax 
+	lda avr,x
+	ldy #0
+	cmp red
+	bne as0
+	iny 
+as0	cmp grn
+	bne as1
+	iny 
+as1	cmp blu
+	bne as2
+	iny 
+as2	cpy #2
+	bcc cl51
+	tax 
+	lda grayr,x
+	sta rbuf
+	lda gray,x
+	tay 
+	lda cpref,y
+	tay 
+	lda dnib,y
+	tay 
+	lda gray0,x
+	tax 
+	lda cpref,x
+	tax 
+	lda dnib,x
+	rts 
+;
+cl51	ldx level
+cl6	lda #0
+	sta dbuf1,x
+	sta nflg
+	sta zflg
+	lda cred,x
+	sec 
+	sbc red
+	bne rd0
+	inc zflg
+rd0	bcs rpos
+	eor #$ff
+	adc #1
+	inc nflg
+rpos	tay 
+	lda quad,y
+	sta dbuf,x
+	lda cgrn,x
+	sec 
+	sbc grn
+	bne gn0
+	inc zflg
+gn0	bcs gpos
+	eor #$ff
+	adc #1
+	inc nflg
+gpos	tay 
+	lda quad,y
+	clc 
+	adc dbuf,x
+	sta dbuf,x
+	bcc gsk
+	inc dbuf1,x
+gsk	lda cblu,x
+	sec 
+	sbc blu
+	bne bl0
+	inc zflg
+bl0	bcs bpos
+	eor #$ff
+	adc #1
+	inc nflg
+bpos	tay 
+	lda nflg
+	beq nopf
+	clc 
+	adc zflg
+	cmp #3
+	beq nopf
+	lda #2
+	!by $2c
+nopf	lda #0
+	clc 
+	adc quad,y
+	adc dbuf,x
+	sta dbuf,x
+	bcc bsk
+	inc dbuf1,x
+bsk	inx 
+	cpx #16
+	bne cl6
+;
+	stx min+1
+	ldx level
+ml1	lda dbuf1,x
+	tay 
+	cmp min+1
+	beq ms1
+	bcs ms2
+	bcc ms3
+ms1	lda dbuf,x
+	cmp min
+	beq ms4
+	bcs ms2
+ms3	lda dbuf,x
+ms4	sty min+1
+	sta min
+	stx minx
+ms2	inx 
+	cpx #16
+	bne ml1
+;
+	lda min+1
+	sta min0+1
+	lda min
+	sta min0
+	ldy minx
+	sty minx0
+	lda #$ff
+	sta dbuf1,y
+	stx min+1
+	ldx level
+ml11	lda dbuf1,x
+	tay 
+	cmp min+1
+	beq ms11
+	bcs ms21
+	bcc ms31
+ms11	lda dbuf,x
+	cmp min
+	beq ms41
+	bcs ms21
+ms31	lda dbuf,x
+ms41	sty min+1
+	sta min
+	stx minx
+ms21	inx 
+	cpx #16
+	bne ml11
+;
+	lda min0
+	ora min0+1
+	beq dvok
+	lda min0
+	clc 
+	adc min
+	sta dfak
+	lda min0+1
+	adc min+1
+	sta dfak+1
+	ldx #4
+dl16	asl min
+	rol min+1
+	dex 
+	bne dl16
+	ldx #0
+dvl	lda min
+	sec 
+	sbc dfak
+	sta min
+	lda min+1
+	sbc dfak+1
+	bmi dvok
+	sta min+1
+	inx 
+	bne dvl
+dvok	stx rbuf
+;
+	lda minx0
+	tax 
+	lda cpref,x
+	tax 
+	lda dnib,x
+	tay 
+	lda minx
+	tax 
+	lda cpref,x
+	tax 
+	lda dnib,x
+	rts 
+;
+; ---------------------------
+
+avr	!by 0,0,1,1,1,2,2,2
+	!by 3,3,3,4,4,4,5,5,5
+	!by 6,6,6,7,7,7,8,8,8
+	!by 9,9,9,10,10,10
+	!by 11,11,11,12,12,12
+	!by 13,13,13,14,14,14
+	!by 15,15
+;
+; ---------------------------
+
+quad	!by 0,1,4,9,16,25,36,49,64,81,100,121,144,169,196,225
+;
+; ---------------------------
+
+cred	!by 0,3,7,11,15,0,6,7
+	!by 7,15,7,15,7,15,0,7
+cgrn	!by 0,3,7,11,15,0,3,0
+	!by 0,7,7,7,15,15,7,15
+cblu	!by 0,3,7,11,15,7,0,0
+	!by 7,0,15,7,15,0,0,7
+;
+cpref	!by 11,7,3,0,15,2,9,6
+	!by 5,12,4,8,1,10,14,13
+;
+; ---------------------------
+
+gray0	!by 3,3,3,2,2,2,2,1,1,1,1,0,0,0,0,4,4
+gray	!by 2,2,2,2,1,1,1,1,0,0,0,0,4,4,4,4,4
+
+grayr	!by 0,4,7,11,0,4,7,11,0,4,7,11,0,5,10,16
+;
+; ---------------------------
+
+dnib	!by $00,$11,$22,$33
+	!by $44,$55,$66,$77
+	!by $88,$99,$aa,$bb
+	!by $cc,$dd,$ee,$ff
+;
+	!by $ff
+; ---------------------------
+
+makegray	ldy red
+	lda rtab,y
+	clc 
+	ldy grn
+	adc gtab,y
+	ldy blu
+	adc btab,y	; 0-240
+	tay 
+	and #$0f
+	sta rbuf
+	tya 
+	lsr 
+	lsr 
+	lsr 
+	lsr 
+	tax 		; bgcol
+	lda dnib,x
+	inx 
+	ldy dnib,x
+	rts 
+;
+; ---------------------------
+
+dither	sta xbuf
+	tya 
+	and #$0f
+	asl 
+	tax 
+	lda mscreen+1,x
+	sta mbuf
+	lda mscreen,x
+	ldx xbuf
+	cmp palr,x
+	beq fg1
+	bcc fg1
+	lda pal,x
+	bcs dts1
+fg1	lda pal1,x
+dts1	and #$f0
+	sta bbuf
+	lda mbuf
+	cmp palr,x
+	beq fg2
+	bcc fg2
+	lda pal,x
+	bcs dts2
+fg2	lda pal1,x
+dts2	and #$0f
+	ora bbuf
+	rts 
+;
+; ---------------------------
+
+mbuf	!by 0
+;
+; ---------------------------
+
+mscreen	!by 16,8,14,6,16,8,14,6
+	!by 4,12,2,10,4,12,2,10
+	!by 13,5,15,7,13,5,15,7
+	!by 1,9,3,11,1,9,3,11
+;
+; ---------------------------
+
+rtab	!by 0,5,10,15
+	!by 19,24,29,34
+	!by 38,43,48,53
+	!by 58,62,67,72
+;
+gtab	!by 0,9,19,28
+	!by 38,47,57,66
+	!by 76,85,94,104
+	!by 113,123,132,142
+;
+btab	!by 0,2,3,5
+	!by 7,9,10,12
+	!by 14,16,18,19
+	!by 21,23,25,26
+;
+modend	!eof 
