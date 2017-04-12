@@ -86,7 +86,7 @@
 	!pet "1.00"
 	!pet "23.01.17"
 	!pet "A.Dettke        "
-;
+
 ; ----------------------------------------- Main
 
 start	lda #0
@@ -115,7 +115,7 @@ stt1	lda sc_screenvek	; save vector to main screenlist (to rebuild it)
 	ldx #3
 	stx sprreg
 stt2	rts 
-;
+
 ; ----------------------------------------- 
 
 build	ldx #<(tlist)	; create requester
@@ -157,7 +157,7 @@ swp0	lda sc_undochar,x
 
 dummy	clc 		; stay in module
 	rts 
-;
+
 ; ----------------------------------------- 
 
 canc	jsr kringel
