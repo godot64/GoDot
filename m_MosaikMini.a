@@ -1,5 +1,5 @@
 ;
-; GoDot Modifier MosaikMini
+; GoDot Modifier MosaikMini (renamed to "Minimum")
 ; first released about 24.09.1993
 ; reworked on 03.09.2016
 ; -> Konvolution: dunkelster Nachbar
@@ -45,15 +45,15 @@ start
 	jsr umlagern	; puffer umlagern
 
 - 	jsr umlagern	; dadurch die erste verdoppeln (definierter rand)
-	inc rline		; nächste rasterzeile puffern
+	inc rline		; nÃ¤chste rasterzeile puffern
 	jsr puffern
-	jsr konvol	; konvolution durchführen
+	jsr konvol	; konvolution durchfÃ¼hren
 
 	dec rline		; vorige rasterzeile anpeilen
 	jsr w_ergeb	; und ergebnis der konvolution ins 4bit schreiben
 	jsr s_activ	; sprite activity
 
-	inc rline		; nächste rasterzeile anpeilen
+	inc rline		; nÃ¤chste rasterzeile anpeilen
 	lda rline
 	cmp #199		; bis letzte erreicht
 	bne -
@@ -68,13 +68,13 @@ start
 ; --- konvolution
 
 konvol 
-	ldy #0		; minimum unter dem konvolutionskern suchen (linke hÃ¤lfte)
+	ldy #0		; minimum unter dem konvolutionskern suchen (linke hÃƒÂ¤lfte)
 loop 	lda buf_m,y	; matrixzentrum (in der mittleren rasterzeile) testen
 	beq ++		; wenn bereits minimum, in den ergebnispuffer, keine bearbeitung erforderlich
 	sta minim		; nein, merken
 	lda buf_o-1,y	; erstes byte der oberen rasterzeile holen
 	cmp minim		; vergleichen
-	bcs +		; größer/gleich: nicht beachten
+	bcs +		; grÃ¶ÃŸer/gleich: nicht beachten
 	sta minim		; kleiner: als neues vergleichsbyte merken
 + 	lda buf_o,y	; zweites byte der obersten zeile: dito
 	cmp minim
@@ -88,7 +88,7 @@ loop 	lda buf_m,y	; matrixzentrum (in der mittleren rasterzeile) testen
 	cmp minim
 	bcs +
 	sta minim
-+ 	lda buf_m+1,y	; matrixzentrum überspringen und gleich drittes byte 
++ 	lda buf_m+1,y	; matrixzentrum Ã¼berspringen und gleich drittes byte 
 	cmp minim
 	bcs + 
 	sta minim
@@ -104,10 +104,10 @@ loop 	lda buf_m,y	; matrixzentrum (in der mittleren rasterzeile) testen
 	cmp minim
 	bcs +
 	sta minim
-+ 	lda minim		; ergebnis holen, dieses byte enthält das minimum 
++ 	lda minim		; ergebnis holen, dieses byte enthÃ¤lt das minimum 
 
 ++ 	sta buf_r,y	; und in den ergebnispuffer schreiben
-	lda buf_m+160,y	; das ganze noch einmal für die rechte hälfte (160 bytes)
+	lda buf_m+160,y	; das ganze noch einmal fÃ¼r die rechte hÃ¤lfte (160 bytes)
 	beq ++		; bei minimum keine bearbeitung erforderlich
 	sta minim		; sonst weiter wie oben
 	lda buf_o+159,y
@@ -147,17 +147,17 @@ loop 	lda buf_m,y	; matrixzentrum (in der mittleren rasterzeile) testen
 ++ 	sta buf_r+160,y	; ...und in den ergebnispuffer schreiben
 	iny 		; alle bytes durch?
 	cpy #160
-	beq +		; ja, ergebnispuffer gefüllt, fertig
+	beq +		; ja, ergebnispuffer gefÃ¼llt, fertig
 	jmp loop		; nein, loop
 
 ; --- sprite activity
 
 s_activ 
-	dec acnt		; activity-zähler abgelaufen?
+	dec acnt		; activity-zÃ¤hler abgelaufen?
 	bne +
 	inc $d005		; ja, sprites bewegen
 	inc $d007
-	lda #5		; zähler neu setzen 
+	lda #5		; zÃ¤hler neu setzen 
 	sta acnt
 + 	rts
 
@@ -178,7 +178,7 @@ umlagern
 	bne -
 	rts
 
-; --- puffer buffer_u (obere rasterzeile) füllen
+; --- puffer buffer_u (obere rasterzeile) fÃ¼llen
  
 puffern 
 	lda rline
@@ -312,14 +312,14 @@ abschl
 
 init_sa 
 	ldy #60		; 60 (plus 3) Bytes
-	lda #$00		; Sprite-Block 255 löschen
+	lda #$00		; Sprite-Block 255 lÃ¶schen
 - 	sta $3fc3,y
 	dey 
 	bpl -
-	sty $3fc0		; dünner Strich oben
+	sty $3fc0		; dÃ¼nner Strich oben
 	sty $3fc1
 	sty $3fc2
-	lda #$0f		; Farbe weiß
+	lda #$0f		; Farbe weiÃŸ
 	sta $d029
 	sta $d02a
 	lda $d01d		; doppelt breit
@@ -340,7 +340,7 @@ init_sa
 	lda $d015
 	ora #$0c
 	sta $d015
-	lda #5		; Zähler initialisieren
+	lda #5		; ZÃ¤hler initialisieren
 	sta acnt
 	rts 
 
