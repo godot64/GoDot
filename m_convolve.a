@@ -1,0 +1,1210 @@
+
+!src "..\godotlib.lib"
+*= $c000
+
+; ------------------------------------------------------------ 
+;
+; mod.Convolve
+; Modifier für Konvolutionen in einer 3x3-Matrix
+;
+;    1.00, 02.09.93, first release
+;    1.01, 06.09.16, Threshold set to 0 by default
+;    1.02, 09.02.17, wrong matrix on re-run
+;
+; ------------------------------------------------------------ 
+
+	wordlo		= $07
+	int		= $14
+
+	dst0		= $30	; /$31
+	adcnt		= $32
+	ascale		= $33
+	nflg		= $34
+	src		= $35	; /$36
+	dst		= $37	; /$38
+	linenr		= $39
+	blcnt		= $3a
+	sum		= $3b	; /$3c
+	fak		= $3d
+	mcnt		= $3e
+	bbuf		= $3f
+
+	status		= $90
+
+	sprptr		= $07f8
+	ibuff		= $3f40
+	spr255		= $3fc0
+	x2		= $d004
+	y2		= x2+1
+	msbx		= $d010
+	spren		= $d015
+	sprxe		= $d01d
+	sprcol2		= $d029
+;
+	buf3		= $bd00
+	buf0		= $ca30
+	buf1		= buf0+322
+	buf2		= buf1+322
+
+; ------------------------------------------------------------ 
+
+header	jmp start
+	!by $20
+	!by 0
+	!by 1
+	!wo modend
+	!wo 0
+	!pet "Convolve 4Bit   "
+	!pet "1.02"
+	!pet "09.02.17"
+	!pet "W.Kling/A.Dettke"
+addtext	!pet "3x3 Matrix      "
+	!by 0
+;
+; ------------------------------------------------------------ Main
+
+start	ldx sc_screenvek	; letzte Screenlist retten
+	ldy sc_screenvek+1
+	stx list
+	sty list+1
+	lda sc_iflag	; INPUT-Flag retten
+	pha 
+	lda gd_modswitch	; Modul-Management
+	pha 
+	jsr newchar	; Gitterzeichen definieren
+
+	ldx #<(cvlst)	; Requester
+	ldy #>(cvlst)
+	jsr gd_screen
+	jsr showmat	; aktuelle Matrix eintragen
+	jsr gd_eloop	; warten...
+
+	ldx list		; letzte Screenlist rekonstruieren
+	ldy list+1
+	stx sc_screenvek
+	sty sc_screenvek+1
+	pla 
+	sta gd_modswitch	; Modul-Management
+	pla 
+	sta sc_iflag	; INPUT-Flag zurück
+	rts 		; fertig
+;
+; ------------------------------------------------------------ Input vorbereiten
+
+setinp	ldx #11		; 12 zulässige Zeichen (Ziffern, Minus, Space)
+ar0	stx sc_iflag
+ar1	lda ziff,x
+	sta ibuff,x	; puffern
+	dex 
+	bpl ar1
+	lda #<(ibuff)	; Ort propagieren
+	sta ls_vekta8
+	lda #>(ibuff)
+	sta ls_vekta8+1
+	rts 
+;
+; ------------------------------------------------------------ Gitterzeichen erzeugen
+
+newchar	ldx #7
+	lda #2
+nc0	sta sc_undochar,x
+	dex 
+	bpl nc0
+	stx sc_undochar+5
+	rts 
+;
+; ------------------------------------------------------------ Event: MAT-Input
+
+sevin0	ldx #0		; Zellen 0 bis 8 der Matrix
+	!by $2c
+sevin1	ldx #1
+	!by $2c
+sevin2	ldx #2
+	!by $2c
+sevin3	ldx #3
+	!by $2c
+sevin4	ldx #4
+	!by $2c
+sevin5	ldx #5
+	!by $2c
+sevin6	ldx #6
+	!by $2c
+sevin7	ldx #7
+	!by $2c
+sevin8	ldx #8
+
+	stx inmerk
+	jsr setinp	; zulässige Zeichen definieren
+	lda #4		; max. 4 Zeichen
+	sta ls_flen
+	jsr gd_xinput	; INPUT
+	jsr getinp	; Ergebnis wandeln
+
+	ldx inmerk	; Matrix-Zelle
+	lda negativ	; negativ?
+	beq gw3
+	sec 		; ja, dann Null minus Wert
+	lda #0
+	sbc int
+	!by $2c
+gw3	lda int
+
+	sta matrix,x	; Wert eintragen
+
+	lda #144		; danach Mauszeiger ins Zentrum der Matrix...
+	ldx #118
+	sta $d000
+	sta $d002
+	stx $d001
+	inx 
+	inx 
+	stx $d003
+	lda #0
+	sta $d010
+	jmp showmat	; ...und Matrix neu ausgeben, Input beendet
+;
+; ------------------------------------------------------------ Konvertieren: Ziffer nach Wert
+
+getinp	lda #>(ls_nambuf)	; Zeiger auf Zeichenpuffer
+	sta ls_vekta8+1
+	lda #<(ls_nambuf)
+	sta ls_vekta8
+	ldy #4		; $00 ans Ende
+	sta ls_nambuf,y
+	ldy #$ff
+	sta negativ	; .a=0 (Init)
+	sta int
+	sta int+1
+
+gw1	iny 		; Start mit .y=0
+	lda (ls_vekta8),y	; Puffer auslesen
+	cmp #32		; skip Leerzeichen
+	beq gw1
+	cmp #$2d		; Minus?
+	bne gw2
+	sta negativ	; ja, Flag setzen
+
+getword	iny 		; Ziffern einlesen (ROM-Algorithmus)
+	lda (ls_vekta8),y
+	cmp #32		; Leerzeichen ignorieren
+	beq getword
+gw2	cmp #$3a		; Ziffern erkennen
+	bcs gw0
+	sec 
+	sbc #$30
+	sec 
+	sbc #$d0
+	bcs gw0		; Ende, wenn keine Ziffer
+
+	sbc #$2f		; "0" subtrahieren (=Ziffer nach Wert)
+	sta wordlo
+	lda int+1
+	sta ls_temp
+; v1.02	cmp #$19		; Maximalwert ausschließen (Wert > 63999)
+; *****	bcs gw0		; *** v1.02, stillgelegt: kommt nicht vor
+	lda int		; Ziffernwert mal 10
+	asl 
+	rol ls_temp
+	asl 
+	rol ls_temp
+	adc int
+	sta int
+	lda ls_temp
+	adc int+1
+	sta int+1
+	asl int
+	rol int+1
+	lda int		; bisherige Wertigkeit addieren
+	adc wordlo
+	sta int
+	bcc getword
+	inc int+1
+	bne getword	; nächste Ziffer
+
+gw0	rts 
+
+; ------------------------------------------------------------ Aufrufliste retten
+
+parent	ldx sc_screenvek
+	ldy sc_screenvek+1
+	stx lastlist
+	sty lastlist+1
+	rts 
+;
+; ------------------------------------------------------------ Event: MAT-Load
+
+sevload	jsr parent	; Screenlist retten
+	jsr chgdrv	; auf Bootdrive zugreifen
+	lda sc_iflag	; INPUT-Flag retten
+	pha 
+	lda #0
+	sta sc_iflag
+	ldx #<(filebuf)	; Zielpuffer für die Matrix
+	ldy #>(filebuf)
+	stx ls_adrmisc
+	sty ls_adrmisc+1
+	lda #0
+	sta ls_flen
+	lda gd_modswitch	; Modulmanagement
+	pha 
+
+	jsr lddir		; Filerequester ausgeben
+	jsr gd_eloop	; warten...
+	lda ls_flen	; Cancel?
+	beq lp0
+	jsr readfile	; nein, Matrix einlesen
+
+lp0	pla 
+	sta gd_modswitch	; Modulmanagement
+	pla 
+	sta sc_iflag	; INPUT-Flag zurück
+	jsr chgdrv	; SYS-Drive zurück	
+	ldx list		; Mainscreen aufbauen
+	ldy list+1
+	jsr gd_screen
+	lda ls_flen	; Cancel?
+	beq lp1
+	ldx #31		; nein, Matrix umkopieren...
+lp2	lda filebuf,x
+	sta file,x
+	dex 
+	cpx #4
+	bcs lp2
+	inx 
+lp3	lda file,x	; ...Namen in Screenlist eintragen...
+	sta nametx,x
+	inx 
+	cpx #16
+	bcc lp3
+lp4	dex 
+	lda nametx,x	; ...Ende des Namens finden...
+	cmp #32
+	beq lp4
+	lda #0
+	sta nametx+1,x	; ...und dort die Screenlist korrekt abschließen ($00, $80)
+	lda #$80
+	sta nametx+2,x
+
+lp1	ldx lastlist	; Jetzt Convolve-Requester aufbauen...
+	ldy lastlist+1
+	jsr gd_screen
+
+showall	lda mix		; ...und die aktuellen Matrixinhalte anzeigen:
+	jsr showmx	; Mix
+	lda shift
+	jsr showsh	; Shift
+	lda thold
+	jsr showth	; Threshold
+	jmp showmat	; Matrix-Werte
+;
+; ------------------------------------------------------------ File-Requester für LOAD
+
+lddir	lda #<(praefix)
+	pha 
+	lda #>(praefix)
+	pha 
+	lda #8
+	jmp gd_xloadm	; *** v1.02
+;
+; ------------------------------------------------------------ File-Requester für SAVE
+
+svdir	lda #<(praefix)
+	pha 
+	lda #>(praefix)
+	pha 
+	lda #8
+	ldx #0
+	jmp gd_xloadsave	; *** v1.02
+;
+; ------------------------------------------------------------ First Drive wechseln
+
+chgdrv	ldx ls_bootdrive
+	lda ls_sysdrive
+	sta ls_bootdrive
+	stx ls_sysdrive
+	rts 
+;
+; ------------------------------------------------------------ Matrix einlesen
+
+readfile	jsr gd_sproff	; Mauszeiger aus
+	jsr gd_xopen	; File open
+	jsr onebyte
+	bne lderr
+	cmp #$47		; erstes Zeichen "g"? (Von "GOD")
+	bne lderr
+	ldx #3		; ja, Rest der Kennung überlesen
+ld6	jsr basin
+	dex 
+	bne ld6
+	cmp #$38		; "8": Richtiger Datentyp? (8: Konvolutionsmatrix)
+	bne lderr
+	ldy #4
+ld7	lda status	; Transferstatus ok?
+	bne lderr
+	jsr basin
+	sta (sc_vekt20),y	; dann Daten einlesen
+	iny 
+	cpy #32
+	bcc ld7
+lderr	jsr gd_xclose	; Datei schließen
+spron	jsr gd_spron	; Mauszeiger wieder an
+	sec 		; fertig
+	rts 
+;
+; ------------------------------------------------------------ Matrix speichern
+
+writefile	sta wflen		; Länge des Namens in .a
+	jsr gd_sproff	; Mauszeiger aus
+	jsr wopen		; file open
+	bne wp0
+	ldx #12
+	jsr ckout
+	ldy #0
+wp1	lda (ls_adrmisc),y	; Daten ausgeben
+	jsr bsout
+	iny 
+	cpy #32
+	bcc wp1
+wp0	jsr clrch
+	lda #12
+	jsr close		; Datei schließen
+	jmp err9		; Floppymeldung
+;
+; ------------------------------------------------------------ Open Write File
+
+wopen	jsr inull		; Init Disk
+	bne sevcan
+	ldy wflen		; ",p,w" an den Namen hängen
+	ldx #3
+wo1	lda pw,x
+	sta ls_nambuf,y
+	iny 
+	dex 
+	bpl wo1
+	sty wflen		; neue Namenslänge (+4)
+	lda #12
+	tay 
+	ldx ls_drive
+	jsr filpar	; OPEN File
+	lda wflen
+	ldx #<(ls_nambuf)
+	ldy #>(ls_nambuf)
+	jsr filnam
+	jsr copen
+	jmp err9		; Floppymeldung
+;
+; ------------------------------------------------------------ Disk initialisieren
+
+inull	ldx #<(drinit)
+	ldy #>(drinit)
+	lda #2
+	jsr gd_sendcom
+err9	jsr gd_xmess
+	lda ls_err2
+	and #15
+sevcan	sec 
+	rts 
+;
+; ------------------------------------------------------------ Read 1 Byte
+
+onebyte	jsr basin
+	ldy #0
+	ldx status
+	rts 
+;
+; ------------------------------------------------------------ Event: MAT-Save
+
+sevsave	jsr parent	; Screenlist retten
+	jsr chgdrv	; Bootdrive anwählen
+	lda sc_iflag	; INPUT-Flag retten
+	pha 
+	lda #0
+	sta sc_iflag
+	ldx #<(file)	; Matrix
+	ldy #>(file)
+	stx ls_adrmisc
+	sty ls_adrmisc+1
+	lda #0
+	sta ls_flen
+	lda gd_modswitch	; Modulmanagement
+	pha 
+
+	jsr svdir		; Filerequester aufbauen
+	sta ls_loadsave
+	jsr gd_eloop	; warten
+
+	ldy #31		; Matrix zum Speichern umkopieren
+sp2	lda file,y
+	sta filebuf,y
+	dey 
+	bpl sp2
+sp3	iny 
+	lda ls_lastname,y	; Namen in Screenlist eintragen
+sp4	sta name,y
+	sta filebuf+4,y
+	cpy ls_flen2
+	bcc sp3
+	lda #32
+	iny 
+	cpy #12		; evtl. mit Leerzeichen auffüllen
+	bcc sp4
+	lda ls_flen
+	beq sp0
+	jsr writefile	; und speichern
+sp0	jsr spron		; Mauszeiger wieder an
+	jmp lp0		; Matrix anzeigen
+;
+; ------------------------------------------------------------ Event: MAT-Reset
+
+sevzero	ldx #8		; alle Matrixwerte auf 0
+	lda #0
+sz0	sta matrix,x
+	dex 
+	bpl sz0
+	sta shift		; ebenso Shift...
+	sta mix		; ...Mix...
+	ldx #0		; *** 6.9.16, set to 0
+	stx thold		; ...und Threshold
+	jmp showall	; anzeigen
+;
+; ------------------------------------------------------------ Event: MAT-Threshold
+
+sevthold	ldx thold		; aktueller Wert plus 1
+	inx 
+	txa 
+	and #15
+	sta thold
+showth	jsr gd_xcnvdez	; in Ziffern wandeln 
+	sta tholdtx+1
+	txa 
+	and #15
+	bne th0
+	ldx #32
+th0	stx tholdtx	; eintragen 
+th1	ldy #20
+th2	sty merky	
+	jsr zeig		; und anzeigen
+	clc 
+	rts 
+;
+; ------------------------------------------------------------ Event: MAT-Rotate
+
+sevrot	ldy #8		; ganze Matrix um eine Stelle nach rechts rücken
+rl	lda rot,y
+	tax 
+	lda matrix,x
+	sta mat0,y
+	dey 
+	bpl rl
+	ldy #8
+rl2	lda mat0,y
+	sta matrix,y
+	dey 
+	bpl rl2
+	jmp showmat	; und anzeigen
+;
+; ------------------------------------------------------------ Event: MAT-Shift
+
+sevshift	ldx shift		; aktueller Wert plus 1
+	inx 
+	txa 
+	and #15
+	sta shift
+showsh	jsr gd_xcnvdez	; in Ziffern wandeln 
+	sta shifttx+1
+	txa 
+	and #15
+	bne sh0
+	ldx #32
+sh0	stx shifttx	; eintragen 
+sh1	ldy #22
+	bne th2		; und anzeigen
+;
+; ------------------------------------------------------------ Event: MAT-Mix
+
+sevmix	ldx mix		; aktuellen Wert erhöhen (25/50/75/100)
+	inx 
+	txa 
+	and #3
+	sta mix
+showmx	asl 
+	clc 
+	adc mix
+	tax 
+	ldy #2
+mrt1	lda mixfax,x	; Text eintragen
+	sta mixtx,y
+	inx 
+	dey 
+	bpl mrt1
+	ldy #24
+	jmp th2		; und anzeigen
+;
+; ------------------------------------------------------------ Anzeige der Matrix-Werte
+
+show	ldx #0
+	stx merky
+	stx negativ
+gt1	stx merkx
+	lda matrix,x
+	bpl gt8
+	sta negativ
+	sec 
+	lda #0
+	sbc negativ
+gt8	tax 
+	ldy #3
+	lda #32
+gt7	sta zahl,y
+	sta sy_numbers,y
+	dey 
+	bpl gt7
+	jsr cnvwa
+	jsr zifferout
+	ldx merkx
+	inx 
+	cpx #9
+	bcc gt1
+	rts 
+;
+; ------------------------------------------------------------ ROM: Werte in Ziffern konvertieren
+
+cnvwa	lda #0
+	sta $62		; FAC löschen
+	stx $63
+	inc 1		; PPort auf BASIC
+	ldx #$90
+	sec 
+	jsr $bc49		; INT-Float
+	jsr $bddf		; Float-Char (from $0100)
+	dec 1		; PPort zurück auf GoDot
+	rts 
+;
+; ------------------------------------------------------------ Anzeige der Matrix
+
+showmat	jsr show		; Matrix zeigen
+	jsr showscl	; Scale berechnen und zeigen
+	clc 
+	rts 
+;
+; ------------------------------------------------------------ Skalare Matrix-Summe berechnen und zeigen
+
+showscl	ldy #3
+	lda #32
+scl7	sta zahl,y
+	sta sy_numbers,y
+	sta scaletx,y
+	dey 
+	bpl scl7
+	lda #0
+	sta scale
+	sta scale+1
+	sta ascale	; *** v1.02: Wichtig für den Convolve-Prozess (Init!)
+	sta negativ
+	ldx #8
+sc0	lda matrix,x
+	bpl mxpos
+	eor #$ff
+	clc 
+	adc #1
+	sta bbuf
+	lda scale
+	sec 
+	sbc bbuf
+	sta scale
+	bcs mxs2
+	dec scale+1
+	bcc mxs2
+mxpos	clc 
+	adc scale
+	sta scale
+	bcc mxs2
+	inc scale+1
+mxs2	dex 
+	bpl sc0
+	sta ascale
+	bit scale+1
+	bpl sc2
+	stx negativ
+	eor #$ff
+	clc 
+	adc #1
+	sta ascale
+sc2	tax 
+	jsr cnvwa
+	ldy #18
+	sty merky
+;
+; ------------------------------------------------------------ formatierte Ausgabe von Ziffern
+
+zifferout	ldx #5
+gt2	dex 
+	lda sy_numbers,x
+	bne gt2
+	ldy #4
+gt3	dey 
+	dex 
+	bmi gt5
+	lda sy_numbers,x
+	sta zahl,y
+	bne gt3
+gt5	lda negativ
+	beq gt9
+	lda #$2d
+	sta zahl,y
+gt9	ldy merky
+	lda txttab,y
+	sta sc_screentab
+	iny 
+	lda txttab,y
+	sta sc_screentab+1
+	ldy #7
+	ldx #0
+	stx negativ
+gt6	lda zahl,x
+	sta (sc_screentab),y
+	iny 
+	inx 
+	cpx #4
+	bne gt6
+zeig	jsr setzeig
+	ldy merky
+	ldx merkx
+	jmp settext
+;
+; ------------------------------------------------------------ 
+
+setzeig	lda #<(txttab)
+	sta ls_vekta8
+	lda #>(txttab)
+	sta ls_vekta8+1
+	rts 
+;
+; ------------------------------------------------------------ 
+
+settext	lda (ls_vekta8),y
+	sta sc_screentab
+	iny 
+	lda (ls_vekta8),y
+	sta sc_screentab+1
+	iny 
+	sty merky
+	stx merkx
+	lda #0
+	tax 
+	tay 
+gt0	jsr gd_setpos
+	cpx #3
+	bne gt0
+	jsr gd_trim
+	jsr gd_initmove
+	ldy #6
+	jmp gd_xtxout1
+;
+; ------------------------------------------------------------ 
+; ------------------------------------------------------------ Variablen
+; ------------------------------------------------------------ 
+
+txttab	!wo p0,p1,p2,p3,p4,p5,p6,p7,p8,scalegad,tholdgad,shiftgad,mixgad
+list	!wo 0
+lastlist	!wo 0
+ziff	!pet " 0123456789-"
+zahl	!pet "    "
+praefix	!pet "con.*"
+	!by 0
+;
+; ------------------------------------------------------------ Datensatz
+
+file	!pet "god8"
+name	!pet "noname      "
+xy	!by 3,3
+matrix	!by 0,0,0,0,0,0,0,0,0
+scale	!wo 0
+shift	!by 0
+thold	!by 0		; *** 6.9.16, threshold set to 0
+mix	!by 0
+
+; ------------------------------------------------------------ 
+
+inmerk	!by 0
+negativ	!by 0
+merkx	!by 0
+merky	!by 0
+filebuf	!pet "god8"
+	!scr "Noname      "
+	!by 3,3
+	!fill 14,0
+rot	!by 3,0,1,6,4,2,7,8,5
+wflen	!by 0
+pw	!pet "w,p,"
+drinit	!pet "i0"
+mixfax	!pet "00157 05 52 "
+;
+; ------------------------------------------------------------ 
+
+mat0	!by 0,0,0,0,0,0,0,0,0
+mat1	!by 0
+mat2	!by 0
+mat3	!by 0
+mat4	!by 0
+mat5	!by 0
+mat6	!by 0
+mat7	!by 0
+mat8	!by 0
+mat9	!by 0
+;
+; ------------------------------------------------------------ Screenlist
+
+cvlst	!by 0
+	!by 3,6,23,18,$01,0,0
+p0	!by 5,7,6,3,$e0,<(sevin0),>(sevin0)
+	!scr "   0@"
+p1	!by 5,12,6,3,$e0,<(sevin1),>(sevin1)
+	!scr "   0@"
+p2	!by 5,17,6,3,$e0,<(sevin2),>(sevin2)
+	!scr "   0@"
+p3	!by 7,7,6,3,$e0,<(sevin3),>(sevin3)
+	!scr "   0@"
+p4	!by 7,12,6,3,$e0,<(sevin4),>(sevin4)
+	!scr "   0@"
+p5	!by 7,17,6,3,$e0,<(sevin5),>(sevin5)
+	!scr "   0@"
+p6	!by 9,7,6,3,$e0,<(sevin6),>(sevin6)
+	!scr "   0@"
+p7	!by 9,12,6,3,$e0,<(sevin7),>(sevin7)
+	!scr "   0@"
+p8	!by 9,17,6,3,$e0,<(sevin8),>(sevin8)
+	!scr "   0@"
+scalegad	!by 11,16,6,3,$80,0,0
+scaletx	!scr "   0@"
+	!by 5,7,16,9,$20,0,0
+	!by 18,7,7,3,$cc,<(sevzero),>(sevzero)
+	!scr "Reset@"
+	!by 5,23,6,3,$cf,<(sevload),>(sevload)
+	!scr "Load@"
+	!by 8,23,6,3,$cf,<(sevsave),>(sevsave)
+	!scr "Save@"
+	!by 11,23,6,3,$cf,<(sevrot),>(sevrot)
+	!scr "RotR@"
+mixgad	!by 15,23,6,3,$cf,<(sevmix),>(sevmix)
+mixtx	!scr "100%@"
+tholdgad	!by 15,15,4,3,$c0,<(sevthold),>(sevthold)
+tholdtx	!scr " 0@"					; *** 6.9.16, set to "0"
+shiftgad	!by 15,8,4,3,$c0,<(sevshift),>(sevshift)
+shifttx	!scr " 0@"
+	!by 18,14,7,3,$cc,<(sevapp),>(sevapp)
+	!scr "Apply@"
+	!by 18,21,8,3,$cd,<(sevcan),>(sevcan)
+	!scr "Cancel@"
+	!by $c0,5,7,14,32,32,32,32,98,32,32,32,32,98,32,32,32,32,0
+	!by $c0,6,7,14,123,123,123,123,223,123,123,123,123,223,123,123,123,123,0
+	!by $c0,7,7,14,32,32,32,32,98,32,32,32,32,98,32,32,32,32,0
+	!by $c0,8,7,14,123,123,123,123,223,123,123,123,123,223,123,123,123,123,0
+	!by $c0,9,7,14,32,32,32,32,98,32,32,32,32,98,32,32,32,32,0
+	!by $c0,10,7,14,123,123,123,123,123,123,123,123,123,123,123,123,123,123,0
+	!by $c0,3,6,9
+	!scr "Convolve:@"
+	!by $c0,11,9,6
+	!scr "Scale:@"
+	!by $c0,13,6,20
+	!scr "Shift Threshold  Mix@"
+nametx	!by $c0,3,15,12
+	!scr "Noname@"
+	!by $80
+	!scr "    @"					
+	!by $80
+;
+; ------------------------------------------------------------ 
+; ------------------------------------------------------------ Anwenden der Daten
+; ------------------------------------------------------------ 
+
+; ------------------------------------------------------------ Event: Apply MAT
+
+sevapp	jsr initad
+	lda #$00
+	sta linenr
+	jsr getline
+	jsr copy
+loop00	jsr copy
+	inc linenr
+	jsr getline
+	jsr process
+	dec linenr
+	jsr putline
+	jsr adinc
+	inc linenr
+	lda linenr
+	cmp #199
+	bne loop00
+	jsr getline
+	jsr copy
+	jsr process
+	jsr putline
+	jmp exit
+;
+; ------------------------------------------------------------ Anwendung der Matrix
+
+process	ldy #0
+pl	lda buf0-1,y
+	sta mat1
+	lda buf0,y
+	sta mat2
+	lda buf0+1,y
+	sta mat3
+	lda buf1-1,y
+	sta mat4
+	lda buf1,y
+	sta mat5
+	lda buf1+1,y
+	sta mat6
+	lda buf2-1,y
+	sta mat7
+	lda buf2,y
+	sta mat8
+	lda buf2+1,y
+	sta mat9
+	jsr convolve
+	sta buf3,y
+;
+	lda buf0+160-1,y
+	sta mat1
+	lda buf0+160-1,y
+	sta mat2
+	lda buf0+160+1,y
+	sta mat3
+	lda buf1+160-1,y
+	sta mat4
+	lda buf1+160,y
+	sta mat5
+	lda buf1+160+1,y
+	sta mat6
+	lda buf2+160-1,y
+	sta mat7
+	lda buf2+160,y
+	sta mat8
+	lda buf2+160+1,y
+	sta mat9
+	jsr convolve
+	sta buf3+160,y
+	iny 
+	cpy #160
+	bne pl
+	rts 
+;
+; ------------------------------------------------------------ 
+
+convolve	lda #0
+	sta sum
+	sta sum+1
+	ldx #8
+matl	lda mat1,x
+	beq nul
+	sta fak
+	lda matrix,x
+	beq nul
+;
+	sta mcnt
+	bmi sub
+	lda sum
+al	clc 
+	adc fak
+	bcc ms1
+	inc sum+1
+ms1	dec mcnt
+	bne al
+	beq mulok
+sub	lda sum
+sl	sec 
+	sbc fak
+	bcs ms2
+	dec sum+1
+ms2	inc mcnt
+	bne sl
+mulok	sta sum
+;
+nul	dex 
+	bpl matl
+	lda sum
+	ora sum+1
+	beq nodiv
+	lda ascale
+	beq nodiv
+	cmp #1
+	beq nodiv
+;
+	lda sum+1
+	sta nflg
+	bpl psum
+	eor #$ff
+	sta sum+1
+	lda sum
+	eor #$ff
+	clc 
+	adc #1
+	bcc psum
+	inc sum+1
+psum	ldx #0
+	lda sum
+dl	sec 
+	sbc ascale
+	bcs ds1
+	dec sum+1
+	bit sum+1
+	bmi divok
+ds1	inx 
+	bne dl
+divok	stx sum
+;
+nodiv	lda sum
+	bit nflg
+	bpl psum1
+	eor #$ff
+	clc 
+	adc #1
+psum1	clc 
+	adc shift
+	bpl shs1
+	lda #0
+shs1	cmp #16
+	bcc shs2
+	lda #15
+shs2	tax 
+	sec 
+	sbc mat5
+	bcs dpos
+	eor #$ff
+	adc #1
+dpos	cmp thold
+	bcc toolow
+	lda mix
+	bne domix
+	txa 		;100%
+	rts 
+
+domix	cmp #3
+	beq mix25
+	cmp #2
+	beq mix50
+	lda mul3,x	; 75%
+	clc 
+	adc mat5
+	lsr 
+	lsr 
+	rts 
+
+mix50	txa 		; 50%
+	clc 
+	adc mat5
+	lsr 
+	rts 
+
+mix25	txa 		; 25%
+	ldx mat5
+	clc 
+	adc mul3,x
+	lsr 
+	lsr 
+	rts 
+
+toolow	lda mat5
+	rts 
+;
+; ------------------------------------------------------------ 
+
+mul3	!by 0,3,6,9,12,15
+	!by 18,21,24,27,30
+	!by 33,36,39,42,45
+;
+; ------------------------------------------------------------ 
+
+adinc	dec adcnt
+	bne adskip
+	inc y2
+	inc y2+2
+	lda #5
+	sta adcnt
+adskip	rts 
+;
+; ------------------------------------------------------------ 
+
+copy	ldy #0
+lc	lda buf1-1,y
+	sta buf0-1,y
+	lda buf1+160,y
+	sta buf0+160,y
+	lda buf2-1,y
+	sta buf1-1,y
+	lda buf2+160,y
+	sta buf1+160,y
+	iny 
+	cpy #161
+	bne lc
+	rts 
+;
+; ------------------------------------------------------------ 
+
+getline	lda linenr
+	pha 
+	lsr 
+	lsr 
+	lsr 
+	tax 
+	pla 
+	and #$07
+	asl 
+	asl 
+	sta dst
+	lda line8,x
+	sta dst+1
+;
+	lda #<(buf2)
+	ldx #>(buf2)
+	sta src
+	stx src+1
+	ldx #0
+	lda #40
+	sta blcnt
+loop0	ldy #0
+loop1	lda (dst),y
+	pha 
+	lsr 
+	lsr 
+	lsr 
+	lsr 
+	sta (src,x)
+	inc src
+	bne skip0
+	inc src+1
+skip0	pla 
+	and #$0f
+	sta (src,x)
+	inc src
+	bne skip1
+	inc src+1
+skip1	iny 
+	cpy #4
+	bne loop1
+	lda dst
+	clc 
+	adc #32
+	sta dst
+	bcc skip2
+	inc dst+1
+skip2	dec blcnt
+	bne loop0
+	lda buf2
+	sta buf2-1
+	lda buf2+319
+	sta buf2+320
+	rts 
+;
+; ------------------------------------------------------------ 
+
+putline	lda linenr
+	pha 
+	lsr 
+	lsr 
+	lsr 
+	tax 
+	pla 
+	and #$07
+	asl 
+	asl 
+	sta dst
+	lda line8,x
+	sta dst+1
+;
+	lda #<(buf3)
+	ldx #>(buf3)
+	sta src
+	stx src+1
+	ldx #0
+	lda #40
+	sta blcnt
+loop2	ldy #0
+loop3	lda (src,x)
+	asl 
+	asl 
+	asl 
+	asl 
+	inc src
+	bne skip3
+	inc src+1
+skip3	ora (src,x)
+	inc src
+	bne skip4
+	inc src+1
+skip4	sta (dst),y
+	iny 
+	cpy #4
+	bne loop3
+	lda dst
+	clc 
+	adc #32
+	sta dst
+	bcc skip5
+	inc dst+1
+skip5	dec blcnt
+	bne loop2
+	rts 
+;
+; ------------------------------------------------------------ 
+
+line8	!by $40,$45,$4a,$4f,$54
+	!by $59,$5e,$63,$68,$6d
+	!by $72,$77,$7c,$81,$86
+	!by $8b,$90,$95,$9a,$9f
+	!by $a4,$a9,$ae,$b3,$b8
+;
+; ------------------------------------------------------------ 
+
+;   sprite activity display
+;
+exit	lda spren
+	and #243
+	sta spren
+	lda msbx
+	and #243
+	sta msbx
+	lda #$ff
+	sta gr_redisp
+	sec 
+	rts 
+;
+initad	ldy #60
+	lda #0
+adl0	sta spr255+3,y
+	dey 
+	bpl adl0
+	lda #$ff
+	sta spr255
+	sta spr255+1
+	sta spr255+2
+	lda #15
+	sta sprcol2
+	sta sprcol2+1
+	lda sprxe
+	ora #12
+	sta sprxe
+	lda msbx
+	ora #12
+	sta msbx
+	lda #8
+	sta x2
+	lda #32
+	sta x2+2
+;
+	lda #146
+	sta y2
+	sta y2+2
+	lda #$ff
+	sta sprptr+2
+	sta sprptr+3
+	lda spren
+	ora #12
+	sta spren
+	lda #5
+	sta adcnt
+	rts 
+;
+modend	!eof 

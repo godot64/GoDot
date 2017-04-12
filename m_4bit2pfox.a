@@ -1,0 +1,616 @@
+!to "mod.4Bit2PFox", cbm
+!CONVTAB pet
+
+;         .li 1,4,7
+	*= $c000
+;
+	basin	=	$ffcf
+	bswitch	=	$de80
+	reset	=	$fce2
+	xtxout1	=	$1461
+	irqalt	=	$0f8c
+
+	err2	=	$0fb5
+	error2	=	$1464
+	bootdrive=	$02ac
+	drive	=	$0fa8
+	xopen	=	$1458
+	xclose	=	$145b
+	adcnt	=	$3e
+	dst0	=	$40
+	dst	=	$42
+	temp	=	$a7
+	xmess	=	$145e
+	vekta8	=	$a8
+	ram	=	$0fae
+	pos	=	$a4
+	vekt20	=	$20
+	zl	=	$22
+	sp	=	zl+1
+	br	=	sp+1
+	ho	=	br+1
+	movetab	=	$0fd8
+	merk	=	$b0
+	screentab=	$ab
+	screenvek=	$0f88
+	texttab	=	$ae
+	initmove	=	$1090
+	screen	=	$11e0
+	setpos	=	$11cc
+	position	=	$1289
+	trim	=	$1324
+	savescvek=	$143f
+	mloop	=	$1420
+	eloop	=	$1423
+	buf	=	$c900
+	destbuf	=	$ca00
+;
+header	jmp start
+	!byte $20
+	!byte 0
+	!byte 0
+	!word modend
+	!word 0
+	!text "4Bit->PageFox   "
+	!text "1.02"
+	!text "24.08.16"
+	!text "A.Dettke        "
+addtext	!text "Start PageFox   "
+	!text "after transport "
+	!byte 0
+;
+start	lda ram	; Pagefox im System?
+	and #15
+	cmp #3
+	beq st0
+	clc	; nein, zur�ck zu Mainscreen
+	rts
+st0	ldx #<(pflst)	; ja, Modul aktivieren
+	ldy #>(pflst)
+	jmp mloop
+;
+;
+	oszi3=	$d40e
+	wave=	$d412
+	filter=	$d418
+	rausch=	$d41b
+;
+
+	btab=	$03b0
+	pattern=	$0f00
+	pathab=	$0340
+	dither=	$0fbc
+;
+	src=	$3c
+	src0=	$f7
+	hold=	$f9
+	lcnt8=	$fa
+
+	lcnt=	$fb
+	bcnt=	$fc
+;
+	bitcnt=	$3a
+	bcnt1=	$3b
+	byte=	$39
+	dst=	$30
+	dst0=	$32
+	cnt=	$34
+	dbl=	$36
+	vertcnt=	$37
+;
+sevpfox	lda #0
+	sta $d015
+	lda #5
+	jsr initad
+	lda dither
+	tax
+	lda dlo,x
+	sta dmode
+	lda dhi,x
+	sta dmode+1
+	lda #$80
+	sta filter
+	sta oszi3
+	sta oszi3+1
+	sta texttab+1
+	lda #0
+	sta wave
+	sta texttab
+	lda #$81
+	sta wave
+;
+pfoxgb	lda #<($4000)
+	ldx #>($4000)
+	sta src0
+	sta src
+	stx src0+1
+	stx src+1
+	lda #0
+	sta dbl
+	sta vertcnt
+	lda #8
+	sta bank
+	lda #25
+	sta lcnt8
+lnloop8	lda #0
+	sta lcnt
+;
+lnloop	jsr adinc
+ads0	ldx #0
+zloop	lda #2
+	sta bcnt1
+byloop	lda #$c0
+	sta bitcnt
+	lda #0
+	sta byte
+btloop	ldy #0
+	lda (src),y
+	pha
+	lsr
+	lsr
+	lsr
+	lsr
+	tay
+	lda btab,y
+	jsr makebyte
+	lsr bitcnt
+	lsr bitcnt
+	pla
+	and #$0f
+	tay
+	lda btab,y
+	jsr makebyte
+;
+	inc src
+	bne s3
+	inc src+1
+s3	lsr bitcnt
+	lsr bitcnt
+	bcc btloop
+	sta buf,x
+	inx
+	dec bcnt1
+	bne byloop
+	lda src
+	clc
+	adc #28
+	sta src
+	bcc s4
+	inc src+1
+s4	cpx #80
+	bne zloop
+	jsr moveline
+;
+	ldx vertcnt
+	inx
+	cpx #8
+	bne s41
+	ldx #0
+s41	stx vertcnt
+	lda dbl
+	eor #$ff
+	sta dbl
+	beq newline
+	lda src0
+	sta src
+
+	lda src0+1
+	sta src+1
+	bne ads0
+newline	lda src0
+	clc
+	adc #4
+	sta src0
+	sta src
+	bcc s5
+	inc src0+1
+s5	lda src0+1
+	sta src+1
+	inc lcnt
+	lda #8
+	cmp lcnt
+	beq s51
+	jmp lnloop
+s51	lda src0
+	clc
+	adc #<(1248)
+	sta src0
+	sta src
+	lda src0+1
+	adc #>(1248)
+	sta src0+1
+	sta src+1
+	dec lcnt8
+	beq done
+	jmp lnloop8
+done	jsr clearad
+	lda #3
+	sta $d015
+	clc
+	rts
+;
+makebyte	jmp (dmode)
+;
+dithoff	cmp #8
+	bpl do0
+	lda #0
+	!byte $2c
+do0	lda bitcnt
+	ora byte
+	sta byte
+	rts
+;
+dithrst	ldy vertcnt
+	ora offs,y
+	tay
+	lda pathab,y
+	and bitcnt
+	ora byte
+	sta byte
+	rts
+;
+dithpat	asl
+	asl
+	asl
+	ora vertcnt
+	tay
+	lda pattern,y
+	and bitcnt
+	ora byte
+	sta byte
+	rts
+;
+dithnoi	beq dn0
+	cmp #15
+	beq dn1
+	ldy #0
+	sta hold
+	lda rausch
+	and #$0f
+	cmp hold
+	bcs dn3
+	ldy #$aa
+dn3	lda rausch
+	and #$0f
+	cmp hold
+	tya
+	bcs dn2
+	ora #$55
+dn2	!byte $2c
+dn1	lda #$ff
+	and bitcnt
+dn0	ora byte
+	sta byte
+	rts
+;
+dithrnd	cmp #8
+	beq dr0
+	bcs dr1
+	bcc dr2
+dr0	lda rausch
+	!byte $2c
+dr1	lda bitcnt
+	and bitcnt
+	!byte $2c
+dr2	lda #0
+	ora byte
+	sta byte
+ml4	rts
+;
+moveline	lda vertcnt
+	bne ml0
+
+	lda #<(destbuf)
+	ldy #>(destbuf)
+	sta dst0
+	sty dst0+1
+	bne ml2
+ml0	inc dst0
+ml2	lda dst0
+	ldy dst0+1
+	sta dst
+	sty dst+1
+	ldy #0
+	ldx #0
+mlup	lda buf,x
+	sta (dst),y
+	lda dst
+	clc
+	adc #8
+	sta dst
+	bcc ml3
+	inc dst+1
+ml3	inx
+	cpx #80
+	bne mlup
+	ldy vertcnt
+	cpy #7
+	bne ml4
+;
+wrloop	ldx #5
+	lda #<(destbuf)
+	ldy #>(destbuf)
+	sta dst0
+	sty dst0+1
+wl6	ldy #0
+wloop	lda (dst0),y
+	eor #$ff
+	sei
+	jsr spfox
+	cli
+	iny
+	cpy #128
+	bne wloop
+	clc
+	lda dst0
+	adc #128
+	sta dst0
+	bcc wl5
+	inc dst0+1
+wl5	dex
+	bne wl6
+	rts
+;
+spfox	stx merk
+	sty merk+1
+	ldx #$34
+	stx 1
+	ldy #0
+pw5	tax
+	lda (texttab),y
+	pha
+	inc 1
+	lda bank
+	sta bswitch
+	txa
+	sta (texttab),y
+
+	lda #$ff
+	sta bswitch
+	dec 1
+	pla
+
+	sta (texttab),y
+	inc texttab
+	bne pw2
+	inc texttab+1
+pw2	lda texttab+1
+	cmp #$be
+	bcc pw3
+	lda texttab
+	cmp #$80
+	bcc pw3
+	lda bank
+	cmp #10
+	beq pw3
+	lda #10
+	sta bank
+	lda #$80
+	sta texttab+1
+	asl
+	sta texttab
+pw3	lda #$36
+	sta 1
+	ldx merk
+	ldy merk+1
+	rts
+;
+sevstpf	lda screenvek
+	pha
+	lda screenvek+1
+	pha
+	ldx #<(ldlst)
+	ldy #>(ldlst)
+	jsr screen
+	jsr eloop
+
+	pla
+	tay
+	sta screenvek+1
+	pla
+	tax
+	sta screenvek
+	jsr screen
+	clc
+	rts
+;
+sevleave	lda #<(inittx)
+	sta screentab
+	lda #>(inittx)
+	sta screentab+1
+	lda #0
+	tax
+	tay
+gt0	jsr setpos
+	cpx #3
+	bne gt0
+	jsr initmove
+	ldy #2
+	jsr xtxout1
+	jsr testfile
+	bne sevcan
+	lda #$80
+	ldy #0
+	sty $d015
+	sta vekta8+1
+	sty vekta8
+era1	tya
+era0	sta (vekta8),y
+	iny
+	bne era0
+	inc vekta8+1
+	lda vekta8+1
+	cmp #$c0
+	bne era1
+	sei
+
+	lda irqalt
+	ldx irqalt+1
+	sta $0314
+	stx $0315
+	inc 1
+	cli
+	jsr ldpfox
+	bcs sevcan
+	lda #64
+	jmp $1802
+;
+sevcan	sec
+	rts
+;
+ldpfox	lda pflen
+	ldx #<(pfox)
+	ldy #>(pfox)
+	jsr $ffbd
+	lda #1
+	ldx bootdrive
+	ldy #0
+	jsr $ffba
+	lda #0
+	ldx addr
+	ldy addr+1
+	jmp $ffd5
+
+testfile	lda pflen
+	sta temp
+	lda #<(pfox)
+	sta vekta8
+	lda #>(pfox)
+	sta vekta8+1
+	lda drive
+
+	pha
+	lda bootdrive
+	sta drive
+	jsr xopen
+	jsr basin
+	sta addr
+	jsr basin
+	sta addr+1
+	jsr xclose
+	jsr messout
+	pla
+	sta drive
+	jsr done
+	lda err2
+	and #15
+	rts
+;
+messout	lda screenvek
+	pha
+	lda screenvek+1
+	pha
+	ldx #<(mess)
+	ldy #>(mess)
+	jsr screen
+	pla
+	sta screenvek+1
+	pla
+	sta screenvek
+	jmp xmess
+;
+;
+;
+pflst	!byte 0
+	!byte 4,11,18,16,$81,0,0
+	!byte 82,5,14,4,5,18,32,20,15,32,80,70,15,24,0
+	!byte 9,11,18,3,$ca,<(sevpfox),>(sevpfox)
+	!byte 82,5,14,4,5,18,0
+	!byte 12,11,18,3,$ca,<(sevstpf),>(sevstpf)
+	!byte 71,15,32,20,15,32,80,70,15,24,0
+	!byte 15,11,18,3,$ca,<(sevcan),>(sevcan)
+	!byte 76,5,1,22,5,0
+	!byte $c0,6,11,16,83,5,12,5,3,20,32,32,65,3,20,9,22,9,20,25,0
+	!byte $80
+
+ldlst	!byte 0
+	!byte 4,11,18,16,$81,0,0
+	!byte 82,5,14,4,5,18,32,20,15,32,80,70,15,24,0
+	!byte 16,12,7,3,$c0,<(sevleave),>(sevleave)
+	!byte 32,89,5,19,32,0
+	!byte 16,21,7,3,$c0,<(sevcan),>(sevcan)
+	!byte 32,78,15,33,32,0
+	!byte $c0,7,15,8,89,15,21,32,23,9,12,12,0
+	!byte $c0,9,13,12,12,5,1,22,5,32,71,15,68,15,20,33,0
+	!byte $c0,13,13,12,82,5,1,4,25,32,20,15,32,7,15,63,0
+	!byte $80
+;
+
+inittx	!byte 14,14,12,73,14,9,20,9,1,12,9,19,9,14,7,0
+mess	!byte 0,22,3,34,3,$02,0,0,$80
+;
+offs	!byte $00,$10,$20,$30
+	!byte $00,$10,$20,$30
+;
+dlo	!byte <(dithoff)
+	!byte <(dithrst)
+	!byte <(dithpat)
+	!byte <(dithnoi)
+	!byte <(dithrnd)
+;
+dhi	!byte >(dithoff)
+	!byte >(dithrst)
+	!byte >(dithpat)
+	!byte >(dithnoi)
+	!byte >(dithrnd)
+;
+dmode	!word 0
+xmerk	!byte 0
+bank	!byte 8
+pflen	!byte 5
+pfox	!text "gofox"
+addr	!word $0da0
+;
+adinc	dec adcnt
+	bne adskip
+	inc $d005
+	inc $d007
+	lda #5
+	sta adcnt
+adskip	rts
+;
+initad	sta adcnt
+	ldy #63
+	lda #0
+adl0	sta $3fc0,y
+	dey
+	bpl adl0
+	sty $3fc0
+	sty $3fc1
+	sty $3fc2
+	lda #15
+	sta $d029
+	sta $d02a
+	lda $d01d
+	ora #12
+	sta $d01d
+	lda $d010
+	ora #12
+	sta $d010
+	lda #8
+	sta $d004
+	lda #32
+	sta $d006
+;
+	lda #146
+	sta $d005
+	sta $d007
+	lda #$ff
+	sta $07fa
+	sta $07fb
+	lda $d015
+	ora #12
+	sta $d015
+	rts
+;
+clearad	lda $d015
+	and #$f3
+	sta $d015
+	lda $d010
+	and #$f3
+	sta $d010
+	rts
+;
+modend	!eof
+
+
