@@ -1,0 +1,514 @@
+
+!src "..\godotlib.lib"
+*	= $c000
+
+; ----------------------------------------- 
+; svr.OCPAst
+;     Saver for (Advanced) OCP Art Studio files
+;
+; 1.00: 08.01.05, first release
+; 1.01: 09.01.05, added recognition of existing suffix
+; 1.02: 15.11.16, bugfix: upper case letters in filename
+;
+; ----------------------------------------- 
+
+	gbyte		= $30
+	cnt		= $31
+	adcnt		= $33
+	offy		= $34
+	offx		= $35
+	sigvec		= $38
+	sigvec2		= $40
+
+	colors		= $c82f
+	vid1		= colors
+	vid2		= $ca23
+	colram		= $cc17
+	back		= $cfff
+;
+; ----------------------------------------- 
+
+header	jmp start
+	!by $40
+	!by 0
+	!by 1
+	!wo modend
+	!wo 0
+	!pet "OCP Art Studio  "
+	!pet "1.02"
+	!pet "15.11.16"
+	!pet "A.Dettke        "
+;
+; ----------------------------------------- 
+
+start	ldx gr_nr		; *every* saver must start with this check!
+	dex
+	bne st0
+	jmp initinp	; INPUT if .X was 1
+;
+; ----------------------------------------- 
+
+st0	jsr setmode	; savemode: hires or multi?
+	lda used		; cancelled?
+	cmp #3
+	bne st11
+	jsr canc		; yes, leave
+	bcs st12
+
+st11	jsr gd_sproff
+	lda gd_modswitch
+	pha
+	lda ls_flen
+	beq st1
+
+st3	sta wflen
+	jsr addsig	; add ".ocp"/".art" to name (length plus 4)
+	lda #1
+	sta adcnt
+	lda #50
+	sta cntwert
+
+	jsr getpic	; move rendered image data to write buffer
+	jsr wopen		; open write file
+	bne st2		; error?
+
+	jsr getname	; no, save image file name
+	ldx #12		; OPEN 12,drv,12,"file,p,w"
+	jsr ckout
+	jsr gd_clrms	; clear gauge bar
+	ldx #0		; Text: "Bitmap"
+	jsr tcopy
+
+	jsr writeocp	; write hires file to disk
+
+st2	jsr clrch		; CLOSE 12
+	lda #12
+	jsr close
+	jsr err9
+	bne st1
+	jsr setname	; publish image name to GoDot
+
+st1	pla
+	sta gd_modswitch
+st12	jsr gd_spron
+	sec		; return to mainloop
+	rts
+
+; --------------------------- 
+; --------------------------- Input Routines
+
+!src "..\input.inc"
+
+; --------------------------- 
+; --------------------------- 
+
+pw	!pet "w,p,"
+drinit	!pet "i0"
+wflen	!by 0
+ocptx	!pet "pco."
+	!scr "pco."
+arttx	!pet "tra."
+	!scr "tra."
+;
+
+; ----------------------------------------- Open Write File
+
+wopen	jsr inull
+	bne err8
+	ldy wflen
+	ldx #3
+wo1	lda pw,x
+	sta ls_nambuf,y
+	iny
+	dex
+	bpl wo1
+	sty wflen
+	lda #12
+	tay
+	ldx ls_drive
+	jsr filpar
+	lda wflen
+	ldx #<(ls_nambuf)
+	ldy #>(ls_nambuf)
+	jsr filnam
+	jsr copen
+	jmp err9
+;
+; ----------------------------------------- Add sig to filename
+
+addsig	tax		; check whether a suffix is present
+	dex		; 4th but last character
+	dex
+	dex
+	dex
+	lda ls_nambuf,x
+	cmp #"."
+	beq ag4		; yes, leave with no changes
+	
+	ldx wflen		; Name longer than 12 chars?
+	cpx #13
+	bcs ag0		; yes, treat it
+;
+ag5	ldy #3		; no, add ".ocp" or ".art"
+ag1	lda (sigvec),y
+ag3	sta ls_nambuf,x
+	lda (sigvec2),y
+	sta ls_lastname,x
+	inx
+	dey
+	bpl ag1
+	stx wflen		; store new length, finished
+	stx ls_flen
+ag4	rts
+;
+ag0	dex		; shorten to 12 
+	cpx #12
+	bne ag0
+	beq ag5		; unconditional jump
+
+; ----------------------------------------- Initialize Disk
+
+inull	ldx #<(drinit)
+	ldy #>(drinit)
+	lda #2
+	jsr gd_sendcom
+err9	jsr gd_xmess
+	lda ls_err2
+	and #15
+err8	sec
+	rts
+;
+
+; ----------------------------------------- Activity gauge Routines
+
+messout	ldx #<(message)
+	ldy #>(message)
+	jmp gd_xtxout2
+;
+tcopy	ldy #0
+tc0	lda txt,x
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+;
+action	dec adcnt
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts
+;
+clrmess	ldx #23
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0
+	ldx #7
+	sty offy
+	stx offx
+	rts
+;
+filltab	!by 160,93,103,127,126,124,105,109
+;
+cntwert	!by 50
+;
+txt	!scr " Bitmap@" ; 0
+	!scr " Colors@" ; 8
+	!scr " Multi @" ; 16
+	!scr " Hires @" ; 24
+;
+message	!fill 8,32
+mess	!fill 24,32
+	!by 0
+
+; ----------------------------------------- Store last filename
+
+getname	ldx #0
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+; ----------------------------------------- Publish new filename
+setname	lda #0
+	ldx #<(ls_picname)
+	ldy #>(ls_picname)
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+;
+nbuf	!fill 16,32
+	!by 0
+
+; ----------------------------------------- Display Startup requester
+
+requ	inc used
+	ldx #<(locplst)
+	ldy #>(locplst)
+	jsr gd_xmloop
+
+; ----------------------------------------- Requester management
+
+setmode	ldx used
+	bmi requ
+	rts
+
+; ----------------------------------------- Leave saver
+
+cn2	lda #3
+	!by $2c
+canc	lda #$ff
+	sta used
+	sec
+	rts
+
+; ----------------------------------------- Set mode
+;
+evhires	inc used
+evmulti	inc used
+	ldx used
+	dex
+	beq ec01
+	lda #<arttx
+	ldy #>arttx
+	sta sigvec
+	sty sigvec+1
+	lda #<(arttx+4)
+	ldy #>(arttx+4)
+	ldx #$80
+	bmi ec02
+ec01	lda #<ocptx
+	ldy #>ocptx
+	sta sigvec
+	sty sigvec+1
+	lda #<(ocptx+4)
+	ldy #>(ocptx+4)
+ec02	sta sigvec2
+	sty sigvec2+1
+	stx mode
+	sec
+	rts
+
+; ----------------------------------------- Screenlist
+
+locplst	!by 0
+	!by 4,11,18,16,$81,0,0
+	!scr "Select Mode@"
+	!by 9,11,18,3,$ca,<(evhires),>(evhires)
+	!scr " as Hires @"
+	!by 12,11,18,3,$ca,<(evmulti),>(evmulti)
+	!scr " as Multi @"
+	!by 15,11,18,3,$ca,<(cn2),>(cn2)
+	!scr "Cancel Save@"
+	!by $c0,6,11,16
+	!scr "Save OCP Art St.@"
+	!by $80
+
+; ----------------------------------------- Variables
+used	!by $ff
+mode	!by 0
+
+; ----------------------------------------- 
+; ----------------------------------------- Move image data to buffers
+; ----------------------------------------- 
+
+getpic	lda #$0b		; from $ce0b
+	sta sc_texttab
+	lda #<(vid1)
+	ldx #>(vid1)
+	ldy #$ce
+	jsr move		; move 500 bytes
+
+	lda #$0b		; from $ee0b
+	sta sc_texttab
+	lda #<(vid2)
+	ldx #>(vid2)
+	ldy #$ee
+	jsr move		; move 500 bytes
+
+	lda #$0b		; from $de0b
+	sta sc_texttab
+	lda #<(colram)
+	ldx #>(colram)
+	ldy #$de
+	jsr movec		; move 1000 bytes
+	lda gr_bkcol	; set background color
+	and #15
+	sta back
+	rts
+; ----------------------------------------- Move GoDot's video RAM
+move	sty sc_texttab+1
+	sta sc_vekt20
+	stx sc_vekt20+1
+	lda #<(500)
+	ldx #>(500)
+	sta ls_vekta8
+	stx ls_vekta8+1
+	sei
+	lda #$30
+	sta 1
+	ldy #0
+mv0	lda (sc_texttab),y
+	sta (sc_vekt20),y
+	jsr count
+	bne mv0
+	lda #$36
+	sta 1
+	cli
+	rts
+; ----------------------------------------- Move GoDot's color RAM
+movec	sty sc_texttab+1
+	sta sc_vekt20
+	stx sc_vekt20+1
+	lda #<(500)
+	ldx #>(500)
+	sta ls_vekta8
+	stx ls_vekta8+1
+	sei
+	lda #$30
+	sta 1
+	ldy #0
+mv1	sty sc_merk
+	lda (sc_texttab),y
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	sta (sc_vekt20),y
+	inc sc_vekt20
+	bne mv2
+	inc sc_vekt20+1
+mv2	lda sc_merk
+	sta (sc_vekt20),y
+	jsr count
+	bne mv1
+	lda #$36
+	sta 1
+	cli
+	rts
+; ----------------------------------------- Counters
+count	inc sc_vekt20
+	bne cou5
+	inc sc_vekt20+1
+cou5	inc sc_texttab
+	bne cou6
+	inc sc_texttab+1
+cou6	lda ls_vekta8
+	bne cou7
+	dec ls_vekta8+1
+cou7	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	rts
+; ----------------------------------------- Write OCP
+
+writeocp	lda #0		; write startaddress ($2000)
+	jsr bsout
+	lda #$20
+	jsr bsout
+
+wm0	lda #<(8000)	; count bitmap (8000 bytes)
+	ldx #>(8000)
+	sta ls_vekta8
+	stx ls_vekta8+1
+	lda #<($2000)	; start from $2000
+	ldx #>($2000)
+	sta sc_texttab
+	stx sc_texttab+1
+	jsr writeit	; write section 
+
+	ldx mode
+	bmi wm1
+
+	ldx #16		; Text on screen: "Multi"
+	!by $2c
+wm1	ldx #24		; Text on screen: "Hires"
+	jsr tcopy
+
+	lda #7
+	sta cntwert
+	lda #<(1000)	; count 1000 bytes video RAM
+	ldx #>(1000)
+	sta ls_vekta8
+	stx ls_vekta8+1
+	lda #<(colors)	; start from color buffer
+	ldx #>(colors)
+	sta sc_texttab
+	stx sc_texttab+1
+	jsr writeit	; write section
+
+	ldx mode
+	bmi wm4
+
+	ldx #16		; 16 padding bytes in multi
+	bne wm5
+wm4	ldx #7		; 7 padding bytes in hires
+wm5	lda back		; write background color 
+wm3	jsr bsout		; (into the 16 byte gap)
+	dex
+	bne wm3
+
+	ldx mode		; no color ram in multi
+	bmi wm2
+
+	ldx #8		; Text on screen: "Colors"
+	jsr tcopy
+
+	lda #7
+	sta cntwert
+	lda #<(1000)	; count 1000 bytes color RAM
+	ldx #>(1000)
+	sta ls_vekta8
+	stx ls_vekta8+1
+	lda #<(colram)	; start from color buffer
+	ldx #>(colram)
+	sta sc_texttab
+	stx sc_texttab+1
+	jsr writeit	; write section
+
+wm2	lda #<(vid1)	; restore colors to their buffer
+	sta sc_texttab
+	lda #$0b
+	ldx #$ce
+	ldy #>(vid1)
+	jsr move
+;
+	jmp canc		; finish
+
+; ----------------------------------------- Write file
+
+writeit	ldy #0		; get byte to write to file
+	lda (sc_texttab),y
+	jsr bsout		; write to file
+	jsr action	; display gauge bar on screen
+	jsr cou5		; count bytes 
+	bne writeit	; loop if not zero
+	rts
+
+modend	!eof

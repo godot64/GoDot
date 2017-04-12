@@ -1,0 +1,765 @@
+; .petscii
+; ldr..SnapShot
+;         .li 1,4,7
+;         .ob "SnapShot,p,w"
+;
+
+!src "..\godotlib.lib"
+
+; ------------------------------------------------------------ 
+;
+; ldr..SnapShot
+; Lader für GoDot-Textbildschirme (zu Dokumentationszwecken)
+; legt einen eigenen Bereich in der REU an ("Snapshot"),
+; Länge $1000 Bytes
+;
+;    1.00, 01.06.95, first release
+;    1.01, 16.11.95, 
+;    1.02, 17.11.95,
+;    1.03, 09.10.00,
+;    1.04, 18.09.16, added: File Information data on screen
+;    1.05, 20.09.16, bugfix: crash on RAM directory fixed
+;    1.06, 28.09.16, bugfix: crash on active RAM, new storing concept 
+;
+; ------------------------------------------------------------ 
+
+	vr		= $30	; /$31
+	cr		= $32	; /$33
+	vv		= $34	; /$35
+	byte		= $36
+	hold		= $38	; /$39
+	entry		= $3a	; /$3b
+
+	werte		= $021a
+	hidden		= $0220	; Ort der Tastatur-Erkennung
+	snapon		= hidden+(csnapon-routine)
+	snapoff		= hidden+(csnapoff-routine)
+	smal19		= sy_global+(mal19-instsnap)
+	tastatur		= $028f
+
+	godset		= $0800
+	vierbit		= $4000
+	charbuf		= $a000
+	swpfile		= $b21c
+	modul		= $c000
+	vrbuf		= $c500	; within the code! So alert after leaving SnapShot and rerun
+	col0		= vrbuf-1
+	crbuf		= $c900
+	cram		= $d800
+
+	grfreg		= $d011
+	spren		= $d015
+	border		= $d020
+	backgr		= $d021
+
+	chktast		= $eb48
+
+	allover		= $d000
+
+; ----------------------------------------------------- 
+
+	*= $c000
+;
+; ----------------------------------------------------- Header
+
+	jmp start
+;
+	!byte $80		; Lader
+	!byte $04		; mit Requester
+	!byte $01		; dirty
+	!word allover	; End of Mod: $d000
+	!byte 1		; I'm here!
+	!byte 0		; reserved
+	!pet "SnapShot        "
+	!pet "1.06"
+	!pet "28.09.16"
+	!pet "A.Dettke        "
+
+; ----------------------------------------------------- Main
+
+start	lda ls_ramdrive	; REU angeschlossen?
+	and #15
+	cmp #9
+	beq sk12		; nein, gar kein Ram, skip
+	cmp #7		; nur SuperRAM?
+	beq sk12		; ja, skip 
+	and #12
+	beq sk12		; kein REU, skip 
+
+	lda $d011		; Grafik aktiviert?
+	and #$20
+	bne sk14		; dann Fehlerblinken
+
+	lda ss8		; Datei korrumpiert?
+	cmp #$68
+	bne sk15		; dann Hinweis auf Neuladen
+
+	lda tastatur	; SnapShot bereits aktiv?
+	cmp #<(hidden)
+	beq sk13		; ja, Meldung
+
+	sei		; Tastaturvektor umlenken
+	sta tmerk
+	lda tastatur+1
+	sta tmerk+1
+	jsr movechk	; Hook nach $021a übertragen
+	lda #<(hidden)	; neuer Tastaturvektor $0220
+	sta tastatur
+	lda #>(hidden)
+	sta tastatur+1
+	lda #$00		; Flags initialisieren
+	sta sc_stop
+	sta sy_tbuffer
+	jsr snapstash	; REU vorbereiten
+	cli
+
+	jmp ssnap		; Requester ausgeben und warten
+
+; ----------------------------------------------------- 
+
+sk12	jmp noreu
+sk13	jmp active
+sk14	jmp graphon
+sk15	jmp reload
+
+; ----------------------------------------------------- Install Hook
+
+movechk	ldx #(snapstash-w1-1)	; Routine übertragen nach $021a
+mc0	lda w1,x
+	sta werte,x
+	dex
+	bpl mc0
+canc	sec		; Ziel für "Leave", verlässt Modul zum Mainscreen
+	rts
+
+; ----------------------------------------------------- Blink the Border
+
+graphon	lda border
+	pha
+	sty border
+	ldx #$40
+	jsr gd_dl2
+	pla
+	sta border
+	stx sy_tbuffer
+	clc
+	rts
+
+; ----------------------------------------------------- 
+; ----------------------------------------------------- Plugged to IRQ, check for C=g and Leftarrow
+; ----------------------------------------------------- 
+
+snapit	lda sy_tbuffer	; erste Taste im Puffer
+	pha
+	cmp #$a5		; ist C=g?
+	bne nct0
+	lda $d011		; ja, Grafik an?
+	and #$20
+	beq nct2
+	ldy #2
+	jsr graphon	; ja, Fehlerblinken
+	bne nct0		; und Ende
+
+nct2	jsr getname
+	jsr snap		; sonst: Screen wandeln nach Grafik
+	jsr setinfo
+
+nct0	pla
+	cmp #$5f		; Taste im Puffer ist Linkspfeil?
+	bne nct1
+
+	ldx tmerk		; ja, SnapShot beenden:
+	stx tastatur	; GoDot-Vektor rekonstruieren
+	ldx tmerk+1
+	stx tastatur+1
+	ldy #5
+	jsr graphon
+	cli
+
+nct1	rts		; Ende
+
+; ----------------------------------------------------- 
+; ----------------------------------------------------- Snap Routines
+; ----------------------------------------------------- 
+
+snap	ldx #$04		; Textscreen ($0400) puffern (in $c500, vrbuf)
+	lda #>(vrbuf)
+	sta ls_vekta8+1
+	lda #$04
+	sta sc_texttab+1
+	jsr move
+	
+	ldx #$04		; Farbram ($d800) puffern (in $c900, crbuf)
+	lda #>(crbuf)
+	sta ls_vekta8+1
+	lda #>(cram)
+	sta sc_texttab+1
+	jsr move
+	
+	lda backgr	; Hintergrundfarbe puffern (eigentlich für Multi-Konvertierung)
+	and #$0f
+	sta col0
+	
+	lda grfreg	; ist Grafik an?
+	and #$20
+	bne sk11		; ja, Konvertierung übergehen
+	
+	jsr context	; Textscreen nach 4Bit-Hires konvertieren
+	jsr conhir
+	jsr hires
+	
+sk11	lda #$03		; Maus an
+	sta spren
+	sta gr_redisp	; Redisplay an
+	lda #0		; Tastendrücke verwerfen
+	sta sy_tbuffer
+	clc		; fertig, Lader beenden
+	rts
+;
+; ----------------------------------------------------- Action
+
+action	inc border	; Borderflimmern
+	dec border
+	rts
+;
+; ----------------------------------------------------- 
+
+move	stx sc_merk	; Anzahl Blöcke in .x
+	lda #$00
+	tay
+	sta ls_vekta8	; Adressen lo = 0
+	sta sc_texttab
+ml1	lda (sc_texttab),y	; umkopieren
+	sta (ls_vekta8),y
+	jsr action	; flimmern
+	iny
+	bne ml1
+	inc ls_vekta8+1	; nächsten Block
+	inc sc_texttab+1
+	dec sc_merk	; bis alle durch
+	bne ml1
+	rts
+;
+; ----------------------------------------------------- Wandeln nach 4Bit 320x200
+
+hires	lda #<(8000)	; Zähler für 8000 Bytes
+	sta ls_vekta8
+	lda #>(8000)
+	sta ls_vekta8+1
+	lda #$00		; Vektoren initialisieren
+	tay
+	sta vr
+	sta sc_texttab
+	sta vv
+	sta cr
+	lda #>charbuf	; Musterpuffer ($a000)
+	sta cr+1
+	lda #>vierbit	; Ziel (4Bit, $4000)
+	sta sc_texttab+1
+	lda #>(vrbuf)
+	sta vr+1
+	lda #>(crbuf)
+	sta vv+1
+	
+l90fc	ldx #$08		; Zähler: 8 Bytes (eine Kachel)
+	stx sc_merk
+l9100	lda (cr),y	; Muster holen
+	sta byte
+	jsr action	; flimmern
+	
+	ldy #$00
+	ldx #$04		; Zähler: 4 Doppelpixel (ein Byte)
+l910b	asl byte
+	bcc l9112
+	lda (vv),y	; Bit 1: Vordergrundfarbe
+	!byte $2c
+l9112	lda (vr),y	; Hintergrundfarbe
+	and #$0f
+	tay
+	lda dnib,y	; nach 4Bit wandeln
+	and #$f0
+	sta col0
+	
+	ldy #$00		; dasselbe für Bit 2
+	asl byte
+	bcc l9128
+	lda (vv),y
+	!byte $2c
+l9128	lda (vr),y
+	and #$0f
+	tay
+	lda dnib,y
+	and #$0f
+	ora col0		; mit erstem verknüpfen
+	
+	ldy #$00
+	sta (sc_texttab),y	; und puffern
+	inc sc_texttab	; Pufferzeiger weiterrücken
+	bne l913f
+	inc sc_texttab+1
+	
+l913f	dex		; zählen (Byte, bis 4)
+	bne l910b
+	
+	inc cr		; Musterzeiger erhöhen, nächstes Byte
+	bne l9148
+	inc cr+1
+	
+l9148	lda ls_vekta8	; zählen (bis 8000)
+	bne l914e
+	dec ls_vekta8+1
+l914e	dec ls_vekta8
+
+	dec sc_merk	; zählen (Kachel, bis 8)
+	bne l9100
+	
+	inc vr		; Pufferzeiger (Farbe) erhöhen
+	bne l915a
+	inc vr+1
+l915a	inc vv
+	bne l9160
+	inc vv+1
+	
+l9160	lda ls_vekta8	; 8000 abgezählt?
+	ora ls_vekta8+1
+	bne l90fc		; nein, weiter
+	rts
+;
+; ----------------------------------------------------- 
+
+conhir	ldx #$04		; Zähler
+	stx sc_merk
+	
+	lda #$00		; Pufferzeiger initialisieren
+	tay
+	sta ls_vekta8
+	sta sc_texttab
+	lda #>(vrbuf)
+	sta ls_vekta8+1
+	lda #>(crbuf)
+	sta sc_texttab+1
+	
+l917a	lda (ls_vekta8),y	; Farbe 1 ins obere Nibble
+	sty vv		; (Zähler ins untere Nibble: ?)
+	asl
+	rol vv
+	asl
+	rol vv
+	asl
+	rol vv
+	asl
+	rol vv
+	ora vv
+	sta (sc_texttab),y
+	tya
+	pha
+	jsr action	; flimmern
+	pla
+	tay
+	iny		; zählen (bis 256)
+	bne l917a
+	
+	inc ls_vekta8+1	; Pufferzeiger weiterrücken
+	inc sc_texttab+1
+	
+	dec sc_merk	; 4 Blöcke (1024 Bytes)
+	bne l917a
+	rts
+;
+; ----------------------------------------------------- Muster und Farben trennen
+
+context	tya		; .y=0
+
+	ldx #$04		; Zähler
+	stx sc_merk
+	
+	tax
+	sta ls_vekta8	; Pufferzeiger initialisieren:
+	sta sc_texttab
+	lda #>charbuf	; Musterpuffer ($a000)
+	sta ls_vekta8+1
+	lda #$04		; Textscreen ($0400)
+	sta sc_texttab+1
+	
+l91b3	jsr action	; flimmern
+	ldy #$00
+	sty sc_pos+1
+	lda (sc_texttab),y	; Zeichennummer holen
+	sta sc_pos
+	asl sc_pos	; mal 8
+	rol sc_pos+1
+	asl sc_pos
+	rol sc_pos+1
+	asl sc_pos
+	rol sc_pos+1
+	clc
+	lda sc_pos+1	; plus Startadresse GoDot-Zeichensatz
+	adc #>(godset)
+	sta sc_pos+1	; gleich Zeiger aufs Bitmuster
+	
+	ldy #$07		; Bitmuster puffern
+l91d3	lda (sc_pos),y
+	sta (ls_vekta8),y
+	dey
+	bpl l91d3
+	clc
+	lda ls_vekta8
+	adc #$08
+	sta ls_vekta8
+	bcc l91e5
+	inc ls_vekta8+1
+l91e5	inc sc_texttab
+	bne l91eb
+	inc sc_texttab+1
+l91eb	inx
+	bne l91b3
+	
+	dec sc_merk	; zählen (4 Blöcke, 1024 Bytes)
+	bne l91b3
+	
+; ----------------------------------------------------- 
+
+	ldx #$04		; Zähler
+	stx sc_merk
+	
+	lda #$00		; Pufferzeiger initialisieren:
+	sta ls_vekta8
+	sta sc_texttab
+	tay
+	lda #>(crbuf)	; Farbpuffer (enthält $d800, oberes Nibble unwichtig)
+	sta ls_vekta8+1
+	lda #>(vrbuf)	; Textscreenpuffer
+	sta sc_texttab+1
+	
+l9205	lda (ls_vekta8),y	; Vordergrundfarbe isolieren (aus crbuf)
+	asl		; ins obere Nibble schieben
+	asl
+	asl
+	asl
+	ora col0		; mit Multi-Backgroundfarbe verknüpfen
+	sta (sc_texttab),y	; in vrbuf puffern
+	jsr action	; flimmern
+	iny
+	bne l9205
+	inc ls_vekta8+1	; Zeiger weiterrücken
+	inc sc_texttab+1
+	
+	dec sc_merk	; zählen (4 Blöcke, 1024 Bytes)
+	bne l9205
+	rts
+
+; ----------------------------------------------------- 
+; ----------------------------------------------------- 
+; ----------------------------------------------------- 
+
+reload	ldx #<(reldlst)
+	ldy #>(reldlst)
+	bne jmloop
+; ----------------------------------------------------- 
+noreu	ldx #<(warnlst)
+	ldy #>(warnlst)
+	bne jmloop
+; ----------------------------------------------------- 
+ssnap	ldx #<(snaplst)
+	ldy #>(snaplst)
+	bne jmloop
+; ----------------------------------------------------- 
+active	ldx #<(runlst)
+	ldy #>(runlst)
+jmloop	jmp gd_xmloop
+; ----------------------------------------------------- 
+reldlst	!byte 0
+	!byte 8,9,21,9,$81,0,0
+	!pet "message"
+	!byte 0
+	!byte 14,23,7,3,$cd,<(canc),>(canc)
+	!scr "Leave@"
+	!byte $c0,10,9,19
+	!scr "SnapShot corrupted.@"
+	!byte $c0,12,11,14
+	!scr "Please reload.@"
+	!byte $80
+; ----------------------------------------------------- 
+warnlst	!byte 0
+	!byte 8,9,21,9,$81,0,0
+	!pet "message"
+	!byte 0
+	!byte 14,23,7,3,$cd,<(canc),>(canc)
+	!scr "Leave@"
+	!byte $c0,10,10,16
+	!scr "No REU detected.@"
+	!byte $c0,12,9,19
+	!scr "You can't snapshot.@"
+	!byte $80
+; ----------------------------------------------------- 
+snaplst	!byte 0
+	!byte 8,9,21,9,$81,0,0
+	!scr "Snapshot@"
+	!byte 14,23,7,3,$cd,<(canc),>(canc)
+	!scr "Leave@"
+	!byte $c0,10,9,19
+	!scr "Snapshot activated.@"
+	!byte $c0,11,11,14
+	!scr "Grab with C=g.@"
+	!byte $c0,12,9,19
+	!scr "Switch off with "
+	!byte 34,91,34,0		; "Linkspfeil"
+	!byte $80
+; ----------------------------------------------------- 
+runlst	!byte 0
+	!byte 8,9,21,9,$81,0,0
+	!pet "message"
+	!byte 0
+	!byte 14,23,7,3,$cd,<(canc),>(canc)
+	!scr "Leave@"
+	!byte $c0,10,10,16
+	!scr "Already running!@"
+	!byte $c0,11,11,14
+	!scr "Grab with C=g.@"
+	!byte $c0,12,9,19
+	!scr "Switch off with "
+	!byte 34,91,34,0		; "Linkspfeil"
+	!byte $80
+; ----------------------------------------------------- 
+dnib	!byte $00,$ff,$44,$cc,$55,$aa,$11,$dd
+	!byte $66,$22,$99,$33,$77,$ee,$88,$bb
+; ----------------------------------------------------- 
+tmerk	!word $eb48
+
+; ----------------------------------------- Image Info
+
+	picname=$1fa8
+	iloader=picname+$16
+	imode=picname+$22
+	idrive=picname+$2e
+;
+snapname	!scr "GoDot Snapshot"
+	!byte 0
+
+getname	ldx #0
+si0	lda snapname,x
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+;
+getdatac	ldx #4
+	!byte $2c
+getdatag	ldx #9
+	ldy #4
+sinfo0	lda dtextc,x
+	sta datatype,y
+	dex
+	dey
+	bpl sinfo0
+	rts
+;
+setinfo	jsr getdatac
+	jsr setname
+	jsr setloader
+	jsr setmode
+	jmp setdata
+;
+setname	lda #0
+	ldx #<(picname)
+	ldy #>(picname)
+	bne si3
+setloader	lda #17
+	ldx #<(iloader)
+	ldy #>(iloader)
+	bne si3
+setmode	lda #25
+	ldx #<(imode)
+	ldy #>(imode)
+	bne si3
+setdata	lda #33
+	ldx #<(idrive)
+	ldy #>(idrive)
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4 	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+;
+nbuf	!fill 16,32	; 16 Bytes Puffer für "Filenamen" ("GoDot Snapshot")
+	!byte 0
+	!scr "Snap   @"	; loader "SnapShot"
+modetx	!scr "320x200@"	; resolution "Hires"
+datatype	!scr "Color@"	; datatype "Color"
+
+htext	!scr "320x200"
+mtext	!scr "160x200"
+dtextc	!scr "Color"
+dtextg	!scr "Gray "
+
+; ----------------------------------------------------- 
+; ----------------------------------------------------- Hook Routines for $0220
+; ----------------------------------------------------- 
+
+; ----------------------------------------------------- Data Records for Swap in Hook at $021a
+
+w1	!word swpfile	; REU-Adresse (wo das Swapfile "Snapshot" liegt)
+	!byte 0		; Bank in REU
+
+	!word 0		; Standardwerte (Adresse $0000 in Bank 0)
+	!byte 0
+
+; ----------------------------------------------------- Hook at $220
+
+routine	sei
+	jsr chktast	; ROM-Routine Tastaturcheck Shift/CTRL/C=
+	lda rm_swapw+6	; ist RAM-Execute im Gang?
+	cmp #$10
+	bne donot		; ja, nichts tun, Execute aktiv
+	jsr snapon	; SnapShot einblenden
+	jsr gd_swapd
+	jsr snapit	; ja, dann Screen grabben
+	jsr snapoff	; SnapShot wieder ausblenden
+donot	ldx #1
+	clc
+	rts
+
+; ----------------------------------------------------- Snapon/Snapoff in Hook
+
+csnapoff	jsr gd_swapd
+	ldx #5
+	!byte $2c
+csnapon	ldx #2
+	ldy #2
+l1	lda werte,x	; werte = w1 ($21a, nicht vergessen bei den Zuweisungen!)
+	sta rm_swapw+2,y
+	dex
+	dey
+	bpl l1
+	rts
+
+; ----------------------------------------------------- 
+; ----------------------------------------------------- RAM Install Routines for ldr.SnapShot
+; ----------------------------------------------------- 
+
+snapstash	ldx #(modend-instsnap-1)	; Routine nach Global
+ss3	lda instsnap,x		; creates System file "Snapshot" in REU
+	sta sy_global,x
+	dex
+	cpx #$ff
+	bne ss3
+ss2	inx		; write filename to buffer ("Snapshot")
+	lda modul+10,x
+	sta ls_nambuf,x
+	cpx #8
+	bmi ss2
+	lda #0		; terminate
+	sta ls_nambuf,x
+	stx rm_rlen	; set length of filename to 8
+	jmp sy_global
+
+; ----------------------------------------------------- 
+
+instsnap	jsr gd_swapd	; - dir area einblenden
+	lda rm_nextram	; aktuelle Position im RAM merken
+	pha
+
+	lda #3		; System File suchen ab Entry 4 (Type: $F0)
+	sta sc_merk
+
+ss1	ldy #0
+	inc sc_merk	; zählt von 4 bis 140 (letztmöglicher Directory-Eintrag)
+	ldx #0
+	lda sc_merk
+	jsr smal19
+	lda (entry),y	; Type und Bank isolieren
+	sta sc_merk+1
+	and #$f0		; Type
+	cmp #$f0		; System?
+	bne ss4		; nein, weitersuchen
+
+	ldy #3		; ja, ist gesuchter Eintrag? ("Snapshot")
+ss6	lda ls_nambuf,x	; .x ist 0 beim ersten Mal
+	beq ss5		; ja, alle Buchstaben gleich, am Terminator angekommen
+	cmp (entry),y	; "Snapshot"?
+	bne ss1		; nein, nächsten Entry suchen
+	iny		; sonst: weiter vergleichen
+	inx
+	bne ss6		; (unbedingter Sprung)
+
+ss5	pla		; alte RAM-Position rekonstruieren
+	sta rm_nextram
+	ldy #0
+	lda sc_merk+1	; System File "Snapshot" gefunden, dann:
+	and #$0f		; Bank merken
+	pha
+	iny		; Offset merken
+	lda (entry),y	; lo
+	pha
+	iny
+	lda (entry),y	; hi
+	pha
+	jsr gd_swapd	; - Modul wieder einblenden
+	bne ss7		; Abschluss
+
+ss4	cmp #$c0		; Ende des Directory?
+	bne ss1		; nein, weitersuchen nach Type $f0
+
+	pla		; alte RAM-Position rekonstruieren
+	sta rm_nextram
+	lda modul+3	; Suche erfolglos, dann neu anlegen: bank of nextentry
+	pha		; merken
+	lda modul+1	; address of nextentry lo
+	pha		; merken
+	lda modul+2	; hi
+	pha		; merken
+
+	ldy #$f0		; filetype: system file
+	ldx #6		; function #6, Install to REU (Init nicht erforderlich, da bereits vorhanden)
+	jsr rm_ramvec	; execute (dir area ist danach ausgeblendet)
+
+ss7	pla		; 
+	sta werte+1	; offset hi
+	pla
+	sta werte		; lo
+ss8	pla
+	sta werte+2	; und bank
+
+	rts		; finished, back to JSR SNAPSTASH
+
+; -------------------------------------- Multiply .a with 19
+
+mal19       sta entry
+            sta hold
+            stx entry+1
+            stx hold+1
+            beq m2
+            asl hold
+            rol hold+1
+            clc
+            lda hold
+            adc entry
+            sta entry
+            bcc m1
+            inc entry+1
+m1          asl hold
+            rol hold+1
+            asl hold
+            rol hold+1
+            asl hold
+            rol hold+1
+            clc
+            lda entry
+            adc hold
+            sta entry
+            lda entry+1
+            adc hold+1
+m2          ora #$c0
+            sta entry+1
+            rts
+
+; ----------------------------------------------------- 
+modend	!eof

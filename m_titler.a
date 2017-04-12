@@ -1,0 +1,237 @@
+
+!src "..\godotlib.lib"
+*	= $c000
+
+; ----------------------------------------- 
+
+	chkout	= $ffc9
+	bsout	= $ffd2
+	clrch	= $ffcc
+	close	= $ffc3
+	buffer	= $0200
+	filpar	= $ffba
+	filnam	= $ffbd
+	drive	= $0fa8
+	copen	= $ffc0
+	sendcom	= $1488
+	testdel	= $145e
+	err2	= $0fb5
+	vekt20	= $20
+	zl	= $22
+	sp	= zl+1
+	br	= sp+1
+	ho	= br+1
+	loop	= $a6
+	temp	= loop+1
+	sysdrive	= $03fa
+	bootdrive	= $02ac
+	nr	= $aa
+	cnter	= $30
+	bitcnt	= $ac
+	count1	= bitcnt+1
+	pattern	= $0f00
+	ptemp	= $0ef8
+	screenvek	= $0f88
+	movetab	= $0fd8
+	chgcol	= $0338
+	merk	= $b0
+	screentab	= $ab
+	texttab	= $ae
+	taste	= $c6
+	redisp	= $0fbd
+	initmove	= $1090
+	fi0	= $1114
+	bl4	= $1108
+	fi1	= $111b
+	screen	= $11e0
+	setpos	= $11cc
+	trim	= $1324
+	fcol	= $110c
+	invert	= $1125
+	savescvek	= $143f
+	evntsuch	= $12ad
+	eloop	= $1423
+	screen	= $11e0
+	scvek2	= $0f93
+	event	= $0f8a
+	scc5	= $1461
+	adr	= $b2
+	xloadm	= $1476
+	swap4k	= $1470
+	basin	= $ffcf
+	open	= $1458
+	gd1	= $145b
+	flen	= $0fb9
+	loadsave	= $1f
+	lsm0	= $194a
+;
+; ----------------------------------------- 
+
+header	jmp start
+	!by $20
+	!by 0
+	!by 1
+	!wo modend
+	!wo 0
+	!pet "Titler          "
+	!pet "0.99"
+	!pet "28.02.94"
+	!pet "A.Dettke/W.Kling"
+;
+; ----------------------------------------- 
+
+list	!by 0,0
+;
+; ----------------------------------------- 
+
+start	jsr savescvek
+	ldx scvek2
+	ldy scvek2+1
+	stx list
+	sty list+1
+	jsr swppat
+sta0	lda #0
+	sta mode
+	sta taste
+	ldx #<(tlist)
+	ldy #>(tlist)
+	jsr screen
+	jsr eloop
+	php 
+	jsr swppat
+	ldx list
+	ldy list+1
+	stx scvek2
+	sty scvek2+1
+	plp 
+	rts 
+;
+; ----------------------------------------- 
+
+swppat	ldx #63
+swp0	lda ptemp,x
+	pha 
+	lda signs,x
+	sta ptemp,x
+	pla 
+	sta signs,x
+	dex 
+	bpl swp0
+
+; ----------------------------------------- 
+
+dummy	clc 
+	rts 
+;
+; ----------------------------------------- 
+
+canc	sec 
+	rts 
+;
+; ----------------------------------------- 
+
+signs	!by 0,58,70,78,64,64,60,0
+	!by $07,$72,$da,$fa,$da,$da,$02,$07
+	!by $00,$70,$d8,$f8,$d8,$df,$00,$00
+	!by $00,$1e,$1b,$1e,$5b,$de,$40,$00
+	!by $3f,$00,$0f,$00,$3f,$00,$0f,$00
+	!by $ff,$00,$ff,$00,$ff,$00,$ff,$00
+	!by $fc,$00,$f0,$00,$fc,$00,$f0,$00
+	!by $00,$00,$00,$00,$00,$ff,$00,$00
+;
+mode	!by 0
+
+; ----------------------------------------- 
+
+tlist	!by $93
+	!by 0,0,40,13,$00,0,0
+	!by 8,0,40,3,$c9,<(dummy),>(dummy)
+inputtxt	!fill 13,32
+	!scr "GoDot Titler"
+	!fill 13,32
+	!by 0
+	!by 0,0,20,8,$04,0,0
+	!by 1,7,3,3,$c0,<(dummy),>(dummy)
+	!by 60,0
+	!by 1,10,6,3,$e0,<(dummy),>(dummy)
+	!scr "   0@"
+	!by 1,16,3,3,$c0,<(dummy),>(dummy)
+	!by 62,0
+	!by 4,7,3,3,$c0,<(dummy),>(dummy)
+	!by 60,0
+	!by 4,10,6,3,$e0,<(dummy),>(dummy)
+	!scr "   0@"
+	!by 4,16,3,3,$c0,<(dummy),>(dummy)
+	!by 62,0
+	!by 4,2,5,3,$c0,<(dummy),>(dummy)
+	!scr "Get@"
+
+	!by 0,20,20,8,$86,0,0
+	!scr "Alignment@"
+	!by 2,22,4,5,$f0,<(dummy),>(dummy)
+	!by 228,229,0
+	!by 2,26,4,5,$d0,<(dummy),>(dummy)
+	!by 227,229,0
+	!by 2,30,4,5,$d0,<(dummy),>(dummy)
+	!by 227,228,0
+	!by 2,34,4,5,$d0,<(dummy),>(dummy)
+	!by 228,228,0
+
+	!by 11,0,20,11,$01,0,0
+	!by 12,6,14,3,$cf,<(dummy),>(dummy)
+	!scr "  Sys Font  @"
+	!by 19,0,5,3,$c7,<(dummy),>(dummy)
+	!scr "Sys@"
+	!by 15,12,8,7,$0d,0,0
+	!by 19,5,7,3,$cc,<(dummy),>(dummy)
+	!scr "  *  @"
+
+	!by 11,20,20,8,$01,0,0
+	!by 11,30,10,3,$c6,<(dummy),>(dummy)
+	!by 223
+	!scr " Color @"
+	!by 13,30,10,3,$cf,<(dummy),>(dummy)
+	!by 223
+	!scr " Normal@"
+	!by 16,26,4,3,$cc,<(dummy),>(dummy)
+	!scr "15@"
+	!by 16,35,5,3,$cd,<(dummy),>(dummy)
+	!scr "  0@"
+	!by 19,20,12,3,$c2,<(dummy),>(dummy)
+	!scr "Apply Text@"
+	!by 19,32,8,3,$c2,<(canc),>(canc)
+	!scr "Cancel@"
+	!by 22,0,40,3,$02,0,0
+
+	!by $c0,1,0,6
+	!scr "Margin@"
+	!by $c0,4,0,1
+	!scr "y@"
+	!by $c0,3,22,2,228,229,0
+	!by $c0,4,22,2,228,229,0
+	!by $c0,3,26,2,227,229,0
+	!by $c0,4,26,2,227,229,0
+	!by $c0,3,30,2,227,228,0
+	!by $c0,4,30,2,227,228,0
+	!by $c0,3,34,2,228,228,0
+	!by $c0,4,34,2,228,228,0
+	!by $c0,12,0,5
+	!scr "Font:@"
+	!by $c0,11,20,9
+	!scr "Textmode:@"
+	!by $c0,13,20,9
+	!scr "Textsize:@"
+	!by $c0,16,20,5
+	!scr "Color@"
+	!by $c0,16,29,5
+	!scr "Shade@"
+	!by $c0,15,6,5,224,58
+	!scr "  0@"
+	!by $c0,16,5,6,230,225,58
+	!scr "  0@"
+	!by $c0,17,5,6,225,226,58
+	!scr "  0@"
+
+	!by $80
+
+modend	!eof 

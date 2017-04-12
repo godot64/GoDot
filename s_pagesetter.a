@@ -1,0 +1,701 @@
+;
+; ---------------------------
+;
+;    svr.Pagesetter
+;    Saver für Plus4 Pagesetter
+;    liefert Hires 440x720
+;
+;    1.00: 16.01.94, first release
+;    1.01: 14.10.16, bugfix: incorrect pack result on skip
+;
+; --------------------------- 
+
+!src "..\godotlib.lib"
+*		= $c000
+
+; --------------------------- Equates
+
+	dst		= $30
+	dst0		= $32
+	cnt		= $34
+	dbl		= $36
+	vertcnt		= $37
+	byte		= $39
+	bitcnt		= $3a
+	bcnt1		= $3b
+	src		= $3c
+	adcnt		= $3e
+	lcnt8		= $42
+	lcnt		= $43
+	offy		= $b3
+	offx		= $b2
+	src0		= $f7
+	hold		= $f9
+
+	oszi3		= $d40e
+	wave		= $d412
+	filter		= $d418
+	rausch		= $d41b
+;
+	destbuf		= $ca00
+	buf		= $cd00
+
+; --------------------------- 
+
+header	jmp start
+	!by $40
+	!by 0
+	!by 1
+	!wo modend
+	!wo 0
+	!pet "Pagesetter Plus4"
+	!pet "1.01"
+	!pet "16.10.16"
+	!pet "A.Dettke/W.Kling"
+;
+; --------------------------- Main
+
+start	ldx gr_nr
+	dex 
+	bne st0
+	jmp initinp
+;
+st0	lda #0
+	sta $d015
+	lda gd_modswitch
+	pha 
+	lda ls_flen
+	beq st1
+	sta wflen
+	lda #1
+	sta adcnt
+	jsr shrink
+	jsr wopen
+	bne st2
+	jsr getname
+	ldx #12
+	jsr ckout
+	ldx #0
+	stx byte
+	jsr gd_clrms
+	jsr write
+st2	jsr clrch
+	lda #12
+	jsr close
+	jsr err9
+	bne st1
+	jsr setname
+st1	pla 
+	sta gd_modswitch
+	lda #$03
+	sta $d015
+	sec 
+	rts 
+;
+; --------------------------- 
+; --------------------------- Input Routines
+
+!src "..\godotinput.inc"
+
+; --------------------------- 
+; --------------------------- 
+
+; --------------------------- Disk Access
+
+pw	!pet "w,p,"
+drinit	!pet "i0"
+wflen	!by 0
+;
+; --------------------------- 
+
+wopen	jsr inull
+	bne err8
+	ldy wflen
+	ldx #3
+wo1	lda pw,x
+	sta ls_nambuf,y
+	iny 
+	dex 
+	bpl wo1
+	sty wflen
+finally	lda #12
+	tay 
+	ldx ls_drive
+	jsr filpar
+	lda wflen
+	ldx #<(ls_nambuf)
+	ldy #>(ls_nambuf)
+	jsr filnam
+	jsr copen
+	jmp err9
+;
+inull	ldx #<(drinit)
+	ldy #>(drinit)
+	lda #2
+	jsr gd_sendcom
+err9	jsr gd_xmess
+	lda ls_err2
+	and #15
+err8	sec 
+	rts 
+;
+; --------------------------- Messages
+
+messout	ldx #<(message)
+	ldy #>(message)
+	jmp gd_xtxout2
+;
+tcopy	ldy #0
+tc0	lda txt,x
+	beq clrmess
+	sta message,y
+	inx 
+	iny 
+	bne tc0
+;
+action	dec adcnt
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts 
+;
+clrmess	ldx #20
+	lda #32
+cl0	sta mess,x
+	dex 
+	bpl cl0
+	ldy #0
+	ldx #7
+	sty offy
+	stx offx
+	rts 
+;
+filltab	!by 160,93,103,127,126,124,105,109
+;
+cntwert	!by 4
+;
+txt	!by $20,$53,$08,$12,$09,$0e,$0b,$09,$0e,$07,0
+	!by $20,$50,$53,$05,$14,$14,$05,$12,$20,$20,0
+;
+message	!fill 11,32
+mess	!fill 21,32
+	!by 0
+;
+; --------------------------- Image Information
+
+	picname		= $1fa8
+	iloader		=picname+$16
+	imode		=picname+$22
+	idrive		=picname+$2e
+;
+getname	ldx #0
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx 
+	cpx #16
+	bcc si0
+si1	rts 
+;
+setname	lda #0
+	ldx #<(picname)
+	ldy #>(picname)
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax 
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx 
+	iny 
+	bne si4
+si5	rts 
+;
+nbuf	!fill 16,32
+	!by 0
+;
+
+; --------------------------- Render Image to Disk
+
+write	jsr psheader	; Write Header
+
+	lda gr_dither	; Set dither mode
+	tax 
+	lda dlo,x
+	sta dmode
+	lda dhi,x
+	sta dmode+1
+	lda #$80
+	sta filter
+	sta oszi3
+	sta oszi3+1
+	lda #0
+	sta wave
+	lda #$81
+	sta wave
+
+	jsr psetgb	; Write File
+	sec 		; finished, Leave saver
+	rts 
+;
+; --------------------------- Render
+
+psetgb	lda #<($b800)
+	ldx #>($b800)
+	sta src0
+	sta src
+	stx src0+1
+	stx src+1
+	lda #0
+	sta dbl
+	sta vertcnt
+	jsr skoben	; Skip oben (5 Blockzeilen)
+	jsr sklinks	; Skip links (2 Kacheln)
+
+	lda #80		; dann 400 Pixel breit
+	sta lcnt8
+
+lnloop8	lda #0
+	sta lcnt
+	sta second
+;
+lnloop	jsr action
+ads0	ldx #0
+zloop	ldy #1
+	sty bcnt1
+	dey 
+	sty ymerk
+byloop	lda #$c0
+	sta bitcnt
+	lda #0
+	sta byte
+	ldy #4
+	sty makeloop
+btloop	ldy ymerk
+	lda srcoffs,y
+	tay 
+	lda (src),y
+	ldy second
+	bne ll0
+	lsr 
+	lsr 
+	lsr 
+	lsr 
+ll0	and #15
+	tay 
+	lda gr_btab,y
+	jsr makebyte
+	inc ymerk
+	lsr bitcnt
+	lsr bitcnt
+	dec makeloop
+	bne btloop
+;
+	sta buf,x
+	inx 
+	dec bcnt1
+	bpl byloop
+	lda src+1
+	sec 
+	sbc #5
+	sta src+1
+s4	cpx #50
+	bne zloop
+
+	jsr moveline
+
+	ldx vertcnt
+	inx 
+	cpx #8
+	bne s41
+	ldx #0
+s41	stx vertcnt
+	lda dbl
+	eor #$ff
+	sta dbl
+	beq newline
+	lda src0
+	sta src
+	lda src0+1
+	sta src+1
+	bne ads0
+newline	lda second
+	eor #$ff
+	sta second
+	bne s5
+	inc src0
+	bne s5
+	inc src0+1
+s5	lda src0+1
+	sta src+1
+	lda src0
+	sta src
+	inc lcnt
+	lda #8
+	cmp lcnt
+	beq s51
+	jmp lnloop
+
+s51	lda src0
+	clc 
+	adc #28
+	sta src0
+	sta src
+	bcc s52
+	inc src0+1
+	inc src+1
+s52	dec lcnt8
+	beq done
+	jmp lnloop8
+
+done	lda runten	; Skip unten
+	jmp skunten
+;
+; --------------------------- 
+
+makebyte	jmp (dmode)
+putout	jmp (out)
+;
+; --------------------------- Dither Routines
+
+dithoff	cmp #8
+	bpl do0
+	lda #0
+	!by $2c
+do0	lda bitcnt
+	ora byte
+	sta byte
+	rts 
+;
+dithrst	ldy vertcnt
+	ora offs,y
+	tay 
+	lda gr_orderedpat,y
+	and bitcnt
+	ora byte
+	sta byte
+	rts 
+;
+dithpat	asl 
+	asl 
+	asl 
+	ora vertcnt
+	tay 
+	lda gr_pattern,y
+	and bitcnt
+	ora byte
+	sta byte
+	rts 
+;
+dithnoi	beq dn0
+	cmp #15
+	beq dn1
+	ldy #0
+	sta hold
+	lda rausch
+	and #$0f
+	cmp hold
+	bcs dn3
+	ldy #$aa
+dn3	lda rausch
+	and #$0f
+	cmp hold
+	tya 
+	bcs dn2
+	ora #$55
+dn2	!by $2c
+dn1	lda #$ff
+	and bitcnt
+dn0	ora byte
+	sta byte
+	rts 
+;
+dithrnd	cmp #8
+	beq dr0
+	bcs dr1
+	bcc dr2
+dr0	lda rausch
+	!by $2c
+dr1	lda bitcnt
+	and bitcnt
+	!by $2c
+dr2	lda #0
+	ora byte
+	sta byte
+ml4	rts 
+;
+; --------------------------- Gather block line
+
+moveline	lda vertcnt
+	bne ml0
+	lda #<(destbuf)
+	ldy #>(destbuf)
+	sta dst0
+	sty dst0+1
+	bne ml2
+ml0	inc dst0
+ml2	lda dst0
+	ldy dst0+1
+	sta dst
+	sty dst+1
+	ldy #0
+	ldx #0
+mloop	lda buf,x
+	sta (dst),y
+	lda dst
+	clc 
+	adc #8
+	sta dst
+	bcc ml3
+	inc dst+1
+ml3	inx 
+	cpx #50
+	bne mloop
+	ldy vertcnt
+	cpy #7
+	bne ml4
+;
+	ldx lcnt90
+	beq ml4
+	jsr writeloop
+
+	ldx rrechts	; Skip rechts (3 Kacheln), außer beim letzten Mal
+	jsr skrechts
+
+	dec lcnt90
+	beq ml4
+	jmp sklinks	; und gleich Skip links (2 Kacheln), außer beim letzten Mal
+;
+; --------------------------- Write File
+
+writeloop	ldx #5
+	lda #<(destbuf)
+	ldy #>(destbuf)
+	sta dst0
+	sty dst0+1
+	ldy #0
+	sty cnt
+	sty cnt+1
+	sty byte
+wloop	lda (dst0),y
+	jsr pack
+	iny 
+	cpy #80
+	bne wloop
+	clc 
+	lda dst0
+	adc #80
+	sta dst0
+	bcc wl5
+	inc dst0+1
+wl5	ldy #0
+	dex 
+	bne wloop
+
+	lda byte
+	eor #$ff
+;
+; --------------------------- Compress
+
+pack	cmp byte
+	bne writeit
+	jmp incr
+;
+writeit	cmp #$22
+	bne wl7
+	lda #$26
+
+wl7	pha 
+	lda cnt+1
+	beq wl4
+
+wl6	jsr cnt3
+	lda #$dd
+	jsr putout
+	lda #0
+	jsr putout
+	lda byte
+	eor #$ff
+	jsr putout
+	dec cnt+1
+	bne wl6
+
+wl4	lda cnt
+	beq wl1
+	cmp #4
+	bcc wl2
+
+wl0	jsr cnt2
+	lda #$dd
+	jsr putout
+	lda cnt
+	jsr putout
+	lda #1
+	sta cnt
+	lda #0
+	sta cnt+1
+
+wl2	lda byte
+	eor #$ff
+	jsr putout
+	jsr cnt1
+	dec cnt
+	bne wl2
+	lda cnt+1
+	beq wl1
+	dec cnt+1
+	jmp wl2
+;
+wl1	pla 
+	sta byte
+incr	inc cnt
+	bne wl3
+	inc cnt+1
+wl3	rts 
+;
+; --------------------------- 
+
+offs	!by $00,$10,$20,$30
+	!by $00,$10,$20,$30
+;
+dlo	!by <(dithoff)
+	!by <(dithrst)
+	!by <(dithpat)
+	!by <(dithnoi)
+	!by <(dithrnd)
+;
+dhi	!by >(dithoff)
+	!by >(dithrst)
+	!by >(dithpat)
+	!by >(dithnoi)
+	!by >(dithrnd)
+;
+; --------------------------- 
+
+dmode	!by 0,0
+out	!by 0,0
+;
+; --------------------------- 
+
+shrink	lda #<(noput)
+	sta out
+	lda #>(noput)
+	sta out+1
+	jsr gd_clrms
+	ldx #0
+	stx pshead
+	stx pshead+1
+	jsr tcopy
+	lda #$50
+	sta lcnt90
+	jsr write
+	ldx #11
+	jsr tcopy
+	lda #<(bsout)
+	sta out
+	lda #>(bsout)
+	sta out+1
+	clc 
+	lda #$50
+	sta lcnt90
+	adc pshead+1
+	sta pshead+1
+	lda pshead
+	adc #$5f
+	sta pshead
+noput	rts 
+;
+; --------------------------- Skip
+
+skoben	lda roben		; 5 Zeilen
+skunten	beq skw0		; Entry mit .a=5 (runten)
+	ldx #55		; zu 55 Kacheln
+	bne skw1
+
+sklinks	ldx rlinks	; 2 Spalten
+
+skrechts	beq skw0		; Entry mit .x=3 (rrechts)
+	lda #1		; in einer Zeile
+
+skw1	ldy #0
+	sty cnt
+	sty cnt+1
+	sty byte		; $00 ist Vergleichsbyte
+	sta cntlin	; Zeilen zählen
+	stx cntblk	; Kacheln zählen
+
+skw2	ldx cntblk
+	jsr wblocks	; $ff wird geschrieben
+	dec cntlin
+	bne skw2
+
+	lda byte
+	eor #$ff
+	jmp pack
+;
+; --------------------------- Skipblocks schreiben
+
+wblocks	ldy #8
+skw3	lda #$ff
+	jsr pack
+	dey 
+	bne skw3
+	dex 
+	bne wblocks
+skw0	rts 
+;
+; --------------------------- Header auf Disk schreiben
+
+psheader	ldx #3
+hd0	lda pshead,x
+	jsr putout
+	dex 
+	bpl hd0
+	rts 
+;
+; --------------------------- Compute End of File
+
+cnt3	jsr cnt1
+cnt2	jsr cnt1
+cnt1	inc pshead+1
+	bne ccc0
+	inc pshead
+ccc0	rts 
+;
+; --------------------------- Header rückwärts
+
+pshead	!by $ff,$ff,$5e,$fe
+
+; --------------------------- 
+
+makeloop	!by 0
+ymerk	!by 0
+second	!by 0
+;
+cntlin	!by 0
+cntblk	!by 0
+
+; --------------------------- 
+
+roben	!by 5		; Skip oben, 5 Blockzeilen
+rlinks	!by 2		; Skip links, 2 Spalten
+runten	!by 5		; Skip unten, 5 Blockzeilen
+rrechts	!by 3		; Skip rechts, 3 Spalten
+lcnt90	!by 80		; Kachelzähler
+;
+srcoffs	!by $1c,$18,$14,$10,$0c,$08,$04,$00
+;
+; --------------------------- 
+
+modend	!eof 

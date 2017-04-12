@@ -1,0 +1,1771 @@
+
+!src "..\godotlib.lib"
+*= $c000
+
+; ----------------------------------------- 
+; ldr.PasteSprite
+;     Loader for sprites
+;
+; 1.00: ?
+; 1.01: ?
+; 1.02: 06.01.99, ?
+;
+; by Martin Bohnet
+; 
+; ----------------------------------------- 
+
+; ----------------------------------------- Equates
+
+	status		= $90
+
+	sprpntr0		= $07f8
+	sprpntr2		= $07fa
+	endexec		= $1438
+
+	sprite255		= $3fc0
+	sbuf255		= $bdc0
+
+	sprx0		= $d000
+	spry0		= $d001
+	sprx2		= $d004
+	spry2		= $d005
+	
+	graphon		= $d011
+	sprenable		= $d015
+	grmode		= $d016
+	spryexpand	= $d017
+	graph		= $d018
+	sprmulti		= $d01c
+	sprxexpand	= $d01d
+	bordercol		= $d020
+	background	= $d021
+	sprcol01		= $d025
+	sprcol11		= $d026
+	sprcol10_0	= $d027
+	sprcol10_2	= $d029
+
+; ----------------------------------------- 
+
+header	jmp start
+	.by $80
+	.by 0
+	.by 1
+	.wo modend
+	.wo 0
+	.tx "Paste Sprite    "
+	.tx "1.02"
+	.tx "06.01.99"
+	.tx "Martin Bohnet   "
+;
+; ----------------------------------------- Start
+
+start	lda gd_modswitch
+	sta storems
+
+restart	ldx #1
+	stx one
+	inx
+	inx
+	stx two
+
+	ldx #7		; create Kringel
+st1	lda kringel,x
+	sta sc_undochar-1,x
+	dex
+	bpl st1
+
+	lda ls_flen	; file selected?
+	beq st0
+
+	jsr main		; yes, retrieve
+
+st0	lda storems
+	sta gd_modswitch
+	lda #1
+	sta gr_redisp
+	sec
+	rts
+
+; ----------------------------------------- Main
+
+main	jsr gd_xopen
+	jsr readbytes	; skip load address
+	bcs mn0		; Fehler?
+	jsr getsprite	; nein, load sprite to $3fc0
+mn0	ldx #15
+mn1	lda ls_nambuf,x	; store filename
+	sta filename,x	; $cb16
+	dex
+	bpl mn1
+	jsr gd_xclose
+
+	lda #7
+	sta sprenable
+	lda #255
+	sta sprpntr2
+	lda #40
+	sta sprx2
+	lda #66
+	sta spry2
+	lda spritehi
+	and #$fb		; Sprite 2 xhi aus
+	sta spritehi
+	lda #0
+	sta sprmulti
+
+	lda multi		; 0 bei Start
+	bmi mn2
+	lda #4
+	sta sprmulti
+mn2	lda #0		; normal großes Sprite
+	sta spryexpand
+	sta sprxexpand
+
+	ldy #16		; convert filename to screencode
+mn5	lda ls_nambuf-1,y
+	cmp #$60
+	bcc mn3
+	sbc #$20
+	jmp mn4
+mn3	cmp #$40
+	bcc mn4
+	sbc #$40
+mn4	sta fname,y	; in Screenlist eintragen
+	dey
+	bne mn5
+
+	ldx #<psprlst	; Screenlist ausgeben
+	ldy #>psprlst
+	jsr gd_screen
+
+	lda scol01
+	sta sprcol01
+	sta $d9fa		; in den Screen!
+	lda scol10
+	sta sprcol10_2
+	sta $da72		; dito!
+	lda scol11
+	sta sprcol11
+	sta $d982		; und nochmal!
+
+	jsr gd_xmess	; Floppymeldung
+	lda #<endexec
+	sta $01f1		; $1438 in den Stack!
+	lda #>endexec	; (Rücksprung nach Exec)
+	sta $01f2
+	jmp gd_eloop	; warten...
+	
+; ----------------------------------------- Set 21/24
+
+evp2coor	jsr p2coor	; paste to coords
+	clc
+	rts
+
+evset21dn	jsr set21dn	; set 21 down
+	clc
+	rts
+
+evset21up	jsr set21up	; set 21 up
+	clc
+	rts
+
+evset24rt	jsr set24rt	; set 24 right
+	clc
+	rts
+
+evset24lt	jsr set24lt	; set 24 left
+	clc
+	rts
+
+; -----------------------------------------
+
+pc1	lda #<sprite255
+	sta ls_adrmisc
+	lda #>sprite255
+	sta ls_adrmisc+1
+	jsr stores255
+	ldx scol10
+	jsr split
+	jsr $c172
+	rts
+
+; ----------------------------------------- paste to coords
+
+p2coor	lda multi
+	bmi pc1
+
+	jsr $c4f8
+	jsr $c503
+	lda #<sy_bigbuffer
+	sta ls_adrmisc
+	lda #>sy_bigbuffer
+	sta ls_adrmisc+1
+	jsr $c4bd
+	ldx scol01
+	jsr split10
+	jsr $c172
+	lda #<(sy_bigbuffer+64)
+	sta ls_adrmisc
+	lda #>(sy_bigbuffer+64)
+	sta ls_adrmisc+1
+	jsr $c4bd
+	ldx scol10
+	jsr split10
+	jsr $c172
+	lda #<(sy_bigbuffer+128)
+	sta ls_adrmisc
+	lda #>(sy_bigbuffer+128)
+	sta ls_adrmisc+1
+	jsr $c4bd
+	ldx scol11
+	jsr split10
+	jsr $c172
+	rts
+
+; -----------------------------------------
+
+.c:c172   a9 00      lda #$00
+.c:c174   8d 2b c9   sta $c92b
+.c:c177   a9 04      lda #$04
+.c:c179   8d 23 c9   sta $c923
+.c:c17c   a9 08      lda #$08
+.c:c17e   8d 24 c9   sta $c924
+.c:c181   a9 40      lda #$40
+.c:c183   85 b3      sta ls_adrmisc+1
+.c:c185   a9 00      lda #$00
+.c:c187   8d 27 cb   sta $cb27
+.c:c18a   ad 29 cb   lda $cb29
+.c:c18d   29 07      and #$07
+.c:c18f   a8         tay
+.c:c190   f0 06      beq $c198
+.c:c192   20 e1 c4   jsr $c4e1
+.c:c195   88         dey
+.c:c196   d0 fa      bne $c192
+.c:c198   ad 29 cb   lda $cb29
+.c:c19b   29 f8      and #$f8
+.c:c19d   0a         asl a
+.c:c19e   2e 27 cb   rol $cb27
+.c:c1a1   0a         asl a
+.c:c1a2   2e 27 cb   rol $cb27
+.c:c1a5   85 b2      sta ls_adrmisc
+.c:c1a7   18         clc
+.c:c1a8   a5 b3      lda ls_adrmisc+1
+.c:c1aa   6d 27 cb   adc $cb27
+.c:c1ad   85 b3      sta ls_adrmisc+1
+.c:c1af   ad 2a cb   lda $cb2a
+.c:c1b2   f0 07      beq $c1bb
+.c:c1b4   a5 b3      lda ls_adrmisc+1
+.c:c1b6   18         clc
+.c:c1b7   69 04      adc #$04
+.c:c1b9   85 b3      sta ls_adrmisc+1
+.c:c1bb   ad 2b cb   lda $cb2b
+.c:c1be   4a         lsr a
+.c:c1bf   4a         lsr a
+.c:c1c0   4a         lsr a
+.c:c1c1   aa         tax
+.c:c1c2   f0 0a      beq $c1ce
+.c:c1c4   18         clc
+.c:c1c5   a5 b3      lda ls_adrmisc+1
+.c:c1c7   69 05      adc #$05
+.c:c1c9   85 b3      sta ls_adrmisc+1
+.c:c1cb   ca         dex
+.c:c1cc   d0 f9      bne $c1c7
+.c:c1ce   ad 2b cb   lda $cb2b
+.c:c1d1   29 07      and #$07
+.c:c1d3   a8         tay
+.c:c1d4   f0 14      beq $c1ea
+.c:c1d6   18         clc
+.c:c1d7   a5 b2      lda ls_adrmisc
+.c:c1d9   69 04      adc #$04
+.c:c1db   85 b2      sta ls_adrmisc
+.c:c1dd   a5 b3      lda ls_adrmisc+1
+.c:c1df   69 00      adc #$00
+.c:c1e1   85 b3      sta ls_adrmisc+1
+.c:c1e3   ce 24 c9   dec $c924
+.c:c1e6   88         dey
+.c:c1e7   4c d4 c1   jmp $c1d4
+
+; -----------------------------------------
+
+.c:c1ea   a2 00      ldx #$00
+.c:c1ec   a9 00      lda #$00
+.c:c1ee   8d 29 c9   sta $c929
+.c:c1f1   bd c0 bd   lda sbuf255,x
+.c:c1f4   8e 28 c9   stx $c928
+.c:c1f7   8d 26 cb   sta $cb26
+.c:c1fa   0e 26 cb   asl $cb26
+.c:c1fd   90 03      bcc $c202
+.c:c1ff   20 6e c2   jsr $c26e
+.c:c202   2c 2b c9   bit $c92b
+.c:c205   10 06      bpl $c20d
+.c:c207   e6 b2      inc ls_adrmisc
+.c:c209   d0 02      bne $c20d
+.c:c20b   e6 b3      inc ls_adrmisc+1
+.c:c20d   ad 2b c9   lda $c92b
+.c:c210   49 ff      eor #$ff
+.c:c212   8d 2b c9   sta $c92b
+.c:c215   ee 29 c9   inc $c929
+.c:c218   ac 29 c9   ldy $c929
+.c:c21b   c0 08      cpy #$08
+.c:c21d   d0 db      bne $c1fa
+.c:c21f   ce 23 c9   dec $c923
+.c:c222   f0 1b      beq $c23f
+.c:c224   a5 b2      lda ls_adrmisc
+.c:c226   18         clc
+.c:c227   69 1c      adc #$1c
+.c:c229   85 b2      sta ls_adrmisc
+.c:c22b   a5 b3      lda ls_adrmisc+1
+.c:c22d   69 00      adc #$00
+.c:c22f   85 b3      sta ls_adrmisc+1
+
+.c:c231   ae 28 c9   ldx $c928
+.c:c234   e8         inx
+.c:c235   e0 54      cpx #$54
+.c:c237   d0 b3      bne $c1ec
+.c:c239   60         rts
+
+; ----------------------------------------- leave module
+
+evleave	jsr quit
+	sec
+	rts
+
+; -----------------------------------------
+
+.c:c23f   a9 04      lda #$04
+.c:c241   8d 23 c9   sta $c923
+.c:c244   ce 24 c9   dec $c924
+.c:c247   f0 10      beq $c259
+.c:c249   38         sec
+.c:c24a   a5 b2      lda ls_adrmisc
+.c:c24c   e9 60      sbc #$60
+.c:c24e   85 b2      sta ls_adrmisc
+.c:c250   a5 b3      lda ls_adrmisc+1
+.c:c252   e9 00      sbc #$00
+.c:c254   85 b3      sta ls_adrmisc+1
+.c:c256   4c 31 c2   jmp $c231
+
+; -----------------------------------------
+
+.c:c259   a9 08      lda #$08
+.c:c25b   8d 24 c9   sta $c924
+.c:c25e   18         clc
+.c:c25f   a5 b2      lda ls_adrmisc
+.c:c261   69 80      adc #$80
+.c:c263   85 b2      sta ls_adrmisc
+.c:c265   a5 b3      lda ls_adrmisc+1
+.c:c267   69 04      adc #$04
+.c:c269   85 b3      sta ls_adrmisc+1
+.c:c26b   4c 31 c2   jmp $c231
+.c:c26e   a0 00      ldy #$00
+.c:c270   b1 b2      lda (ls_adrmisc),y
+.c:c272   2c 2b c9   bit $c92b
+.c:c275   30 08      bmi $c27f
+.c:c277   29 0f      and #$0f
+.c:c279   0d 27 c9   ora scolo
+.c:c27c   91 b2      sta (ls_adrmisc),y
+.c:c27e   60         rts
+
+; -----------------------------------------
+
+.c:c27f   29 f0      and #$f0
+.c:c281   0d 26 c9   ora scolu
+.c:c284   91 b2      sta (ls_adrmisc),y
+.c:c286   60         rts
+
+; -----------------------------------------
+
+chgdrv	lda ls_sysdrive
+	ldx ls_bootdrive
+	sta ls_bootdrive
+	stx ls_sysdrive
+	rts
+
+; ----------------------------------------- quit
+
+quit	ldx #3
+	stx sprenable
+	ldx #1
+	stx sprcol10_2
+	dex
+	stx sprmulti
+	rts
+
+; ----------------------------------------- multicol 1
+
+evmulti1	ldx scol01
+	inx
+	cpx #16
+	bmi mt1
+	ldx #0
+mt1	stx scol01
+	stx sprcol01
+	stx $d9fa
+	clc
+	rts
+
+; ----------------------------------------- spritecolor
+
+evsprcol	ldx scol10
+	inx
+	cpx #16
+	bmi sc1
+	ldx #0
+sc1	stx scol10
+	stx sprcol10_2
+	stx $d982
+	clc
+	rts
+
+; ----------------------------------------- multicol 2
+
+evmulti2	ldx scol11
+	inx
+	cpx #16
+	bmi mt2
+	ldx #0
+mt2	stx scol11
+	stx sprcol11
+	stx $da72
+	clc
+	rts
+
+; -----------------------------------------
+
+.c:c2e2   ae 29 cb   ldx $cb29
+.c:c2e5   ca         dex
+.c:c2e6   e0 ff      cpx #$ff
+.c:c2e8   d0 2c      bne $c316
+.c:c2ea   ad 2a cb   lda $cb2a
+.c:c2ed   f0 06      beq $c2f5
+.c:c2ef   ce 2a cb   dec $cb2a
+.c:c2f2   4c 16 c3   jmp $c316
+
+.c:c2f5   a2 28      ldx #$28
+.c:c2f7   a9 01      lda #$01
+.c:c2f9   8d 2a cb   sta $cb2a
+.c:c2fc   4c 16 c3   jmp $c316
+
+.c:c2ff   ae 29 cb   ldx $cb29
+.c:c302   e8         inx
+.c:c303   d0 03      bne $c308
+.c:c305   ee 2a cb   inc $cb2a
+.c:c308   ad 2a cb   lda $cb2a
+.c:c30b   f0 09      beq $c316
+.c:c30d   e0 29      cpx #$29
+.c:c30f   90 05      bcc $c316
+.c:c311   a2 00      ldx #$00
+.c:c313   8e 2a cb   stx $cb2a
+.c:c316   8e 29 cb   stx $cb29
+.c:c319   ad 2a cb   lda $cb2a
+.c:c31c   f0 07      beq $c325
+.c:c31e   38         sec
+.c:c31f   ad 29 cb   lda $cb29
+.c:c322   e9 64      sbc #$64
+.c:c324   aa         tax
+.c:c325   20 ed c3   jsr $c3ed
+.c:c328   a0 03      ldy #$03
+.c:c32a   ad 2a cb   lda $cb2a
+.c:c32d   f0 03      beq $c332
+.c:c32f   ee 26 cb   inc $cb26
+.c:c332   b9 25 cb   lda $cb25,y
+.c:c335   99 b8 c9   sta $c9b8,y
+.c:c338   99 c1 05   sta $05c1,y
+.c:c33b   88         dey
+.c:c33c   d0 f4      bne $c332
+.c:c33e   60         rts
+
+; ----------------------------------------- column
+
+evcolumn	jsr $c69f
+	lda #0
+	sta $cb2a
+	ldx $cb27
+	beq cl1
+	dex
+	bne cl2
+	lda $cb26
+	cmp #64
+	bcs cl2
+	lda #1
+	sta $cb2a
+cl1 	lda $cb26
+	sta $cb29
+	jsr $c2ff
+	jsr $c2e2
+	clc
+	rts
+
+; -----------------------------------------
+
+cl2	lda #0
+	sta $cb2a
+	sta $cb29
+	jsr $c2e2
+	clc
+	rts
+
+; -----------------------------------------
+
+.c:c376   a9 30      lda #$30
+.c:c378   a0 03      ldy #$03
+.c:c37a   99 b8 c9   sta $c9b8,y
+.c:c37d   99 c1 05   sta $05c1,y
+.c:c380   88         dey
+.c:c381   d0 f7      bne $c37a
+.c:c383   8c 29 cb   sty $cb29
+.c:c386   8c 2a cb   sty $cb2a
+.c:c389   18         clc
+.c:c38a   60         rts
+
+; ----------------------------------------- row
+
+evrow	jsr $c69f
+	lda $cb27
+	bne rw1
+	lda $cb26
+	cmp #$b4
+	bcs rw1
+
+	sta $cb2b
+	dec $cb2b
+	jsr $c3ce
+	clc
+	rts
+
+; -----------------------------------------
+
+rw1	lda #0
+	sta $cb2b
+	jsr $c3c1
+	clc
+	rts
+
+; -----------------------------------------
+
+.c:c3af   a9 30      lda #$30
+.c:c3b1   a0 03      ldy #$03
+.c:c3b3   99 ad c9   sta $c9ad,y
+.c:c3b6   99 71 05   sta $0571,y
+.c:c3b9   88         dey
+.c:c3ba   d0 f7      bne $c3b3
+.c:c3bc   8c 2b cb   sty $cb2b
+.c:c3bf   18         clc
+.c:c3c0   60         rts
+
+; -----------------------------------------
+
+.c:c3c1   ae 2b cb   ldx $cb2b
+.c:c3c4   ca         dex
+.c:c3c5   e0 ff      cpx #$ff
+.c:c3c7   d0 0f      bne $c3d8
+
+.c:c3c9   a2 b3      ldx #ls_adrmisc+1
+.c:c3cb   4c d8 c3   jmp $c3d8
+
+.c:c3ce   ae 2b cb   ldx $cb2b
+.c:c3d1   e8         inx
+.c:c3d2   e0 b4      cpx #$b4
+.c:c3d4   90 02      bcc $c3d8
+.c:c3d6   a2 00      ldx #$00
+.c:c3d8   8e 2b cb   stx $cb2b
+.c:c3db   20 ed c3   jsr $c3ed
+.c:c3de   a0 03      ldy #$03
+.c:c3e0   b9 25 cb   lda $cb25,y
+.c:c3e3   99 ad c9   sta $c9ad,y
+.c:c3e6   99 71 05   sta $0571,y
+.c:c3e9   88         dey
+.c:c3ea   d0 f4      bne $c3e0
+.c:c3ec   60         rts
+
+; ----------------------------------------- ziffernanzeige
+
+.c:c3ed   a9 30      lda #$30           ; "0"
+.c:c3ef   8d 26 cb   sta $cb26          ; 100 er
+.c:c3f2   8d 27 cb   sta $cb27          ; 10  er
+.c:c3f5   8d 28 cb   sta $cb28          ; 1   er
+.c:c3f8   8a         txa
+.c:c3f9   38         sec
+.c:c3fa   e9 64      sbc #$64           ; minus 100
+.c:c3fc   90 07      bcc $c405
+.c:c3fe   aa         tax
+.c:c3ff   ee 26 cb   inc $cb26
+.c:c402   4c f9 c3   jmp $c3f9
+
+.c:c405   8a         txa
+.c:c406   38         sec
+.c:c407   e9 0a      sbc #$0a           ; minus 10
+.c:c409   90 07      bcc $c412
+.c:c40b   aa         tax
+.c:c40c   ee 27 cb   inc $cb27
+.c:c40f   4c 06 c4   jmp $c406
+
+.c:c412   8a         txa
+.c:c413   6d 28 cb   adc $cb28          ; rest
+.c:c416   8d 28 cb   sta $cb28
+.c:c419   60         rts
+
+; ----------------------------------------- set 24 right
+
+set24rt	lda #24
+	sta $c928
+sr1	jsr $c2ff
+	dec $c928
+	bne sr1
+	rts
+
+; ----------------------------------------- set 24 left
+
+set24lt	lda #24
+	sta $c928
+sl1	jsr $c2e2
+	dec $c928
+	bne sl1
+	rts
+
+; ----------------------------------------- set21 down
+
+set21dn   lda #21
+          sta $c928
+sd1       jsr $c3ce
+          dec $c928
+          bne sd1
+          rts
+
+; ----------------------------------------- set21 up
+
+set21up	lda #21
+	sta $c928
+su1	jsr $c3c1
+	dec $c928
+	bne su1
+	rts
+
+; ----------------------------------------- select sprite
+
+evnextspr	inc one		; next
+	jmp nspr0
+
+evprevspr	dec one		; previous
+	bne nspr0
+	lda #1
+	sta one
+
+nspr0	jsr $c8ef
+	jsr gd_xclose
+	jsr gd_xmess
+	lda $cb30
+	sta sprenable
+	clc
+	rts
+
+; ----------------------------------------- change mode
+
+evchmode	lda multi		; switch multi/hires
+	eor #$ff
+	sta multi
+	bmi cm0
+	lda sprmulti	; multi:
+	ora #4		; sprite umschalten
+	sta sprmulti
+	ldx #4
+cm1	lda $c932,x	; text anpassen
+	sta $c972,x
+	sta $06e3,x
+	dex
+	bpl cm1
+	clc
+	rts
+
+; -----------------------------------------
+
+cm0 	lda sprmulti	; hires: 
+	and #$fb		; sprite umschalten
+	sta sprmulti
+	ldx #4
+cm2	lda $c92d,x	; text anpassen
+	sta $c972,x
+	sta $06e3,x
+	dex
+	bpl cm2
+	clc
+	rts
+
+; ----------------------------------------- split
+
+.c:c4ad   bd 13 c9   lda dnibs64,x
+.c:c4b0   a8         tay
+.c:c4b1   29 0f      and #$0f
+.c:c4b3   8d 26 c9   sta scolu
+.c:c4b6   98         tya
+.c:c4b7   29 f0      and #$f0
+.c:c4b9   8d 27 c9   sta scolo
+.c:c4bc   60         rts
+
+; ----------------------------------------- Store Sprite 255
+
+stores255	ldx #0
+	ldy #0
+sts0	lda (ls_adrmisc),y
+	sta sbuf255,x		; 1
+	inx
+	iny
+	lda (ls_adrmisc),y
+	sta sbuf255,x		; 2
+	inx
+	iny
+	lda (ls_adrmisc),y
+	sta sbuf255,x		; 3
+	inx
+	lda #0			; nächstes vorher löschen
+	sta sbuf255,x
+	inx
+	iny
+	cpy #63
+	bne sts0
+	rts
+
+; -----------------------------------------
+
+.c:c4e1   a2 00      ldx #$00
+.c:c4e3   5e c0 bd   lsr sbuf255,x
+.c:c4e6   e8         inx
+.c:c4e7   7e c0 bd   ror sbuf255,x
+.c:c4ea   e8         inx
+.c:c4eb   7e c0 bd   ror sbuf255,x
+.c:c4ee   e8         inx
+.c:c4ef   7e c0 bd   ror sbuf255,x
+.c:c4f2   e8         inx
+.c:c4f3   e0 54      cpx #$54
+.c:c4f5   d0 ec      bne $c4e3
+.c:c4f7   60         rts
+
+; -----------------------------------------
+
+.c:c4f8   a9 00      lda #$00
+.c:c4fa   a2 c0      ldx #$c0
+.c:c4fc   9d ff bc   sta $bcff,x
+.c:c4ff   ca         dex
+.c:c500   d0 fa      bne $c4fc
+.c:c502   60         rts
+
+; -----------------------------------------
+
+.c:c503   a0 00      ldy #<sy_bigbuffer
+.c:c505   a9 bd      lda #>sy_bigbuffer
+.c:c507   85 b3      sta ls_adrmisc+1
+.c:c509   b9 c0 3f   lda sprite255,y
+.c:c50c   29 03      and #$03
+.c:c50e   f0 0a      beq $c51a
+.c:c510   aa         tax
+.c:c511   bd 36 c9   lda $c936,x
+.c:c514   85 b2      sta ls_adrmisc
+.c:c516   a9 03      lda #$03
+.c:c518   91 b2      sta (ls_adrmisc),y
+.c:c51a   b9 c0 3f   lda sprite255,y
+.c:c51d   4a         lsr a
+.c:c51e   4a         lsr a
+.c:c51f   8d 26 cb   sta $cb26
+.c:c522   29 03      and #$03
+.c:c524   f0 0c      beq $c532
+.c:c526   aa         tax
+.c:c527   bd 36 c9   lda $c936,x
+.c:c52a   85 b2      sta ls_adrmisc
+.c:c52c   b1 b2      lda (ls_adrmisc),y
+.c:c52e   09 0c      ora #$0c
+.c:c530   91 b2      sta (ls_adrmisc),y
+.c:c532   ad 26 cb   lda $cb26
+.c:c535   4a         lsr a
+.c:c536   4a         lsr a
+.c:c537   8d 26 cb   sta $cb26
+.c:c53a   29 03      and #$03
+.c:c53c   f0 0c      beq $c54a
+.c:c53e   aa         tax
+.c:c53f   bd 36 c9   lda $c936,x
+.c:c542   85 b2      sta ls_adrmisc
+.c:c544   b1 b2      lda (ls_adrmisc),y
+.c:c546   09 30      ora #$30
+.c:c548   91 b2      sta (ls_adrmisc),y
+.c:c54a   ad 26 cb   lda $cb26
+.c:c54d   4a         lsr a
+.c:c54e   4a         lsr a
+.c:c54f   29 03      and #$03
+.c:c551   f0 0c      beq $c55f
+.c:c553   aa         tax
+.c:c554   bd 36 c9   lda $c936,x
+.c:c557   85 b2      sta ls_adrmisc
+.c:c559   b1 b2      lda (ls_adrmisc),y
+.c:c55b   09 c0      ora #$c0
+.c:c55d   91 b2      sta (ls_adrmisc),y
+.c:c55f   c8         iny
+.c:c560   c0 3f      cpy #$3f
+.c:c562   d0 a5      bne $c509
+.c:c564   60         rts
+
+; ----------------------------------------- paste to screen
+
+evp2scrn	lda sprpntr0
+	pha
+	lda bordercol
+	pha
+	jsr $c5d1
+
+ps0 	jsr $c659
+	bcc ps1
+
+	jsr $c677
+	jsr $c695
+	inc $cb29
+	inc $cb2b
+	jsr $c12a
+	jsr $cb44
+	jmp ps0
+
+ps1	jsr $c794
+	dec $cb29
+	jsr $c2ff
+	dec $cb2b
+	jsr $c3c1
+	jsr $c619
+
+	pla
+	sta bordercol
+	sta background
+	pla
+	sta sprpntr0
+	clc
+	rts
+
+; ----------------------------------------- set
+
+evset	lda sprpntr0
+	pha
+	lda $bordercol
+	pha
+	jsr $c5d1
+	jsr $c659
+	bcc set1
+
+	jsr $c794
+	jsr $c677
+	jsr $c2ff
+	jsr $c695
+	jsr $c3ce
+	jmp $c599
+
+set1	jsr $c794
+	jmp $c599
+
+; -----------------------------------------
+
+.c:c5d1   ad c6 0f   lda $0fc6
+.c:c5d4   8d 20 d0   sta bordercol
+.c:c5d7   8d 21 d0   sta background
+.c:c5da   a9 ff      lda #$ff
+.c:c5dc   8d f8 07   sta sprpntr0
+.c:c5df   ad 18 d0   lda graph
+.c:c5e2   09 08      ora #$08
+.c:c5e4   8d 18 d0   sta graph
+.c:c5e7   2c 2c c9   bit multi
+.c:c5ea   30 08      bmi $c5f4
+.c:c5ec   ad 1c d0   lda sprmulti
+.c:c5ef   09 01      ora #$01
+.c:c5f1   8d 1c d0   sta sprmulti
+.c:c5f4   a9 01      lda #$01
+.c:c5f6   8d 15 d0   sta sprenable
+.c:c5f9   ad 0e c9   lda scol10
+.c:c5fc   8d 27 d0   sta sprcol10_0
+.c:c5ff   ad 11 d0   lda graphon
+.c:c602   09 20      ora #$20
+.c:c604   8d 11 d0   sta graphon
+.c:c607   20 94 c7   jsr $c794
+.c:c60a   ad 16 d0   lda grmode
+.c:c60d   09 10      ora #$10
+.c:c60f   8d 16 d0   sta grmode
+.c:c612   20 df c7   jsr $c7df
+.c:c615   20 44 cb   jsr $cb44
+.c:c618   60         rts
+
+; -----------------------------------------
+
+.c:c619   ad 16 d0   lda grmode
+.c:c61c   29 ef      and #$ef
+.c:c61e   8d 16 d0   sta grmode
+.c:c621   20 df c7   jsr $c7df
+.c:c624   ad 11 d0   lda graphon
+.c:c627   29 9f      and #$9f
+.c:c629   8d 11 d0   sta graphon
+.c:c62c   a9 01      lda #$01
+.c:c62e   8d 27 d0   sta sprcol10_0
+.c:c631   a9 07      lda #$07
+.c:c633   8d 15 d0   sta sprenable
+.c:c636   ad 1c d0   lda sprmulti
+.c:c639   29 fe      and #$fe
+.c:c63b   8d 1c d0   sta sprmulti
+.c:c63e   ad 18 d0   lda graph
+.c:c641   29 f7      and #$f7
+.c:c643   8d 18 d0   sta graph
+.c:c646   ad 16 d0   lda grmode
+.c:c649   29 ef      and #$ef
+.c:c64b   8d 16 d0   sta grmode
+.c:c64e   60         rts
+
+; -----------------------------------------
+
+.c:c64f   a2 00      ldx #$00
+.c:c651   a0 00      ldy #$00
+.c:c653   88         dey
+.c:c654   d0 fd      bne $c653
+.c:c656   ca         dex
+.c:c657   d0 fa      bne $c653
+.c:c659   a9 03      lda #$03
+.c:c65b   cd c5 0f   cmp sc_stop
+.c:c65e   f0 0e      beq $c66e
+.c:c660   ad 00 dc   lda $dc00
+.c:c663   29 10      and #$10
+.c:c665   f0 0e      beq $c675
+.c:c667   ad 01 dc   lda $dc01
+.c:c66a   29 10      and #$10
+.c:c66c   d0 eb      bne $c659
+.c:c66e   a9 00      lda #$00
+.c:c670   8d c5 0f   sta sc_stop
+.c:c673   18         clc
+.c:c674   60         rts
+
+.c:c675   38         sec
+.c:c676   60         rts
+
+; -----------------------------------------
+
+.c:c677   ae 00 d0   ldx sprx0
+.c:c67a   8e 29 cb   stx $cb29
+.c:c67d   ad 10 d0   lda spritehi
+.c:c680   29 01      and #$01
+.c:c682   8d 2a cb   sta $cb2a
+.c:c685   8a         txa
+.c:c686   38         sec
+.c:c687   e9 18      sbc #$18
+.c:c689   8d 29 cb   sta $cb29
+.c:c68c   ad 2a cb   lda $cb2a
+.c:c68f   e9 00      sbc #$00
+.c:c691   8d 2a cb   sta $cb2a
+.c:c694   60         rts
+
+; -----------------------------------------
+
+.c:c695   ad 01 d0   lda spry0
+.c:c698   38         sec
+.c:c699   e9 33      sbc #$33
+.c:c69b   8d 2b cb   sta $cb2b
+.c:c69e   60         rts
+
+; -----------------------------------------
+
+.c:c69f   a9 00      lda #$00
+.c:c6a1   8d 27 cb   sta $cb27
+.c:c6a4   a2 0a      ldx #10
+.c:c6a6   8e 3b 03   stx sc_iflag
+.c:c6a9   bd 31 cb   lda $cb31,x
+.c:c6ac   9d 40 3f   sta $3f40,x
+.c:c6af   ca         dex
+.c:c6b0   10 f7      bpl $c6a9
+.c:c6b2   a9 40      lda #$40
+.c:c6b4   85 a8      sta ls_vekta8
+.c:c6b6   a9 3f      lda #$3f
+.c:c6b8   85 a9      sta ls_vekta8+1
+.c:c6ba   20 6a 14   jsr gd_xinput
+
+.c:c6bd   ad 02 02   lda ls_nambuf+2
+.c:c6c0   c9 20      cmp #$20
+.c:c6c2   f0 44      beq rightbound
+.c:c6c4   38         sec
+.c:c6c5   e9 30      sbc #$30
+.c:c6c7   8d 26 cb   sta $cb26
+.c:c6ca   ad 01 02   lda ls_nambuf+1
+.c:c6cd   c9 20      cmp #$20
+.c:c6cf   f0 33      beq $c704
+.c:c6d1   38         sec
+.c:c6d2   e9 30      sbc #$30
+.c:c6d4   aa         tax
+.c:c6d5   f0 0c      beq $c6e3
+.c:c6d7   ad 26 cb   lda $cb26
+.c:c6da   18         clc
+.c:c6db   69 0a      adc #$0a
+.c:c6dd   ca         dex
+.c:c6de   d0 fa      bne $c6da
+.c:c6e0   8d 26 cb   sta $cb26
+.c:c6e3   ad 00 02   lda ls_nambuf
+.c:c6e6   c9 20      cmp #$20
+.c:c6e8   f0 1a      beq $c704
+.c:c6ea   38         sec
+.c:c6eb   e9 30      sbc #$30
+.c:c6ed   f0 15      beq $c704
+.c:c6ef   aa         tax
+.c:c6f0   18         clc
+.c:c6f1   ad 26 cb   lda $cb26
+.c:c6f4   69 64      adc #$64
+.c:c6f6   8d 26 cb   sta $cb26
+.c:c6f9   ad 27 cb   lda $cb27
+.c:c6fc   69 00      adc #$00
+.c:c6fe   8d 27 cb   sta $cb27
+.c:c701   ca         dex
+.c:c702   d0 ec      bne $c6f0
+.c:c704   ad 26 cb   lda $cb26
+.c:c707   60         rts
+
+; ----------------------------------------- rightbound
+
+rightbound
+	lda ls_nambuf+1
+	sta ls_nambuf+2
+	lda ls_nambuf
+	sta ls_nambuf+1
+	lda #$30
+	sta ls_nambuf
+	jmp $c6bd
+
+; ----------------------------------------- paste compound sprite
+
+evpcomp	lda comph
+	sta $cb2f
+	jsr $c8ef
+pc5	lda compw
+	sta getcompw
+pc2	jsr $c12a
+	jsr $c41a
+	inc one
+	jsr getsprite
+	bcs pc3
+	dec getcompw
+	bne pc2
+	lda compw
+	sta getcompw
+pc4 	jsr $c428
+	dec getcompw
+	bne pc4
+	jsr $c436
+	dec $cb2f
+	bne pc5
+pc3	jsr gd_xclose
+	jsr gd_xmess
+	lda $cb30
+	sta sprenable
+	clc
+	rts
+
+; ----------------------------------------- height of compound
+
+evcheight	ldx comph		; current height erhöhen
+	inx
+	cpx #10
+	bcc ch1
+	ldx #1		; von 1 bis 9
+ch1	stx comph
+	txa
+	clc		; ziffer draus machen
+	adc #$30
+	sta $075a		; auf screen
+	sta $c95f		; in screenlist
+	clc
+	rts
+
+; ----------------------------------------- width of compound
+
+evcwidth	ldx compw		; current width erhöhen
+	inx
+	cpx #9
+	bcc cw1
+	ldx #1		; von 1 bis 8
+cw1	stx compw
+	txa
+	clc
+	adc #$30		; ziffer
+	sta $0762		; auf screen ausgeben
+	sta $c968		; in screenlist 
+	clc
+	rts
+
+; ----------------------------------------- Reset Colors
+
+.c:c794   78         sei
+.c:c795   a5 01      lda $01
+.c:c797   48         pha
+.c:c798   29 fc      and #$fc
+.c:c79a   85 01      sta $01
+.c:c79c   a2 00      ldx #$00
+.c:c79e   bc 0b de   ldy $de0b,x
+.c:c7a1   bd 00 04   lda $0400,x
+.c:c7a4   9d 0b de   sta $de0b,x
+.c:c7a7   98         tya
+.c:c7a8   9d 00 04   sta $0400,x
+.c:c7ab   bc 0b ee   ldy $ee0b,x
+.c:c7ae   bd f4 05   lda $05f4,x
+.c:c7b1   9d 0b ee   sta $ee0b,x
+.c:c7b4   98         tya
+.c:c7b5   9d f4 05   sta $05f4,x
+.c:c7b8   e8         inx
+.c:c7b9   d0 e3      bne $c79e
+.c:c7bb   bc 0b df   ldy $df0b,x
+.c:c7be   bd 00 05   lda $0500,x
+.c:c7c1   9d 0b df   sta $df0b,x
+.c:c7c4   98         tya
+.c:c7c5   9d 00 05   sta $0500,x
+.c:c7c8   bc 0b ef   ldy $ef0b,x
+.c:c7cb   bd f4 06   lda $06f4,x
+.c:c7ce   9d 0b ef   sta $ef0b,x
+.c:c7d1   98         tya
+.c:c7d2   9d f4 06   sta $06f4,x
+.c:c7d5   e8         inx
+.c:c7d6   e0 f4      cpx #$f4
+.c:c7d8   d0 e1      bne $c7bb
+.c:c7da   68         pla
+.c:c7db   85 01      sta $01
+.c:c7dd   58         cli
+.c:c7de   60         rts
+
+; -----------------------------------------
+
+.c:c7df   a9 0b      lda #$0b
+.c:c7e1   85 a8      sta ls_vekta8
+.c:c7e3   a9 ce      lda #$ce
+.c:c7e5   85 a9      sta ls_vekta8+1
+.c:c7e7   a9 00      lda #$00
+.c:c7e9   85 b2      sta ls_adrmisc
+.c:c7eb   a9 d8      lda #$d8
+.c:c7ed   85 b3      sta ls_adrmisc+1
+.c:c7ef   a9 00      lda #$00
+.c:c7f1   8d 2a c9   sta $c92a
+.c:c7f4   a8         tay
+.c:c7f5   b1 a8      lda (ls_vekta8),y
+.c:c7f7   48         pha
+.c:c7f8   c8         iny
+.c:c7f9   b1 b2      lda (ls_adrmisc),y
+.c:c7fb   4a         lsr a
+.c:c7fc   2e 2a c9   rol $c92a
+.c:c7ff   4a         lsr a
+.c:c800   2e 2a c9   rol $c92a
+.c:c803   4a         lsr a
+.c:c804   2e 2a c9   rol $c92a
+.c:c807   4a         lsr a
+.c:c808   2e 2a c9   rol $c92a
+.c:c80b   88         dey
+.c:c80c   b1 b2      lda (ls_adrmisc),y
+.c:c80e   0a         asl a
+.c:c80f   0a         asl a
+.c:c810   0a         asl a
+.c:c811   0a         asl a
+.c:c812   0d 2a c9   ora $c92a
+.c:c815   91 a8      sta (ls_vekta8),y
+.c:c817   68         pla
+.c:c818   8d 2a c9   sta $c92a
+.c:c81b   4a         lsr a
+.c:c81c   4a         lsr a
+.c:c81d   4a         lsr a
+.c:c81e   4a         lsr a
+.c:c81f   91 b2      sta (ls_adrmisc),y
+.c:c821   4e 2a c9   lsr $c92a
+.c:c824   2a         rol a
+.c:c825   4e 2a c9   lsr $c92a
+.c:c828   2a         rol a
+.c:c829   4e 2a c9   lsr $c92a
+.c:c82c   2a         rol a
+.c:c82d   4e 2a c9   lsr $c92a
+.c:c830   2a         rol a
+.c:c831   c8         iny
+.c:c832   91 b2      sta (ls_adrmisc),y
+.c:c834   e6 b2      inc ls_adrmisc
+.c:c836   e6 b2      inc ls_adrmisc
+.c:c838   d0 02      bne $c83c
+.c:c83a   e6 b3      inc ls_adrmisc+1
+.c:c83c   e6 a8      inc ls_vekta8
+.c:c83e   d0 09      bne $c849
+.c:c840   a6 a9      ldx ls_vekta8+1
+.c:c842   e8         inx
+.c:c843   e0 d0      cpx #$d0
+.c:c845   f0 05      beq $c84c
+.c:c847   86 a9      stx ls_vekta8+1
+.c:c849   4c ef c7   jmp $c7ef
+
+.c:c84c   60         rts
+
+; ----------------------------------------- bytewise left
+
+evbleft	ldx two
+	inx
+	cpx #66
+	bne bl1
+
+	ldx #2
+	stx two
+	jmp evnextspr
+
+bl1	stx two
+	jmp nspr0
+
+; ----------------------------------------- bytewise right
+
+evbright	ldx two
+	dex
+	cpx #1
+	bne br1
+
+	ldx #65
+	stx two
+	jmp evprevspr
+
+br1	stx two
+	jmp nspr0
+
+; ----------------------------------------- load new sprite
+
+evloadspr	ldx #10
+ls1	pla
+	dex
+	bne ls1
+	ldx #1
+	jsr gd_xload
+	pla
+	lda #$38
+	sta $01f1
+	lda #$14
+	sta $01f2
+	jmp restart
+
+; ----------------------------------------- floppy message
+
+evfmess	jsr gd_xmess
+	clc
+	rts
+
+; -----------------------------------------
+
+.c:c897   ad 15 d0   lda sprenable
+.c:c89a   8d 30 cb   sta $cb30
+.c:c89d   a2 0f      ldx #15
+.c:c89f   bd 16 cb   lda filename,x
+.c:c8a2   9d 00 02   sta ls_nambuf,x
+.c:c8a5   ca         dex
+.c:c8a6   10 f7      bpl $c89f
+.c:c8a8   ad b9 0f   lda ls_flen
+.c:c8ab   85 a7      sta ls_temp
+.c:c8ad   a9 00      lda #<ls_nambuf
+.c:c8af   85 a8      sta ls_vekta8
+.c:c8b1   a9 02      lda #>ls_nambuf
+.c:c8b3   85 a9      sta ls_vekta8+1
+.c:c8b5   20 58 14   jsr gd_xopen
+.c:c8b8   ad 09 c9   lda two
+.c:c8bb   8d 0a c9   sta gettwo
+
+; -----------------------------------------
+
+readbytes	jsr basin
+	ldx status
+	bne rb0
+	dec gettwo
+	bne readbytes
+	clc
+	rts
+
+; ----------------------------------------- load sprite
+
+getsprite	ldy #$00		; $c8cc
+	lda #<sprite255	; load to $3fc0 (sprite 255)
+	sta sc_vekt20
+	lda #>sprite255
+	sta sc_vekt20+1
+gsp0	lda status
+	bne rb0
+	jsr basin
+	sta (sc_vekt20),y
+	iny
+	cpy #63
+	bne gsp0
+	jsr basin
+	lda status         ; fehler? 
+	bne rb0
+	clc                ; nein
+	rts
+
+rb0	sec                ; ja
+	rts
+
+; -----------------------------------------
+
+.c:c8ef   20 97 c8   jsr $c897
+.c:c8f2   ad 0b c9   lda one
+.c:c8f5   8d 0c c9   sta getone
+.c:c8f8   20 cc c8   jsr getsprite
+.c:c8fb   b0 08      bcs $c905
+.c:c8fd   ce 0c c9   dec getone
+.c:c900   d0 f6      bne $c8f8
+.c:c902   ee 0b c9   inc one
+.c:c905   ce 0b c9   dec one
+.c:c908   60         rts
+
+; -----------------------------------------
+
+two	02
+gettwo	02
+one	00
+getone	00
+scol01	0b
+scol10	0c
+scol11	0f
+>c:c910   00 00 00                     ..........
+
+dnibs64	00 ff 44 cc  55 aa 11 dd  66 22 99 33  77 ee 88 bb   ..d.u...f".3w...
+
+>c:c923  00
+>c:c024  00
+
+storems	.by 0
+
+scolu	00
+scolo	00
+>c:c928  00 00 00
+>c:c92b  00
+multi	00
+>c:c92d  48 09  12 05 13 4d   ..........h....m
+>c:c933  15 0c 14 09  00 40 80                              .....@.
+
+; ----------------------------------------- Screenlist
+
+psprlst	.by $93		; clear screen
+
+	.by 0, 0, 40, 25	; full screen requester
+	.by $91		; Text folgt, Boxtyp: erhaben
+	.wo 0		; keine Aktion
+	.ts "Paste Sprite@"	; Title
+
+	.by 1, 1, 5, 5	; Spritebox
+	.by $91
+	.wo 0
+	.ts " @"
+
+	.by 20, 17, 3, 3	; Height of compound
+	.by $e0
+	.wo evcheight
+	.ts "9@"
+
+	.by 20, 25, 3, 3	; Width of compound
+	.by $e0
+	.wo evcwidth
+	.ts "8@"
+
+	.by 17, 14, 14, 3	; Mode
+	.by $c0
+	.wo evchmode
+	.by $df		; Kringel
+	.ts "Multi@"
+
+	.by 2, 15, 3, 3	; Sprite rechts
+	.by $c0
+	.wo evnextspr
+	.by $5e, 0
+
+	.by 2, 6, 3 , 3	; Sprite links
+	.by $c0
+	.wo evprevspr
+	.by $5b, 0
+
+	.by 4, 15, 3, 3	; Byte rechts
+	.by $c0
+	.wo evbright
+	.by $5e, 0
+
+	.by 4, 6, 3, 3	; Byte links
+	.by $c0
+	.wo evbleft
+	.by $5b, 0
+
+	.by 13, 5, 5, 3	; set21 up
+	.by $c0
+	.wo evset21up
+	.by $1e
+	.ts "21@"
+
+	.by 8, 9, 5, 3	; Line (Row)
+	.by $e0
+	.wo evrow
+	.ts "000@"
+
+	.by 10, 9, 5, 3	; Column
+	.by $e0
+	.wo evcolumn
+	.ts "000@"
+
+	.by 15, 1, 5, 3	; set24 left
+	.by $c0
+	.wo evset24lt
+	.ts "24"
+	.by $5b, 0
+
+	.by 15, 5, 5, 3	; "Set"
+	.by $c0
+	.wo evset
+	.ts "Set@"
+
+	.by 15, 9, 5, 3	; set24 right
+	.by $c0
+	.wo evset24rt
+	.by $5e
+	.ts "24@"
+
+	.by 17, 5, 5, 3	; Paste to Screen
+	.by $c0
+	.wo evp2scrn
+	.ts "To Screen@"
+
+	.by 8, 25, 3, 3	; Spritecolor
+	.by $e0
+	.wo evsprcol
+d9fa	.by $a0, 0
+
+	.by 11, 25, 3, 3	; Multicolor 1
+	.by $e0
+	.wo evmulti1
+da72	.by $a0, 0
+
+	.by 14, 25, 3, 3	; Multicolor 2
+	.by $e0
+	.wo evmulti2
+d982	.by $a0, 0
+
+	.by 10, 28, 11, 3	; Paste to Coords.
+	.by $c0
+	.wo evp2coor
+	.ts "To Coord.@"
+
+	.by 16, 28, 11, 3	; Paste Compound Sprite
+	.by $c0
+	.wo evpcomp
+	.ts "Compound@"
+
+	.by 19, 28, 11, 3	; Leave
+	.by $c0
+	.wo evleave
+	.ts "Quit@"
+
+	.by 4, 18, 6, 3	; Open new Sprite
+	.by $c0
+	.wo evloadspr
+	.ts "Open@"
+
+	.by 22, 0, 40, 3	; Floppy Message
+	.by $c9
+	.wo evfmess
+	.ts " @"
+
+	.by $c0, 2, 22, 16	; current filename
+fname	.ts "0123456789ABCDEF@"
+	.by $c0, 2, 8, 6
+	.ts "Sprite@"
+	.by $c0, 4, 9, 4
+	.ts "Byte@"
+	.by $c0, 6, 0, 8
+	.ts "Position@"
+	.by $c0, 10, 0, 6
+	.ts "Column@"
+	.by $c0, 8, 0, 4
+	.ts "Line@"
+	.by $c0, 6, 14, 6
+	.ts "Colors@"
+	.by $c0, 20, 0, 16
+	.ts "Compound: Height@"
+	.by $c0, 20, 19, 5
+	.ts "Width@"
+	.by $c0, 4, 23, 12
+	.ts "another file@"
+	.by $c0, 8, 14, 6
+	.ts "Sprite@"
+	.by $c0, 11, 14, 10
+	.ts "MultiCol.1@"
+	.by $c0, 14, 14, 10
+	.ts "MultiCol.2@"
+	.by $c0, 7, 28, 6
+	.ts "Paste:@"
+
+	.by $80
+
+; -----------------------------------------
+
+filename	.by 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+
+>C:cb26  00
+>c:cb27  00 00
+>c:cb29  00 00 00
+compw	08
+comph	09
+getcompw	00
+>c;cb2f  00
+>C:cb30  00
+>C:cb31 20
+<C:cb32 30 31 32 33 34 35 36 37 38 39
+kringel	00 3a  46 4e 40 40  3c 00                ; Undo-Char (Kringel)
+
+; -----------------------------------------
+
+.c:cb44   ad 20 d0   lda bordercol
+.c:cb47   48         pha
+.c:cb48   a9 02      lda #2		; roter Rand
+.c:cb4a   8d 20 d0   sta bordercol
+.c:cb4d   a2 1f      ldx #31
+.c:cb4f   a9 00      lda #$00
+.c:cb51   9d 40 3f   sta $3f40,x
+.c:cb54   ca         dex
+.c:cb55   10 fa      bpl $cb51
+.c:cb57   a9 00      lda #$00
+.c:cb59   a2 40      ldx #$40
+.c:cb5b   85 35      sta $35
+.c:cb5d   86 36      stx $36
+.c:cb5f   a2 0f      ldx #15
+.c:cb61   a9 00      lda #$00
+.c:cb63   9d 60 3f   sta $3f60,x
+.c:cb66   ca         dex
+.c:cb67   10 fa      bpl $cb63
+.c:cb69   a0 1f      ldy #31
+.c:cb6b   b1 35      lda ($35),y
+.c:cb6d   29 0f      and #$0f
+.c:cb6f   aa         tax
+.c:cb70   fe 60 3f   inc $3f60,x
+.c:cb73   88         dey
+.c:cb74   10 f5      bpl $cb6b
+.c:cb76   a0 00      ldy #0
+.c:cb78   a2 0f      ldx #15
+.c:cb7a   bd 60 3f   lda $3f60,x
+.c:cb7d   f0 01      beq $cb80
+.c:cb7f   c8         iny
+.c:cb80   ca         dex
+.c:cb81   10 f7      bpl $cb7a
+.c:cb83   c0 04      cpy #4
+.c:cb85   90 14      bcc $cb9b
+.c:cb87   a2 0f      ldx #15
+.c:cb89   bd 60 3f   lda $3f60,x
+.c:cb8c   18         clc
+.c:cb8d   7d 40 3f   adc $3f40,x
+.c:cb90   9d 40 3f   sta $3f40,x
+.c:cb93   90 03      bcc $cb98
+.c:cb95   fe 50 3f   inc $3f50,x
+.c:cb98   ca         dex
+.c:cb99   10 ee      bpl $cb89
+.c:cb9b   a5 35      lda $35
+.c:cb9d   18         clc
+.c:cb9e   69 20      adc #$20
+.c:cba0   85 35      sta $35
+.c:cba2   90 02      bcc $cba6
+.c:cba4   e6 36      inc $36
+.c:cba6   a5 36      lda $36
+.c:cba8   c9 bd      cmp #$bd
+.c:cbaa   d0 b3      bne $cb5f
+.c:cbac   a9 00      lda #$00
+.c:cbae   85 3f      sta $3f
+.c:cbb0   85 40      sta $40
+.c:cbb2   a2 0f      ldx #15
+.c:cbb4   bd 50 3f   lda $3f50,x
+.c:cbb7   c5 40      cmp $40
+.c:cbb9   90 17      bcc $cbd2
+.c:cbbb   f0 05      beq $cbc2
+.c:cbbd   bd 40 3f   lda $3f40,x
+.c:cbc0   b0 07      bcs $cbc9
+.c:cbc2   bd 40 3f   lda $3f40,x
+.c:cbc5   c5 3f      cmp $3f
+.c:cbc7   90 09      bcc $cbd2
+.c:cbc9   85 3f      sta $3f
+.c:cbcb   bd 50 3f   lda $3f50,x
+.c:cbce   85 40      sta $40
+.c:cbd0   86 41      stx $41
+.c:cbd2   ca         dex
+.c:cbd3   10 df      bpl $cbb4
+.c:cbd5   a6 41      ldx $41
+.c:cbd7   bd 46 cd   lda $cd46,x
+.c:cbda   8d 21 d0   sta background
+.c:cbdd   a9 00      lda #$00
+.c:cbdf   9d 70 3f   sta $3f70,x
+.c:cbe2   a9 00      lda #$00
+.c:cbe4   a2 20      ldx #$20
+.c:cbe6   85 37      sta $37
+.c:cbe8   86 38      stx $38
+.c:cbea   a9 00      lda #$00
+.c:cbec   a2 04      ldx #$04
+.c:cbee   85 39      sta $39
+.c:cbf0   86 3a      stx $3a
+.c:cbf2   a9 00      lda #$00
+.c:cbf4   a2 d8      ldx #$d8
+.c:cbf6   85 3b      sta $3b
+.c:cbf8   86 3c      stx $3c
+.c:cbfa   a9 00      lda #$00
+.c:cbfc   a2 40      ldx #$40
+.c:cbfe   85 35      sta $35
+.c:cc00   86 36      stx $36
+.c:cc02   a2 0f      ldx #$0f
+.c:cc04   a9 00      lda #$00
+.c:cc06   9d 60 3f   sta $3f60,x
+.c:cc09   ca         dex
+.c:cc0a   10 fa      bpl $cc06
+.c:cc0c   a0 1f      ldy #$1f
+.c:cc0e   b1 35      lda ($35),y
+.c:cc10   29 0f      and #$0f
+.c:cc12   aa         tax
+.c:cc13   fe 60 3f   inc $3f60,x
+.c:cc16   88         dey
+.c:cc17   10 f5      bpl $cc0e
+.c:cc19   84 42      sty $42
+.c:cc1b   84 43      sty $43
+.c:cc1d   84 44      sty $44
+.c:cc1f   a6 41      ldx $41
+.c:cc21   a9 00      lda #$00
+.c:cc23   9d 60 3f   sta $3f60,x
+.c:cc26   85 3f      sta $3f
+.c:cc28   a2 0f      ldx #$0f
+.c:cc2a   bd 60 3f   lda $3f60,x
+.c:cc2d   c5 3f      cmp $3f
+.c:cc2f   90 06      bcc $cc37
+.c:cc31   f0 04      beq $cc37
+.c:cc33   85 3f      sta $3f
+.c:cc35   86 42      stx $42
+.c:cc37   ca         dex
+.c:cc38   10 f0      bpl $cc2a
+.c:cc3a   a9 00      lda #$00
+.c:cc3c   a6 42      ldx $42
+.c:cc3e   30 56      bmi $cc96
+.c:cc40   a9 55      lda #$55
+.c:cc42   a4 3f      ldy $3f
+.c:cc44   c0 20      cpy #$20
+.c:cc46   f0 4e      beq $cc96
+.c:cc48   9d 70 3f   sta $3f70,x
+.c:cc4b   a9 00      lda #$00
+.c:cc4d   9d 60 3f   sta $3f60,x
+.c:cc50   85 3f      sta $3f
+.c:cc52   a2 0f      ldx #$0f
+.c:cc54   bd 60 3f   lda $3f60,x
+.c:cc57   c5 3f      cmp $3f
+.c:cc59   90 06      bcc $cc61
+.c:cc5b   f0 04      beq $cc61
+.c:cc5d   85 3f      sta $3f
+.c:cc5f   86 43      stx $43
+.c:cc61   ca         dex
+.c:cc62   10 f0      bpl $cc54
+.c:cc64   a6 43      ldx $43
+.c:cc66   30 77      bmi $ccdf
+.c:cc68   a9 aa      lda #$aa
+.c:cc6a   9d 70 3f   sta $3f70,x
+.c:cc6d   a9 00      lda #$00
+.c:cc6f   9d 60 3f   sta $3f60,x
+.c:cc72   85 3f      sta $3f
+.c:cc74   a2 0f      ldx #$0f
+.c:cc76   bd 60 3f   lda $3f60,x
+.c:cc79   c5 3f      cmp $3f
+.c:cc7b   90 06      bcc $cc83
+.c:cc7d   f0 04      beq $cc83
+.c:cc7f   85 3f      sta $3f
+.c:cc81   86 44      stx $44
+.c:cc83   ca         dex
+.c:cc84   10 f0      bpl $cc76
+.c:cc86   a6 44      ldx $44
+.c:cc88   30 55      bmi $ccdf
+.c:cc8a   a9 ff      lda #$ff
+.c:cc8c   9d 70 3f   sta $3f70,x
+.c:cc8f   a9 00      lda #$00
+.c:cc91   9d 60 3f   sta $3f60,x
+.c:cc94   f0 16      beq $ccac
+.c:cc96   a0 07      ldy #$07
+.c:cc98   91 37      sta ($37),y
+.c:cc9a   88         dey
+.c:cc9b   10 fb      bpl $cc98
+.c:cc9d   a5 37      lda $37
+.c:cc9f   18         clc
+.c:cca0   69 08      adc #$08
+.c:cca2   85 37      sta $37
+.c:cca4   90 02      bcc $cca8
+.c:cca6   e6 38      inc $38
+.c:cca8   a2 00      ldx #$00
+.c:ccaa   f0 5c      beq $cd08
+.c:ccac   a2 0f      ldx #$0f
+.c:ccae   bd 60 3f   lda $3f60,x
+.c:ccb1   f0 29      beq $ccdc
+.c:ccb3   a0 0f      ldy #$0f
+.c:ccb5   84 3f      sty $3f
+.c:ccb7   a0 03      ldy #$03
+.c:ccb9   b9 41 00   lda $0041,y
+.c:ccbc   30 1b      bmi $ccd9
+.c:ccbe   8a         txa
+.c:ccbf   38         sec
+.c:ccc0   f9 41 00   sbc $0041,y
+.c:ccc3   b0 04      bcs $ccc9
+.c:ccc5   49 ff      eor #$ff
+.c:ccc7   69 01      adc #$01
+.c:ccc9   c5 3f      cmp $3f
+.c:cccb   f0 04      beq $ccd1
+.c:cccd   90 02      bcc $ccd1
+.c:cccf   b0 08      bcs $ccd9
+.c:ccd1   85 3f      sta $3f
+.c:ccd3   b9 67 cd   lda $cd67,y
+.c:ccd6   9d 70 3f   sta $3f70,x
+.c:ccd9   88         dey
+.c:ccda   10 dd      bpl $ccb9
+.c:ccdc   ca         dex
+.c:ccdd   10 cf      bpl $ccae
+.c:ccdf   a0 00      ldy #$00
+.c:cce1   a9 04      lda #$04
+.c:cce3   85 3e      sta $3e
+.c:cce5   b1 35      lda ($35),y
+.c:cce7   29 0f      and #$0f
+.c:cce9   aa         tax
+.c:ccea   bd 70 3f   lda $3f70,x
+.c:cced   0a         asl a
+.c:ccee   26 3d      rol $3d
+.c:ccf0   0a         asl a
+.c:ccf1   26 3d      rol $3d
+.c:ccf3   c8         iny
+.c:ccf4   c6 3e      dec $3e
+.c:ccf6   d0 ed      bne $cce5
+.c:ccf8   a2 00      ldx #$00
+.c:ccfa   a5 3d      lda $3d
+.c:ccfc   81 37      sta ($37,x)
+.c:ccfe   e6 37      inc $37
+.c:cd00   d0 02      bne $cd04
+.c:cd02   e6 38      inc $38
+.c:cd04   c0 20      cpy #$20
+.c:cd06   d0 d9      bne $cce1
+.c:cd08   a5 35      lda $35
+.c:cd0a   18         clc
+.c:cd0b   69 20      adc #$20
+.c:cd0d   85 35      sta $35
+.c:cd0f   90 02      bcc $cd13
+.c:cd11   e6 36      inc $36
+.c:cd13   a4 42      ldy $42
+.c:cd15   b9 56 cd   lda $cd56,y
+.c:cd18   a4 43      ldy $43
+.c:cd1a   30 03      bmi $cd1f
+.c:cd1c   19 46 cd   ora $cd46,y
+.c:cd1f   81 39      sta ($39,x)
+.c:cd21   e6 39      inc $39
+.c:cd23   d0 02      bne $cd27
+.c:cd25   e6 3a      inc $3a
+.c:cd27   a9 00      lda #$00
+.c:cd29   a4 44      ldy $44
+.c:cd2b   30 03      bmi $cd30
+.c:cd2d   b9 46 cd   lda $cd46,y
+.c:cd30   81 3b      sta ($3b,x)
+.c:cd32   e6 3b      inc $3b
+.c:cd34   d0 02      bne $cd38
+.c:cd36   e6 3c      inc $3c
+.c:cd38   a5 36      lda $36
+.c:cd3a   c9 bd      cmp #$bd
+.c:cd3c   f0 03      beq $cd41
+.c:cd3e   4c 02 cc   jmp $cc02
+
+.c:cd41   68         pla
+.c:cd42   8d 20 d0   sta bordercol
+.c:cd45   60         rts
+
+; -----------------------------------------
+
+>c:cd46  00 06 09 0b  02 04 08 0c  0e 0a 05 0f 03 07 0d 01
+>c:cd56  00 60 90 b0  20 40 80 c0  e0 a0 50 f0 30 70 d0 10
+
+>c:cd66  00 00 55 aa  
+
+>c:cd6a  ff 69 00 00  
+
+modend	.en

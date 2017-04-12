@@ -1,0 +1,635 @@
+
+!src "..\godotlib.lib"
+*	= $c000
+
+; ----------------------------------------- 
+;
+; svr.PCXmono
+;  Saver für Bilder im Format PCX 640x400 monochrom
+;
+;  1.00, 09.10.92: first release
+;  1.01, 26.11.16: Reset der Balancing-Einstellungen zugefügt
+;
+; ----------------------------------------- 
+
+
+; ----------------------------------------- Equates
+
+	dst		= $30
+	dst0		= $32
+	cnt		= $34
+	dbl		= $36
+	vertcnt		= $37
+	byte		= $38
+	bitcnt		= $39
+	bcnt1		= $3a
+	src		= $3b
+	hold		= $3d
+	src0		= $3e
+	adcnt		= $40
+	lcnt8		= $41
+	lcnt		= $42
+
+	offx		= $b2
+	offy		= $b3
+
+	shift		= $028d
+	oszi3		= $d40e
+	wave		= $d412
+	filter		= $d418
+	rausch		= $d41b
+;
+	buf		= $cd00
+	destbuf		= $ca00
+;
+; ----------------------------------------- Header
+
+header	jmp start
+	!by $40
+	!by 0
+	!by 1
+	!wo modend
+	!wo 0
+	!pet "PCX mono 640x400"
+	!pet "1.01"
+	!pet "26.11.16"
+	!pet "A.Dettke/W.Kling"
+;
+; ----------------------------------------- Main
+
+start	ldx gr_nr		; Input?
+	dex 
+	bne st0
+	jmp initinp	; ja
+;
+; ----------------------------------------- PCXmono
+
+st0	lda #0		; Mauszeiger aus
+	sta $d015
+
+	lda gd_modswitch	; Modulmanagement
+	pha 
+
+	lda ls_flen	; Keine Datei ausgewählt?
+	beq st1		; ja, fertig
+
+	sta wflen		; Namenslänge merken
+	jsr addpcx	; Namen erweitern
+	lda #1		; Activity beginnen
+	sta adcnt
+
+	jsr wopen		; Datei öffnen
+	bne st2		; Fehlschlag
+
+	jsr getname	; Image Info vorbereiten
+	ldx #12
+	jsr ckout
+	jsr gd_clrms	; Message
+	ldx #0
+	jsr tcopy
+	jsr write		; Datei speichern
+st2	jsr clrch		; schließen
+	lda #12
+	jsr close
+	jsr err9		; Fehler?
+	bne st1
+	jsr setname	; nein, Image Info
+
+st1	pla 
+	sta gd_modswitch
+
+	lda shift		; Shift (-Lock) gedrückt?
+	and #1
+	bne cn2		; ja, Sprung
+
+	ldy #16		; sonst: Balancing-Tabelle initialisieren
+	sty gr_ctr
+	sty gr_brt
+lll	dey 
+	tya 
+	sta gr_btab,y
+	bne lll
+
+cn2	lda #$03		; Mauszeiger an
+	sta $d015
+	sec 		; fertig
+	rts 
+;
+; ----------------------------------------- 
+; ----------------------------------------- Input-Routinen
+; 
+!src "..\input.inc"
+;
+; ----------------------------------------- 
+; ----------------------------------------- 
+
+
+; ----------------------------------------- Disk Access
+
+pw	!pet "w,p,"
+pcxtx	!pet "xcp."
+pcxtxs	!scr "xcp."
+drinit	!pet "i0"
+wflen	!by 0
+;
+wopen	jsr inull
+	bne err8
+	ldy wflen
+	ldx #3
+wo1	lda pw,x
+	sta ls_nambuf,y
+	iny 
+	dex 
+	bpl wo1
+	sty wflen
+	lda #12
+	tay 
+	ldx ls_drive
+	jsr filpar
+	lda wflen
+	ldx #<(ls_nambuf)
+	ldy #>(ls_nambuf)
+	jsr filnam
+	jsr copen
+	jmp err9
+;
+; ----------------------------------------- 
+
+inull	ldx #<(drinit)
+	ldy #>(drinit)
+	lda #2
+	jsr gd_sendcom
+err9	jsr gd_xmess
+	lda ls_err2
+	and #15
+err8	sec 
+	rts 
+;
+; ----------------------------------------- Messages
+
+messout	ldx #<(message)
+	ldy #>(message)
+	jmp gd_xtxout2
+;
+tcopy	ldy #0
+tc0	lda txt,x
+	beq clrmess
+	sta message,y
+	inx 
+	iny 
+	bne tc0
+;
+action	dec adcnt
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts 
+;
+clrmess	ldx #25
+	lda #32
+cl0	sta mess,x
+	dex 
+	bpl cl0
+	ldy #0
+	ldx #7
+	sty offy
+	stx offx
+	rts 
+;
+filltab	!by 160,93,103,127,126,124,105,109
+;
+cntwert	!by 1
+;
+txt	!scr " PCX  @"
+;
+message	!fill 6,32
+mess	!fill 26,32
+	!by 0
+;
+; ----------------------------------------- Image Information
+
+	picname 	= ls_picname
+	iloader	= picname+$16
+	imode	= picname+$22
+	idrive	= picname+$2e
+;
+getname	ldx #0
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx 
+	cpx #16
+	bcc si0
+si1	rts 
+;
+setname	lda #0
+	ldx #<(picname)
+	ldy #>(picname)
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax 
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx 
+	iny 
+	bne si4
+si5	rts 
+;
+nbuf	!fill 16,32
+	!by 0
+;
+; ----------------------------------------- Write Image
+
+write	jsr wrheader	; PCX-Header
+	lda gr_dither	; Dithering berücksichtigen
+	tax 
+	lda dlo,x
+	sta dmode
+	lda dhi,x
+	sta dmode+1
+	lda #$80
+	sta filter
+	sta oszi3
+	sta oszi3+1
+	lda #0
+	sta wave
+	lda #$81
+	sta wave
+	jsr pcx		; Bild abspeichern
+	sec 
+	rts 
+;
+; ----------------------------------------- Bild rendern
+
+pcx	lda #<($4000)
+	ldx #>($4000)
+	sta src0
+	sta src
+	stx src0+1
+	stx src+1
+	lda #0
+	sta dbl
+	sta vertcnt
+
+	lda #25
+	sta lcnt8
+lnloop8	lda #0
+	sta lcnt
+;
+lnloop	jsr action
+ads0	ldx #0
+
+zloop	lda #2		; zählt zweimal
+	sta bcnt1
+
+byloop	lda #$c0		; zählt vier Pixel
+	sta bitcnt
+	lda #0
+	sta byte
+
+btloop	ldy #0
+	lda (src),y	; linkes Pixel
+	pha 
+	lsr 
+	lsr 
+	lsr 
+	lsr 
+	tay 
+	lda gr_btab,y	; Balancing berücksichtigen
+	jsr makebyte
+	lsr bitcnt
+	lsr bitcnt
+	pla 
+	and #$0f		; rechtes Pixel
+	tay 
+	lda gr_btab,y	; Balancing berücksichtigen
+	jsr makebyte
+	inc src
+	bne s3
+	inc src+1
+s3	lsr bitcnt	; bis 4 Pixel durch
+	lsr bitcnt
+	bcc btloop
+
+	sta buf,x		; Ergebnis puffern
+	inx 
+	dec bcnt1		; zweimal das Ganze (8 Pixel)
+	bne byloop
+
+	lda src		; nächste Kachel ansteuern
+	clc 
+	adc #28
+	sta src
+	bcc s4
+	inc src+1
+s4	cpx #80		; bis 40 erreicht
+	bne zloop
+
+	jsr moveline	; Rasterzeile wegschreiben
+
+	ldx vertcnt	; Zeile verdoppeln
+	inx 
+	cpx #8
+	bne s41
+	ldx #0
+s41	stx vertcnt
+	lda dbl
+	eor #$ff
+	sta dbl
+	beq newline
+
+	lda src0		; ja, Zeiger zurücksetzen
+	sta src
+	lda src0+1
+	sta src+1
+	bne ads0		; noch einmal
+
+newline	lda src0		; nächste Rasterzeile
+	clc 
+	adc #4
+	sta src0
+	sta src
+	bcc s5
+	inc src0+1
+s5	lda src0+1
+	sta src+1
+	inc lcnt
+	lda #8
+	cmp lcnt
+	beq s51
+	jmp lnloop	; Sprung, wenn Kachel noch nicht durch
+
+s51	lda src0		; sonst: nächste Kachelzeile
+	clc 
+	adc #<(1248)
+	sta src0
+	sta src
+	lda src0+1
+	adc #>(1248)
+	sta src0+1
+	sta src+1
+	dec lcnt8		; zählen (bis 25)
+	beq done
+	jmp lnloop8	; von vorn
+done	rts 		; bzw. fertig
+;
+; ----------------------------------------- Verteiler für Dither
+
+makebyte	jmp (dmode)
+;
+; ----------------------------------------- Dithering
+
+dithoff	cmp #8
+	bpl do0
+	lda #0
+	!by $2c
+do0	lda bitcnt
+	ora byte
+	sta byte
+	rts 
+;
+dithrst	ldy vertcnt
+	ora offs,y
+	tay 
+	lda gr_orderedpat,y
+	and bitcnt
+	ora byte
+	sta byte
+	rts 
+;
+dithpat	asl 
+	asl 
+	asl 
+	ora vertcnt
+	tay 
+	lda gr_pattern,y
+	and bitcnt
+	ora byte
+	sta byte
+	rts 
+;
+dithnoi	beq dn0
+	cmp #15
+	beq dn1
+	ldy #0
+	sta hold
+	lda rausch
+	and #$0f
+	cmp hold
+	bcs dn3
+	ldy #$aa
+dn3	lda rausch
+	and #$0f
+	cmp hold
+	tya 
+	bcs dn2
+	ora #$55
+dn2	!by $2c
+dn1	lda #$ff
+	and bitcnt
+dn0	ora byte
+	sta byte
+	rts 
+;
+dithrnd	cmp #8
+	beq dr0
+	bcs dr1
+	bcc dr2
+dr0	lda rausch
+	!by $2c
+dr1	lda bitcnt
+	and bitcnt
+	!by $2c
+dr2	lda #0
+	ora byte
+	sta byte
+ml4	rts 
+;
+; ----------------------------------------- 
+
+moveline	lda vertcnt
+	bne ml0
+	lda #<(destbuf)
+	ldy #>(destbuf)
+	sta dst
+	sty dst+1
+ml0	ldy #0
+	ldx #0
+mloop	lda buf,x
+	sta (dst),y
+	inc dst
+	bne ml3
+	inc dst+1
+ml3	inx 
+	cpx #80
+	bne mloop
+	ldy vertcnt
+	cpy #7		; nach 8 Rasterzeilen speichern
+	bne ml4
+;
+writeloop	ldx #5
+	lda #<(destbuf)
+	ldy #>(destbuf)
+	sta dst0
+	sty dst0+1
+	ldy #0
+	sty cnt
+	sty byte
+wloop	lda (dst0),y
+	jsr pack
+	iny 
+	cpy #128
+	bne wloop
+	clc 
+	lda dst0
+	adc #128
+	sta dst0
+	bcc wl5
+	inc dst0+1
+wl5	ldy #0
+	dex 
+	bne wloop
+	lda byte
+	eor #$ff
+;
+; ----------------------------------------- 
+
+pack	cmp byte		; RLE-komprimiert
+	beq incr
+;
+writeit	pha 
+	lda cnt
+	beq wl1
+	cmp #63
+	bcs wl0
+	cmp #4
+	bcs wl0
+	pha 
+	lda byte
+	cmp #$c0
+	pla 
+	bcc wl2
+wl0	ora #$c0
+	jsr bsout		; auf Disk
+	lda #1
+	sta cnt
+wl2	lda byte
+	jsr bsout
+	dec cnt
+	bne wl2
+;
+wl1	pla 
+	sta byte
+incr	lda cnt
+	cmp #63
+	beq high
+	inc cnt
+	rts 
+;
+; ----------------------------------------- 
+
+high	lda (dst0),y
+	jmp writeit
+;
+; ----------------------------------------- PCX-Header schreiben
+
+wrheader	ldx #0
+wrh0	lda pcxheader,x
+	jsr bsout
+	inx 
+	cpx #128
+	bne wrh0
+	rts 
+;
+; ----------------------------------------- 
+
+offs	!by $00,$10,$20,$30
+	!by $00,$10,$20,$30
+;
+dlo	!by <(dithoff)
+	!by <(dithrst)
+	!by <(dithpat)
+	!by <(dithnoi)
+	!by <(dithrnd)
+;
+dhi	!by >(dithoff)
+	!by >(dithrst)
+	!by >(dithpat)
+	!by >(dithnoi)
+	!by >(dithrnd)
+;
+dmode	!by 0,0
+gbend	!by $bf,$20,$00,$9b
+;
+; ----------------------------------------- 
+
+pcxheader	!by 10,2,1,1,0,0,0,0
+	!by <(639),>(639),<(399),>(399),<(300),>(300),<(300),>(300)
+	!by 0,0,0,$ff,$ff,$ff
+	!by $ff,$ff,$ff,$ff,$ff,$ff
+	!by $ff,$ff,$ff,$ff,$ff,$ff
+	!by $ff,$ff,$ff,$ff,$ff,$ff
+	!by $ff,$ff,$ff,$ff,$ff,$ff
+	!by $ff,$ff,$ff,$ff,$ff,$ff
+	!by $ff,$ff,$ff,$ff,$ff,$ff
+	!by $ff,$ff,$ff,$ff,$ff,$ff
+	!by 0,1,80,0,1,0,0,0
+	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+;
+; --------------------------------------------------------------Namen verlängern
+
+addpcx	pha		; Länge merken
+	tay
+	dey
+	ldx #0
+ag4	lda ls_nambuf,y	; endet auf ".PCX"?
+	cmp pcxtx,x
+	bne ag2		; nein
+	dey
+	inx
+	cpx #4
+	bcc ag4
+	pla		; ja, fertig
+	rts
+	
+ag2	pla
+	tay		; Name länger als 12 Zeichen?
+	cpy #13
+	bcs ag0		; ja, behandeln
+;
+ag5	ldx #3		; nein, ".pcx" anhängen
+ag1	lda pcxtx,x
+ag3	sta ls_nambuf,y
+	lda pcxtxs,x	; auch für Image Info
+	sta ls_lastname,y
+	iny
+	dex
+	bpl ag1
+	sty wflen		; neue Länge merken, fertig
+	sty ls_flen
+	rts
+;
+ag0	dey		; auf 12 verkürzen
+	cpy #12
+	bne ag0
+	beq ag5		; unbed. Sprung
+;
+modend	!eof 

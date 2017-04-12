@@ -1,0 +1,380 @@
+
+; ------------------------------------------------------------ 
+;
+; ldr.XRayFLI
+; loader for files of Flexible Line Interpretation mode
+; retrieves images of PC based XRay FLI files
+;
+;    1.00, 29.10.16, first release
+;
+; ----------------------------------------- Equates
+;
+*= $c000
+!src "..\godotlib.lib"
+
+	sprite	= $d015
+	status	= $90
+
+	dst0	= $35
+	dst	= $37
+	byte	= $39
+	cntwert	= $3a
+	vrcnt	= $3b
+	adcnt	= $3c
+	backgrcol	= $3d
+	offx	= $b2
+	offy	= offx+1
+
+;
+; ----------------------------------------- Header
+;
+	jmp start
+	!by $80
+	!by $00,$00
+	!by <(modend),>(modend)
+	!by $00,$00
+	!pet "XRayFLI stdalone"
+	!pet "1.00"
+	!pet "29.10.16"
+	!pet "W.Kling/A.Dettke"
+;
+; ----------------------------------------- Main
+;
+jerror	jmp error
+jfaila	jmp faila
+jfailb	jmp failb
+;
+start	lda #50
+	sta cntwert
+	lda #1
+	sta adcnt
+	ldx $20
+	ldy $21
+	stx dst0
+	sty dst0+1
+stt2	jsr getname
+;
+	jsr gd_xopen	; File open
+
+	jsr onebyte
+	cmp #$fe		; XRay file? ($3ffe)
+	bne jfaila
+	jsr onebyte
+	cmp #$3f
+	bne jfaila
+	jsr onebyte	; skip border color
+	bne jerror
+	jsr onebyte	; get bg color
+	bne jerror
+	sta backgrcol
+
+	jsr gd_clrms	; get 8 video rams
+	ldx #0
+	jsr tcopy
+;
+	jsr setdst0
+	lda #8
+	sta vrcnt
+vloop	lda dst0
+	ldy dst0+1
+	sta dst
+	sty dst+1
+vloop0	jsr action
+	jsr basin
+	ldy #3
+vloop1	sta (dst),y
+	dey 
+	bpl vloop1
+	lda dst
+	clc 
+	adc #32
+	sta dst
+	bcc vskip0
+	inc dst+1
+vskip0	lda dst+1
+	cmp #$bd
+	bne vloop0
+	ldy #24
+	jsr dumy
+	lda dst0
+	clc 
+	adc #4
+	sta dst0
+	dec vrcnt
+	bne vloop
+;
+	ldx #9		; get bitmap
+	jsr tcopy
+	lda #50
+	sta cntwert
+	sta adcnt
+;
+	jsr setdst0
+bloop0	jsr basin
+	sta byte
+	jsr action
+	ldy #0
+bloop1	lda #0
+	asl byte
+	rol 
+	asl byte
+	rol 
+	beq null
+	cmp #3
+	beq drei
+	cmp #1
+	beq eins
+	lda (dst0),y
+	and #$0f
+	ora #$20
+	sta (dst0),y
+	bne next
+eins	lda (dst0),y
+	lsr 
+	lsr 
+	lsr 
+	lsr 
+	ora #$10
+	sta (dst0),y
+	bne next
+drei	lda #$30
+	sta (dst0),y
+	bne next
+null	sta (dst0),y
+next	iny 
+	cpy #4
+	bne bloop1
+	lda dst0
+	clc 
+	adc #4
+	sta dst0
+	bcc bskip0
+	inc dst0+1
+bskip0	lda dst0+1
+	cmp #$bd
+	bne bloop0
+	ldy #192
+	jsr dumy
+;
+	lda #7		; get color ram
+	sta cntwert
+	sta adcnt
+	ldx #18
+	jsr tcopy
+;
+	jsr setdst0
+cloop0	jsr basin
+	and #$0f
+	ora #$30
+	sta byte
+	jsr action
+	ldy #31
+cloop1	lda (dst0),y
+	cmp #$30
+	bne cskip0
+	lda byte
+	sta (dst0),y
+cskip0	dey 
+	bpl cloop1
+	lda dst0
+	clc 
+	adc #32
+	sta dst0
+	bcc cskip1
+	inc dst0+1
+cskip1	lda dst0+1
+	cmp #$bd
+	bne cloop0
+	ldy #24
+	jsr dumy
+;
+	lda #200
+	sta cntwert
+	sta adcnt
+	ldx #27
+	jsr tcopy
+;
+	jsr setdst0	; get backgr color
+	lda backgrcol
+	and #$0f
+	tax 
+	lda dnib,x
+	sta byte
+nloop0	jsr action
+	ldy #0
+	lda (dst0),y
+	beq nskip0
+	and #$0f
+	tax 
+	lda dnib,x
+	!by $2c
+nskip0	lda byte
+	sta (dst0),y
+	inc dst0
+	bne nskip1
+	inc dst0+1
+nskip1	lda dst0+1
+	cmp #$bd
+	bne nloop0
+;
+	jsr gd_xmess
+	jsr setinfo
+sk10	jsr gd_xclose
+	lda #$03
+	sta sprite
+	sec 
+	rts 
+;
+dnib	!by $00,$ff,$44,$cc,$55,$aa,$11,$dd
+	!by $66,$22,$99,$33,$77,$ee,$88,$bb
+;
+filltab	!by 160,93,103,127,126,124,105,109
+;
+; ----------------------------------------- Service Routines
+;
+dumy	jsr basin
+	dey 
+	bne dumy
+	rts 
+;
+setdst0	lda #<($4000)
+	ldy #>($4000)
+	sta dst0
+	sty dst0+1
+	rts 
+;
+onebyte	jsr basin
+	ldx $90
+	rts 
+;
+error	jsr sk10
+	clc 
+	rts 
+;
+; ----------------------------------------- Messages 
+;
+failb	ldx #68		; Error message: File corrupt
+	!by $2c
+faila	ldx #36		; Error message: No XRay file
+	ldy #0
+fl0	lda txt,x
+	sta message,y
+	inx
+	iny
+	cpy #32
+	bne fl0
+	jsr error
+	jsr gd_clrms
+	jsr messout
+	clc
+	rts
+
+messout	ldx #<(message)
+	ldy #>(message)
+	jmp gd_xtxout2
+;
+tcopy	ldy #0
+tc0	lda txt,x
+	beq clrmess
+	sta message,y
+	inx 
+	iny 
+	bne tc0
+;
+action	dec adcnt
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts 
+;
+clrmess	ldx #20
+	lda #32
+cl0	sta mess,x
+	dex 
+	bpl cl0
+	ldy #0
+	ldx #7
+	sty offy
+	stx offx
+	rts 
+;
+txt	!scr " VRams  @"			; 0
+	!scr " BMap   @"			; 9
+	!scr " CRam   @"			; 18
+	!scr " BkGr   @"			; 27
+	!scr "    ERROR: No XRay FLI file.    "	; 36
+	!scr "      ERROR: File corrupt.      "	; 68
+
+message	!scr " XRay   "
+mess	!fill 24,32
+	!by 0
+;
+getname	ldx #0
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx 
+	cpx #16
+	bcc si0
+si1	rts 
+;
+getdatac	ldx #4
+	ldy #4
+sinfo0	lda dtextc,x
+	sta datatype,y
+	dex 
+	dey 
+	bpl sinfo0
+	rts 
+;
+setinfo	jsr getdatac
+	jsr setname
+	jsr setloader
+	jsr setmode
+	jmp setdata
+;
+setname	lda #0
+	ldx #<(ls_picname)
+	ldy #>(ls_picname)
+	bne si3
+setloader	lda #17
+	ldx #<(ls_iloader)
+	ldy #>(ls_iloader)
+	bne si3
+setmode	lda #25
+	ldx #<(ls_imode)
+	ldy #>(ls_imode)
+	bne si3
+setdata	lda #33
+	ldx #<(ls_idrive)
+	ldy #>(ls_idrive)
+si3	stx dst0
+	sty dst0+1
+	tax 
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (dst0),y
+	inx 
+	iny 
+	bne si4
+si5	rts 
+;
+nbuf	!fill 16,32
+	!by 0
+	!scr "XRayFLI@"
+modetx	!scr "160x200@"
+datatype	!scr "Color@"
+mtext	!scr "160x200"
+dtextc	!scr "Color"
+modend	!eof
