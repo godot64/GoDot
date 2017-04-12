@@ -1,0 +1,362 @@
+
+*= $c000
+!src "..\godotlib.lib"
+
+; ----------------------------------------- 
+;
+; ldr.AFLI
+; loader for Hires FLI (AFLI) Images
+;
+;    1.00, 30.11.95, first release
+;
+; ----------------------------------------- 
+
+
+; ----------------------------------------- Equates
+
+
+	byte2		= $32
+	adcnt		= $34
+	dst0		= $35
+	dst		= $37
+	byte		= $39
+	cntwert		= $3a
+	vrcnt		= $3b
+
+	status		= $90
+	offx		= ls_adrmisc
+	offy		= offx+1
+
+	colbuf		= $cd00
+
+; ----------------------------------------- Header
+
+	jmp start
+	!by $80
+	!by $00,$01
+	!by <(modend),>(modend)
+	!by $00,$00
+	!pet "HiRes FLI (AFLI)"
+	!pet "1.00"
+	!pet "30.11.95"
+	!pet "W.Kling/A.Dettke"
+;
+; ----------------------------------------- Main
+
+jerror	jmp error
+;
+start	lda #50		; init
+	sta cntwert
+	jsr setdst0
+	sta adcnt
+	inc adcnt
+	jsr getname
+;
+stt2	jsr gd_xopen	; File Open
+	jsr onebyte	; Startadresse überlesen
+	bne jerror
+	jsr onebyte
+	bne jerror
+
+; ----------------------------------------- Video RAMs
+
+	jsr gd_clrms	; "VRams" ausgeben
+	ldx #0
+	jsr tcopy
+
+	jsr mkcols	; 4Bit vorbereiten
+
+	lda #8		; 8 Video-RAMs einlesen
+	sta vrcnt
+vloop	lda dst0
+	ldy dst0+1
+	sta dst
+	sty dst+1
+vloop0	jsr action	; Activity
+	jsr basin		; Byte holen (Farbe)
+;         and #15
+	tax 
+	lda colbuf,x
+	ldy #3
+vloop1	sta (dst),y	; eine Kachellinie damit beschreiben
+	dey 
+	bpl vloop1
+	lda dst		; nächste Kachel
+	clc 
+	adc #32
+	sta dst
+	bcc vskip0
+	inc dst+1
+vskip0	lda dst+1		; bis 4Bit-Ende erreicht
+	cmp #$bd
+	bne vloop0
+	ldy #24		; 24 Bytes überlesen (Rest Video-RAM)
+	jsr dumy
+	lda dst0		; nächste Kachellinie anpeilen
+	clc 
+	adc #4
+	sta dst0
+	dec vrcnt		; Video-RAMs zählen
+	bne vloop		; bis alle durch
+;
+; ----------------------------------------- Bitmap
+
+	ldx #7		; dann "BMap" ausgeben
+	jsr tcopy
+	lda #50
+	sta cntwert
+	lda #1
+	sta adcnt
+;
+	jsr setdst0	; Zeiger wird auf Start 4Bit
+bloop0	jsr basin		; Bitmap-Byte holen
+	sta byte		; merken
+	jsr action	; Activity
+	ldy #0
+bloop1	lda #0		; je zwei Pixel in 4Bit-Farbe wandeln
+	asl byte
+	rol 
+	asl byte
+	rol 
+	beq null		; %00?
+	cmp #3		; %11?
+	beq drei
+	cmp #2		; %10?
+	beq eins		; sonst: %01
+
+zwei	lda (dst0),y	; in 4Bit eintragen
+	pha 
+	and #15
+	tax 
+	lda double,x
+	and #$f0
+	sta byte2
+	pla 
+	and #$f0
+	lsr 
+	lsr 
+	lsr 
+	lsr 
+	tax 
+	lda double,x
+	and #15
+	ora byte2
+	sta (dst0),y
+	jmp eins
+
+drei	lda (dst0),y
+	lsr 
+	lsr 
+	lsr 
+	lsr 
+	tax 
+	lda double,x
+	sta (dst0),y
+	jmp eins
+
+null	lda (dst0),y
+	and #$0f
+	tax 
+	lda double,x
+	sta (dst0),y
+
+eins	iny 		; eine Kachellinie
+	cpy #4
+	bne bloop1
+
+	lda dst0		; nächste Kachellinie
+	clc 
+	adc #4
+	sta dst0
+	bcc bskip0
+	inc dst0+1
+bskip0	lda dst0+1	; bis alle durch
+	cmp #$bd
+	bne bloop0
+;
+; ----------------------------------------- Abschluss
+
+sk10	jsr gd_xmess	; Floppymeldung (verschwindet schnell wieder)
+	jsr setinfo	; Image Information eintragen
+sk11	jsr gd_xclose	; Close File
+	jsr gd_spron	; Mauszeiger an
+	sec 		; Lader verlassen
+	rts 		; fertig
+;
+; ----------------------------------------- 4Bit-Farben generieren
+
+mkcols	ldy #0		; aus jedem möglichen Farbwert (0..255)...
+mkc0	tya 
+	and #15
+	tax 
+	lda dnib,x	; ...ein 4Bit-Byte machen (unteres Nibble)
+	and #15
+	sta byte
+	tya 
+	lsr 
+	lsr 
+	lsr 
+	lsr 
+	tax 
+	lda dnib,x	; (oberes Nibble)
+	and #$f0
+	ora byte
+	sta colbuf,y
+	iny 
+	bne mkc0
+	rts 
+
+; ----------------------------------------- Überlesen
+
+dumy	jsr basin		; .y Bytes überlesen
+	dey 
+	bne dumy
+	rts 
+;
+; ----------------------------------------- Set 4Bit-Start
+
+setdst0	lda #<($4000)
+	ldy #>($4000)
+	sta dst0
+	sty dst0+1
+	rts 
+;
+; ----------------------------------------- Read 1 Byte
+
+onebyte	jsr basin
+	ldx status
+	rts 
+;
+; ----------------------------------------- Fehler beim Lesen
+
+error	jsr sk11
+	clc 
+	rts 
+;
+; ----------------------------------------- Message Handling
+
+messout	ldx #<(message)	; ausgeben
+	ldy #>(message)
+	jmp gd_xtxout2
+;
+tcopy	ldy #0		; anwählen
+tc0	lda txt,x
+	beq clrmess
+	sta message,y
+	inx 
+	iny 
+	bne tc0
+;
+action	dec adcnt		; Gauge-Bar bewegen
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts 
+;
+clrmess	ldx #20		; Message initialisieren
+	lda #32
+cl0	sta mess,x
+	dex 
+	bpl cl0
+	ldy #0
+	ldx #7
+	sty offy
+	stx offx
+	rts 
+;
+filltab	!by 160,93,103,127,126,124,105,109
+;
+txt	!scr " VRams@"	; 0
+	!scr " BMap @"	; 7
+;
+message	!fill 11,32
+mess	!fill 21,32
+	!by 0
+;
+; ----------------------------------------- 4Bit-Doppelnibble
+
+dnib	!by $00,$ff,$44,$cc,$55,$aa,$11,$dd
+	!by $66,$22,$99,$33,$77,$ee,$88,$bb
+
+; ----------------------------------------- Tabelle: Nibble zu Doppelnibble
+
+double	!by $00,$11,$22,$33,$44,$55,$66,$77
+	!by $88,$99,$aa,$bb,$cc,$dd,$ee,$ff
+;
+; ----------------------------------------- Image Information Handler
+
+getname	ldx #0
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx 
+	cpx #16
+	bcc si0
+si1	rts 
+;
+getdatac	ldx #4
+	!by $2c
+getdatag	ldx #9
+	ldy #4
+sinfo0	lda dtextc,x
+	sta datatype,y
+	dex 
+	dey 
+	bpl sinfo0
+	rts 
+;
+setinfo	jsr getdatac
+	jsr setname
+	jsr setloader
+	jsr setmode
+	jmp setdata
+;
+setname	lda #0
+	ldx #<(ls_picname)
+	ldy #>(ls_picname)
+	bne si3
+setloader	lda #17
+	ldx #<(ls_iloader)
+	ldy #>(ls_iloader)
+	bne si3
+setmode	lda #25
+	ldx #<(ls_imode)
+	ldy #>(ls_imode)
+	bne si3
+setdata	lda #33
+	ldx #<(ls_idrive)
+	ldy #>(ls_idrive)
+si3	stx dst0
+	sty dst0+1
+	tax 
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (dst0),y
+	inx 
+	iny 
+	bne si4
+si5	rts 
+;
+nbuf	!fill 16,32
+	!by 0
+	!scr "AFLI   @"
+modetx	!scr "320x200@"
+datatype	!scr "Color@"
+ttext	!scr "Text   "
+htext	!scr "Hires  "
+mtext	!scr "320x200"
+dtextc	!scr "Color"
+dtextg	!scr "Grey "
+
+modend	!eof 

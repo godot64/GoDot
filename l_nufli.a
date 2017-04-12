@@ -1,0 +1,1694 @@
+
+*= $c000
+!src "..\godotlib.lib"
+
+; ----------------------------------------- 
+;
+; ldr.NuFLI
+; loader for NuFLI Images
+;
+;    1.00, 31.03.17, first release
+;    1.01, 06.04.17, bug in sprite rendering fixed
+;    1.02, 07.04.17, bug in combine screenrams fixed
+;
+; ----------------------------------------- 
+
+
+; ----------------------------------------- Equates
+
+
+	value		= $30	; /$31
+	byte3		= $32
+	cntit		= $33
+	adcnt		= $34
+	dst0		= $35	; /$36
+	dst		= $37	; /$38
+	byte		= $39
+	byte2		= $3a
+	cntwert		= $3b
+	vrcnt		= $3c
+	merkx		= $3d
+	merky		= $3e
+	cntit2		= $3f
+	dst1		= $40	; /$41
+	cntit3		= $42
+	undotype		= $43
+	lrtog		= $44
+	odd		= $45
+
+	sprback		= $47	; sprite background   (%00)
+	sprmul0		= $48	; multi color 0       (%01)
+	sprcol		= $49	; hsprites' own color (%10)
+	sprmul1		= $4a	; multi color 1       (%11)
+	spr7col		= $4b	; msprites' own color (%10)
+	undohi		= $4c
+	conv		= $4d	; conversion buffer, up to $50
+	lcnt		= $51
+	src		= $52	; /$53
+
+	status		= $90
+	offx		= ls_adrmisc
+	offy		= offx+1
+	buf		= rm_werte+2	; (value=$1000)
+
+	data		= $4000
+	nuf		= $6300
+	colbuf		= $cd00
+
+; ----------------------------------------- Header
+
+	jmp start
+	!by $80		; Type: Loader
+	!by 0		; Ownreq (if 4)
+	!by 1		; Dirty (if 1)
+	!wo modend
+	!wo 0
+	!pet "NuFLI Loader    "
+	!pet "1.02"
+	!pet "07.04.17"
+	!pet "AD+XBow himself!"
+;
+; ----------------------------------------- Main
+
+start	jsr check4reu	; REU angeschlossen?
+	beq s0
+	jmp noreu		; nein, Hinweis anzeigen
+s0	jsr getfile	; sonst: Read Image File
+	jsr reorg		; Re-organize Data
+	jsr undo4bit	; Undo 4Bit and Rendered
+	jsr cols24bit	; Prepare Colors
+;	jsr clr4bit
+	jsr undotemp	; Undo Colors to Temp
+	jsr render	; Render Image first time (BG)
+	jsr sprites	; Render Sprite-Layer
+	jsr flibug	; Render FLI-Bug
+	jsr renderfg	; Render Image second time (FG)
+
+	sty gr_redisp	; Renderflag an
+	jsr gd_spron	; Mauszeiger an
+	jsr initreu
+canc	sec 		; Lader verlassen
+	rts 		; fertig
+
+
+; ----------------------------------------- Get File
+
+jerror	jmp error
+
+getfile	jsr gd_xopen	; File Open
+	lda ls_drive
+	sta drive
+	lda #140		; init gauge
+	sta cntwert
+	jsr setfcnt	; init counter
+	jsr setst0	; set data start to $6300
+	iny
+	sty adcnt
+	jsr getname	; get filename
+
+; ----------------------------------------- Load Data
+
+stt2	jsr gd_onebyte	; Startadresse überlesen
+	bne jerror
+	jsr gd_onebyte
+	bne jerror
+
+	jsr gd_clrms
+	ldx #0		; "Loading" ausgeben
+	jsr tcopy
+
+gf0	jsr gd_onebyte
+	sta (dst0),y
+	jsr action
+	inc dst0
+	bne gf1
+	inc dst0+1
+gf1	jsr count
+	bne gf0
+
+; ----------------------------------------- Abschluss des Ladens
+
+sk10	jsr gd_xmess	; Zeiger auf Statuszeile setzen
+	stx odd		; FLI-Bug-Flag auf 0
+	jsr setinfo	; Image Information eintragen
+	lda drive		; Drive als Quelldrive setzen
+	sta ls_loadfrom
+sk11	jsr gd_xclose	; Close File
+	sec
+	rts
+
+; ----------------------------------------- 
+; ----------------------------------------- Re-organize Data
+; ----------------------------------------- 
+
+
+; ----------------------------------------- Combine Bitmap
+
+reorg	jsr gd_clrms
+	ldx #22		; dann "Bitmap" ausgeben
+	jsr tcopy
+	iny
+	sty adcnt
+	lda #50
+	sta cntwert
+
+	jsr seto2cnt	; Bitmap, 1.Hälfte verschieben
+	jsr setst3	; von $a300
+	sty dst
+	lda #$20		; nach $2000
+	sta dst+1
+
+	jsr move
+
+	jsr seto1cnt	; Bitmap, 2. Hälfte verschieben
+	jsr setst2	; von $7700 dahinter
+
+	jsr move
+
+; ----------------------------------------- Combine Screenrams
+
+	ldx #33		; dann "Re-Org" ausgeben
+	jsr tcopy
+
+	ldy #0
+	sty value+1	; Addierwert=40
+	lda #40
+	sta value
+
+mv0	sty cntit2	; Durchgangszähler für Screenrams (bis 4)
+
+	lda #8		; Durchgangszähler für Blockzeilen
+	sta cntit
+
+	lda sctab1,y	; Zeiger auf Screentabs, Teil 1
+	sta dst0+1
+	lda sctab2,y
+	sta dst1+1
+	lda vrtab1,y
+	sta dst+1		; Zeiger dst bewegt sich im VRam linear wegen move
+	ldy #0
+	lda #$28
+	sty dst0
+	sta dst1
+	sty dst
+mv1	jsr seto5cnt	; Zähler auf 40 Bytes
+	ldy #0
+	jsr move		; erste Rasterzeile umkopieren
+	jsr seto5cnt	; Zähler zurück auf 40
+	ldy #0
+	jsr move2		; nächste Rasterzeile umkopieren
+	jsr add2		; beide Zeiger um 80 vorrücken
+	dec cntit		; achtmal (für 16 Blockzeilen = Rasterzeilen)
+	bne mv1
+
+	jsr seto4cnt	; Zähler auf 200 Bytes
+	ldy cntit2
+	lda sc2tab1,y	; Zeiger auf Screentabs, Teil 2,1
+	sta dst0+1
+	lda #$80
+	sta dst0
+	ldy #0		; # --- 1.02
+	jsr move		; Rest des VRams anhängen (5 Blockzeilen)
+
+	jsr seto9cnt	; Zähler auf 160 Bytes
+	ldy cntit2
+	lda sc2tab2,y	; Zeiger auf Screentabs, Teil 2,2
+	sta dst0+1
+	lda #$48
+	sta dst0
+	ldy #0		; # --- 1.02
+	jsr move		; Rest des VRams anhängen (4 Blockzeilen)
+
+	jsr seto7cnt	; Zähler auf 1024 Bytes
+	ldy cntit2
+	lda vrtab1,y	; Zeiger setzen
+	sta dst0+1
+	lda vrtab2,y
+	sta dst+1
+	ldy #0
+	sty dst0
+	sty dst
+	jsr move		; umkopieren auf nächstes Screenram
+
+	ldy cntit2
+	iny
+	cpy #4
+	bne mv0
+
+; ----------------------------------------- Set Sprite Base Colors
+
+	lda gr_bkcol	; result at fbcols,x as dnibs
+	jsr getdnib
+	sta fbcols	; bgcol   ($d021, %00)
+	lda nuf+$1ff1
+	jsr getdnib
+	sta fbcols+1	; sprmul0 ($d025, %01)
+	lda nuf+$1ff0
+	jsr getdnib
+	sta fbcols+3	; sprmul1 ($d026, %11)
+	lda nuf+$1ff6
+	jsr getdnib
+	sta fbcols+2	; spr7col ($d02e, %10)
+	lda nuf+$1ff7
+	jsr getdnib
+	sta fbcols+4	; spr0col ($d027, %10)
+	rts
+
+; ----------------------------------------- Undo 
+
+undo4bit	jsr initreu	; Init REU
+	ldx #1		; Colors/Sprites:	-- Undo 4Bit
+	stx undotype
+	ldx #$10		; nach $1000
+	stx undohi	; $4000,$001000,32000
+und0	jsr undo
+	jsr gd_sproff
+
+undorend	jsr initreu	; Re-Init REU
+	ldx #$8d		; dann nach $8d00:
+	stx undohi	; Bitmap:		-- Undo Rendered
+	dec undotype	; $2000,$008d00,8000
+	beq und0
+	rts
+
+undotemp	jsr initreu	; Re-Init REU
+	ldx #1		; Fake Undo 4Bit (nach Temp)
+	stx undotype
+	ldx #$83		; $4000,$078300,32000
+	stx undohi
+	ldx bank
+	stx rm_werte+4
+	jsr undo
+	jmp gd_sproff
+
+; ----------------------------------------- Videorams umkopieren
+
+cols24bit	jsr setst1	; set vector dst0 to $4000 (Quelle)
+	sty dst		; set vector dst  to $2000 (Ziel)
+	lsr
+	sta dst+1
+	ldx #44		; dann "Colors 1" ausgeben
+	jsr tcopy
+	lda #50
+	sta cntwert
+	
+	jsr mkcols	; 4Bit-Farben vorbereiten
+
+	jsr seto6cnt	; 8 kB umkopieren nach $2000
+	jsr move
+
+; ----------------------------------------- 
+
+	ldx #55		; dann "Colors 2" ausgeben
+	jsr tcopy		; (Farben im 4Bit-Bereich erzeugen)
+
+vbl1	lda #0		; 8 VRams
+	sta vrcnt
+	tax
+
+vbloop	jsr seto3cnt	; Zähler auf 1000 Bytes
+	lda vrtable,x	; Quellvektor dst0 auf $2000,x
+	sta dst0+1
+	lda #0
+	sta dst0
+	lda #$40		; Zielvektor dst1 auf $4000,x
+	sta dst1+1
+	lda vbtable,x
+	sta dst1
+
+vbl0	ldy #0
+	lda (dst0),y	; Farbe holen
+	tax
+	lda colbuf,x	; nach 4Bit wandeln
+	ldy #3
+vbm0	sta (dst1),y	; auf 4Bit-Maß strecken (4 Byte aus einem)
+	dey
+	bpl vbm0
+	jsr action	; Activity
+	clc
+	lda dst1		; nächste 4Bit-Kachel
+	adc #32
+	sta dst1
+	bcc vbm1
+	inc dst1+1
+vbm1	inc dst0		; nächste Farbe
+	bne vbm2
+	inc dst0+1
+
+vbm2	jsr count		; 1000 geholt?
+	bne vbl0		; nein, Loop
+
+	inc vrcnt		; 8 VRams durch?
+	ldx vrcnt
+	cpx #8
+	bne vbloop	; nein, Loop
+
+	rts
+
+; ----------------------------------------- Render Image first time (BG)
+
+render	ldx #11		; dann "RenderBG" ausgeben
+	jsr tcopy
+
+	jsr setst1	; Zeiger dst0 wird auf Start 4Bit gesetzt
+	jsr setreu	; Quelle ist Undo Rendered (Bitmap)
+	lda #$8d
+	sta rm_werte+3
+	jsr seto8cnt	; 8000 Bytes Bitmap bearbeiten
+
+bloop	jsr readreu	; Bitmap-Byte holen
+	jsr action	; Activity
+	ldy #0
+
+bloop1	lda #0		; je zwei Pixel in 4Bit-Farbe wandeln
+	asl byte
+	rol 
+	asl byte
+	rol 
+	beq null		; %00? (paper-paper)
+
+	cmp #3		; %11? (ink-ink)
+	beq drei
+	cmp #2		; %10? (ink-paper)
+	beq zwei		; bleibt unverändert
+
+eins	lda (dst0),y	; %01: (paper-ink) Pixel tauschen und in 4Bit eintragen
+	pha 
+	and #$0f
+	tax 
+	lda double,x
+	and #$f0
+	sta byte2
+	pla 
+	lsr 
+	lsr 
+	lsr 
+	lsr 
+	tax 
+	lda double,x
+	and #$0f
+	ora byte2
+	jmp z1
+
+drei	lda (dst0),y	; %11
+	lsr 
+	lsr 
+	lsr 
+	lsr 
+	jmp n1
+
+null	lda (dst0),y	; %00
+	and #$0f
+n1	tax 
+	lda double,x
+z1	sta (dst0),y
+
+zwei	iny 		; %10
+	cpy #4		; eine Kachellinie füllen
+	bne bloop1
+
+	clc		; nächste Kachellinie
+	lda dst0
+	adc #4
+	sta dst0
+	bcc bskip1
+	inc dst0+1
+bskip1	inc buf
+	bne bskip0
+	inc buf+1
+
+bskip0	jsr count
+	bne bloop
+
+	rts
+
+; ----------------------------------------- Render Image ForeGround
+
+renderfg	ldx #88		; dann "RenderFG" ausgeben
+	jsr tcopy
+	iny
+	sty adcnt
+	ldx #50
+	stx cntwert
+	sty undotype	; Undo Rendered zurückholen
+	ldx #8
+	stx perfundo+1
+	jsr undorend
+	inc perfundo+1
+
+	jsr setst1	; Zeiger dst0 auf Start 4Bit setzen
+	sty src
+	sty dst		; Zeiger dst auf die Bitmap setzen ($2000)
+	lsr
+	sta dst+1
+	lda #$83		; Zeiger src auf die Farben in Temp setzen
+	sta src+1
+	jsr settemp	; Temp ansteuern
+	jsr seto8cnt	; 8000 Bytes Bitmap bearbeiten
+
+bloopfg	ldy #0
+
+	lda (dst),y	; Bitmap-Byte holen
+	sta byte3		; merken
+
+bloop1fg	jsr readreu	; Farbbyte holen (aus "Temp" nach byte)
+
+	lda #0		; je zwei Pixel in 4Bit-Farbe wandeln
+	asl byte3
+	rol 
+	asl byte3
+	rol 
+	beq nullfg	; %00? (trans-trans, übergehen)
+
+	cmp #3		; %11? (ink-ink, eintragen)
+	beq dreifg
+	cmp #2		; %10? (ink-trans, Pixel links)
+	beq zweifg
+
+einsfg	lda (dst0),y	; %01: (trans-ink, Pixel rechts)
+	and #$f0
+	sta byte2
+	lda byte		; ink ins rechte Pixel
+	lsr
+	lsr
+	lsr
+	lsr
+	jmp n1fg
+
+dreifg	lda byte		; %11
+	lsr 
+	lsr 
+	lsr 
+	lsr
+	tax
+	lda double,x
+	jmp z1fg
+
+zweifg	lda (dst0),y	; %10
+	and #$0f
+	sta byte2
+	lda byte
+	and #$f0
+n1fg	ora byte2		; zusammen-odern
+z1fg	sta (dst0),y
+
+nullfg	jsr incbuf	; Zeiger in Temp bewegen
+	iny 		; %00
+	cpy #4		; eine Kachellinie füllen
+	bne bloop1fg
+
+	clc		; nächste Kachellinie
+	lda dst0
+	adc #4
+	sta dst0
+	bcc bskip1fg
+	inc dst0+1
+bskip1fg	inc dst		; nächstes Bitmap-Byte
+	bne bskip0fg
+	inc dst+1
+
+bskip0fg	jsr action	; Activity
+	jsr count
+	bne bloopfg
+
+	rts
+
+; --------------------------------------- Render Sprite-Layer
+
+sprites	ldx #66		; dann "Sprites" ausgeben
+	jsr tcopy
+	lda #22		; init gauge
+	sta cntwert
+
+part1	ldx #1
+	stx cntit		; Sprite-Nummer (von 1..6)
+	stx adcnt
+	dex
+	stx lcnt		; Rasterzeilen (von 0..199)
+	stx cntit2	; Kachelzähler (von 0..5)
+	stx lrtog		; Nibble-Flag
+	jsr setst1	; Startadresse: $4060
+	ldy #$60
+	sta dst+1		; für Inner-Kachelzeile
+	sta dst1+1
+	sty dst
+	sty dst0		; für Rasterzeile
+	sty dst1		; für Blockzeile
+	jsr setreu	; Init REU (to Undo-Buffer)
+
+cvs2	ldy lcnt		; Rasterzeile
+	bpl cv0
+	jmp part2
+
+cv0	jsr getspcols	; Farben nach sprback,x
+	jsr mkdnibs
+	
+cv01	ldx cntit2	; (Kachel 0..5)
+cvs0	txa
+	and #1		; nur einmal holen, da x-expandiert
+	bne cvs1
+
+	lda linesl1a,y	; Basis-Addr lo
+	sty merky
+	clc
+	adc addlo1,x	; Kacheloffset addieren
+	and #$3f
+
+	ldx cntit
+	cpx #6
+	beq cv3
+
+	ora #$80		; (Sprite 1..5:)
+	clc		; Sprite-Bereichs-Offset ein-odern
+	adc offs1,x	; Spriteoffset addieren
+	php
+	jmp cv4		; 			# --- 1.01
+
+cv3	pha		; (Sprite 6:)
+	tya
+	and #7
+	tay
+	pla
+	ora linesl2a,y
+
+cv4	sta buf		; ist Lo-Byte
+
+	ldy merky
+	tya
+	and #15
+	tay
+
+	cpx #6
+	beq cv2
+
+	plp		; (Sprite 1..5:)
+	lda linesh1a,y
+	adc addhi1,x
+	bne cvs4
+
+cv2	lda linesh2a,y	; (Sprite 6:)
+
+cvs4	sta buf+1		; ist Hi-Byte
+	dex		; .x (Sprite) jetzt als Index
+	stx merkx
+	jsr action
+	ldx merkx
+	ldy lcnt
+	jsr convert
+
+cvs1	inc cntit2	; Kacheln zählen
+	ldx cntit2
+	cpx #6
+	bcc cvs0
+
+	lda #0		; (Kachelzähler auf 0)
+	sta cntit2
+	inc cntit		; Sprites zählen
+	lda cntit
+	cmp #7
+	bcc cv01
+
+	lda #1		; (Spritezähler auf 1)
+	sta cntit
+	lda #$60
+	sta value
+	inc lcnt		; Rasterzeilen zählen (bis 127)
+	jsr advance
+
+cvs7	jmp cvs2
+
+part2	ldx #0
+	stx lrtog
+	stx cntit2
+	inx
+	stx cntit
+
+cvs8	ldy lcnt		; Rasterzeilen 128..167 zählen
+	cpy #168
+	bne cv9
+	jmp part3
+
+cv9	jsr getspcols
+	jsr mkdnibs
+
+	ldx cntit2	; (Kachel)
+cvs5	txa
+	and #1		; nur einmal holen, da x-expandiert
+	bne cvs6
+
+	lda linesl1a,y
+	sty merky
+	clc
+	adc addlo1,x	; Kacheloffset addieren
+	and #$3f
+
+	ldx cntit
+	cpx #6
+	beq cv5
+	
+	clc
+	adc offs1,x	; Spriteoffset addieren
+	php
+	!by $2c
+	
+cv5	ora #$40
+
+	sta buf		; ist Lo-Byte
+
+	ldy merky
+	tya
+	and #7
+	tay
+	
+	cpx #6
+	beq cvsa
+
+	plp
+	lda linesh1b,y
+	adc addhi1,x
+	bne cvsb
+
+cvsa	lda linesh2b,y
+
+cvsb	sta buf+1		; ist Hi-Byte
+	dex		; .x (Sprite) jetzt als Index
+	stx merkx
+	jsr action
+	ldx merkx
+	ldy lcnt
+	jsr convert	; Spritebyte nach 4Bit
+
+cvs6	inc cntit2	; Kacheln zählen
+	ldx cntit2
+	cpx #6
+	bcc cvs5
+
+	lda #0
+	sta cntit2
+	inc cntit		; Sprites zählen
+	lda cntit
+	cmp #7
+	bcc cvs8
+
+	lda #1
+	sta cntit
+	lda #$60
+	sta value
+	inc lcnt		; Rasterzeilen zählen (bis 167)
+	jsr advance
+
+	jmp cvs8
+
+part3	ldx #0
+	stx lrtog
+	stx cntit2
+	inx
+	stx cntit
+
+pvs8	ldy lcnt		; Rasterzeilen 168..199 zählen
+	cpy #200
+	bne cva
+	jmp finish
+
+cva	jsr getspcols
+	jsr mkdnibs
+
+	ldx cntit2	; (Kachel)
+pvs5	txa
+	and #1		; nur einmal holen, da x-expandiert
+	bne pvs6
+
+	lda linesl1a,y
+	sty merky
+	clc
+	adc addlo1,x	; Kacheloffset addieren
+	and #$3f
+
+	ldx cntit
+	cpx #6
+	beq cv7
+	
+	clc
+	adc offs1,x	; Spriteoffset addieren
+	php
+	!by $2c
+	
+cv7	ora #$40
+
+	sta buf		; ist Lo-Byte
+
+	ldy merky
+	tya
+	and #7
+	tay
+	
+	cpx #6
+	beq pvsa
+
+	plp
+	lda linesh1c,y
+	adc addhi1,x
+	bne pvsb
+
+pvsa	lda linesh2c,y
+
+pvsb	sta buf+1		; ist Hi-Byte
+	dex		; .x (Sprite) jetzt als Index
+	stx merkx
+	jsr action
+	ldx merkx
+	ldy lcnt
+	jsr convert	; Spritebyte nach 4Bit
+
+pvs6	inc cntit2	; Kacheln zählen
+	ldx cntit2
+	cpx #6
+	bcc pvs5
+
+	lda #0
+	sta cntit2
+	inc cntit		; Sprites zählen
+	lda cntit
+	cmp #7
+pv04	bcc pvs8
+
+	lda #1
+	sta cntit
+	lda #$60
+	sta value
+	inc lcnt		; Rasterzeilen zählen (bis 199)
+	jsr advance
+
+	jmp pvs8
+
+finish	rts		; fertig
+
+; --------------------------------------- Render FLI-Bug
+
+flibug	ldx #77		; dann "FLI-Bug" ausgeben
+	jsr tcopy
+	lda #8		; init gauge
+	sta cntwert
+
+partf1	ldx #1
+	stx adcnt
+	dex
+	stx lcnt		; Rasterzeilen (von 0..199)
+	stx cntit2	; Kachelzähler (von 0..2)
+	dex
+	stx odd		; Flag für even aktivieren ($ff)
+	jsr setst1	; Startadresse: $4000
+	sta dst+1		; für Inner-Kachelzeile
+	sta dst1+1
+	sty dst
+	sty dst1		; für Blockzeile
+	jsr setreu	; again
+
+fvs2	ldy lcnt		; Rasterzeile
+	bpl fv01
+	jmp partf2
+
+fv01	jsr getspcols
+	jsr getfbug
+
+fv0	ldx cntit2	; (Kachel 0..2)
+	cpx #3
+	beq fvs0
+
+	txa
+	clc
+	adc linesl1a,y
+	sty merky
+	and #$3f
+	pha
+	tya
+	and #7
+	tay
+	pla
+	ora linesl2a,y
+	sta buf		; ist Lo-Byte (Multi)
+	sta src		; (und Hires)
+
+	ldy merky
+	tya
+	and #15
+	tay
+	lda linesh3a,y
+	sta buf+1		; ist Hi-Byte (Multi)
+	clc
+	adc #2
+; ---	ora #$10		; Position geändert!
+	sta src+1		; (und Hires)
+	jsr fconvert
+	ldy lcnt
+
+	inc cntit2
+	bne fv0
+
+fvs0	lda #0
+	sta cntit2
+	sta value
+	inc lcnt
+	jsr advance
+
+fvs7	jmp fvs2
+
+partf2	ldy lcnt
+	cpy #168
+	bne fvs05
+	jmp partf3
+
+fvs05	jsr getspcols
+	jsr getfbug
+
+fvs5	ldx cntit2
+	cpx #3
+	beq fvs6
+
+	txa
+	clc
+	adc linesl1a,y
+	sty merky
+	and #$3f
+	pha
+	tya
+	and #7
+	tay
+	pla
+	ora linesl3b,y
+	sta buf
+	sta src
+
+	lda #$33
+	sta buf+1
+	clc
+	adc #2
+	adc #$10
+	sta src+1
+	jsr fconvert
+	ldy lcnt
+
+	inc cntit2
+	bne fvs5
+
+fvs6	lda #0
+	sta cntit2
+	sta value
+	inc lcnt
+	jsr advance
+
+	jmp partf2
+
+partf3	ldy lcnt
+	cpy #200
+	bne pfs05
+	jmp ffinish
+
+pfs05	jsr getspcols
+	jsr getfbug
+
+pfs5	ldx cntit2
+	cpx #3
+	beq pfs6
+
+	txa
+	clc
+	adc linesl1a,y
+	sty merky
+	and #$3f
+	pha
+	tya
+	and #7
+	tay
+	pla
+	ora linesl3c,y
+	sta buf
+	sta src
+
+	lda #$33
+	sta buf+1
+	clc
+	adc #2
+	adc #$10
+	sta src+1
+	jsr fconvert
+	ldy lcnt
+
+	inc cntit2
+	bne pfs5
+
+pfs6	lda #0
+	sta cntit2
+	sta value
+	inc lcnt
+	jsr advance
+
+	jmp partf3
+
+ffinish	rts	
+
+; ----------------------------------------- Convert FLI-Bug
+
+fconvert	jsr mconvert	; zuerst Multi
+
+hconvert	jsr action	; dann Hires
+	lda src+1
+	ldx src
+	sta buf+1
+	stx buf
+	jsr readreu	; Byte aus Sprite holen
+
+	lda fbcols+4	; aktuelle Ink-Farbe anwählen
+	sta byte2		; 
+	ldx #3		; viermal...
+	stx cntit
+	ldy #0
+
+hc0	sty conv
+	asl byte		; ...zwei Bit holen...
+	rol conv
+	asl byte
+	rol conv
+
+	lda (dst),y	; (Zielwert holen)
+	pha
+	and #$0f
+	sta conv+1
+	pla
+	and #$f0
+	sta conv+2
+
+	lda byte2
+	ldx conv		; ...und nach 4Bit wandeln
+	beq hc1		; %00 (keine Änderung)
+	cpx #3		; %11 (beide Pixel neu)
+	beq hc4
+hc2	dex
+	bne hc3
+	and #$0f		; %01 (Pixel rechts)
+	ora conv+2
+	bne hc4
+hc3	and #$f0		; %10 (Pixel links)
+	ora conv+1
+hc4	sta (dst),y	; zurückschreiben
+
+hc1	inc dst
+	bne hc6
+	inc dst+1
+hc6	dec cntit
+	bpl hc0
+
+hc8	clc
+	lda dst
+	adc #28
+	sta dst
+	bcc hc7
+	inc dst+1
+hc7	rts
+
+; --------------------------------------- Convert Multi
+
+mconvert	jsr action
+	jsr readreu	; Byte aus Sprite holen
+
+	ldx #3
+	stx cntit
+	ldy #0
+mex0	sty conv
+	asl byte		; je 2 Bit zu einem 4Bit-dnib wandeln
+	rol conv
+	asl byte
+	rol conv
+
+	ldx conv
+	beq mnx2
+	lda fbcols,x
+	sta (dst),y
+
+mnx2	inc dst
+	bne mnx3
+	inc dst+1
+
+mnx3	dec cntit
+	bpl mex0
+
+sub4	sec		; 4 Bytes zurück für hconvert
+	lda dst
+	sbc #4
+	sta dst
+	bcs sb0
+	dec dst+1
+sb0	rts	
+
+; --------------------------------------- Convert Hires x-Expanded
+
+convert	jsr readreu	; Byte aus Sprite holen
+
+	lda sprback,x	; nach 4Bit wandeln (.x ist Index auf Sprite)
+	sta byte2
+	ldy #0
+csp1	ldx #3		; 4 Bit davon bearbeiten
+csp2	lda byte
+	asl
+	sta byte
+	bcc csp0
+	lda byte2
+	sta (dst),y	; und zweimal nebeneinander eintragen (x-expand)
+csp0	iny
+	dex		; bis vier Pixel durch
+	bpl csp2
+	clc
+	tya		; danach nächste 4Bit-Kachel
+	adc #28
+	tay
+	inc lrtog		; nochmal 4 Bit?
+	beq csp3
+	stx lrtog
+	bne csp1		; ja, zurück
+
+csp3	sty merkx		; danach Zeiger auf dritte Kachel
+	clc
+	lda dst
+	adc merkx
+	sta dst
+	bcc csp4
+	inc dst+1
+csp4	ldy lcnt		; Rasterlinie zurückholen
+	rts
+
+; ----------------------------------------- 4Bit löschen 
+
+clr4bit	lda #125
+	sta cntit
+	jsr setst1
+	lda #$11		; in blau
+cl41	sta (dst0),y
+	iny
+	bne cl41
+	inc dst0+1
+	dec cntit
+	bne cl41
+	rts
+
+; ----------------------------------------- Spritefarben holen
+
+getspcols	tya
+	bit odd		; im FLI-Bug? (wenn odd=$ff)
+	bne gpc1 
+	iny		; nein, um 1 versetzen
+	tya
+	dey
+gpc1	lsr		; Rasterzeile/2
+	sta byte2		; merken
+
+gpc	ldx #0
+gpc0	lda byte2
+	jsr getcol	; Farbe holen
+
+gpc2	lda byte2		; zurückholen
+	ora #$80
+	jsr getcol
+
+	cpx #6
+	bne gpc0
+	rts
+
+; --- AFLI-Farben holen
+
+getcol	sta buf		; Adresse lo
+	lda hicols,x
+	sta buf+1		; hi
+	jsr readreu	; Farbe holen
+	bit odd		; im FLI-Bug?
+	bne gpc3
+	cmp #16		; nein, >15?
+	bcs gpc4		; ja, überspringen
+gpc3	sta sprback,x	; eintragen
+gpc4	inx
+	rts
+
+; ---
+
+mkdnibs	ldx #5
+mkd0	stx cntit3
+	lda sprback,x	; Farbwert >15?
+	cmp #16		; wenn, ja, übergehen (FLI-Bug-Farbe)
+	bcs mkd1
+	jsr getdnib	; sonst nach 4Bit wandeln
+	ldx cntit3
+	sta sprback,x
+mkd1	dex
+	bpl mkd0
+	rts
+
+; --- FLI-Bug-Farben holen
+
+getfbug	lda #5		; sechs Farbumschaltungen pro Rasterzeile checken
+	sta cntit3
+gfb0	ldx cntit3
+	lda sprback,x
+	pha
+	jsr getdnib
+	ldx cntit3
+	sta sprback,x
+	tax
+	pla
+	and #$f0		; Flag isolieren ($40 und $10 werden ignoriert)
+	beq gfb4
+
+	cmp #$50		; 5: $d025 (Multi0, %01)
+	bne gfb1
+	stx fbcols+1
+gfb1	cmp #$60		; 6: $d026 (Multi1, %11)
+	bne gfb2
+	stx fbcols+3
+gfb2	cmp #$e0		; e: $d02e (Spr7,   %10)
+	bne gfb3
+	stx fbcols+2
+gfb3	cmp #$70		; 7: $d027 (Spr0,   %10)
+	bne gfb4
+	stx fbcols+4
+
+gfb4	dec cntit3
+	bpl gfb0
+	rts
+
+; ----------------------------------------- 4Bit-Farben generieren
+
+mkcols	ldy #0		; aus jedem möglichen Farbwert (0..255)...
+mkc0	tya 
+	and #15
+	tax 
+	lda dnib,x	; ...ein 4Bit-Byte machen (unteres Nibble)
+	and #15
+	sta byte
+	tya 
+	lsr 
+	lsr 
+	lsr 
+	lsr 
+	tax 
+	lda dnib,x	; (oberes Nibble)
+	and #$f0
+	ora byte
+	sta colbuf,y
+	iny 
+	bne mkc0
+	rts 
+
+; --------------------------------------- Make Double Nibbles
+
+getdnib	and #$0f
+	tax
+	lda dnib,x
+	rts
+
+; ----------------------------------------- Verschieben
+
+move	lda (dst0),y
+	sta (dst),y
+	inc dst0
+	bne gf4
+	inc dst0+1
+gf4	inc dst
+	bne gf5
+	inc dst+1
+gf5	jsr action
+	ldy #0
+	jsr count
+	bne move
+	rts
+
+move2	lda (dst1),y
+	sta (dst),y
+	inc dst1
+	bne gf6
+	inc dst1+1
+gf6	inc dst
+	bne gf7
+	inc dst+1
+gf7	jsr action
+	ldy #0
+	jsr count
+	bne move2
+	rts
+
+; --------------------------------------- 
+
+advance	clc
+	lda dst0
+	adc #4
+	sta dst0
+	sta dst
+	lda dst0+1
+	sta dst+1
+
+	lda lcnt
+	and #7
+	bne adv7
+
+	clc
+	lda dst1+1
+	adc #5
+	sta dst1+1
+	sta dst0+1
+	sta dst+1
+	lda value
+	sta dst0
+	sta dst
+
+adv7	rts
+
+; ----------------------------------------- Austauschen
+
+xchange	lda (dst0),y
+	tax
+	lda (dst),y
+	sta (dst0),y
+	txa
+	sta (dst),y
+	inc dst0
+	bne xch6
+	inc dst0+1
+xch6	inc dst
+	bne xch7
+	inc dst+1
+xch7	jsr action
+	ldy #0
+	jsr count
+	bne xchange
+	rts
+
+; ----------------------------------- Counter
+
+count	lda ls_vekta8	; zählen
+	bne cnt1
+	dec ls_vekta8+1
+cnt1	dec ls_vekta8
+	lda ls_vekta8	; abgezählt, wenn 0
+	ora ls_vekta8+1
+	rts
+
+; ----------------------------------------- Set Counters
+
+setfcnt	lda #$5a		; 23040 Bytes
+	bne stf1
+seto8cnt	lda #>8000	; 8000 Bytes
+	ldy #<8000
+	bne stf0
+seto3cnt	lda #>1000	; 1000 Bytes
+	ldy #<1000
+	bne stf0
+seto7cnt	lda #$04		; 1024 Bytes
+	bne stf1
+seto6cnt	lda #$20		; 8192 Bytes
+	bne stf1
+seto1cnt	lda #$0b		; 2880 Bytes
+	ldy #$40
+	bne stf0
+seto2cnt	lda #$14		; 5120 Bytes
+	bne stf1
+seto4cnt	lda #>200		; 200 Bytes
+	ldy #<200
+	bne stf0
+seto9cnt	lda #>160		; 160 Bytes
+	ldy #<160
+	bne stf0
+seto5cnt	lda #$00		; 40 Bytes
+	ldy #$28
+	!by $2c
+stf1	ldy #$00
+stf0	sta ls_vekta8+1
+	sty ls_vekta8
+	rts
+
+; ----------------------------------------- Set Start
+
+setst0	lda #>nuf		; Data Start     ($6300)
+	bne std0
+setst7	lda #$20		; Rendered Start ($2000)
+	bne std0
+setst1	lda #>sy_4bit	; 4Bit Start     ($4000)
+	bne std0
+setst2	lda #>(nuf+$1400)	; Bitmap2 Start  ($7700)
+	bne std0
+setst3	lda #>(nuf+$4000)	; Bitmap1 Start  ($a300)
+std0	ldy #$00
+	sta dst0+1
+	sty dst0
+	rts 
+;
+; ----------------------------------------- Add 384/664 to addresses
+
+add2	clc
+	lda dst1
+	adc value
+	sta dst1
+	lda dst1+1
+	adc value+1
+	sta dst1+1
+	bne ad0
+
+add	clc
+	lda dst		; Ziel
+	adc value
+	sta dst
+	lda dst+1
+	adc value+1
+	sta dst+1
+ad0	clc
+	lda dst0		; Quelle
+	adc value
+	sta dst0
+	lda dst0+1
+	adc value+1
+	sta dst0+1
+	rts
+
+; ---------------------------------------------------------------------
+; -------------------------------------------------------------- Undo
+; ---------------------------------------------------------------------
+
+; --------------------------------------- Init REU values
+
+setreu	jsr initreu
+	ldx #1		; read/write 1 byte
+	stx rm_werte+5
+	dex
+	lda #byte		; set C64 address: $byte
+	sta rm_werte
+	stx rm_werte+1
+	lda #$10		; set offset in bank ($1000)
+	sta rm_werte+3	; (buf+1)
+	rts		; $39, $00, $00, $10, 0, 1, 0
+
+settemp	jsr setreu
+	ldx bank
+	stx rm_werte+4
+	lda src
+	sta buf
+	lda src+1
+	sta buf+1
+	rts		; $39, $00, $00, $83, 7, 1, 0
+
+; ---------------------------------------- Init rm_werte
+
+initreu	ldx #6
+	lda #0		; RM_WERTE (am Ende): 
+sl0	sta rm_werte,x	; $00, $c0, $00, $00, 0, 0, 0
+	dex		; - C64 - | -  REU   - | Anzahl 
+	bpl sl0
+	lda #$c0
+	sta rm_werte+1
+	rts
+
+; --------------------------------------- Inc Buffer pointer
+
+incbuf	inc buf
+	bne ib0
+	inc buf+1
+ib0	rts
+
+; --------------------------------------- Read from REU
+
+readreu	sty merky
+	stx merkx
+	lda #$91		; fetch
+	jsr gd_reu
+	ldy merky
+	ldx merkx
+	lda byte
+	rts
+
+; -------------------------------------- Check for REU
+
+check4reu	lda ls_sysdrive+6	; Sysdrive ist RAM?
+	and #15
+	tax
+	lda banks,x
+	sta bank		; dann hier positiver Wert
+	lda rm_ramvec	; Device eingebunden?
+	cmp #$4c		; equal, wenn ja
+	rts
+
+; -------------------------------------- 
+
+undo	lda #<getundo	; eigentliche Routine verschieben
+	ldx #>getundo	; (weil das Modul ausgeblendet wird)
+	sta ls_vekta8
+	stx ls_vekta8+1
+	ldy #error-getundo
+sloop	lda (ls_vekta8),y
+	sta sy_global,y	; nach GLOBAL
+	dey
+	bpl sloop
+	jmp sy_global	; und dann ausführen
+
+; -------------------------------------- 
+;
+; sy_global (at $3f40):
+;
+; -------------------------------------- 
+
+getundo 	jsr gd_swapd	; Ram einblenden
+	ldx #10		; FirstInit
+	jsr rm_ramvec
+
+	ldx undotype	; Flag für 4Bit-Undo setzen
+	stx rm_nextentry
+	ldx undohi	; *** Achtung! Undo-Adresse setzen! ***
+	stx rm_werte+3	; *** Fehler im Device! ***
+	
+perfundo	ldx #9		; und GetUndo (Stash Data, hier: self modification)
+	jsr rm_ramvec
+	ldx #1		; forceoff 
+	jmp rm_ramvec
+
+; ----------------------------------------- Fehler beim Lesen
+
+error	jsr sk11
+	jsr gd_spron	; Mauszeiger an
+	clc 
+	rts 
+
+; ----------------------------------------- Message Handling
+
+messout	ldx #<(message)	; ausgeben
+	ldy #>(message)
+	jmp gd_xtxout2
+
+tcopy	ldy #0		; anwählen
+tc0	lda txt,x
+	beq clrmess
+	sta message,y
+	inx 
+	iny 
+	bne tc0
+
+clrmess	ldx #21		; Message initialisieren
+	lda #32
+cl0	sta mess,x
+	dex 
+	bpl cl0
+	ldy #0
+	ldx #7
+	sty offy
+	stx offx
+	rts 
+
+filltab	!by 160,93,103,127,126,124,105,109
+
+txt	!scr " Loading  @"	; 0
+	!scr " RenderBG @"	; 11
+	!scr " Bitmap   @"	; 22
+	!scr " Re-Org   @"	; 33
+	!scr " Colors 1 @"	; 44
+	!scr " Colors 2 @"	; 55
+	!scr " Sprites  @"	; 66
+	!scr " FLI-Bug  @"	; 77
+	!scr " RenderFG @"	; 88
+
+message	!fill 10,32
+mess	!fill 22,32
+	!by 0
+
+; ----------------------------------- Gauge Bar Activity
+
+action 	dec adcnt
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	cpy #22
+	bne act0
+	jsr clrmess
+act0	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4 	rts
+
+; -----------------------------------------
+; ----------------------------------------- Variablen, Tabellen
+; -----------------------------------------
+
+drive	!by 0
+bank	!by $ff
+banks	!by $ff,$ff,0,0,3,7,$ff,1,0
+
+vrtab1	!by $40,$48,$50,$58
+vrtab2	!by $44,$4c,$54,$5c
+sctab1	!by $9f,$9b,$97,$93
+sctab2	!by $8f,$8b,$87,$83
+sc2tab1	!by $65,$69,$6d,$71
+sc2tab2	!by $6a,$6e,$72,$66
+
+vrtable	!by $20,$24,$28,$2c,$30,$34,$38,$3c
+vbtable	!by $00,$04,$08,$0c,$10,$14,$18,$1c
+
+; ----------------------------------------- 4Bit-Doppelnibble
+
+dnib	!by $00,$ff,$44,$cc,$55,$aa,$11,$dd
+	!by $66,$22,$99,$33,$77,$ee,$88,$bb
+
+; ----------------------------------------- Nibble zu Doppelnibble
+
+double	!by $00,$11,$22,$33,$44,$55,$66,$77
+	!by $88,$99,$aa,$bb,$cc,$dd,$ee,$ff
+
+; --------------------------------------- Sprite-Positionen
+
+; --- Sprites 1 - 5
+
+linesl1a	!by $05,$08,$08,$0b,$0b,$0e,$0e,$11	; 0..7
+	!by $11,$14,$14,$17,$17,$1a,$1a,$1d	; 8..15
+	!by $1d,$20,$20,$23,$23,$26,$26,$29	; 16..23
+	!by $29,$2c,$2c,$2f,$2f,$32,$32,$35	; 24..31
+	!by $35,$38,$38,$3b,$3b,$3e,$3e,$01	; 32..39
+	!by $01,$04,$04,$07,$07,$0a,$0a,$0d	; 40..47
+	!by $0d,$10,$10,$13,$13,$16,$16,$19	; 48..55
+	!by $19,$1c,$1c,$1f,$1f,$22,$22,$25	; 56..63
+	!by $25,$28,$28,$2b,$2b,$2e,$2e,$31	; 64..71
+	!by $31,$34,$34,$37,$37,$3a,$3a,$3d	; 72..79
+	!by $3d,$00,$00,$03,$03,$06,$06,$09	; 80..87
+	!by $09,$0c,$0c,$0f,$0f,$12,$12,$15	; 88..95
+	!by $15,$18,$18,$1b,$1b,$1e,$1e,$21	; 96..103
+	!by $21,$24,$24,$27,$27,$2a,$2a,$2d	; 104..111
+	!by $2d,$30,$30,$33,$33,$36,$36,$39	; 112..119
+	!by $39,$3c,$3c,$00,$00,$03,$03,$06	; 120..127
+linesl1b	!by $06,$09,$09,$0c,$0c,$0f,$0f,$12	; 128..137
+	!by $12,$15,$15,$18,$18,$1b,$1b,$1e	; 136..143
+	!by $1e,$21,$21,$24,$24,$27,$27,$2a	; 144..151
+	!by $2a,$2d,$2d,$30,$30,$33,$33,$36	; 152..159
+	!by $36,$39,$39,$3c,$3c,$00,$00,$03	; 160..167
+linesl1c	!by $03,$06,$06,$09,$09,$0c,$0c,$0f	; 168..175
+	!by $0f,$12,$12,$15,$15,$18,$18,$1b	; 176..183
+	!by $1b,$1e,$1e,$21,$21,$24,$24,$27	; 184..191
+	!by $27,$2a,$2a,$2d,$2d,$30,$30,$33	; 192..199
+
+linesh1a	!by $71,$71,$6d,$6d,$69,$69,$65,$65	; 0..7 | 16..23 | 32 ...
+	!by $61,$61,$5d,$5d,$59,$59,$55,$55	; 8..15 | 24..31 | 40 ...
+linesh1b	!by $34,$34			; 128..167
+linesh1c	!by $38,$38,$3c,$3c,$40,$40,$34,$34	; 168..199
+
+; ---- Sprite 6
+
+linesl2a	!by $c0,$c0,$80,$80,$40,$40,$00,$00	; 0..127 (Rest: $40)
+
+linesh2a	!by $88,$88,$88,$88,$88,$88,$88,$88	; wie bei lo
+	!by $87,$87,$87,$87,$87,$87,$87,$87
+linesh2b	!by $35,$35
+linesh2c	!by $39,$39,$3d,$3d,$41,$41,$35,$35
+
+; ---- FLI-Bug
+
+linesl3b	!by $00,$00
+linesl3c	!by $40,$40,$80,$80,$c0,$c0,$00,$00
+linesh3a	!by $8a,$8a,$8a,$8a,$8a,$8a,$8a,$8a	; wie bei lo
+	!by $89,$89,$89,$89,$89,$89,$89,$89
+
+; ---- alle Sprites
+
+addlo1	!by 0,0,1,1,2,2			; pro Kachel in einem Sprite
+addhi1	!by $ff,  0,  0,  0,  0,  1,  1	; pro Sprite ($ff ist Dummy)
+offs1	!by $ff,$00,$40,$80,$c0,$00,$40	; pro Sprite
+hicols	!by $37,$37,$3b,$3b,$3f,$3f		; Farbtabellen Hi ($24..)
+fbcols	!by $00,$00,$00,$00,$00		; akt. Spritefarben
+
+
+; ----------------------------------------- Image Information Handler
+
+getname	ldx #0		; get and store filename
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx 
+	cpx #16
+	bcc si0
+si1	rts 
+;
+setinfo	jsr setname	; set filename
+	jsr setloader	; set loader name
+	jsr setmode	; set screen mode type
+	jmp setdata	; set data type
+;
+setname	lda #0		; .a=Offset
+	ldx #<(ls_picname)
+	ldy #>(ls_picname)
+	bne si3
+setloader	lda #17
+	ldx #<(ls_iloader)
+	ldy #>(ls_iloader)
+	bne si3
+setmode	lda #25
+	ldx #<(ls_imode)
+	ldy #>(ls_imode)
+	bne si3
+setdata	lda #33
+	ldx #<(ls_idrive)
+	ldy #>(ls_idrive)
+si3	stx dst0
+	sty dst0+1
+	tax 
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (dst0),y
+	inx 
+	iny 
+	bne si4
+si5	rts 
+;
+nbuf	!fill 16,32	; filename
+	!by 0
+	!scr "NuFLI  @"	; loader name
+modetx	!scr "320x200@"	; screen mode
+datatype	!scr "Color@"	; data type
+
+; ----------------------------------------------------- 
+
+noreu	ldx #<(warnlst)
+	ldy #>(warnlst)
+	jmp gd_xmloop
+
+; ----------------------------------------------------- 
+
+warnlst	!by 0
+	!by 8,9,21,9,$81,0,0
+	!scr "MESSAGE@"
+	!by 14,23,7,3,$cd,<(canc),>(canc)
+	!scr "Leave@"
+	!by $c0,10,10,16
+	!scr "No REU detected.@"
+	!by $c0,12,9,19
+	!scr "Can't work without.@"
+	!by $80
+
+; ----------------------------------------------------- 
+
+modend	!eof 
