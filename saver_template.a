@@ -1,0 +1,420 @@
+
+!src "..\godotlib.lib"
+*= $c000
+
+; ----------------------------------------- 
+; svr.NuFLI
+;     Saver für New-Underlayed-FLI-Bilder
+;
+; 1.00: 10.04.17, first release
+;
+; -------------------------------------------------------------- Header
+;
+ 	jmp start
+;
+	!by $40 			; $80=Lader, $40=Saver, $20=Modifier
+	!by 0			; Own-Requester-Flag für Lader (4 = present)
+	!by 1			; Dirty Flag (1 = dirty)
+	!wo modend		; Endadresse+1 des Moduls
+	!wo 0			; unbenutzt
+	!pet "NuFLI saver     "	; Beschreibung
+	!pet "1.00"		; Versionsnummer
+	!pet "10.04.17"		; Datum
+	!pet "A.Dettke        "	; Autor
+
+; -------------------------------------------------------------- Definitionen
+
+
+
+; -------------------------------------------------------------- 
+
+start	ldx gr_nr		; Funktionsnummer testen
+	dex
+	bne st0		; Null, dann "Speichern"
+	jmp initinp	; eins, dann "Input"
+
+; -------------------------------------------------------------- Main
+
+sk12	jmp noreu
+
+; -------------------------------------------------------------- 
+
+st0	lda ls_ramdrive	; REU angeschlossen?
+	and #15
+	cmp #9
+	beq sk12		; nein, gar kein Ram
+	cmp #7		; nur SuperRAM?
+	beq sk12		; ja, skip Rest
+	and #12
+	beq sk12		; kein REU, skip Rest
+
+	dummy		; 320x200 vorbesetzen
+
+	jsr requester	; display requester
+	lda used		; cancelled?
+	cmp #3
+	bcs st12
+
+st11	jsr gd_sproff	; Sprites aus
+	lda gd_modswitch	; Slot retten
+	pha
+
+	lda ls_flen	; Filename wurde übergeben?
+	beq st1		; nein (Cancel)
+
+	sta wflen		; sonst: retten
+	jsr addnuf	; Namen erweitern
+	lda #1		; Counter für Activity setzen
+	sta adcnt
+	sta cntwert
+
+	lda #9		; Undo-Kommando vorbereiten
+	sta getundo+1
+
+	jsr wopen		; Writefile öffnen
+	bne st2		; wenn Fehler: Ende
+
+	jsr getname	; Filenamen sichern
+	ldx #12		; OPEN #12, out
+	jsr ckout
+	jsr gd_clrms	; Anzeige initialisieren
+	ldx #0		; Text eintragen
+	jsr tcopy
+
+	jsr write		; Bild speichern
+
+st2	jsr clrch		; Bus freigeben
+	lda #12		; Datei schließen
+	jsr close
+	jsr err9		; Floppystatus zeigen (kurz)
+	bne st1		; wenn fehlerfrei:
+	jsr setname	; Fileinfo aufbereiten
+
+st1	pla		; Modularea wieder setzen
+	sta gd_modswitch
+
+st12	jsr canc
+	jsr gd_spron	; Sprites wieder an
+	sec		; Leave-Flag
+	rts		; fertig
+
+; --------------------------- 
+; --------------------------- Input Routines
+
+!src "..\input.inc"
+
+; --------------------------- 
+; --------------------------- 
+
+; --------------------------- Disk Access Routines
+
+pw	!pet "w,p,"
+giftx	!pet "fun."
+giftxs	!scr "fun."
+drinit	!pet "i0"
+wflen	!by 0
+used	!by $ff
+
+; -------------------------------------------------------------- Filehandling
+
+wopen	jsr inull		; Initialize
+	bne err8
+	ldy wflen		; ",p,w" anhängen
+	ldx #3
+wo1	lda pw,x
+	sta ls_nambuf,y
+	iny
+	dex
+	bpl wo1
+	sty wflen
+	lda #12		; OPEN 12,drive,12,"name,p,w"
+	tay
+	ldx ls_drive
+	jsr filpar
+	lda wflen
+	ldx #<ls_nambuf
+	ldy #>ls_nambuf
+	jsr filnam
+	jsr copen
+	jmp err9
+;
+inull	ldx #<drinit
+	ldy #>drinit
+	lda #2
+	jsr gd_sendcom
+err9	jsr gd_xmess
+	lda ls_err2
+	and #15
+err8 	sec
+	rts
+
+; -------------------------------------------------------------- Activity
+
+messout	ldx #<message	; Textausgabe
+	ldy #>message
+	jmp gd_xtxout2
+;
+tcopy	ldy #0		; Text zur Ausgabe puffern
+tc0 	lda txt,x		; Offset in X!
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+
+action 	dec adcnt		; Activity, nur bei 0
+	bne ld4
+	lda cntwert	; dann: Reload des Zählers
+	sta adcnt
+	ldy offy		; Offset auf Balkenende
+	cpy #22		; Ende erreicht?
+	bne act0
+	jsr clrmess	; ja, re-Init
+act0	ldx offx		; Dicke des Balkenendstücks
+	lda filltab,x
+	sta mess,y
+	jsr messout	; Balken ausgeben
+	dec offx		; Endstück nächstes Mal dicker
+	bpl ld4		; bis gefüllt
+	inc offy		; dann Balken selbst verlängern
+	lda #7		; Endstück wieder dünn
+	sta offx
+ld4 	rts
+
+clrmess	ldx #25		; Puffer für Balken löschen
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0		; Balkenlänge 0 
+	ldx #7		; Dicke am Ende 0
+	sty offy
+	stx offx
+	rts
+
+filltab	!by 160,93,103,127,126,124,105,109
+cntwert	!by 1
+txt	!scr " NUF"
+	!by 0
+message	!fill 6,32	; 32 Zeichen für Activity
+mess	!fill 26,32
+	!by 0
+
+; -------------------------------------------------------------- Image Info
+
+getname	ldx #0		; aktuellen Filenamen sichern
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+;
+setname	lda #0		; Namen in Image Info eintragen
+	ldx #<ls_picname
+	ldy #>ls_picname
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+;
+nbuf	!fill 16,32
+	!by 0
+
+; ----------------------------------------- Requester management
+
+requester	ldx used
+	bmi requ
+	rts
+
+; ----------------------------------------- Startup requester
+
+requ 	inc used
+	ldx #<(sgiflst)
+	ldy #>(sgiflst)
+	jsr gd_xmloop
+
+; ----------------------------------------- Leave saver
+
+cn2 	lda #3
+	!by $2c
+canc 	lda #$ff
+	sta used
+	sec
+	rts
+
+; ------------------------------------ Output gadget text routines
+
+tabigad	!wo palgad
+	!wo areagad
+
+settext	lda #<tabigad
+	sta ls_vekta8
+	lda #>tabigad
+	sta ls_vekta8+1
+
+	lda (ls_vekta8),y
+	sta sc_screentab
+	iny
+	lda (ls_vekta8),y
+	sta sc_screentab+1
+	lda #0
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #3
+	bne gt0
+	stx sc_ho
+	jsr gd_trim
+	jmp gd_initmove
+
+; ----------------------------------------- Screenlist
+
+sgiflst	!by 0
+	!by 4,11,18,14,$81,0,0
+	!scr "Save GIF@"
+palgad	!by 9,11,18,3,$ca,<(evpalette),>(evpalette)
+paltx	!scr "  GoDot   @"
+areagad	!by 11,23,6,3,$ce,<evarea,>evarea
+areatx	!scr "Full@"
+	!by 13,11,18,3,$cb,<(evsavgif),>(evsavgif)
+	!scr "Save Image@"
+	!by 15,11,18,3,$cb,<(cn2),>(cn2)
+	!scr "Cancel Save@"
+	!by $c0,7,12,15
+	!scr "Select Palette:@"
+	!by $c0,11,12,10
+	!scr "Save Area:@"
+	!by $80
+
+; -------------------------------------------------------------------------
+; -------------------------------------------------------------- Write GIF
+; -------------------------------------------------------------------------
+
+write	ldx #0		; Header ausgeben
+wr0	lda gifheader,x
+	jsr bsout
+	inx
+	cpx #72
+	bne wr0
+;
+	lda #9		; Funktion "Undo ins Ram" setzen
+	sta getundo+1
+	jsr doundo	; automatisches Undo ausführen
+	jsr initgif	; Vektoren initialisieren
+	jsr scanlines	; packen und wegschreiben
+	jsr newcode	; letzten Block aufbereiten
+	jsr closefile	; Codierung abschließen
+	lda #8		; Funktion "Undo aus dem Ram" setzen
+	sta getundo+1
+	jsr doundo	; und ausführen
+	sec		; Leave-Flag
+	rts		; fertig
+
+; ---------------------------------------------------------------------
+; -------------------------------------------------------------- DoUndo
+; ---------------------------------------------------------------------
+
+doundo	lda #<undo	; eigentliche Routine verschieben
+	ldx #>undo	; (weil das Modul ausgeblendet wird)
+	sta ls_vekta8
+	stx ls_vekta8+1
+	ldy #scanlines-undo
+sloop	lda (ls_vekta8),y
+	sta sy_global,y	; nach GLOBAL
+	dey
+	bpl sloop
+	jmp sy_global	; und dann ausführen
+;
+undo 	jsr gd_swapd	; Ram einblenden
+	ldx #10		; FirstInit
+	jsr rm_ramvec
+;
+	ldx #6		; Parameter setzen
+	lda #0
+md0	sta rm_werte,x
+	dex
+	bpl md0
+	lda #>table1	; 4Bit-Bereich im C64
+	sta rm_werte+1
+	lda #$10		; nach Undo4Bit im Ram
+	sta rm_werte+3
+	lda #$7d		; 32000 Bytes
+	sta rm_werte+6
+	lda #1		; Flag für 4Bit-Undo setzen
+	sta rm_nextentry
+;
+getundo	ldx #9		; und DoUndo
+	jsr rm_ramvec
+	ldx #1		; danach ForceOff (Ram ausblenden)
+	jsr rm_ramvec	
+	jmp gd_sproff	; und Sprite wieder aus, zurück
+
+; --------------------------------------------------------------Namen verlängern
+
+addnuf	pha		; Länge merken
+	tay
+	dey
+	ldx #0
+ag4	lda ls_nambuf,y	; endet auf ".NUF"?
+	cmp nuftx,x
+	bne ag2		; nein
+	dey
+	inx
+	cpx #4
+	bcc ag4
+	pla		; ja, fertig
+	rts
+	
+ag2	pla
+	tay		; Name länger als 12 Zeichen?
+	cpy #13
+	bcs ag0		; ja, behandeln
+
+ag5	ldx #3		; nein, ".nuf" anhängen
+ag1	lda nuftx,x
+ag3	sta ls_nambuf,y
+	lda nuftxs,x	; auch für Image Info
+	sta ls_lastname,y
+	iny
+	dex
+	bpl ag1
+	sty wflen		; neue Länge merken, fertig
+	sty ls_flen
+	rts
+
+ag0	dey		; auf 12 verkürzen
+	cpy #12
+	bne ag0
+	beq ag5		; unbed. Sprung
+
+; ----------------------------------------------------- Screenlist für NO REU
+
+noreu	ldx #<(warnlst)
+	ldy #>(warnlst)
+	jmp gd_xmloop
+
+; ----------------------------------------------------- 
+
+warnlst	!by 0
+	!by 8,9,21,9,$81,0,0
+	!scr "MESSAGE@"
+	!by 14,23,7,3,$cd,<(canc),>(canc)
+	!scr "Leave@"
+	!by $c0,10,10,16
+	!scr "No REU detected.@"
+	!by $c0,12,11,15
+	!scr "You can't save.@"
+	!by $80
+
+; ----------------------------------------------------- 
+
+modend 	!eof

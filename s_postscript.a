@@ -1,0 +1,886 @@
+
+!src "..\godotlib.lib"
+*	= $c000
+
+; ----------------------------------------- 
+; svr.PostScript
+;     Saver for Encapsulated PostScript (language level 2)
+;
+; 1.00: 23.06.01, first release
+; 1.01: 27.06.01, added:   - option to choose area to be saved
+;                          - option to choose landscape or portrait
+;                 changed: - requester
+;                          - PostScript programming
+; 1.02: 09.07.01, bug:     - saved clip only when activated in main screen, fixed
+; 1.03: 02.12.03, added:   - palette used in Wheels OS
+; 1.04: 05.12.03, changed: - palette "Pepto" removed
+;                          - palette "VICE" added
+; 1.05: 17.11.16, changed: - palette "Deekay", correct values
+;                          - correct adding of ".eps" to filename
+; 1.06: 23.11.16, changed: - palettes "Pepto" and "Coco" added
+; 1.07: 06.04.17, changed: - palette "Colodore" added
+;
+; ----------------------------------------- 
+
+;
+	footlen		= hexchars-ffooter
+	src		= $30
+	src0		= $32
+	adcnt		= $34
+	offy		= $35
+	offx		= $36
+	lcnt8		= $39
+	lcnt		= $3a
+	tilecnt		= $3b
+	cntchars		= $3c
+	clpzl		= $3d
+	clpsp		= $3e
+	clpbr		= $3f
+	clpho		= $40
+	indent		= $41
+;
+; ----------------------------------------- 
+
+header	jmp start
+	!by $40
+	!by 0
+	!by 1
+	!wo modend
+	!wo 0
+	!pet "Encapsulated PS "
+version	!pet "1.07"
+	!pet "06.04.17"
+	!pet "A.Dettke        "
+;
+; ----------------------------------------- 
+
+start	ldx gr_nr
+	dex
+	bne st0
+	jmp initinp
+;
+st0	jsr requester	; display requester
+	lda used		; cancelled?
+	cmp #3
+	bne st11
+	jsr canc		; yes, leave
+	bcs st12
+
+st11	jsr gd_sproff
+	lda gd_modswitch
+	pha
+	lda ls_flen
+	beq st1
+
+st3	sta wflen
+	jsr addeps	; add ".eps" to name (length plus 4)
+	lda #1
+	sta adcnt
+
+	jsr wopen		; open write file
+	bne st2		; error?
+
+	jsr getname	; no, save image file name
+	ldx #12		; OPEN 12,drv,12,"file,p,w"
+	jsr ckout
+	jsr gd_clrms	; clear gauge bar
+	ldx #0		; Text: "Bitmap"
+	jsr tcopy
+	jsr wrheader
+	jsr writeps
+	jsr wrfooter
+
+st2	jsr clrch		; CLOSE 12
+	lda #12
+	jsr close
+	jsr canc
+	jsr err9
+	bne st1
+	jsr setname	; publish image name to GoDot
+
+st1	pla
+	sta gd_modswitch
+st12	jsr gd_spron
+	sec
+	rts
+;
+; --------------------------- 
+; --------------------------- Input Routines
+
+!src "..\input.inc"
+
+; --------------------------- 
+; --------------------------- 
+
+; --------------------------- Disk Access
+
+pw	!pet "w,p,"
+drinit	!pet "i0"
+wflen	!by 0
+epstx	!pet "spe."
+epstxs	!scr "spe."
+;
+wopen	jsr inull
+	bne err8
+	ldy wflen
+	ldx #3
+wo1	lda pw,x
+	sta ls_nambuf,y
+	iny
+	dex
+	bpl wo1
+	sty wflen
+	lda #12
+	tay
+	ldx ls_drive
+	jsr filpar
+	lda wflen
+	ldx #<(ls_nambuf)
+	ldy #>(ls_nambuf)
+	jsr filnam
+	jsr copen
+	jmp err9
+;
+; ----------------------------------------- Add ".eps" to filename
+
+addeps	pha		; Länge merken		#--- 1.05
+	tay
+	dey
+	ldx #0
+ag4	lda ls_nambuf,y	; endet auf ".EPS"?
+	cmp epstx,x
+	bne ag2		; nein
+	dey
+	inx
+	cpx #4
+	bcc ag4
+	pla		; ja, fertig
+	rts
+	
+ag2	pla
+	tay		; Name länger als 12 Zeichen?
+	cpy #13
+	bcs ag0		; ja, behandeln
+;
+ag5	ldx #3		; nein, ".eps" anhängen
+ag1	lda epstx,x
+ag3	sta ls_nambuf,y
+	lda epstxs,x	; auch für Image Info
+	sta ls_lastname,y
+	iny
+	dex
+	bpl ag1
+	sty wflen		; neue Länge merken, fertig
+	sty ls_flen
+	rts
+;
+ag0	dey		; auf 12 verkürzen
+	cpy #12
+	bne ag0
+	beq ag5		; unbed. Sprung		#--- 1.05
+;
+; ----------------------------------------- 
+
+inull	ldx #<(drinit)
+	ldy #>(drinit)
+	lda #2
+	jsr gd_sendcom
+err9	jsr gd_xmess
+	lda ls_err2
+	and #15
+err8	sec
+	rts
+;
+
+; ----------------------------------------- Activity gauge
+
+messout	ldx #<(message)
+	ldy #>(message)
+	jmp gd_xtxout2
+;
+tcopy	ldy #0
+tc0	lda txt,x
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+;
+action	dec adcnt
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts
+;
+clrmess	ldx #23
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0
+	ldx #7
+	sty offy
+	stx offx
+	rts
+;
+filltab	!by 160,93,103,127,126,124,105,109
+;
+cntwert	!by 50
+;
+txt	!scr " Bitmap@" 	; 0
+;
+message	!fill 8,32
+mess	!fill 24,32
+	!by 0
+
+; ----------------------------------------- Store last filename
+
+getname	ldx #0
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	cmp #$20		; convert to standard ASCII
+	bcs si2
+	ora #$40		; lower case
+si2	ora #$20		; upper case
+	sta title,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+; ----------------------------------------- Publish new filename
+setname	lda #0
+	ldx #<(ls_picname)
+	ldy #>(ls_picname)
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+;
+nbuf	!fill 16,32
+	!by 0
+
+; ----------------------------------------- Startup requester
+
+requ	inc used
+	ldx #<(epslst)
+	ldy #>(epslst)
+	jsr gd_xmloop
+
+; ----------------------------------------- Requester management
+
+requester	ldx used
+	bmi requ
+	rts
+
+; ----------------------------------------- Leave saver
+
+cn2	lda #3
+	!by $2c
+canc	lda #$ff
+	sta used
+	sec
+	rts
+
+; ------------------------------------ Event: Choose Palette
+evpalette	lda palflag
+	cmp #7		; # 1.03 (and every other adding)
+	bne dp0
+	lda #$ff
+	sta palflag
+dp0	inc palflag
+	jsr setpalette
+	ldx palflag
+	lda gadoffs,x
+	tax
+	ldy #9
+dpi1	lda paltxts,x
+	sta paltx,y
+	dex
+	dey
+	bpl dpi1
+	ldy #0
+dpi2	jsr settext
+	ldy #6
+	jmp gd_xtxout1
+
+; ------------------------------------ Event: Choose area
+
+evarea	lda areaflag
+	bmi ea0
+	lda #$fe
+	sta areaflag
+ea0	inc areaflag
+	beq ea1
+	ldx #3
+	!by $2c
+ea1	ldx #7
+	ldy #3
+ea2	lda areatxts,x
+	sta areatx,y
+	dex
+	dey
+	bpl ea2
+	ldy #2
+	bne dpi2
+
+; ------------------------------------ Event: Choose view
+
+evview	lda viewflag
+	bmi ev0
+	lda #$fe
+	sta viewflag
+ev0	inc viewflag
+	beq ev1
+	ldx #8
+	!by $2c
+ev1	ldx #17
+	ldy #8
+ev2	lda viewtxts,x
+	sta viewtx,y
+	dex
+	dey
+	bpl ev2
+
+	ldy #4
+	jmp dpi2
+
+; ------------------------------------ Output gadget text routines
+
+tabigad	!by <palgad, >palgad
+	!by <areagad,>areagad
+	!by <viewgad,>viewgad
+
+
+settext	lda #<tabigad
+	sta ls_vekta8
+	lda #>tabigad
+	sta ls_vekta8+1
+
+	lda (ls_vekta8),y
+	sta sc_screentab
+	iny
+	lda (ls_vekta8),y
+	sta sc_screentab+1
+	lda #0
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #3
+	bne gt0
+	stx sc_ho
+	jsr gd_trim
+	jmp gd_initmove
+
+; ----------------------------------------- Set palette values
+
+setpalette
+	ldx palflag	; 0: GoDot
+	bne spl01
+	lda #<palgodot
+	ldx #>palgodot
+	bne spl5
+spl01	dex		; 1: CoCo
+	bne spl02
+	lda #<palcoco
+	ldx #>palcoco
+	bne spl5
+spl02	dex		; 2: Colodore  # -- v1.07
+	bne spl1
+	lda #<palcolod
+	ldx #>palcolod
+	bne spl5
+spl1	dex		; 3: Pepto
+	bne spl2
+	lda #<palpepto
+	ldx #>palpepto
+	bne spl5
+spl2	dex		; 4: Deekay
+	bne spl3
+	lda #<paldeekay
+	ldx #>paldeekay
+	bne spl5
+spl3	dex		; 5: Brix
+	bne spl31
+	lda #<palbrix
+	ldx #>palbrix
+	bne spl5
+spl31	dex		; 6: Vice
+	bne spl0
+	lda #<palvice
+	ldx #>palvice
+	bne spl5
+spl0	lda #<palgray	; 7: Gray16
+	ldx #>palgray
+spl5	sta sc_pos
+	stx sc_pos+1
+	ldy #119
+spl6	lda (sc_pos),y
+	sta palette,y
+	dey
+	bpl spl6
+	rts
+
+; ----------------------------------------- Set Save EPS data parameters
+;
+evsaveps	inc used
+	jsr setversion
+	jsr setclip
+	jsr setvals
+	sec
+	rts
+
+; ---------------------------------------- Set Version number
+
+setversion
+	ldx #3
+svs0	lda version,x
+	sta cversion,x
+	dex
+	bpl svs0
+	rts
+
+; ---------------------------------------- Compute Start address of Clip
+
+setclip	lda #$40		; 4Bit starting from $4000
+	sta sc_texttab+1
+	ldy #0
+	sty sc_texttab
+	sty clpzl
+	sty clpsp
+	lda #40
+	sta clpbr
+	lda #25 
+	sta clpho
+	lda areaflag 
+	bmi scp8
+
+stcl	lda sc_lastclpzl	; row
+	beq scp1		; is zero: skip
+	sta clpzl
+scp4	clc
+	lda sc_texttab+1	; else add 1280, "row" times
+	adc #5
+	sta sc_texttab+1
+	dec clpzl
+	bne scp4
+
+scp1	lda sc_lastclpsp	; column
+	beq scp5		; is zero: skip
+	sta clpsp
+scp6	clc
+	lda sc_texttab	; else add 32, "column" times
+	adc #$20
+	sta sc_texttab
+	bcc scp7
+	inc sc_texttab+1
+scp7	dec clpsp
+	bne scp6
+scp5	lda sc_lastclpbr
+	sta clpbr
+	lda sc_lastclpho
+	sta clpho
+scp8	rts
+
+; ----------------------------------------- Set file values for width and height
+
+setvals	ldy #0		; width
+	ldx #2
+	stx indent
+	lda clpbr
+	jsr convert	; convert to PetSCII and write to file header
+
+	ldy #0		; height
+	ldx #6
+	stx indent
+	lda clpho
+	jsr convert	; convert to PetSCII and write to file header
+
+	ldx #2		; write values to remaining locations in file header
+svl2	lda width,x
+	sta width2,x
+	lda height,x
+	sta height2,x
+	sta height3,x
+	dex
+	bpl svl2
+
+	lda viewflag	; landscape?
+	bmi ev30		; yes, branch
+	ldy #2		; no, exchange width and height
+ev3	ldx width,y
+	lda height,y
+	sta width,y
+	txa
+	sta height,y
+	dey
+	bpl ev3
+
+ev30	lda viewflag	; portrait?
+	beq ev4		; yes, branch
+	lda #$30		; no, reset translate and rotate
+	sta transl
+	sta transl+1
+	sta transl+2
+	sta rotate
+	sta rotate+1
+	bne ev5
+ev4	ldx #2		; set translate to height...
+ev6	lda height,x
+	sta transl,x
+	dex
+	bpl ev6
+	lda #$32		; and rotate to 270
+	sta rotate
+	lda #$37
+	sta rotate+1
+
+ev5	rts
+
+; ----------------------------------------- Convert to PetASCII
+
+convert	sta sc_pos	; value times 8
+	sty sc_pos+1
+	clc
+	asl sc_pos
+	rol sc_pos+1
+	asl sc_pos
+	rol sc_pos+1
+	asl sc_pos
+	rol sc_pos+1
+	ldx sc_pos
+	lda sc_pos+1
+	sta $62		; convert to PetSCII
+	stx $63
+	inc 1
+	ldx #$90
+	sec
+	jsr $bc49
+	jsr $bddf
+	dec 1
+	ldx indent	; clear target
+	ldy #3
+	lda #32
+di1	sta width,x
+	dex
+	dey
+	bne di1
+	ldy #6		; right adjust digits at target
+di2	dey
+	lda sy_numbers,y
+	bne di2
+	dey
+	ldx indent
+di3	lda sy_numbers,y
+	sta width,x
+	dex
+	dey
+	bpl di3
+	rts
+
+; ----------------------------------------- Screenlist
+
+epslst	!by 0
+	!by 4,11,18,16,$81,0,0
+	!scr "Save EPS@"
+palgad	!by 9,11,18,3,$ca,<(evpalette),>(evpalette)
+paltx	!scr "  GoDot   @"
+areagad	!by 11,23,6,3,$ce,<evarea,>evarea
+areatx	!scr "Full@"
+viewgad	!by 13,18,11,3,$ce,<evview,>evview
+viewtx	!scr "Landscape@"
+	!by 15,11,18,3,$cb,<(evsaveps),>(evsaveps)
+	!scr "Save Image@"
+	!by 17,11,18,3,$cb,<(cn2),>(cn2)
+	!scr "Cancel Save@"
+	!by $c0,7,12,15
+	!scr "Select Palette:@"
+	!by $c0,11,12,10
+	!scr "Save Area:@"
+	!by $c0,13,12,5
+	!scr "View:@"
+	!by $80
+
+; ----------------------------------------- Variables
+
+used	!by $ff
+mode	!by 0
+  
+; ----------------------------------------- Write EPS
+writeps	lda sc_texttab	; set startaddress
+	ldx sc_texttab+1
+
+we0	sta src0
+	sta src
+	stx src0+1
+	stx src+1
+
+	lda #10		; count # of ASCII characters per line in file (80)
+	sta cntchars
+
+	lda clpho		; count y blocklines (25 on full screen)
+	sta lcnt8
+
+lnloop8	lda #8		; count 8 rasterlines
+	sta lcnt
+tloop8	lda clpbr		; count x tiles (40 on full screen)
+	sta tilecnt
+tloop	ldx #4		; count # of pixels per tileline (8)
+lnloop	ldy #0		; get value from image
+	lda (src),y
+	pha
+	lsr
+	lsr
+	lsr
+	lsr		; isolate left pixel
+	tay		; create hexchar from pixel value
+	lda hexchars,y
+	jsr bsout		; write to file
+	pla		; isolate right pixel
+	and #15
+	tay
+	lda hexchars,y
+	jsr bsout
+	inc src
+	bne lnl3
+	inc src+1
+lnl3	dex
+	bne lnloop
+	jsr action
+
+	lda src
+	clc
+	adc #28
+	sta src
+	bcc lnl0
+	inc src+1
+lnl0	dec cntchars
+	bne lnl4
+
+	lda #13
+	jsr bsout
+	lda #10
+	sta cntchars
+	jsr bsout
+
+lnl4	dec tilecnt
+	bne tloop
+
+	lda src0
+	clc
+	adc #4
+	sta src0
+	sta src
+	lda src0+1
+	adc #0
+	sta src0+1
+	sta src+1
+	dec lcnt
+	bne tloop8
+
+	lda src0
+	clc
+	adc #<1248
+	sta src0
+	sta src
+	lda #>1248
+	adc src0+1
+	sta src0+1
+	sta src+1
+lnl2	dec lcnt8
+	bne lnloop8
+	rts
+
+; ----------------------------------------- File Header
+
+!ct raw
+
+fheader 	!tx "%!PS-Adobe-3.0 EPSF-3.0"
+	!by 13,10
+	!tx "%%BoundingBox: 0 0 "
+width	!tx "320 "
+height	!tx "200"
+	!by 13,10
+	!tx "%%Creator: GoDot C64 Image Processing EPS-Saver v"
+cversion	!tx "1.00"
+	!by 13,10
+	!tx "%%Title: "
+title	!fill 16,32
+	!by 13,10
+	!tx "%%EndComments"
+	!by 13,10
+	!tx "[/Indexed /DeviceRGB 15"
+	!by 13,10
+	!tx " <"
+palette	!tx "000000 0000aa 664400 333333"
+	!by 13,10,32,32
+	!tx "880000 cc44cc dd8855 777777"
+	!by 13,10,32,32
+	!tx "0088ff ff7777 00cc55 bbbbbb"
+	!by 13,10,32,32
+	!tx "aaffee eeee77 aaff66 ffffff>]setcolorspace"
+	!by 13,10
+	!tx "0 "
+transl	!tx "000 translate"
+	!by 13,10
+rotate	!tx "000 rotate"
+	!by 13,10
+	!tx "<<"
+	!by 13,10
+	!tx "/ImageType 1"
+	!by 13,10
+	!tx "/Width "
+width2	!tx "320"
+	!by 13,10
+	!tx "/Height "
+height2	!tx "200"
+	!by 13,10
+	!tx "/ImageMatrix [1 0 0 -1 0 "
+height3	!tx "200]"
+	!by 13,10
+	!tx "/BitsPerComponent 4"
+	!by 13,10
+	!tx "/Decode [0 15]"
+	!by 13,10
+	!tx "/DataSource <"
+	!by 13,10
+	!by 0
+; ----------------------------------------- File footer
+
+ffooter	!tx ">"
+	!by 13,10
+	!tx ">> image"
+	!by 13,10
+	!tx "showpage"
+	!by 13,10
+		
+; ----------------------------------------- 
+
+hexchars	!tx "0123456789abcdef"
+
+palgodot	!tx "000000 0000aa 664400 333333"
+	!by 13,10,32,32
+	!tx "880000 cc44cc dd8855 777777"
+	!by 13,10,32,32
+	!tx "0088ff ff7777 00cc55 bbbbbb"
+	!by 13,10,32,32
+	!tx "aaffee eeee77 aaff66 ffffff"	; 120
+palvice	!tx "000000 211bae 6a3304 424540"	; # 1.04 ---
+	!by 13,10,32,32
+	!tx "be1a24 b41ae2 b84104 70746f"
+	!by 13,10,32,32
+	!tx "5f53fe fe4a57 1fd21e a4a7a2"
+	!by 13,10,32,32
+	!tx "30e6c6 dfd60a 59fe59 fdfefc"	; # 1.04 ---
+paldeekay	!tx "000000 1a0c92 441e00 464646"	; # 1.05 ---
+	!by 13,10,32,32
+	!tx "68372b a73b9f a94b02 8b8b8b"
+	!by 13,10,32,32
+	!tx "4d91d1 d28074 4dab19 bababa"
+	!by 13,10,32,32
+	!tx "65cda8 ebe353 8ef68e ffffff"	; # 1.05 ---
+palbrix	!tx "000000 4242c6 846339 7b7b7b"
+	!by 13,10,32,32
+	!tx "ad524a bd6bbd c88e2f 949494"
+	!by 13,10,32,32
+	!tx "9c9cf7 ff9c9c 73e773 cecece"
+	!by 13,10,32,32
+	!tx "73f7f7 ffff7b a5ffa5 ffffff"
+palgray	!tx "000000 111111 222222 333333"
+	!by 13,10,32,32
+	!tx "444444 555555 666666 777777"
+	!by 13,10,32,32
+	!tx "888888 999999 aaaaaa bbbbbb"
+	!by 13,10,32,32
+	!tx "cccccc dddddd eeeeee ffffff"
+palpepto	!tx "000000 352879 433900 444444"
+	!by 13,10,32,32
+	!tx "68372b 6f3d86 6f4f25 6c6c6c"
+	!by 13,10,32,32
+	!tx "6c5eb5 9a6759 588d43 959595"
+	!by 13,10,32,32
+	!tx "70a4b2 b8c76f 9ad284 ffffff"
+palcoco	!tx "000000 3739c4 683808 4d4d4d"	; # 1.06 ---
+	!by 13,10,32,32
+	!tx "af2a29 b03fb6 b6591c 848484"
+	!by 13,10,32,32
+	!tx "707ce6 ea746c 4ac64a b6b6b5"
+	!by 13,10,32,32
+	!tx "62d8cc e4ed4e a6fa9e ffffff"	; # 1.06 ---
+palcolod	!tx "000000 2d2b9a 543700 494949"	; # 1.07 ---
+	!by 13,10,32,32
+	!tx "813337 8d3b97 8d5029 7b7b7b"
+	!by 13,10,32,32
+	!tx "6f6deb c36c71 55aa4c b1b1b1"
+	!by 13,10,32,32
+	!tx "75cec8 edf071 a9fe9f ffffff"	; # 1.07 ---
+
+!ct pet
+
+gadoffs	!by 9,19,29,39,49,59,69,79	; # 1.03 (and all other addings)
+gadoffs2	!by 3,7
+palflag	!by 0
+areaflag	!by $ff
+viewflag	!by $ff
+
+paltxts	!scr "  GoDot   "	; 0
+	!scr "   CoCo   "	; 10	Community Colors
+	!scr " Colodore "	; 20
+	!scr "  Pepto   "	; 30
+	!scr "  Deekay  "	; 40
+	!scr "   Brix   "	; 50
+	!scr "   VICE   "	; 60
+	!scr "  Gray16  "	; 70
+
+areatxts	!scr "Full" 	; 0
+	!scr "Clip" 	; 4
+viewtxts	!scr "Landscape" 	; 0 
+	!scr "Portrait " 	; 8
+
+; ----------------------------------------- Write file header
+
+wrheader	ldy #0
+	lda #<fheader
+	sta src
+	lda #>fheader
+	sta src+1
+wrh1	lda (src),y
+	beq wrh0
+	jsr bsout
+	inc src
+	bne wrh1
+	inc src+1
+	bne wrh1
+wrh0	rts
+
+; ----------------------------------------- Write file footer
+
+wrfooter	ldx #footlen
+	ldy #0
+wrf0	lda ffooter,y
+	jsr bsout
+	iny
+	dex
+	bne wrf0
+	rts
+
+; ----------------------------------------- 
+
+modend	!eof
