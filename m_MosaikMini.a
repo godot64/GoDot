@@ -14,101 +14,101 @@
 	buf_u = $ca00
 	buf_r = $cc00
 	fbit = $4000
-	target = $35		; /$36
-	source = $37		; /$38
+	target = $35	; /$36
+	source = $37	; /$38
 	rline = $39
 	tcnt = $3a
 	minim = $3b
 	acnt = $ff
 
-	jmp start		; Sprung auf Start
+	jmp start	; Sprung auf Start
 
-	!by $20			; type: mod
-	!by 0			; ownreq: no
-	!by 0			; dirty: no
-	!wo modend		; Ende des Moduls
-	!wo 0			; reserved
+	!by $20		; type: mod
+	!by 0		; ownreq: no
+	!by 0		; dirty: no
+	!wo modend	; Ende des Moduls
+	!wo 0		; reserved
 
 	!pet "Minimum Filter  "
-	!pet "0.99"		; version: 0.99
-	!pet "03.09.16"		; date: 24.09.93
-	!pet "W.Kling          "; author: Wolfgang
-	!pet "Brightest Color  "; addtext
+	!pet "0.99"	; version: 0.99
+	!pet "03.09.16"	; date: 24.09.93
+	!pet "W.Kling          "	; author: Wolfgang
+	!pet "Brightest Color  "	; addtext
 	!pet "     of 3x3 Array"
 	!by 0
 
 start 
-	jsr init_sa		; init sprite activity
-	lda #<fbit		; start bei $4000 
+	jsr init_sa	; init sprite activity
+	lda #<fbit	; start bei $4000 
 	sta rline		; je drei rasterzeilen puffern:
-	jsr puffern		; erste (320 bytes)
-	jsr umlagern		; puffer umlagern
+	jsr puffern	; erste (320 bytes)
+	jsr umlagern	; puffer umlagern
 
-- 	jsr umlagern		; dadurch die erste verdoppeln (definierter rand)
+- 	jsr umlagern	; dadurch die erste verdoppeln (definierter rand)
 	inc rline		; nächste rasterzeile puffern
 	jsr puffern
-	jsr konvol		; konvolution durchführen
+	jsr konvol	; konvolution durchführen
 
 	dec rline		; vorige rasterzeile anpeilen
-	jsr w_ergeb		; und ergebnis der konvolution ins 4bit schreiben
-	jsr s_activ		; sprite activity
+	jsr w_ergeb	; und ergebnis der konvolution ins 4bit schreiben
+	jsr s_activ	; sprite activity
 
 	inc rline		; nächste rasterzeile anpeilen
 	lda rline
 	cmp #199		; bis letzte erreicht
 	bne -
 
-	jsr puffern		; letzte bearbeiten (definierter rand):
-	jsr umlagern		; puffern
-	jsr konvol		; konvolution
-	jsr w_ergeb		; ergebnis ins 4bit
+	jsr puffern	; letzte bearbeiten (definierter rand):
+	jsr umlagern	; puffern
+	jsr konvol	; konvolution
+	jsr w_ergeb	; ergebnis ins 4bit
 
-	jmp abschl		; abschluss
+	jmp abschl	; abschluss
 
 ; --- konvolution
 
 konvol 
-	ldy #0			; minimum unter dem konvolutionskern suchen (linke hÃ¤lfte)
-loop 	lda buf_m,y		; matrixzentrum (in der mittleren rasterzeile) testen
-	beq ++			; wenn bereits minimum, in den ergebnispuffer, keine bearbeitung erforderlich
+	ldy #0		; minimum unter dem konvolutionskern suchen (linke hÃ¤lfte)
+loop 	lda buf_m,y	; matrixzentrum (in der mittleren rasterzeile) testen
+	beq ++		; wenn bereits minimum, in den ergebnispuffer, keine bearbeitung erforderlich
 	sta minim		; nein, merken
-	lda buf_o-1,y		; erstes byte der oberen rasterzeile holen
+	lda buf_o-1,y	; erstes byte der oberen rasterzeile holen
 	cmp minim		; vergleichen
-	bcs +			; größer/gleich: nicht beachten
+	bcs +		; größer/gleich: nicht beachten
 	sta minim		; kleiner: als neues vergleichsbyte merken
-+ 	lda buf_o,y		; zweites byte der obersten zeile: dito
++ 	lda buf_o,y	; zweites byte der obersten zeile: dito
 	cmp minim
 	bcs +
 	sta minim
-+ 	lda buf_o+1,y		; drittes byte: dito
++ 	lda buf_o+1,y	; drittes byte: dito
 	cmp minim
 	bcs +
 	sta minim
-+ 	lda buf_m-1,y		; erstes byte der mittleren zeile testen
++ 	lda buf_m-1,y	; erstes byte der mittleren zeile testen
 	cmp minim
 	bcs +
 	sta minim
-+ 	lda buf_m+1,y		; matrixzentrum überspringen und gleich drittes byte 
++ 	lda buf_m+1,y	; matrixzentrum überspringen und gleich drittes byte 
 	cmp minim
 	bcs + 
 	sta minim
-+ 	lda buf_u-1,y		; erstes byte der unteren rasterzeile testen
++ 	lda buf_u-1,y	; erstes byte der unteren rasterzeile testen
 	cmp minim
 	bcs +
 	sta minim
-+ 	lda buf_u,y		; zweites byte
++ 	lda buf_u,y	; zweites byte
 	cmp minim
 	bcs +
 	sta minim
-+ 	lda buf_u+1,y		; drittes byte
++ 	lda buf_u+1,y	; drittes byte
 	cmp minim
 	bcs +
 	sta minim
 + 	lda minim		; ergebnis holen, dieses byte enthält das minimum 
 
-++ 	sta buf_r,y		; und in den ergebnispuffer schreiben
-	lda buf_m+160,y		; das ganze noch einmal für die rechte hälfte (160 bytes)
-	beq ++			; bei minimum keine bearbeitung erforderlich
+++ 	sta buf_r,y	; und in den ergebnispuffer schreiben
+	lda buf_m+160,y	; das ganze noch einmal für die rechte hälfte (160 bytes)
+	beq ++		; bei minimum keine bearbeitung erforderlich
 	sta minim		; sonst weiter wie oben
 	lda buf_o+159,y
 	cmp minim
@@ -144,10 +144,10 @@ loop 	lda buf_m,y		; matrixzentrum (in der mittleren rasterzeile) testen
 	sta minim
 + 	lda minim		; ergebnis holen...
 
-++ 	sta buf_r+160,y		; ...und in den ergebnispuffer schreiben
-	iny 			; alle bytes durch?
+++ 	sta buf_r+160,y	; ...und in den ergebnispuffer schreiben
+	iny 		; alle bytes durch?
 	cpy #160
-	beq +			; ja, ergebnispuffer gefüllt, fertig
+	beq +		; ja, ergebnispuffer gefüllt, fertig
 	jmp loop		; nein, loop
 
 ; --- sprite activity
@@ -157,7 +157,7 @@ s_activ
 	bne +
 	inc $d005		; ja, sprites bewegen
 	inc $d007
-	lda #5			; zähler neu setzen 
+	lda #5		; zähler neu setzen 
 	sta acnt
 + 	rts
 
@@ -194,7 +194,7 @@ puffern
 	sta source
 	lda hi_rows,x
 	sta source+1
-	lda #<buf_u		; ziel: buffer_u
+	lda #<buf_u	; ziel: buffer_u
 	ldx #>buf_u
 	sta target
 	stx target+1
@@ -232,7 +232,7 @@ puffern
 	lda buf_u		; die ersten beiden werte davor (definierter rand)
 	sta buf_u-1
 	sta buf_u-2
-	lda buf_u+319		; der letzte zweimal dahinter
+	lda buf_u+319	; der letzte zweimal dahinter
 	sta buf_u+320
 	sta buf_u+321
 	rts
@@ -253,7 +253,7 @@ w_ergeb
 	sta source
 	lda hi_rows,x
 	sta source+1
-	lda #<buf_r		; quelle: buffer_result
+	lda #<buf_r	; quelle: buffer_result
 	ldx #>buf_r
 	sta target
 	stx target+1
@@ -305,13 +305,13 @@ abschl
 	sta $d010
 	lda #$ff		; redisp setzen
 	sta gr_redisp
-	clc 			; fertig
+	clc 		; fertig
 	rts 
 
 ; --- sprite-activity initialisieren
 
 init_sa 
-	ldy #60			; 60 (plus 3) Bytes
+	ldy #60		; 60 (plus 3) Bytes
 	lda #$00		; Sprite-Block 255 löschen
 - 	sta $3fc3,y
 	dey 
@@ -340,7 +340,8 @@ init_sa
 	lda $d015
 	ora #$0c
 	sta $d015
-	lda #5			; Zähler initialisieren
+	lda #5		; Zähler initialisieren
 	sta acnt
 	rts 
+
 modend 	!eof
