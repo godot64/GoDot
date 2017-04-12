@@ -1,2 +1,2 @@
-# GoDot System Files
+# GoDot
 GoDot C64 Image Processing
