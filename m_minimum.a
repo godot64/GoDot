@@ -1,12 +1,11 @@
-; -------------------------------------------------------------- 
 
+; -------------------------------------------------------------- 
 ;
 ; GoDot Modifier Minimum
 ; first released about 24.09.1993
 ; reworked on 03.09.2016
 ; -> Konvolution: dunkelster Nachbar
 ;
-
 ; -------------------------------------------------------------- 
 
 ;	!src "..\godotlib.lib"	; library nicht erforderlich
