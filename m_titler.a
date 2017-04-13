@@ -2,236 +2,1427 @@
 !src "..\godotlib.lib"
 *	= $c000
 
-; ----------------------------------------- 
-
-	chkout	= $ffc9
-	bsout	= $ffd2
-	clrch	= $ffcc
-	close	= $ffc3
-	buffer	= $0200
-	filpar	= $ffba
-	filnam	= $ffbd
-	drive	= $0fa8
-	copen	= $ffc0
-	sendcom	= $1488
-	testdel	= $145e
-	err2	= $0fb5
-	vekt20	= $20
-	zl	= $22
-	sp	= zl+1
-	br	= sp+1
-	ho	= br+1
-	loop	= $a6
-	temp	= loop+1
-	sysdrive	= $03fa
-	bootdrive	= $02ac
-	nr	= $aa
-	cnter	= $30
-	bitcnt	= $ac
-	count1	= bitcnt+1
-	pattern	= $0f00
-	ptemp	= $0ef8
-	screenvek	= $0f88
-	movetab	= $0fd8
-	chgcol	= $0338
-	merk	= $b0
-	screentab	= $ab
-	texttab	= $ae
-	taste	= $c6
-	redisp	= $0fbd
-	initmove	= $1090
-	fi0	= $1114
-	bl4	= $1108
-	fi1	= $111b
-	screen	= $11e0
-	setpos	= $11cc
-	trim	= $1324
-	fcol	= $110c
-	invert	= $1125
-	savescvek	= $143f
-	evntsuch	= $12ad
-	eloop	= $1423
-	screen	= $11e0
-	scvek2	= $0f93
-	event	= $0f8a
-	scc5	= $1461
-	adr	= $b2
-	xloadm	= $1476
-	swap4k	= $1470
-	basin	= $ffcf
-	open	= $1458
-	gd1	= $145b
-	flen	= $0fb9
-	loadsave	= $1f
-	lsm0	= $194a
+; ------------------------------------------------------------ 
 ;
-; ----------------------------------------- 
+; mod.Titler
+; tool to make use of the genuine GoDot font system,
+;   reads "fnt.name"-files and retrieves all char clips
+;   belonging to the actual font, and able to letter text
+;   into the graphics.
+;
+;    1.00, 23.01.17, first release
+;
+; ------------------------------------------------------------ 
 
-header	jmp start
-	!by $20
+; ----------------------------------------- Equates
+
+	posho		= $30
+	col		= $31
+	src		= $32		; /$33
+	dst		= $34		; /$35
+	bcnt		= $36
+	byte		= $37
+	width		= $38
+	bits		= $39
+	bytes		= $3a
+	lines		= $3b
+	xmal32		= $3c		; /$3d
+	counter		= $3e		; /$3f
+	xceed		= $40
+
+	status		= $90
+	packbyte		= $ad		; Konstante
+	fntbuf		= $cd98
+	fntwidth		= fntbuf+4
+	fntheight		= fntbuf+5
+	fntbaseln		= fntbuf+6
+	fntname		= fntbuf+7
+	kernings		= fntbuf+19
+
+	pport		= $01
+	maus		= $02c0
+	tscreen		= $0400
+	sprptr		= $07fa
+	bscreen		= $2000
+
+	spr2		= $3e80
+	spr5		= $3f40
+
+	dbuf		= $bf00
+	bakvr1		= $ce0b
+	bakvr2		= $de0b
+	bakcr		= $ee0b
+	modname		= $e00a
+	xtitler		= $e036
+	charbuf		= $e500		; Länge max. $620 (bis $eb1f, dahinter rowbuf bis $ebff)
+	pntrbuf		= $ec00		; Länge $40 (bis $ec3f, dahinter linec/line4 bis $ec5b/$ec77)
+
+	sprpos		= $d000
+	sprxy		= $d004
+	spritehi		= $d010
+	grafreg		= $d011
+	sprreg		= $d015
+	multreg		= $d016
+	yexp		= $d017
+	charreg		= $d018
+	sprpri		= $d01b
+	sprmulti		= $d01c
+	xexp		= $d01d
+	border		= $d020
+	bkgrnd		= $d021
+	sprcol1		= $d029
+
+	cram		= $d800
+
+; ----------------------------------------- Header
+
+	jmp start
+	!by $20		; Modifier
 	!by 0
-	!by 1
+	!by 1		; dirty
 	!wo modend
 	!wo 0
-	!pet "Titler          "
-	!pet "0.99"
-	!pet "28.02.94"
-	!pet "A.Dettke/W.Kling"
+	!pet "GoDot Titler    "
+	!pet "1.00"
+	!pet "23.01.17"
+	!pet "A.Dettke        "
+;
+; ----------------------------------------- Main
+
+start	lda #0
+	sta valid
+	sta xceed
+	jsr chkmod	; ldr.Fonts installiert?
+	lda valid
+	bmi cancel	; nein, Schluss
+
+	jsr kringel
+	lda drive
+	beq stt1
+	sta ls_drive
+stt1	lda sc_screenvek	; save vector to main screenlist (to rebuild it)
+	sta mscreen
+	lda sc_screenvek+1
+	sta mscreen+1
+	jsr build
+	
+	jsr gd_eloop	; wait for events
+	
+	lda cactive
+	beq stt2
+	jsr restore
+	stx cactive
+	ldx #3
+	stx sprreg
+stt2	rts 
 ;
 ; ----------------------------------------- 
 
-list	!by 0,0
-;
-; ----------------------------------------- 
-
-start	jsr savescvek
-	ldx scvek2
-	ldy scvek2+1
-	stx list
-	sty list+1
-	jsr swppat
-sta0	lda #0
-	sta mode
-	sta taste
-	ldx #<(tlist)
+build	ldx #<(tlist)	; create requester
 	ldy #>(tlist)
-	jsr screen
-	jsr eloop
-	php 
-	jsr swppat
-	ldx list
-	ldy list+1
-	stx scvek2
-	sty scvek2+1
-	plp 
+	jsr gd_screen
+	jsr chooser	; build color chooser
+	lda #<chars1	; recolor char-pool
+	ldx #>chars1
+	jsr recol
+	jsr recolor
+	ldx #2
+	stx posho
+	lda #<fontpos	; recolor filename and info
+	ldx #>fontpos
+	jsr xrecol
+	inx
+	stx posho
+	lda #<kernpos	; recolor kerning data
+	ldx #>kernpos
+	jsr xrecol
+	lda cactive
+	beq cancel
+	jsr blackback
+
+cancel	sec 		; leave module
 	rts 
-;
+
 ; ----------------------------------------- 
 
-swppat	ldx #63
-swp0	lda ptemp,x
-	pha 
+kringel	ldx #31
+swp0	lda sc_undochar,x
+	pha
 	lda signs,x
-	sta ptemp,x
-	pla 
+	sta sc_undochar,x
+	pla
 	sta signs,x
 	dex 
 	bpl swp0
 
-; ----------------------------------------- 
-
-dummy	clc 
+dummy	clc 		; stay in module
 	rts 
 ;
 ; ----------------------------------------- 
 
-canc	sec 
+canc	jsr kringel
+	inx
+	stx pactive
+	sec
+	rts 
+
+; ----------------------------------------- Interaction with ldr.Fonts
+
+getcpos	ldx #1
+	!by $2c
+setchar	ldx #2
+	sei
+	lda #$35
+	sta pport
+	jsr xtitler
+	lda #$36
+	sta pport
+	cli
+	rts
+
+jerror2	jmp error
+fail	jsr error		; error, but stay in module
+	bcc evs1
+
+; ------------------------------------------------ Event: Set Char
+
+evsetchar	lda ckerning	; Zeichen geladen?
+	beq jerror2	; nein
+	lda bkgrnd	; Hintergrundfarbe retten (wird im Preview geändert)
+	pha
+	lda plast		; Parameter übergeben
+	sta col
+	lda fntheight
+	sta posho
+	lda fntwidth
+	sta width
+
+	jsr gron		; Grafik einschalten
+evs0	jsr preview	; Vorschau-Rendern
+	lda cactive
+	beq evs3
+	jsr restore
+	jsr crender
+evs3	jsr wait
+	lda sc_stop	; Stop gedrückt?
+	bne evs1		; ja, Vorschau beenden
+	
+	clc		; check borders
+	lda sc_merk	; top?
+	bmi fail
+	adc posho
+	cmp #26		; bottom?
+	bcs fail
+	lda xceed
+	bne evs4
+	lda sprpos	; left?
+	cmp #24
+	bcc fail
+evs4	clc
+	lda sc_merk+1
+	adc ckerning
+	cmp #41		; right?
+	bcs fail
+	
+	sty pactive
+	jsr getcpos	; Zeichenposition berechnen
+	jsr setchar	; sonst: Zeichen einstempeln
+	jsr gd_spron
+	jsr preview
+	ldy #$ff
+	jsr wait2
+	sta gr_redisp
+
+evs1	lda cactive
+	beq evs2
+	jsr restore
+	jsr crender
+evs2	jsr groff
+	pla
+	sta bkgrnd
+	jsr rebuild	; Requester rekonstruieren
+	clc
+	rts
+
+; ------------------------------------------ Switch Graphics mode on/off
+
+gron	lda #$18		; multi on
+	sta multreg
+	lda #$1b
+	sta charreg
+	lda #$3b
+	sta grafreg
+	rts
+
+groff	ldx #$13
+	lda #$1b
+	stx charreg
+	sta grafreg
+	lda #$08
+	sta multreg
+	rts
+
+; ------------------------------------------ Blink
+
+jerror	jmp error
+
+; ------------------------------------------------ Event: Choose Char
+
+evchchar	lda #0
+	sta ckerning
+	lda cwidth	; Font geladen?
+	beq jerror	; nein
+	sec
+	lda sc_sp		; Pool-Spalte
+	sbc chars1+1	; minus Klick-Spalte
+	sta thischar1
+	dec thischar1
+	sec
+	lda sc_zl
+	sbc chars1
+	sta thischar2
+	dec thischar2
+	jsr blackback
+
+	lda thischar2	; Anzeige des Kernings (Abstand zum nächsten Zeichen)
+	asl
+	asl
+	asl
+	asl
+	clc
+	adc thischar1
+	ldx sects
+	ora fntoffs,x
+	sta thisoffs
+	tax
+	lda kernings,x	; tatsächliche Breite des Zeichens
+	tay
+	lsr		; durch 8 (in Kacheln)
+	lsr
+	lsr
+	sta ckerning	; merken
+	tya
+	and #7
+	bne ecc2
+	inc ckerning
+ecc2	lda pxwidth	; Pixelbreite des Zeichensatzes
+	sec
+	sbc kernings,x	; Pixelbreite des Zeichens abziehen = Kerning
+	jsr gd_xcnvdez
+	sta kerng+1
+	cpx #$30		; führende Null weglassen
+	bne ecc1
+	ldx #32
+ecc1	stx kerng
+	jsr settab
+	ldy #10
+	jsr outtx2
+
+; ------------------------------------------------ Load Char
+
+ldchar	ldy #0
+	sty ls_vekta8
+	ldx thisoffs
+	lda sectexts,x	; Buchstabe=Dateiname
+	sta ls_nambuf,y
+	tya		; Name 1 Zeichen lang
+	iny
+	sta ls_nambuf,y
+	iny
+	sty ls_vekta8+1
+	jsr gd_cnvasc
+
+	ldy #0		; Sonderzeichen?
+	lda ls_nambuf
+	ldx #34
+lch6	dex
+	bmi lch7
+	cmp seccodes,x	; Codes durchsuchen
+	bne lch6
+	clc		; ja, dabei, Offset*3
+	stx ls_temp
+	txa
+	asl
+	adc ls_temp
+	tax
+lch8	lda secnames,x	; Kürzelnamen eintragen
+	sta ls_nambuf,y
+	inx
+	iny
+	cpy #3
+	bne lch8
+	lda #$2a		; "*" ans Ende
+	sta ls_nambuf,y
+	iny		; Name 4 Zeichen lang
+	sty ls_flen
+	
+lch7	ldy ls_flen
+	sty ls_temp
+
+	jsr gd_xopen	; Zeichen laden:
+	bcs jferror
+	ldx #0		; Clip? (GOD1)
+lch0	jsr basin
+	cmp ident,x
+	bne jferror	; nein, Fehler
+	inx
+	cpx #3
+	bne lch0
+	jsr basin
+	cmp #$31
+	bne jferror
+	
+	ldx #3		; Clip-Eigenschaften überlesen
+lch1	jsr basin
+	dex
+	bpl lch1
+
+	inx
+	stx counter
+	stx counter+1
+	lda #>charbuf	; Zeichen nach ldr.Fonts laden
+	sta ls_adrmisc+1
+	stx ls_adrmisc
+
+	ldy #0
+	lda height
+	sta posho		; Höhe des Zeichens in Kacheln
+lch5	ldx cwidth	; Breite des Zeichens in Kacheln
+lch4	lda #32		; 32 Bytes = 1 Kachel
+	sta bcnt
+lch2	jsr read
+	sta (ls_adrmisc),y
+	inc ls_adrmisc
+	bne lch3
+	inc ls_adrmisc+1
+lch3	dec bcnt		; Kacheln abzählen
+	bne lch2
+	dex		; Breite abzählen
+	bne lch4
+	dec posho		; Höhe abzählen
+	bne lch5
+
+	jsr gd_xclose	; fertig, Datei schließen, Mauszeiger an
+	jsr gd_spron
+	jsr crender	; Zeichen im Char-Preview anzeigen
+	clc
+	rts
+	
+jferror	jmp ferror
+
+; ------------------------------------------------ Event: Toggle Pool Sections
+
+evsects	ldx sects
+	cpx #2
+	bne esc0
+	ldx #$ff
+	stx sects
+esc0	inc sects
+	ldx sects
+
+	jsr settab
+	ldy #6
+	lda sectoffs,x
+	tax
+esc1	lda sectx,x
+	sta whichsec,y
+	dex
+	dey
+	bpl esc1
+	iny
+	jsr outtx
+
+	ldx sects
+	ldy #15
+	lda seccoffs,x
+	tax
+esc2	lda sectexts,x
+	sta sec1,y
+	lda sectexts+16,x
+	sta sec2,y
+	dex
+	dey
+	bpl esc2
+	ldy #12
+	jsr outtx
+
+	inc chars2+2
+	inc chars2+2
+	ldy #14
+	jsr outtx2
+	dec chars2+2
+	dec chars2+2
+	clc
+	rts
+
+outtx	jsr gettab
+	ldy #6
+	bne otx0
+
+outtx2	jsr gettab
+	ldy #2
+	lda (sc_screentab),y
+	cmp #3
+	bcs otx0
+	lda #4
+	sta sc_br
+otx0	jmp gd_xtxout1
+
+; ------------------------------------------ Wait and Move Char on Screen
+
+wait	ldy #64		; Mauszeiger unsichtbar
+wt5	lda maus,y
+	sta pntrbuf,y
+	lda #0
+	sta maus,y
+	dey
+	bpl wt5
+
+wait2	iny		; Flags initialisieren
+	sty sc_stop
+	sty sc_keyprs
+
+wt0	lda sprpos	; x
+	sta sprxy
+	sta sprxy+2
+	sta sprxy+4
+	clc
+	adc #24
+	sta sprxy+6
+	sta sprxy+8
+	sta sprxy+10
+
+	lda spritehi
+	and #3		; Mauszeiger an?
+	bne wt2		; dann alle an!
+	bcc wt1		; rechts Übertrag?
+wt3	ora #$e0		; ja, rechts an (sonst: links auch aus)
+	!by $2c
+wt2	ora #$fc		; an, wenn Maus an (alle)
+	!by $2c
+wt1	lda #0		; sonst: alle aus
+wt4	sta spritehi
+	sta xceed
+	
+	lda sprpos+1	; y
+	sta sprxy+1
+	sta sprxy+7
+	clc
+	adc #21
+	sta sprxy+3
+	sta sprxy+9
+	adc #21
+	sta sprxy+5
+	sta sprxy+11
+
+; ------------------------------------------ Wait for Clicks
+
+	lda sc_keyprs
+	ora sc_stop
+	bne go
+	lda joy
+	and #16
+	bne wt0
+
+go	jsr gd_position
+	sei		; Mauszeiger wieder sichtbar machen
+	lda #$35
+	sta pport
+	ldy #64
+wt6	lda pntrbuf,y
+	sta maus,y
+	dey
+	bpl wt6
+	iny
+	sty spritehi
+
+	lda #$36
+	sta pport
+	cli
+	rts
+
+; ----------------------------------------- Color Chooser
+
+chooser	sta sc_loop	; care for text mode
+	ldx palgad	; palette gadget values
+	inx
+	stx palzl
+	stx sc_zl
+	ldx palgad+1
+	inx
+	stx palsp
+	stx sc_sp
+	ldx #4		; 4x4 area (color chooser)
+	stx sc_br
+	stx sc_ho
+	jsr gd_esm3	; compute address and invert
+
+	lda gr_picked	; get previously selected color to .x
+	and #15		; (will be marked by "+")
+	tax
+	jmp initpal
+
+; ------------------------------------------------ Event: Pick Color
+
+evgetcol	sec		; compute row where user clicked
+	lda sc_merk
+	sbc palzl
+	asl
+	asl
+	sta hold
+	sec		; compute column
+	lda sc_merk+1
+	sbc palsp
+	clc
+	adc hold
+	tax		; take as index into palette
+	lda gr_basepal,x
+	tax
+	ora #$80		; sign valid
+	sta gr_picked
+
+; ----------------------------------------- 
+
+initpal	lda c64pal,x	; re-display palette
+	sta col
+	jsr makepal
+	clc
+	rts
+
+; ------------------------------------------------ create palette chooser
+makepal	lda gr_picked	; get current color
+	and #15
+	sta plast		; and store
+
+	lda palsp		; create chooser, first column
+	sta sc_sp
+	pha
+	ldx #1		; width and height = 1
+	stx sc_br
+	stx sc_ho
+	dex
+	stx cnty		; counters = 0
+	stx hold
+
+mp1	stx cntx
+	ldy hold
+	jsr colorize	; colorize area (1x1)
+	sec		; is PICKED color?
+	lda sc_vekt20
+	sbc #40
+	sta sc_vekt20
+	lda sc_vekt20+1
+	sbc #$d4
+	sta sc_vekt20+1
+	ldy sc_chgcol
+	cpy plast
+	beq mp2
+	lda #160		; no, write shift space
+	bne mp3
+mp2	lda #171		; yes, write "+"
+mp3	ldy #0
+	sta (sc_vekt20),y
+	inc sc_sp		; next column
+	inc hold
+	ldx cntx
+	inx
+	cpx #4
+	bne mp1
+
+	pla		; re-get start column
+	pha
+	sta sc_sp
+	ldx #0
+	inc sc_zl		; next row
+	inc cnty
+	lda cnty
+	cmp #4
+	bne mp1
+
+	pla		; clear stack
+mp4	rts		; finished
+
+; ----------------------------------------- Recolor hilighted areas
+
+recol	sta sc_screentab	; compute address
+	stx sc_screentab+1
+	ldy #0
+	ldx #0
+rc0	jsr gd_setpos
+	cpx #4
+	bne rc0
+	jmp gd_trim
+
+blackback	lda pactive
+	bne mp4
+	inc pactive
+	lda #0		; colorize preview...
+	sta sc_loop
+	lda #<prevpos
+	ldx #>prevpos
+	jsr recol
+	jsr gd_esm3
+	ldy #0		; ...to black background
+
+colorize	lda gr_basepal,y	; get color (for chooser)
+	jmp rc2
+	
+xrecol	jsr recol
+	inc sc_br
+	inc sc_br
+	ldx posho
+	stx sc_ho
+
+recolor	lda sc_normtext
+rc2	sta sc_chgcol
+	ldx #4
+	jmp gd_fcol	; colorize area
+
+; ----------------------------------------------------- Blink the Border
+
+ferror	jsr gd_xclose
+	jsr gd_spron
+
+error	lda border
+	pha
+	ldy #2
+	sty border
+	ldx #$40
+	jsr gd_dl2
+	pla
+	sta border
+	stx sy_tbuffer
+	clc
+	rts
+
+; ------------------------------------------------ Event: Load Font
+
+readfnt	jsr gd_xopen
+	ldy #0
+rf0	jsr onebyte	; 114 Bytes einlesen
+	bne ferror
+	sta (sc_vekt20),y
+	iny
+	cpy #113
+	bne rf0
+	jsr gd_xclose
+
+	ldy #0		; GOD5?
+rf1	lda fntbuf,y
+	cmp ident,y
+	bne error
+	iny
+	cpy #3
+	bne rf1
+
+	ldy #12		; ja, Fontnamen eintragen
+	sty sc_br
+	dey
+rf2	lda fntname,y
+	sta sc_movetab,y
+	dey
+	bpl rf2
+	jsr gd_cnvbc
+	ldy sc_br
+	dey
+rf3	lda sc_movetab,y
+	sta fontname,y
+	dey
+	bpl rf3
+
+	lda fntwidth	; Breite (in Kacheln) eintragen,
+	sta cwidth
+	pha
+	ora #$30
+	sta fwidth
+	pla
+	asl
+	asl
+	asl
+	sta pxwidth
+	lda fntheight	; Höhe
+	sta height
+	pha
+	ora #$30
+	sta fheight
+	pla
+	asl
+	asl
+	asl
+	sta pxheight
+	lda fntbaseln	; und Baseline (in Rasterlinien)
+	sta baseline
+	jsr gd_xcnvdez
+	sta bline+1
+	cpx #$30
+	bne rf4
+	ldx #32
+rf4	stx bline
+	lda #>charbuf	; Zeichenpuffer/rowbuf löschen ($e500 bis $ebff)
+	sta ls_adrmisc+1
+	lda #0
+	sta ls_adrmisc
+	ldx #7
+	ldy #0
+rf5	sta (ls_adrmisc),y
+	iny
+	bne rf5
+	inc ls_adrmisc+1
+	dex
+	bne rf5
+	rts
+
+evldfnt	jsr chgdrv	; don't start with drive 12
+	lda #0
+	sta ls_flen
+	sta pactive
+	lda cactive
+	beq ldf0
+	jsr restore
+	stx cactive
+ldf0	lda gd_modswitch
+	pha
+	lda #<fntbuf	; target for font file
+	sta ls_adrmisc
+	lda #>fntbuf
+	sta ls_adrmisc+1
+	jsr lddir		; open filerequester
+	jsr gd_eloop	; choose file
+	lda ls_flen	; nothing chosen?
+	beq lp0
+	lda ls_drive
+	sta drive
+	jsr readfnt	; doch: Font-Daten komplett einlesen
+lp0	jsr gd_spron
+	pla		; Modulmanagement
+	sta gd_modswitch
+	jsr chgdrv
+
+rebuild	ldx mscreen	; danach: Main-Screen aufbauen
+	ldy mscreen+1
+	jsr gd_screen
+	jsr build		; danach: Font-Requester aufbauen
+	clc		; stay in list
+	rts
+
+onebyte	jsr basin
+	ldx status
+	rts 
+
+; ----------------------------------------- Check for Titler
+
+chkmod	sei
+	lda #$30
+	sta 1
+	ldx #11
+cm0	lda modname,x
+	cmp theader,x
+	bne nomod
+	dex
+	bpl cm0
+cm1	lda #$36
+	sta 1
+	cli
+	rts
+;
+nomod	jsr cm1
+	dec valid
+	ldx #<nottlst
+	ldy #>nottlst
+	jmp gd_xmloop
+
+; ------------------------------------------ Show Char
+
+crender	ldy #$00
+	sty xmal32
+	sty xmal32+1
+	ldx fntwidth
+	jsr mal32
+
+	ldx #$c0		; make space for six sprites...
+loop1	lda spr2-1,x	; first three are in bitmap area
+	sta dbuf-1,x	; and must be buffered
+	tya
+	sta spr2-1,x	; and initialize to $00 (Sprites 250 - 255)
+	sta spr5-1,x
+	dex
+	bne loop1
+	stx sprmulti	; Hires-Sprites
+	stx sprpri	; priority 0
+	stx xexp		; no expansion
+	stx yexp
+	lda #1
+	ldx #$05		; colorize: white
+loop3	sta sprcol1,x
+	dex
+	bpl loop3
+
+	ldx fntheight
+	ldy #0
+	lda below1,x
+	sta ytab,y
+	sta ytab+3,y
+	iny
+	lda below2,x
+	sta ytab,y
+	sta ytab+3,y
+	iny
+	lda below3,x
+	sta ytab,y
+	sta ytab+3,y
+
+	ldy #11
+	ldx #5		; define positions (in gadget)
+loop4	lda ytab,x
+	sta sprxy,y
+	dey
+	lda xtab,x
+	sta sprxy,y
+	dey
+	dex
+	bpl loop4
+	
+	ldx #$05		; activate sprite pointers
+	ldy #$ff
+ploop	tya
+	sta sprptr,x
+	dey
+	dex
+	bpl ploop
+	stx sprreg	; switch sprites on
+
+	sei
+	lda #$35
+	sta pport
+	sec
+	lda #6		; Font breiter als 3?
+	sbc fntwidth
+	sta sc_merk
+	cmp #3
+	bcc m0l0
+	ldx #0		; nein, ein Durchgang
+	!by $2c
+m0l0	ldx #1		; ja, zwei Durchgänge
+m0loop	txa
+	pha
+	lda srcl,x	; set source address (charbuf)
+	sta sc_pos	; lo
+	lda #>charbuf
+	sta sc_pos+1	; hi
+	lda dstl,x	; set destination address (sprites)
+	sta sc_loop
+	lda dsth,x
+	sta sc_loop+1
+	jsr makeit	; render one band
+	lda #0
+	sta sc_merk
+	pla
+	tax
+	dex
+	bpl m0loop	; and the next one
+	stx cactive	; Char now shown in Preview
+	lda #$36
+	sta pport
+	cli
+	clc
+	rts
+
+; ------------------------------------------ Render Char to Sprites
+
+makeit	ldx #0
+	stx sc_screentab
+	ldy fntheight	; "height" rows of tiles down
+	lda sc_pos
+	sta ls_adrmisc
+	lda sc_pos+1
+	sta ls_adrmisc+1
+
+prloop	tya		; start render loop
+	pha
+
+	lda #8		; 8 passes per tile
+	sta lines
+
+zloop	ldy #0		; Start bei Offset $00 (geht drei Kacheln nach rechts)
+	sty bytes
+	lda #3
+	sta bcnt
+
+blp0	ldx #4		; vier 4bit-Pixel pro Tile
+bloop	lda (sc_pos),y	; get 4bit data
+	pha		; rotate one pixel into sprite builder
+	asl		; rightmost
+	rol bits		; to leftmost
+	pla
+	lsr		; leftmost
+	rol bits		; to now leftmost
+	iny		; next two pixels
+	dex		; 4 times (8 pixels)
+	bne bloop
+
+	lda bytes
+	bne skip64
+
+	lda bits		; byte complete, write to sprites
+	sta (sc_loop,x)
+
+skip64	inc sc_loop	; increment destination pointer (in sprite)
+	bne s1
+	inc sc_loop+1
+s1	inc sc_screentab	; skip byte 63
+	lda sc_screentab
+	cmp #$3f
+	bne s3
+	lda #$ff
+	sta sc_screentab
+	bmi skip64
+
+s3	dec bcnt
+	lda bcnt
+	cmp sc_merk
+	bne s4
+	inc bytes
+s4	tya		; nächste Kachel rechts davon (drei Durchgänge)
+	clc
+	adc #$1c		; addieren bis $60
+	tay
+	cmp #$60
+	bcc blp0
+
+	lda sc_pos 	; nächste Kachellinie
+	clc
+	adc #4
+	sta sc_pos	; als Index
+	dec lines		; 8 Kachellinien durch?
+	bne zloop		; nein, loop
+
+	clc		; nächste Kachelzeile
+	lda ls_adrmisc
+	adc xmal32
+	sta sc_pos
+	sta ls_adrmisc
+	lda ls_adrmisc+1
+	adc xmal32+1
+	sta sc_pos+1
+	sta ls_adrmisc+1
+
+s2	pla		; count height times
+	tay
+	dey
+	bne prloop
+
+	rts		; until finished
+
+restore	ldx #$c0		; restore rendered image from buffer
+piu0	lda dbuf-1,x
+	sta spr2-1,x
+	dex
+	bne piu0
+	rts
+
+; ------------------------------------------ Preview Graphics
+
+preview	ldx #0
+	stx bkgrnd	; blk
+	lda #$cb		; mgr/dgr
+cll1	sta tscreen,x
+	sta tscreen+256,x
+	sta tscreen+512,x
+	sta tscreen+760,x
+	inx 
+	bne cll1
+	lda #$ff		; lgr
+cll2	sta cram,x
+	sta cram+256,x
+	sta cram+512,x
+	sta cram+760,x
+	inx 
+	bne cll2
+
+; ----------------------------------------------------- Quick4 Render
+
+quick4	lda #<sy_4bit
+	ldx #>sy_4bit
+	sta src
+	stx src+1
+	lda #<bscreen
+	ldx #>bscreen
+	sta dst
+	stx dst+1
+
+	ldy #0
+ql40	lda #64
+	sta bcnt
+ql4	lda (src),y
+	and #$0f
+	tax 
+	lda qtab4,x
+	lsr
+	rol byte
+	lsr
+	rol byte
+	iny 
+	lda (src),y
+	and #$0f
+	tax 
+	lda qtab4,x
+	lsr
+	rol byte
+	lsr
+	rol byte
+	iny 
+	lda (src),y
+	and #$0f
+	tax 
+	lda qtab4,x
+	lsr
+	rol byte
+	lsr
+	rol byte
+	iny 
+	lda (src),y
+	and #$0f
+	tax 
+	lda qtab4,x
+	lsr
+	rol byte
+	lsr
+	rol byte
+	iny 
+
+	lda byte
+	ldx #0
+	sta (dst,x)
+
+	inc dst
+	bne qs1
+	inc dst+1
+qs1	dec bcnt
+	bne ql4
+	inc src+1
+	lda src+1
+	cmp #>sy_bigbuffer
+	bne ql40
+	rts 
+
+; ------------------------------------------------ Load Font File
+
+lddir	lda #<(fnt)
+	pha 
+	lda #>(fnt)
+	pha 
+	lda #8
+	jmp gd_xloadm
+
+chgdrv	lda ls_sysdrive
+	ldx ls_loadfrom
+	sta ls_loadfrom
+	stx ls_sysdrive
 	rts 
 ;
-; ----------------------------------------- 
+; ----------------------------------------- Read Floppy File/decompress
 
-signs	!by 0,58,70,78,64,64,60,0
-	!by $07,$72,$da,$fa,$da,$da,$02,$07
-	!by $00,$70,$d8,$f8,$d8,$df,$00,$00
-	!by $00,$1e,$1b,$1e,$5b,$de,$40,$00
-	!by $3f,$00,$0f,$00,$3f,$00,$0f,$00
-	!by $ff,$00,$ff,$00,$ff,$00,$ff,$00
-	!by $fc,$00,$f0,$00,$fc,$00,$f0,$00
-	!by $00,$00,$00,$00,$00,$ff,$00,$00
+read	lda counter	; repeated byte?
+	ora counter+1
+	bne getit2	; yes, re-get value
+	inc counter	; no, counter to 1
+	jsr basin		; get 1 byte
+	cmp #packbyte	; compression flag? (=$ad)
+	bne getit1	; no
+;	bit filetype	; file compressed?
+;	bvc getit1	; no
+	jsr basin		; compressed: get counter
+	sta counter
+	beq rb2		; $00 equals 256 bytes
+	lda #0
+	beq rb3
+rb2	lda #1
+rb3	sta counter+1
+	jsr basin		; get byte to compress
+getit1	sta byte		; and store
+getit2	lda counter	; count repetition
+	bne rb4
+	dec counter+1
+rb4	dec counter
+	lda byte		; re-get byte
+	rts
+
+; ------------------------------------------------ Display Gadget texts
+
+tabigad	!wo whichpos	; 0 
+	!wo fontpos	; 2
+	!wo fwpos		; 4
+	!wo fhpos		; 6
+	!wo blpos		; 8
+	!wo kernpos	; 10
+	!wo chars1	; 12
+	!wo chars2	; 14
 ;
-mode	!by 0
+settab	lda #<(tabigad)
+	sta sc_texttab
+	lda #>(tabigad)
+	sta sc_texttab+1
+	rts
+;
+gettab	lda (sc_texttab),y
+	sta sc_screentab
+	iny
+	lda (sc_texttab),y
+	sta sc_screentab+1
+	iny
+	sty sc_merk
+	stx sc_merk+1
+	lda #$00
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #$04
+	bne gt0
+	jsr gd_trim
+	jmp gd_initmove
 
-; ----------------------------------------- 
+; ----------------------------------------- .x mal 32
 
-tlist	!by $93
-	!by 0,0,40,13,$00,0,0
-	!by 8,0,40,3,$c9,<(dummy),>(dummy)
-inputtxt	!fill 13,32
-	!scr "GoDot Titler"
-	!fill 13,32
+mal32	lda xmal32
+	clc
+	adc #32
+	sta xmal32
+	lda xmal32+1
+	adc #0
+	sta xmal32+1
+	dex
+	bne mal32
+	rts
+
+; ----------------------------------------- Data
+
+theader	!pet "Fonts Loader"
+valid	!by 0
+
+qtab4	!by $00,$00,$01,$01,$01,$01,$01,$01
+	!by $02,$02,$02,$02,$02,$02,$03,$03 
+
+signs	!by 0,58,70,78,64,64,60,0		; Kringel
+	!by $3c,$66,$6e,$6e,$60,$62,$3c,0	; @
+	!by 0,$66,0,$66,$66,$66,$3e,0		; ü
+	!by 0,0,$66,0,0,0,0,0		; Trema
+;
+sectoffs	!by 06,13,20
+seccoffs	!by 15,47,79
+fntoffs	!by 00,32,64
+sectx	!scr " Lower "	; 6 (von 7)
+	!scr " Upper "	; 13
+	!scr " Extra "	; 20
+sects	!by 0		; which of these 3
+thischar1	!by 0		; Pool Spalte
+thischar2	!by 0		; Pool Zeile (=Faktor 16)
+thisoffs	!by 0		; Char Offset in Font according to sectexts
+pactive	!by 0		; Char Preview active
+cactive	!by 0		; Char shown in Preview (when >0)
+palzl	!by 0
+palsp	!by 0
+hold 	!by 0
+plast	!by 0
+cntx 	!by 0
+cnty 	!by 0
+fnt	!pet "fnt.*"
 	!by 0
-	!by 0,0,20,8,$04,0,0
-	!by 1,7,3,3,$c0,<(dummy),>(dummy)
-	!by 60,0
-	!by 1,10,6,3,$e0,<(dummy),>(dummy)
-	!scr "   0@"
-	!by 1,16,3,3,$c0,<(dummy),>(dummy)
-	!by 62,0
-	!by 4,7,3,3,$c0,<(dummy),>(dummy)
-	!by 60,0
-	!by 4,10,6,3,$e0,<(dummy),>(dummy)
-	!scr "   0@"
-	!by 4,16,3,3,$c0,<(dummy),>(dummy)
-	!by 62,0
-	!by 4,2,5,3,$c0,<(dummy),>(dummy)
-	!scr "Get@"
+ident	!pet "god5"
+drive	!by 0
+cwidth	!by 0
+ckerning	!by 0
+pxwidth	!by 0
+height	!by 0
+pxheight	!by 0
+baseline	!by 0
+mscreen	!wo 0
+c64pal	!by $00,$ff,$44,$cc,$55,$aa,$11,$dd
+     	!by $66,$22,$99,$33,$77,$ee,$88,$bb
 
-	!by 0,20,20,8,$86,0,0
-	!scr "Alignment@"
-	!by 2,22,4,5,$f0,<(dummy),>(dummy)
-	!by 228,229,0
-	!by 2,26,4,5,$d0,<(dummy),>(dummy)
-	!by 227,229,0
-	!by 2,30,4,5,$d0,<(dummy),>(dummy)
-	!by 227,228,0
-	!by 2,34,4,5,$d0,<(dummy),>(dummy)
-	!by 228,228,0
+sectexts	!scr "abcdefghijklm.,!"	;      (Lower)
+	!scr "nopqrstuvwxyz:;?"	; 31
 
-	!by 11,0,20,11,$01,0,0
-	!by 12,6,14,3,$cf,<(dummy),>(dummy)
-	!scr "  Sys Font  @"
-	!by 19,0,5,3,$c7,<(dummy),>(dummy)
-	!scr "Sys@"
-	!by 15,12,8,7,$0d,0,0
-	!by 19,5,7,3,$cc,<(dummy),>(dummy)
-	!scr "  *  @"
+	!scr "ABCDEFGHIJKLM+-="	;      (Upper)
+	!scr "NOPQRSTUVWXYZ*/"	; 
+	!by $e0			; 63   $e0=@
 
-	!by 11,20,20,8,$01,0,0
-	!by 11,30,10,3,$c6,<(dummy),>(dummy)
+	!scr "0123456789"
+	!by $1d,$1b,$e1,$1c		;      (Extra) 
+	!scr "<("			;      äöüß $e1=Hochpfeil
+	!by $5b,$5e,$1e,$1f,$22,$27	;  <-,->,^,v,",'
+	!scr "&%$#"
+	!by $70,$79,$7a,$e2		;      ÄÖÜ $e2=Trema
+	!scr ">)"			; 95
+
+secnames	!pet "dotcomemacolsemqmapludas"	; Kürzel für 34 Sonder-Chars
+	!pet "equastslaat-a-uo-uu-us-z"
+	!pet "l-tp-ol-ar-au-ad-aquoapo"
+	!pet "ampperdolhasA-uO-uU-utre"
+	!pet "g-tp-c"
+
+seccodes	!by $2e,$2c,$21,$3a,$3b,$3f,$2b,$2d	; Codes der 34 Sonder-Chars
+	!by $3d,$2a,$2f,$a0,$5d,$5b,$a1,$5c
+	!by $3c,$28,$db,$de,$5e,$5f,$22,$27
+	!by $26,$25,$24,$23,$b0,$b9,$ba,$a2
+	!by $3e,$29
+
+srcl	!by $00,$60
+dstl	!by $80,$40	; sprite block addresses
+dsth	!by $3e,$3f
+
+below1	!by $ca,$c2,$ba,$b2,$aa,$a2,$9a,$92
+below2	!by $df,$d7,$cf,$c7,$bf,$b7,$af,$a7
+below3	!by $f4,$ec,$e4,$dc,$d4,$cc,$c4,$bc
+
+xtab	!by $c0,$c0,$c0,$d8,$d8,$d8
+ytab	!by $92,$a7,$bc,$92,$a7,$bc
+
+; ----------------------------------------- 
+
+tlist	!by $00
+	!by 01,10,18,23,$91,0,0
+	!scr "GoDot Titler@"
+
+	!by 06,10,03,03,$40		; char 1
+	!wo evchchar
+	!by 06,11,03,03,$40	
+	!wo evchchar
+	!by 06,12,03,03,$40
+	!wo evchchar
+	!by 06,13,03,03,$40
+	!wo evchchar
+	!by 06,14,03,03,$40
+	!wo evchchar
+	!by 06,15,03,03,$40
+	!wo evchchar
+	!by 06,16,03,03,$40
+	!wo evchchar
+	!by 06,17,03,03,$40
+	!wo evchchar
+	!by 06,18,03,03,$40
+	!wo evchchar
+	!by 06,19,03,03,$40
+	!wo evchchar
+	!by 06,20,03,03,$40
+	!wo evchchar
+	!by 06,21,03,03,$40
+	!wo evchchar
+	!by 06,22,03,03,$40
+	!wo evchchar
+	!by 06,23,03,03,$40
+	!wo evchchar
+	!by 06,24,03,03,$40
+	!wo evchchar
+	!by 06,25,03,03,$40
+	!wo evchchar
+	!by 07,10,03,03,$40		; char 16
+	!wo evchchar
+	!by 07,11,03,03,$40
+	!wo evchchar
+	!by 07,12,03,03,$40
+	!wo evchchar
+	!by 07,13,03,03,$40
+	!wo evchchar
+	!by 07,14,03,03,$40
+	!wo evchchar
+	!by 07,15,03,03,$40
+	!wo evchchar
+	!by 07,16,03,03,$40
+	!wo evchchar
+	!by 07,17,03,03,$40
+	!wo evchchar
+	!by 07,18,03,03,$40
+	!wo evchchar
+	!by 07,19,03,03,$40
+	!wo evchchar
+	!by 07,20,03,03,$40
+	!wo evchchar
+	!by 07,21,03,03,$40
+	!wo evchchar
+	!by 07,22,03,03,$40
+	!wo evchchar
+	!by 07,23,03,03,$40
+	!wo evchchar
+	!by 07,24,03,03,$40
+	!wo evchchar
+	!by 07,25,03,03,$40
+	!wo evchchar
+
+chars1	!by 06,10,18,04,$8a,0,0	; char-pool
+sec1	!scr "abcdefghijklm.,!@"
+
+	!by 14,10,10,03,$c8
+	!wo evldfnt
+	!scr "Get Font@"
+	!by 12,10,10,03,$d8
+	!wo evsetchar
+	!scr "Set Char@"
+whichpos	!by 10,10,10,03,$c8
+	!wo evsects
 	!by 223
-	!scr " Color @"
-	!by 13,30,10,3,$cf,<(dummy),>(dummy)
-	!by 223
-	!scr " Normal@"
-	!by 16,26,4,3,$cc,<(dummy),>(dummy)
-	!scr "15@"
-	!by 16,35,5,3,$cd,<(dummy),>(dummy)
-	!scr "  0@"
-	!by 19,20,12,3,$c2,<(dummy),>(dummy)
-	!scr "Apply Text@"
-	!by 19,32,8,3,$c2,<(canc),>(canc)
-	!scr "Cancel@"
-	!by 22,0,40,3,$02,0,0
+whichsec	!scr " Lower @"
 
-	!by $c0,1,0,6
-	!scr "Margin@"
-	!by $c0,4,0,1
-	!scr "y@"
-	!by $c0,3,22,2,228,229,0
-	!by $c0,4,22,2,228,229,0
-	!by $c0,3,26,2,227,229,0
-	!by $c0,4,26,2,227,229,0
-	!by $c0,3,30,2,227,228,0
-	!by $c0,4,30,2,227,228,0
-	!by $c0,3,34,2,228,228,0
-	!by $c0,4,34,2,228,228,0
-	!by $c0,12,0,5
-	!scr "Font:@"
-	!by $c0,11,20,9
-	!scr "Textmode:@"
-	!by $c0,13,20,9
-	!scr "Textsize:@"
-	!by $c0,16,20,5
-	!scr "Color@"
-	!by $c0,16,29,5
-	!scr "Shade@"
-	!by $c0,15,6,5,224,58
-	!scr "  0@"
-	!by $c0,16,5,6,230,225,58
-	!scr "  0@"
-	!by $c0,17,5,6,225,226,58
-	!scr "  0@"
+prevpos	!by 11,20,08,09,$0f,0,0	; Preview
 
+palgad	!by 18,10,06,06,$47
+	!wo evgetcol
+
+	!by 21,19,09,03,$cd
+	!wo canc
+	!scr " Leave @"
+
+	!by $c0			; additional texting
+chars2	!by 07,10,16
+sec2	!scr "nopqrstuvwxyz:;?@"
+	!by $c0
+fontpos	!by 03,10,16
+	!scr "Fnt:"
+fontname	!fill 12,32
+	!by 0
+	!by $c0,04,10,2
+	!scr "W:@"
+	!by $c0
+fwpos	!by 04,13,1
+fwidth	!scr "0@"
+	!by $c0,04,15,2
+	!scr "H:@"
+	!by $c0
+fhpos	!by 04,18,1
+fheight	!scr "0@"
+	!by $c0,04,20,3
+	!scr "BL:@"
+	!by $c0
+blpos	!by 04,24,2
+bline	!scr " 0@"
+	!by $c0,09,21,4
+	!scr "Char@"
+	!by $c0,16,10,4
+	!scr "Colr@"
+	!by $c0,19,15,8
+	!scr "Kerning:@"
+	!by $c0
+kernpos	!by 19,24,2
+kerng	!scr " 0@"
 	!by $80
 
+; ----------------------------------------- Screenlist für Warning
+
+nottlst	!by 0
+	!by 5,11,18,15,$81,0,0
+	!scr "GoDot Titler@"
+	!by 17,15,9,3,$cc,<(cancel),>(cancel)
+	!scr " Leave @"
+	!by $c0,7,12,14
+	!scr "This Module is@"
+	!by $c0,9,11,15
+	!scr "genuine part of@"
+	!by $c0,11,14,11
+	!scr "ldr.Fonts.@"
+	!by $c0,13,11,15
+	!scr "It doesn't work@"
+	!by $c0,15,13,11
+	!scr "on its own.@"
+	!by $80
+;
+	
 modend	!eof 
