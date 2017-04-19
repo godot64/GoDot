@@ -1,0 +1,772 @@
+
+!src "..\godotlib.lib"
+*	= $c000
+
+; ----------------------------------------- 
+;
+; Saver Pixel Perfect IFLI format (unpacked, 133 blocks)
+;
+;   1.00: 19.04.17, first release
+;
+; ----------------------------------------- 
+
+
+; ----------------------------------------- Equates
+
+	cnt		= $31
+	src		= $32
+	src3		= $34
+	dst		= src3
+	adcnt		= $3e
+
+	offx		= $b2
+	offy		= $b3
+	mlen		= $fd
+	cpos		= mlen+1
+
+	hist		= $3f40
+	hist0		= hist+16
+	htab		= hist0+32
+
+	cram		= $ca00
+	c64		= $bd00
+	hist3		= $be00
+
+; ----------------------------------------- Header
+
+header	jmp start
+	!by $40
+	!by 0
+	!by 1
+	!wo modend
+	!wo 0
+	!pet "Pixel Perfect   "
+ver	!pet "1.00"
+	!pet "19.04.17"
+	!pet "A.Dettke        "
+
+; ----------------------------------------- 
+addtxt	!pet "<GoDot PP Saver v"
+ver1	!pet "x.xx>AD"
+	!by 0
+
+; ----------------------------------------- 
+; ----------------------------------------- Saver Pixel Perfect
+; ----------------------------------------- 
+
+start	ldx gr_nr		; Input? (if value=1)
+	dex
+	bne st3
+	jmp initinp
+
+; ----------------------------------------- Main
+
+st3	lda #0		; init values
+	sta cnt
+	jsr gd_sproff	; Sprites aus
+	lda gd_modswitch
+	pha
+
+	lda ls_flen	; any filename?
+	beq st1		; no, leave saver
+
+	sta wflen		; yes, save image
+	lda #1
+	sta adcnt
+	jsr wopen
+	bne st2
+	jsr getname
+	ldx #12
+	jsr ckout
+	jsr gd_clrms
+	jsr writepp
+st2	jsr clrch
+	lda #12
+	jsr close
+	jsr err9
+	bne st1
+	jsr setname
+
+st1	pla		; restore system values
+	sta gd_modswitch
+
+canc	jsr gd_spron	; Sprites wieder an
+cn2	sec		; leave saver
+	rts
+
+; ----------------------------------------- 
+; ----------------------------------------- GoDot Input Routines (mandatory to every saver)
+; ----------------------------------------- 
+
+!src "..\input.inc"
+
+; ----------------------------------------- 
+; ----------------------------------------- 
+; ----------------------------------------- 
+
+; ----------------------------------------- Open File
+
+pw	!pet "w,p,"
+drinit	!pet "i0"
+wflen	!by 0
+;
+wopen	jsr inull
+	bne err8
+	ldy wflen
+	cpy #15
+	bcc wo2
+	ldy #15
+wo2	ldx #3
+wo1	lda pw,x
+	sta ls_nambuf,y
+	iny
+	dex
+	bpl wo1
+	sty wflen
+	lda #12
+	tay
+	ldx ls_drive
+	jsr filpar
+	lda wflen
+	ldx #<(ls_nambuf)
+	ldy #>(ls_nambuf)
+	jsr filnam
+	jsr copen
+	jmp err9
+
+; ----------------------------------------- 
+
+inull	ldx #<(drinit)
+	ldy #>(drinit)
+	lda #2
+	jsr gd_sendcom
+err9	jsr gd_xmess
+	lda ls_err2
+	and #15
+err8	sec
+	rts
+
+; ----------------------------------------- Activity Display
+
+messout	ldx #<(message)
+	ldy #>(message)
+	jmp gd_xtxout2
+
+; ----------------------------------------- 
+
+tcopy	ldy #0
+tc0	lda txt,x
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+
+; ----------------------------------------- 
+
+action	dec adcnt
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts
+
+; ----------------------------------------- 
+
+clrmess	ldx #20
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0
+	ldx #7
+	sty offy
+	stx offx
+	rts
+
+; ----------------------------------------- 
+
+filltab	!by 160,93,103,127,126,124,105,109
+
+cntwert	!by 210				;109
+
+txt	!scr " Writing.. @"
+making	!scr "Making histograms.@"
+
+message	!fill 11,32
+mess	!fill 21,32
+	!by 0
+
+; ----------------------------------------- Create Fileinfo
+
+getname	ldx #0
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+setname	lda #0
+	ldx #<(ls_picname)
+	ldy #>(ls_picname)
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!fill 16,32
+	!by 0
+
+; ----------------------------------------- 
+; ----------------------------------------- 
+;
+;   write interlace fli
+;
+; ----------------------------------------- 
+; ----------------------------------------- 
+
+writepp	ldx #<(making)	; first: histograms and tables
+	ldy #>(making)
+	jsr gd_xtxout2	; message: "Making histograms."
+	jsr makec64	; create table of color combis
+
+whdl	lda #$00		; start address $3c00
+	jsr bsout
+	lda #$3c
+	jsr bsout
+
+	ldy #3		; preparations
+prepl	lda mask1,y
+	sta mask,y
+	lda ver,y
+	sta ver1,y
+	dey
+	bpl prepl
+
+	lda #32
+	sta col0+4
+	sta maxcol
+
+	lda #<($4000)	; start render
+	ldx #>($4000)	; 4Bit at $4000 (up to $bcff)
+	sta src
+	stx src+1
+	lda #<(cram)	; buffer address
+	ldx #>(cram)
+	sta dst
+	stx dst+1
+loop3	ldy #15		; clear histogram (for one tile)
+	lda #0
+ch1	sta hist,y
+	dey
+	bpl ch1
+	lda #8
+	sta blcnt
+blloop	ldx #0
+	ldy #0
+	lda (src),y	; get byte 0 (first 2 pixels)
+	sta hmbuf
+	beq hms1		; skip black (bkgr)
+	inx
+hms1	iny
+	lda (src),y	; get byte 1
+	sta hmbuf+1
+	beq hms2
+	cmp hmbuf		; compare colors
+	beq hms2		; don't count if equal
+	inx
+hms2	iny
+	lda (src),y	; byte 2
+	sta hmbuf+2
+	beq hms3
+	cmp hmbuf
+	beq hms3
+	cmp hmbuf+1
+	beq hms3
+	inx
+hms3	iny
+	lda (src),y	; byte 3 (finishing one tile-scanline)
+	beq hms4
+	cmp hmbuf
+	beq hms4
+	cmp hmbuf+1
+	beq hms4
+	cmp hmbuf+2
+	beq hms4
+	inx
+
+hms4	cpx #3		; more than 2 colors?
+	bcc s8		; no
+	ldy #3		; yes, are these colors plain C64 colors?
+hl3	lda (src),y
+	and #$0f
+	tax
+	lda (src),y
+	cmp dnib,x
+	bne s71
+	inc hist0,x	; count if yes
+s71	dey
+	bpl hl3
+
+s8	lda src		; next 4 bytes (next scanline in tile)
+	clc
+	adc #4
+	sta src
+	bcc s9
+	inc src+1
+s9	dec blcnt		; tile finished?
+	bne blloop	; no
+
+	lda #0		; find most frequent color per tile
+	ldx #32
+	sta max
+	stx maxcol
+	ldy #15
+m3	lda hist0,y
+	beq s10
+	cmp max
+	beq s10
+	bcc s10
+	sta max
+	sty maxcol
+s10	dey
+	bpl m3
+	lda maxcol	; (may be $20: flag for no color problem)
+	ldy #0		; and write to color ram buffer
+	sta (dst),y
+	inc dst
+	bne s11
+	inc dst+1
+
+s11	lda src+1		; until end of 4Bit
+	cmp #$bd
+	beq ok3
+	jmp loop3
+
+; ----------------------------------------- 
+
+ok3	jsr gd_clrms	; new message: "writing..."
+	ldx #0
+	jsr tcopy
+
+	jsr writecram	; write color ram
+
+	lda #0		; now write 1st image
+	sta nibflg	; (take left pixels for that)
+	jsr writefli
+
+	ldy #192		; write bg (black)
+	jsr write0
+
+	lda #$ff		; write 2nd image
+	sta nibflg	; (and take right pixels)
+	jsr writefli
+
+ende	sec		; leave saver
+	rts
+
+; ----------------------------------------- Save color ram
+
+writecram	lda #<(cram)
+	ldx #>(cram)
+	sta src3
+	stx src3+1
+	lda #4
+	sta crcnt
+	ldy #0
+wcrl	lda (src3),y
+	tax
+	lda c64,x
+	and #15
+	jsr write
+	iny
+	bne wcrl
+	inc src3+1
+	dec crcnt
+	bne wcrl
+	rts
+
+; ----------------------------------------- Save 1 FLI image
+
+writefli	lda #0
+	sta data
+
+	sta vrcnt		; counter for 8 video rams
+vrloop	lda vrcnt
+	ldx #>($4000)
+	sta src
+	stx src+1
+	lda #<(cram)
+	ldx #>(cram)
+	sta src3
+	stx src3+1
+
+loop12	ldy #15		; clear histogram	
+	lda #0
+ch3	sta hist,y
+	dey
+	bpl ch3
+	ldy #3
+hl4	lda (src),y
+	bit nibflg	; determine which image
+	bmi lonib1	; first or second?
+	lsr
+	lsr
+	lsr
+	lsr
+lonib1	and #$0f		; isolate color and count (1 scanline)
+	tax
+	inc hist,x
+	dey
+	bpl hl4
+
+	lda #0		; ignore black (bkground)
+	tax
+	sta hist,x
+	tay		; find first color of tile
+	lda (src3),y	; problematic colors?
+	tax
+	cpx #32
+	beq s12
+	lda #0		; yes, ignore this color
+	sta hist,x
+s12	sty max
+	stx col0+3
+	lda #32
+	sta col0+1
+	ldy #15		; find second color of tile
+m1	lda hist,y
+	beq s13
+	cmp max
+	beq s13
+	bcc s13
+	sta max
+	sty col0+1
+s13	dey
+	bpl m1
+	lda col0+1	; find third color of tile
+	cmp #32		; one single color?
+	beq s14		; yes
+	tax		; no, ignore this color
+	lda #0
+	sta hist,x
+	sta max
+	ldy #15
+m2	lda hist,y
+	beq s15
+	cmp max
+	beq s15
+	bcc s15
+	sta max
+	sty col0+2
+s15	dey
+	bpl m2
+
+s14	lda col0+1	; create color combi
+	asl
+	asl
+	asl
+	asl
+	ora col0+2
+	tax
+	lda c64,x		; from table
+
+	jsr write		; and save
+
+	inc src3		; proceed to next tile
+	bne s16
+	inc src3+1
+s16	lda src
+	clc
+	adc #32
+	sta src
+	bcc s17
+	inc src+1
+s17	lda src+1
+	cmp #$bd		; until end of 4Bit
+	beq s18
+	jmp loop12
+
+s18	ldx #0		; write signature
+l24	lda addtxt,x
+	jsr write
+	inx
+	cpx #24
+	bne l24
+
+	lda vrcnt		; next scanline
+	clc
+	adc #4
+	sta vrcnt
+	cmp #32
+	beq ok12
+	jmp vrloop
+
+; ----------------------------------------- 
+
+ok12	lda #<($4000)	; compute bitmap
+	ldx #>($4000)
+	sta src
+	stx src+1
+	lda #<(cram)
+	ldx #>(cram)
+	sta src3
+	stx src3+1
+
+bmloop	lda #8		; 8 scanlines per tile
+	sta zlcnt
+zlloop	ldy #15		; clear histogram
+	lda #0
+ch4	sta hist,y
+	dey
+	bpl ch4
+	ldy #3
+hl5	lda (src),y
+	bit nibflg
+	bmi lonib2
+	lsr
+	lsr
+	lsr
+	lsr
+lonib2	and #$0f
+	tax
+	inc hist,x	; create bitpattern for multicolor
+	lda bits,y
+	sta nr0,y
+	lda #32
+	sta col0,y
+	dey
+	bpl hl5
+	lda #0		; ignore black (bkgr)
+	tax
+	sta hist,x
+	stx col0
+	ldy #0
+	lda (src3),y	; problematic color?
+	cmp #32
+	beq s19		; no
+	tax		; third color
+	tya
+	sta hist,x
+	stx col0+3
+s19	sty max
+	ldy #15		; first color
+m11	lda hist,y
+	beq s20
+	cmp max
+	beq s20
+	bcc s20
+	sta max
+	sty col0+1
+s20	dey
+	bpl m11
+	lda col0+1	; one single color?
+	cmp #32
+	beq s21
+	tax		; no, ignore
+	lda #0
+	sta hist,x
+	sta max
+	ldy #15		; second color
+m21	lda hist,y
+	beq s22
+	cmp max
+	beq s22
+	bcc s22
+	sta max
+	sty col0+2
+s22	dey
+	bpl m21
+
+s21	ldx #0		; sort color frequencies
+lx	stx xbuf
+	ldy #3
+ly	lda col0,x
+	cmp col0,y
+	bcc s23
+	beq s23
+	pha
+	lda col0,y
+	sta col0,x
+	pla
+	sta col0,y
+	lda nr0,x
+	pha
+	lda nr0,y
+	sta nr0,x
+	pla
+	sta nr0,y
+s23	dey
+	cpy xbuf
+	bne ly
+	inx
+	cpx #3
+	bne lx
+	ldy #$ff
+	sty hstart
+htl	iny
+	lda col0,y	; average: (a+b)/2
+	clc
+	adc col0+1,y
+	lsr
+	cmp #16		; limit to 15
+	bcc s24
+	lda #15
+s24	sta hend
+	lda nr0,y
+	ldx hstart
+htl1	inx
+	sta htab,x
+	cpx hend
+	bcc htl1
+	cpx #15
+	bcs s25
+	stx hstart
+	cpy #3
+	bne htl
+s25	lda #0
+	sta byte
+	ldy #3
+
+rl	lda (src),y
+	bit nibflg
+	bmi lonib3
+	lsr
+	lsr
+	lsr
+	lsr
+lonib3	and #$0f
+	tax
+	lda htab,x
+	and mask,y
+	ora byte
+	sta byte
+	dey
+	bpl rl
+
+	jsr write		; save
+
+	lda src		; next scanline
+	clc
+	adc #4
+	sta src
+	bne s26
+	inc src+1
+s26	dec zlcnt
+	beq s27
+	jmp zlloop
+s27	inc src3
+	bne s28
+	inc src3+1
+s28	lda src+1
+	cmp #$bd		; unto end of 4Bit
+	beq ok121
+	jmp bmloop
+ok121	rts
+
+; ----------------------------------------- Write .Y zero bytes
+
+write0	lda #0		; $7f7f = bkground (in this 0-chunk)
+wr0	jsr bsout
+	dey
+	bne wr0
+	rts
+
+; ----------------------------------------- Fileheader, Tables
+
+dnib	!by $00,$11,$22,$33,$44,$55,$66,$77
+	!by $88,$99,$aa,$bb,$cc,$dd,$ee,$ff
+
+bits	!by $00,$55,$aa,$ff
+
+mask1	!by $c0		;11000000
+	!by $30		;00110000
+	!by $0c		;00001100
+	!by $03		;00000011
+
+; ----------------------------------------- Write 1 byte with activity display
+
+write	pha
+	txa
+	pha
+	tya
+	pha
+	jsr action	; gauge bar
+	pla
+	tay
+	pla
+	tax
+	pla
+	jsr bsout
+	rts
+
+; ----------------------------------------- Create C64 indexed color table
+
+makec64	ldy #0
+mc64	tya
+	lsr
+	lsr
+	lsr
+	lsr
+	tax
+	lda cols64,x
+	and #$f0
+	sta bbuf
+	tya
+	and #$0f
+	tax
+	lda cols64,x
+	and #$0f
+	ora bbuf
+	sta c64,y
+	iny
+	bne mc64
+	rts
+
+cols64	!by $00,$66,$99,$bb		; conversion table GoDot<->C64
+	!by $22,$44,$88,$cc
+	!by $ee,$aa,$55,$ff
+	!by $33,$77,$dd,$11
+
+; ----------------------------------------- Variables
+
+comp0	!by 0
+col0	!by 0,0,0,0,0
+nr0	!by 0,0,0,0
+mask	!by 0,0,0,0
+max	!by 0,0
+maxcol	!by 0
+bbuf	!by 0
+xbuf	!by 0
+blcnt	!by 0
+vrcnt	!by 0
+zlcnt	!by 0
+hstart	!by 0
+hend	!by 0
+byte	!by 0
+data	!by 0
+crcnt	!by 0
+nibflg	!by 0
+hmbuf	!by 0,0,0
+
+; ----------------------------------------- 
+
+modend	!eof
