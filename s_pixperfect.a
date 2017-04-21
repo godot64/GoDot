@@ -7,17 +7,21 @@
 ; Saver Pixel Perfect IFLI format (unpacked, 133 blocks)
 ;
 ;   1.00: 19.04.17, first release
+;   1.01: 21.04.17, added packer and requester
 ;
 ; ----------------------------------------- 
 
 
 ; ----------------------------------------- Equates
 
+	gbyte		= $30
 	cnt		= $31
 	src		= $32
 	src3		= $34
 	dst		= src3
 	adcnt		= $3e
+
+	pcode		= $ad		; Konstante
 
 	offx		= $b2
 	offy		= $b3
@@ -41,8 +45,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "Pixel Perfect   "
-ver	!pet "1.00"
-	!pet "19.04.17"
+ver	!pet "1.01"
+	!pet "21.04.17"
 	!pet "A.Dettke        "
 
 ; ----------------------------------------- 
@@ -61,7 +65,13 @@ start	ldx gr_nr		; Input? (if value=1)
 
 ; ----------------------------------------- Main
 
-st3	lda #0		; init values
+st3	ldx used		; first call?
+	bmi requ		; yes, requester
+
+	cpx #3		; finished?
+	bcs canc		; yes, leave saver
+
+	lda #0		; init values
 	sta cnt
 	jsr gd_sproff	; Sprites aus
 	lda gd_modswitch
@@ -79,7 +89,9 @@ st3	lda #0		; init values
 	ldx #12
 	jsr ckout
 	jsr gd_clrms
+
 	jsr writepp
+
 st2	jsr clrch
 	lda #12
 	jsr close
@@ -90,9 +102,19 @@ st2	jsr clrch
 st1	pla		; restore system values
 	sta gd_modswitch
 
-canc	jsr gd_spron	; Sprites wieder an
+canc	lda #$ff
+	sta used
+	jsr gd_spron	; Sprites wieder an
 cn2	sec		; leave saver
 	rts
+
+; ----------------------------------------- Requester
+
+requ	inc used		; set flag for next call
+	ldx #<(pplist)	; output requester to screen
+	ldy #>(pplist)
+	jsr gd_xmloop	; and wait for clicks
+	jmp st3		; leave saver
 
 ; ----------------------------------------- 
 ; ----------------------------------------- GoDot Input Routines (mandatory to every saver)
@@ -248,10 +270,12 @@ writepp	ldx #<(making)	; first: histograms and tables
 	jsr gd_xtxout2	; message: "Making histograms."
 	jsr makec64	; create table of color combis
 
-whdl	lda #$00		; start address $3c00
+	ldy #0
+whdl	lda ppheader,y	; create file header
 	jsr bsout
-	lda #$3c
-	jsr bsout
+	iny
+	cpy headlen
+	bne whdl
 
 	ldy #3		; preparations
 prepl	lda mask1,y
@@ -380,8 +404,25 @@ ok3	jsr gd_clrms	; new message: "writing..."
 	sta nibflg	; (and take right pixels)
 	jsr writefli
 
+	jsr lastbyte
+
 ende	sec		; leave saver
 	rts
+
+dummy	clc		; don't leave saver
+	rts
+
+; ----------------------------------------- Care for proper end of file
+
+lastbyte	lda packflag
+	beq ende
+	lda gbyte
+	eor #$ff
+	jsr pack
+	dec cnt
+
+verylast	lda #$ad			; my signature
+	jmp bsout
 
 ; ----------------------------------------- Save color ram
 
@@ -685,12 +726,17 @@ ok121	rts
 ; ----------------------------------------- Write .Y zero bytes
 
 write0	lda #0		; $7f7f = bkground (in this 0-chunk)
-wr0	jsr bsout
+wr0	jsr pack
 	dey
 	bne wr0
 	rts
 
 ; ----------------------------------------- Fileheader, Tables
+
+ppheader	!by $fc,$3b,$10,$10,$10
+packbyte	!by pcode
+packflag	!by $00
+headlen	!by 2		; 2 (ungepackt) oder 6 (gepackt)
 
 dnib	!by $00,$11,$22,$33,$44,$55,$66,$77
 	!by $88,$99,$aa,$bb,$cc,$dd,$ee,$ff
@@ -701,22 +747,6 @@ mask1	!by $c0		;11000000
 	!by $30		;00110000
 	!by $0c		;00001100
 	!by $03		;00000011
-
-; ----------------------------------------- Write 1 byte with activity display
-
-write	pha
-	txa
-	pha
-	tya
-	pha
-	jsr action	; gauge bar
-	pla
-	tay
-	pla
-	tax
-	pla
-	jsr bsout
-	rts
 
 ; ----------------------------------------- Create C64 indexed color table
 
@@ -766,6 +796,117 @@ data	!by 0
 crcnt	!by 0
 nibflg	!by 0
 hmbuf	!by 0,0,0
+used	!by $ff
+
+; ----------------------------------------- Write 1 byte with activity display
+
+write	pha
+	txa
+	pha
+	tya
+	pha
+	jsr action	; gauge bar
+	pla
+	tay
+	pla
+	tax
+	pla
+
+; ----------------------------------------- Compress algorithm
+; indicator, counter, byte (counter counts minus 1)
+
+pack	bit packflag
+	bmi wl4
+	jmp bsout
+
+wl4	cmp gbyte
+	beq incr
+p255	pha
+	lda cnt
+	beq wl1
+
+	cmp #$ff
+	beq wl0
+	cmp #4
+	bcs wl0
+	lda gbyte
+	cmp #pcode	; Compress Flag
+	bne wl2
+
+wl0	lda #pcode
+	jsr bsout
+	dec cnt		; #1.01
+	lda cnt
+	jsr bsout
+	lda #1
+	sta cnt
+	lda gbyte
+wl2	jsr bsout
+	dec cnt
+	bne wl2
+
+wl1	pla
+	sta gbyte
+
+incr	inc cnt
+	lda cnt
+	cmp #$ff
+	bne wl3
+	lda gbyte
+	jsr p255
+	dec cnt
+wl3	rts
+
+; ----------------------------------------- Requester: choose compress
+
+sevpack	inc used
+	inc used
+	lda #$80
+	sta packflag
+	lda #$fc
+	sta ppheader
+	lda #$3b
+	sta ppheader+1
+	lda #6
+	sta headlen
+	sec
+	rts
+
+; ----------------------------------------- Requester: choose no compress
+
+sevraw	inc used
+	lda #0
+	sta packflag
+	lda #$00
+	sta ppheader
+	lda #$3c
+	sta ppheader+1
+	lda #2
+	sta headlen
+	sec
+	rts
+
+; ----------------------------------------- Requester: choose cancel
+
+sevcanc	lda #3
+	sta used
+	sec
+	rts
+
+; ----------------------------------------- Screenlist for Requester
+
+pplist	!by 0
+	!by 5,11,18,15,$81,0,0
+	!scr "Pixel Perfect@"
+	!by 10,11,18,3,$ca,<(sevpack),>(sevpack)
+	!scr "Save packed@"
+	!by 13,11,18,3,$ca,<(sevraw),>(sevraw)
+	!scr "Save unpacked@"
+	!by 16,11,18,3,$ca,<(sevcanc),>(sevcanc)
+	!scr "Cancel Save@"
+	!by $c0,7,13,11
+	!scr "Select Mode@"
+	!by $80
 
 ; ----------------------------------------- 
 
