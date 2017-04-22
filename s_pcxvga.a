@@ -1,0 +1,549 @@
+
+!src "..\godotlib.lib"
+*	= $c000
+
+; ----------------------------------------- 
+;
+; Saver PCX-VGA
+;
+;   1.00: 13.12.94, first release
+;   1.01: 16.10.16, 
+;   1.02: 22.04.17, changed some IFLI palette values
+;                   re-organized saver, automatic suffix
+;                   discarded requester since "save grey" didn't work anyway
+;
+; ----------------------------------------- 
+
+
+; ----------------------------------------- Equates
+
+	dst		= $30
+	dst0		= $32
+	cnt		= $34
+	dbl		= $36
+	vertcnt		= $37
+	byte		= $39
+	bitcnt		= $3a
+	bcnt1		= $3b
+	src		= $3c
+	adcnt		= $3e
+
+	offy		= $b3
+	offx		= $b2
+	src0		= $f7
+	hold		= $f9
+	lcnt8		= $fa
+	lcnt		= $fb
+	bcnt		= $fc
+
+	destbuf		= $ca00
+	buf		= $cd00
+
+; ----------------------------------------- Header
+
+header	jmp start
+	!by $40
+	!by 0
+	!by 1
+	!wo modend
+	!wo 0
+	!pet "PCX-VGA 256 cols"
+	!pet "1.02"
+	!pet "22.04.17"
+	!pet "A.Dettke        "
+
+; ----------------------------------------- 
+
+start	ldx gr_nr		; Input? (if value=1)
+	dex
+	bne st01
+	jmp initinp
+
+; ----------------------------------------- Main
+
+st01	jsr gd_sproff	; Sprites aus
+	lda gd_modswitch	; memory handling
+	pha 
+
+	lda ls_flen	; any filename?
+	beq st1
+
+	sta wflen
+	jsr addpcx	; add ".pcx" to name (length plus 4)
+	lda #1
+	sta adcnt
+	jsr wopen		; open file
+	bne st2
+	ldx #12
+	jsr ckout
+	jsr getname	; store filename
+	jsr gd_clrms	; prepare messages
+
+	jsr write		; save image
+
+st2	jsr clrch		; close file
+	lda #12
+	jsr close
+	jsr err9
+	bne st1
+	jsr setname	; publish filemane
+
+st1	pla 
+	sta gd_modswitch	; memory handling
+
+; ----------------------------------------- 
+
+canc	jsr gd_spron	; Sprites wieder an
+cn2	sec 		; fertig, Saver verlassen
+	rts 
+
+; ----------------------------------------- 
+; ----------------------------------------- GoDot Input Routines (mandatory to every saver)
+; ----------------------------------------- 
+
+!src "..\input.inc"
+
+; ----------------------------------------- 
+; ----------------------------------------- 
+; ----------------------------------------- 
+
+; ----------------------------------------- Open File
+
+pw	!pet "w,p,"
+drinit	!pet "i0"
+wflen	!by 0
+pcxtx	!pet "xcp."
+pcxtxs	!scr "xcp."
+
+wopen	jsr inull
+	bne err8
+	ldy wflen
+	cpy #16		; # 1.01 Länge auf 16 begrenzen (nicht nötig nach addpcx)
+	bcc wo2
+	ldy #16
+wo2	ldx #3
+wo1	lda pw,x
+	sta ls_nambuf,y
+	iny 
+	dex 
+	bpl wo1
+	sty wflen
+	lda #12
+	tay 
+	ldx ls_drive
+	jsr filpar
+	lda wflen
+	ldx #<(ls_nambuf)
+	ldy #>(ls_nambuf)
+	jsr filnam
+	jsr copen
+	jmp err9
+
+; ----------------------------------------- 
+
+inull	ldx #<(drinit)
+	ldy #>(drinit)
+	lda #2
+	jsr gd_sendcom
+err9	jsr gd_xmess
+	lda ls_err2
+	and #15
+err8	sec 
+	rts 
+
+; ----------------------------------------- Add ".pcx" to filename
+
+addpcx	pha		; Länge merken		#--- 1.01 ab hier
+	tay
+	dey
+	ldx #0
+ag4	lda ls_nambuf,y	; endet auf ".pcx"?
+	cmp pcxtx,x
+	bne ag2		; nein
+	dey
+	inx
+	cpx #4
+	bcc ag4
+	pla		; ja, fertig
+	rts
+	
+ag2	pla
+	tay		; Name länger als 12 Zeichen?
+	cpy #13
+	bcs ag0		; ja, behandeln
+;
+ag5	ldx #3		; nein, ".pcx" anhängen
+ag1	lda pcxtx,x
+ag3	sta ls_nambuf,y
+	lda pcxtxs,x	; auch für Image Info
+	sta ls_lastname,y
+	iny
+	dex
+	bpl ag1
+	sty wflen		; neue Länge merken, fertig
+	sty ls_flen
+	rts
+;
+ag0	dey		; auf 12 verkürzen
+	cpy #12
+	bne ag0
+	beq ag5		; unbed. Sprung		#--- 1.01 bis hier
+;
+; ----------------------------------------- Message Handling
+
+messout	ldx #<(message)
+	ldy #>(message)
+	jmp gd_xtxout2
+
+tcopy	ldy #0
+tc0	lda txt,x
+	beq clrmess
+	sta message,y
+	inx 
+	iny 
+	bne tc0
+
+; ----------------------------------------- 
+
+action	dec adcnt
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	cpy #22		; #1.01: Fensterrand erreicht?
+	bne act0
+	jsr clrmess	; ja, re-Init
+act0	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts 
+
+; ----------------------------------------- 
+
+clrmess	ldx #25
+	lda #32
+cl0	sta mess,x
+	dex 
+	bpl cl0
+	ldy #0
+	ldx #7
+	sty offy
+	stx offx
+	rts 
+
+; ----------------------------------------- 
+
+filltab	!by 160,93,103,127,126,124,105,109
+
+cntwert	!by 1
+
+txt	!scr " PCX  @"
+
+message	!fill 6,32
+mess	!fill 26,32
+	!by 0
+
+; ----------------------------------------- Image Information
+
+getname	ldx #0
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx 
+	cpx #16
+	bcc si0
+si1	rts 
+
+setname	lda #0
+	ldx #<(ls_picname)
+	ldy #>(ls_picname)
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax 
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx 
+	iny 
+	bne si4
+si5	rts 
+
+nbuf	!fill 16,32
+	!by 0
+
+; ----------------------------------------- Write File
+
+write	ldx #0
+	jsr tcopy
+	jsr wrheader	; write PCX-Header
+	jsr pcx		; write image
+	jsr wrpal		; write VGA-Palette
+	sec 
+	rts 
+
+; ----------------------------------------- Render Image to Disk
+
+pcx	lda #<($4000)
+	ldx #>($4000)
+	sta src0
+	sta src
+	stx src0+1
+	stx src+1
+
+	lda #25		; 25 Blockzeilen
+	sta lcnt8
+
+lnloop8	lda #0
+	sta lcnt
+
+blloop	ldx #0		; 40*4 (160) Mal (eine Rasterlinie)
+
+lnloop	ldy #0		; 8 Combis holen (4 Byte)
+
+btloop	lda (src),y	; 2 Combis (=Index in RGB)
+	sta buf,x		; puffern
+	inx 
+	iny 
+	cpy #4		; 4 Mal 
+	bne btloop
+
+	clc 		; nächste Kachel
+	lda src
+	adc #32
+	sta src
+	bcc s3
+	inc src+1
+s3	cpx #160		; alle?
+	bne lnloop
+
+	jsr writeloop	; ja, auf Disk damit
+
+newline	lda src0		; nächste Rasterzeile
+	clc 
+	adc #4
+	sta src0
+	sta src
+	bcc s5
+	inc src0+1
+s5	lda src0+1
+	sta src+1
+	jsr action
+	inc lcnt
+	lda lcnt
+	cmp #8
+	bne blloop
+
+s51	lda src0		; nächste Blockzeile
+	clc 
+	adc #<(1248)
+	sta src0
+	sta src
+	lda src0+1
+	adc #>(1248)
+	sta src0+1
+	sta src+1
+	dec lcnt8
+	bne lnloop8
+
+done	rts 
+
+; ----------------------------------------- 
+
+writeloop	lda #<(buf)	; eine Rasterlinie auf Disk
+	ldy #>(buf)
+	sta dst0
+	sty dst0+1
+	ldy #0
+	sty cnt
+	sty byte
+wloop	lda (dst0),y
+	jsr pack
+	lda (dst0),y
+	jsr pack
+	iny 
+	cpy #160
+	bne wloop
+	lda byte		; flush
+	eor #$ff
+
+; ----------------------------------------- PCX RLE compress
+
+pack	cmp byte
+	beq incr
+
+writeit	pha 
+	lda cnt
+	beq wl1
+	cmp #63
+	bcs wl0
+	cmp #4
+	bcs wl0
+	pha 
+	lda byte
+	cmp #$c0
+	pla 
+	bcc wl2
+wl0	ora #$c0
+	jsr bsout
+	lda #1
+	sta cnt
+wl2	lda byte
+	jsr bsout
+	dec cnt
+	bne wl2
+
+wl1	pla 
+	sta byte
+incr	lda cnt
+	cmp #63
+	beq high
+	inc cnt
+	rts 
+
+high	lda (dst0),y
+	jmp writeit
+
+; ----------------------------------------- 
+
+wrheader	ldx #0
+wrh0	lda pcxheader,x
+	jsr bsout
+	inx 
+	cpx #128
+	bne wrh0
+	rts 
+
+; ----------------------------------------- 
+
+pcxheader	!by 10,5,1
+	!by 8				; 8 bits per plane
+	!by 0,0,0,0			; origin
+	!by <(319),>(319),<(199),>(199)	; max-x, max-y
+	!by 0,0,0,0			; dpi-x, dpi-y
+pcxpal	!by $00,$00,$00,$11,$11,$11		; these are grey values
+	!by $22,$22,$22,$33,$33,$33
+	!by $44,$44,$44,$55,$55,$55
+	!by $66,$66,$66,$77,$77,$77
+	!by $88,$88,$88,$99,$99,$99
+	!by $aa,$aa,$aa,$bb,$bb,$bb
+	!by $cc,$cc,$cc,$dd,$dd,$dd
+	!by $ee,$ee,$ee,$ff,$ff,$ff
+
+	!by 0				; Delimiter
+
+	!by 1				; 1 plane
+	!by 64,1				; 320 pixel/line
+	!by 1,0				; Color or BW (2=Grey)
+	!by 0,0,0,0			; Monitor Size
+
+	!by 0,0,0,0,0,0,0,0			; Fill Bytes
+	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0
+
+; ----------------------------------------- 
+
+wrpal	lda #<(769)
+	sta cnt
+	lda #>(769)
+	sta cnt+1
+	ldy #0
+	lda #<(iflipal)
+	sta src
+	lda #>(iflipal)
+	sta src+1
+wrp0	lda (src),y
+	jsr bsout
+	inc src
+	bne wrp1
+	inc src+1
+wrp1	lda cnt
+	bne wrp2
+	dec cnt+1
+wrp2	dec cnt
+	lda cnt
+	ora cnt+1
+	bne wrp0
+	rts 
+;
+; ----------------------------------------- 
+
+iflipal	!by $0c
+rgbtab	!by $00,$00,$00,$00,$00,$55,$55,$33,$00,$22,$22,$22
+	!by $55,$00,$00,$66,$22,$66,$66,$44,$22,$33,$33,$33
+	!by $00,$44,$77,$88,$33,$33,$00,$44,$22,$55,$55,$55
+	!by $55,$88,$77,$77,$77,$33,$55,$88,$33,$88,$88,$88
+	!by $00,$00,$55,$00,$00,$aa,$33,$22,$55,$22,$22,$66
+	!by $44,$00,$55,$66,$22,$bb,$66,$44,$77,$33,$33,$99
+	!by $44,$44,$cc,$88,$33,$99,$00,$66,$77,$55,$55,$bb
+	!by $55,$88,$cc,$77,$77,$99,$55,$88,$88,$88,$88,$cc
+	!by $55,$33,$00,$33,$22,$55,$66,$44,$00,$44,$33,$22
+	!by $77,$22,$00,$99,$44,$66,$99,$66,$33,$66,$55,$33
+	!by $33,$66,$88,$bb,$55,$33,$33,$88,$22,$88,$77,$55
+	!by $88,$aa,$77,$99,$99,$33,$88,$aa,$33,$bb,$aa,$88
+	!by $22,$22,$22,$22,$22,$66,$44,$33,$22,$33,$33,$33
+	!by $55,$11,$11,$77,$33,$77,$88,$55,$44,$55,$55,$55
+	!by $11,$55,$99,$99,$55,$55,$11,$77,$44,$77,$77,$77
+	!by $66,$99,$88,$88,$88,$55,$66,$99,$55,$99,$99,$99
+	!by $55,$00,$00,$44,$00,$55,$77,$22,$00,$55,$11,$11
+	!by $88,$00,$00,$aa,$22,$66,$bb,$44,$22,$77,$33,$33
+	!by $44,$44,$88,$cc,$44,$44,$44,$66,$22,$99,$55,$55
+	!by $99,$88,$77,$bb,$77,$33,$99,$88,$33,$cc,$88,$88
+	!by $66,$22,$66,$66,$22,$bb,$99,$44,$66,$77,$33,$77
+	!by $aa,$22,$66,$cc,$44,$cc,$dd,$66,$88,$aa,$66,$aa
+	!by $66,$66,$ee,$ee,$66,$aa,$66,$88,$88,$bb,$77,$bb
+	!by $bb,$aa,$dd,$dd,$99,$99,$bb,$aa,$99,$ee,$aa,$ee
+	!by $66,$44,$22,$66,$44,$77,$99,$66,$33,$88,$55,$44
+	!by $bb,$44,$22,$dd,$66,$88,$dd,$88,$55,$aa,$88,$66
+	!by $66,$88,$aa,$ee,$88,$66,$77,$99,$55,$cc,$99,$88
+	!by $bb,$cc,$99,$dd,$bb,$66,$bb,$cc,$55,$ee,$cc,$aa
+	!by $33,$33,$33,$33,$33,$99,$66,$55,$33,$55,$55,$55
+	!by $77,$33,$33,$aa,$66,$aa,$aa,$88,$66,$77,$77,$77
+	!by $33,$77,$bb,$bb,$77,$77,$44,$aa,$66,$99,$99,$99
+	!by $88,$cc,$aa,$aa,$aa,$77,$88,$bb,$66,$bb,$bb,$bb
+	!by $00,$44,$77,$44,$44,$cc,$33,$66,$88,$11,$55,$99
+	!by $44,$44,$88,$66,$66,$ee,$66,$88,$aa,$33,$77,$bb
+	!by $00,$88,$ff,$88,$77,$bb,$44,$aa,$aa,$55,$99,$dd
+	!by $55,$cc,$ee,$77,$bb,$bb,$99,$cc,$bb,$88,$cc,$ff
+	!by $88,$33,$33,$88,$33,$99,$bb,$55,$33,$99,$55,$55
+	!by $cc,$44,$44,$ee,$66,$aa,$ee,$88,$66,$bb,$77,$77
+	!by $88,$77,$bb,$ff,$77,$77,$88,$aa,$66,$dd,$99,$99
+	!by $dd,$bb,$aa,$ff,$bb,$77,$88,$bb,$77,$ff,$bb,$bb
+	!by $00,$44,$22,$00,$66,$77,$33,$88,$22,$11,$77,$44
+	!by $44,$66,$22,$66,$88,$88,$77,$99,$55,$44,$aa,$66
+	!by $44,$aa,$aa,$88,$aa,$66,$00,$cc,$55,$66,$cc,$88
+	!by $55,$ee,$aa,$77,$dd,$66,$55,$cc,$44,$88,$ee,$aa
+	!by $55,$55,$55,$55,$55,$bb,$88,$77,$55,$77,$77,$77
+	!by $99,$55,$55,$bb,$77,$bb,$cc,$99,$88,$99,$99,$99
+	!by $55,$99,$dd,$dd,$99,$99,$66,$cc,$88,$bb,$bb,$bb
+	!by $aa,$dd,$cc,$cc,$cc,$99,$aa,$dd,$88,$dd,$dd,$dd
+	!by $55,$88,$77,$55,$88,$cc,$88,$aa,$77,$66,$99,$88
+	!by $99,$88,$77,$bb,$aa,$dd,$bb,$cc,$99,$88,$cc,$aa
+	!by $55,$cc,$ee,$dd,$bb,$aa,$55,$ee,$aa,$aa,$dd,$cc
+	!by $aa,$ff,$ee,$cc,$ee,$aa,$aa,$ff,$aa,$dd,$ff,$ee
+	!by $77,$77,$33,$77,$77,$99,$99,$99,$33,$88,$88,$55
+	!by $bb,$77,$33,$dd,$99,$99,$dd,$bb,$66,$aa,$aa,$77
+	!by $77,$bb,$bb,$ff,$bb,$77,$77,$dd,$66,$cc,$cc,$99
+	!by $cc,$ee,$cc,$ee,$ee,$77,$cc,$dd,$66,$ee,$ee,$bb
+	!by $55,$88,$33,$55,$88,$88,$88,$aa,$33,$66,$99,$55
+	!by $99,$88,$33,$bb,$aa,$99,$bb,$cc,$55,$88,$bb,$66
+	!by $99,$cc,$bb,$88,$bb,$77,$55,$cc,$44,$aa,$dd,$88
+	!by $aa,$ff,$aa,$cc,$dd,$66,$aa,$ff,$66,$dd,$ff,$bb
+	!by $88,$88,$88,$88,$88,$cc,$bb,$aa,$88,$99,$99,$99
+	!by $cc,$88,$88,$ee,$aa,$ee,$ee,$cc,$aa,$bb,$bb,$bb
+	!by $88,$cc,$ff,$ff,$bb,$bb,$88,$ee,$aa,$dd,$dd,$dd
+	!by $dd,$ff,$ee,$ee,$ee,$bb,$dd,$ff,$bb,$ff,$ff,$ff
+;
+; ----------------------------------------- 
+
+modend	!eof
