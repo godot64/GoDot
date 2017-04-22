@@ -8,6 +8,7 @@
 ;
 ;   1.00: 19.04.17, first release
 ;   1.01: 21.04.17, added packer and requester
+;   1.02: 22.04.17, Bug im Chunk WRITE0 fixed
 ;
 ; ----------------------------------------- 
 
@@ -45,8 +46,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "Pixel Perfect   "
-ver	!pet "1.01"
-	!pet "21.04.17"
+ver	!pet "1.02"
+	!pet "22.04.17"
 	!pet "A.Dettke        "
 
 ; ----------------------------------------- 
@@ -728,7 +729,7 @@ ok121	rts
 write0	lda #0		; $7f7f = bkground (in this 0-chunk)
 wr0	jsr pack
 	dey
-	bne wr0
+	bne write0	; # --- 1.02 (statt bne wr0)
 	rts
 
 ; ----------------------------------------- Fileheader, Tables
