@@ -16,7 +16,8 @@
 ;    1.03:
 ;    1.04: 04.02.96
 ;    1.05: 09.10.16, completely reorganized
-;
+;    1.06: 16.04.17, changed RGBs for 3 colors
+;    1.07: 22.04.17, re-organized loader
 ;
 ; ---------------------------
 
@@ -46,6 +47,8 @@
 	nflg		= $52
 	zflg		= $53
 	bcount		= $54
+
+	numicols		= 55		; Konstante für Anzahl IFLI-Farben
 
 	name		= $b0
 	dst		= name
@@ -80,8 +83,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "PCX VGA->IFLI   "
-	!pet "1.05"
-	!pet "09.10.16"
+	!pet "1.07"
+	!pet "22.04.17"
 	!pet "W.Kling/A.Dettke"
 addtext	!pet "160/320 Breite  "
 	!pet "8 Bit/1 Plane   "
@@ -492,8 +495,8 @@ nopf	lda #0
 	bcc bsk
 	inc dbuf1,x
 
-bsk	inx 		; für 48 Farben
-	cpx #48
+bsk	inx
+	cpx #numicols	; # --- 1.07
 	bne cl6
 ;
 	stx min+1		; Index merken (48)
@@ -515,7 +518,7 @@ ms4	sty min+1
 	sta min
 	stx minx
 ms2	inx 
-	cpx #48
+	cpx #numicols	; # --- 1.07
 	bne ml1
 
 	lda minx
@@ -537,7 +540,9 @@ cred1	!by 0,0,0,0,0,0,0,0
 	!by 0,0,0,0,0,0,0,0
 	!by 0,0,0,0,0,0,0,0
 	!by 0,0,0,0,0,0,0,0
-;
+	!by 0,0,0,0,0,0,0,0		; # --- 1.07
+	!by 0,0,0,0,0,0,0,0
+
 cgrn	!by 0,3,7,11,15
 	!by 0,3,0,0,7,7,7,15,15,7,15
 ;
@@ -545,7 +550,9 @@ cgrn1	!by 0,0,0,0,0,0,0,0
 	!by 0,0,0,0,0,0,0,0
 	!by 0,0,0,0,0,0,0,0
 	!by 0,0,0,0,0,0,0,0
-;
+	!by 0,0,0,0,0,0,0,0		; # --- 1.07
+	!by 0,0,0,0,0,0,0,0
+
 cblu	!by 0,3,7,11,15
 	!by 7,0,0,7,0,15,7,15,0,0,7
 ;
@@ -553,8 +560,9 @@ cblu1	!by 0,0,0,0,0,0,0,0
 	!by 0,0,0,0,0,0,0,0
 	!by 0,0,0,0,0,0,0,0
 	!by 0,0,0,0,0,0,0,0
-;
-;
+	!by 0,0,0,0,0,0,0,0		; # --- 1.07
+	!by 0,0,0,0,0,0,0,0
+
 cpref	!by 11,07,03,00,15,02,09,06
 	!by 05,12,04,08,01,10,14,13
 ;
@@ -562,12 +570,14 @@ cpref	!by 11,07,03,00,15,02,09,06
 	!by 24,25,26,27,28,29,30,31
 	!by 32,33,34,35,36,37,38,39
 	!by 40,41,42,43,44,45,46,47
-;
+	!by 48,49,50,51,52,53,54,55	; # --- 1.07
+	!by 56,57,58,59,60,61,62,63
+
 gray	!by $00,$03,$33,$33,$33,$37,$77,$77
 	!by $77,$7b,$bb,$bb,$bb,$bf,$ff,$ff
-;
+
 grayold	!by 3,3,2,2,2,2,1,1,1,1,0,0,0,0,4,4
-;
+
 ; --------------------------- RGB-Tabellen erzeugen (für 32 Farben jenseits C64)
 
 makergb	ldy #0
@@ -585,14 +595,14 @@ mrloop	lda rgbtab,y
 	sta cblu1,x
 	iny 
 	inx 
-	cpx #32
+	cpx #numicols-16	; # --- 1.07
 	bne mrloop
 	rts 
 ;
 ; --------------------------- Farbtabelle: IFLI-Combi, r, g, b (Kombi-Name, x=flackert)
 
-rgbtab	!by $03,01,01,01	; blk-dgr
-	!by $04,02,00,00	; blk-red
+rgbtab	!by $03,02,02,02	; blk-dgr		# --- 1.06
+	!by $04,05,00,00	; blk-red		# --- 1.06
 	!by $be,10,13,08	; lgr-lgn
 	!by $12,03,02,05	; blu-bwn
 	!by $34,05,01,01	; dgr-red
@@ -619,12 +629,21 @@ rgbtab	!by $03,01,01,01	; blk-dgr
 	!by $78,03,07,11	; mgr-lbl
 	!by $67,10,08,06	; orn-mgr
 	!by $a9,08,10,06	; grn-lrd
-	!by $02,02,01,00	; blk-bwn
+	!by $02,05,03,00	; blk-bwn		# --- 1.06
 	!by $56,13,06,08	; pur-orn
 	!by $14,04,00,05	; blu-red
 	!by $25,09,04,06	; bwn-pur x
 	!by $8e,09,12,11	; lbl-lgn x
-;
+
+	!by $01,00,00,05	; blk-blu, 48	# --- 1.07
+	!by $73,05,05,05	; mgr-dgr, 49
+	!by $37,06,06,06	; dgr-mgr, 50
+	!by $b7,09,09,09	; lgr-mgr, 51
+	!by $7b,10,10,10	; mgr-lgr, 52
+	!by $fb,13,13,13	; wht-lgr, 53
+	!by $bf,14,14,14	; lgr-wht, 54
+
+
 ; --------------------------- Bildzeile einlesen
 
 readline	ldy #0
@@ -708,7 +727,9 @@ cnibs1	!by 0,0,0,0,0,0,0,0			; 48
 	!by 0,0,0,0,0,0,0,0
 	!by 0,0,0,0,0,0,0,0
 	!by 0,0,0,0,0,0,0,0
-;
+	!by 0,0,0,0,0,0,0,0		; # --- 1.07
+	!by 0,0,0,0,0,0,0,0
+
 ; --------------------------- Gray
 
 makegray	lda red		; Rot=Grün=Blau?
