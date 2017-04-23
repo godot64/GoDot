@@ -4,11 +4,12 @@
 ; ldr.IFLI
 ; loader for files of Interlaced Flexible Line Interchange mode
 ; retrieves either images of FunpainterII (.fp2), Gunpaint
-; (.gun) or X-Ray (a PC based converter)
+; (.gun), Pixel Perfect (.pp/.ppp) or X-Ray (a PC based converter)
 ;
 ;    1.00, 23.02.95, first release (fp2 and gun)
 ;    1.01, 07.07.05, added X-Ray format
 ;    1.02, 29.10.16, added warning of X-Ray FLI files
+;    1.03, 23.04.17, added Pixel Perfect format (pp and ppp)
 ;
 ; ----------------------------------------- Equates
 ;
@@ -49,8 +50,8 @@
 	!wo modend
 	!by $00,$00
 	!pet "loader for IFLIs"
-	!pet "1.02"
-	!pet "29.10.16"
+	!pet "1.03"
+	!pet "23.04.17"
 	!pet "W.Kling/A.Dettke"
 
 ; ----------------------------------------- Main
@@ -59,54 +60,79 @@ jerror	jmp error
 jfaila	jmp faila
 jfailb	jmp failb
 ;
-start	lda #1
-	sta adcnt
-	jsr getname
-;
+start	jsr getname
+
 	jsr gd_xopen	; read start address
+
+	lda #200
+	jsr setcnt
+
 	jsr onebyte
 	bne jerror
-	sta ptype		; first byte $00, $01, $fe or $f0?
+	sta ptype		; first byte $00, $01, $fc, $fe or $f0?
 	sta packed
-	jsr onebyte	; second byte $08, $3f or $40?
+
+	jsr onebyte	; second byte $08, $3b, $3c, $3f or $40?
 	bne jerror
+	cmp #$3b		; $3b = Pixel Perfect gepackt ($3bfc)		# 1.03
+	beq gm0
+	cmp #$3c		; $3c = Pixel Perfect ungepackt ($3c00)		# 1.03
+	beq gm6
 	cmp #$3f		; $3f = Funpaint2 ($3ff0)
 	beq gm0
 	cmp #$40		; $40 = Gunpaint ($4000)
 	beq gm0
 	cmp #$08		; $08 = XRay64 ($0801, mit Player)
+	beq gm0
 	bne jfaila	; if not = fail, no IFLI
-	
+
+gm6	sta ptype		; Flag=$3c: Pixel Perfect ungepackt	# 1.03
 gm0	jsr gd_clrms	; prepare message
 	stx count		; counter to $00
-	jsr tcopy
 	
 	lda ptype		; Gunpaint? ($00)
+	beq readifli	; yes, retrieve
+	cmp #$3c		; Pixel Perfect ungepackt?		# 1.03
 	beq readifli	; yes, retrieve
 	cmp #$f0 		; Funpainter? ($f0)
 	beq gm2		; yes, retrieve
 	cmp #$fe		; XRay without player? ($3ffe)
 	beq jfailb	; yes, fail, XRay FLI
+	cmp #$fc		; Pixel perfect gepackt?		# 1.03
+	beq gmb		; yes, retrieve
 	cmp #$01		; XRay64?
 	bne jfaila	; no, fail, no IFLI
 
 	jsr skipxray	; skip XRay64 header
-	jsr basin		; skip border color
-	jsr basin		; get background color
+gm7	jsr basin		; skip border color
+	jsr basin		; get background color/pack indicator PP
 	jmp gm3
 	
+gmb	jsr basin
+	jsr basin
+	jmp gm7
+
 gm2	ldy #15		; Funpainter: skip header
 gm1	jsr basin
 	dey
 	bne gm1
 	sta packed	; $3ffe = packflag 
 gm5	jsr basin		; XRay: get backgr
-gm3	sta pbyte		; $3fff = pack indicator byte (Funpaint)
+gm3	sta pbyte		; $3fff = pack indicator byte (Funpaint und Pixel Perfect)
 
 
 ; ----------------------------------------- Read Gunpaint
 
-readifli	lda #52		; set counter
+readifli	lda ptype		; PP? 				# 1.03
+	cmp #$fc		; gepackt?
+	beq gm8
+	cmp #$3c		; nein, ungepackt?
+	bne gm9
+gm8	jsr getcolorram	; ja, PP-Color-Ram holen
+
+gm9	ldx #0
+	jsr tcopy
+	lda #52		; set counter
 	jsr setcnt
 	lda #<($4000)	; get video rams 1
 	ldy #>($4000)
@@ -126,15 +152,16 @@ readifli	lda #52		; set counter
 	jsr setcnt
 	
 	jsr getc0		; get background colors 1
+
+	lda ptype		; PP? 				# 1.03
+	cmp #$fc		; gepackt?
+	beq gma
+	cmp #$3c		; ungepackt?
+	beq gma		; ja, ColorRam schon eingelesen, skip it
+
+	jsr getcolorram
 	
-	ldx #24
-	jsr tcopy
-	lda #7
-	jsr setcnt
-	
-	jsr getcr		; get color ram
-	
-	ldx #0
+gma	ldx #0
 	jsr tcopy
 	lda #52
 	jsr setcnt
@@ -189,13 +216,18 @@ l0	jsr unpack
 	cmp #$bd		; until end of buffer
 	bcc l0
 ;
+
 	ldy #0		; Gunpaint specific: 
 l2	jsr unpack	; at 1. ram get bgcolors
+	pha
 	cpx #8
+	bne skip1
+	lda ptype		; Gunpaint? 
 	bne skip1
 	and #$0f
 	sta col0+177,y
-skip1	iny
+skip1	pla
+	iny
 	cpy #24
 	bne l2
 ;
@@ -233,10 +265,13 @@ getc0	lda ptype		; Gunpaint?
 	beq gc0
 	cmp #1		; XRay?
 	beq gc0
+	and #15
+	cmp #$0c		; PP/PPP? 			# 1.03
+	beq gc0
 	lda #<col023	; no, Funpaint, store to $c8f8
 	ldy #>col023
 	bne gc1
-gc0	lda #<col015	; Gunpaint, store to $c900
+gc0	lda #<col015	; Gunpaint, PP, PPP or XRay, store to $c900
 	ldy #>col015
 gc1	sta ls_vekta8
 	sty ls_vekta8+1
@@ -248,16 +283,36 @@ l4	jsr unpack
 	iny
 	cpy #192		; get 192 bytes
 	bne l4
-	rts
+
+	lda ptype		; Hintergrundfarbe bei PP setzen	# 1.03
+	and #15
+	cmp #$0c		; PP/PPP? 
+	bne gca
+
+	ldy #0
+	lda col015+$3f	; $7f7f in PP
+gcb	sta (ls_vekta8),y
+	iny
+	bne gcb
+gca	rts
 
 ; ----------------------------------------- Get Color RAM
 
-getcr	lda ptype		; which filetype?
+getcolorram
+	ldx #24 		; extra Routine			# 1.03
+	jsr tcopy
+	lda #7
+	jsr setcnt
+	
+getcr	lda ptype		; which filetype? Gunpaint?
+	beq gc2
+	and #15
+	cmp #$0c		; PP/PPP? 				# 1.03
 	beq gc2
 	lda #<(1000)	; Funpainter/X-Ray: 1000 bytes
 	ldy #>(1000)
 	bne gc3
-gc2	lda #<(1024)	; Gunpaint: 1024 bytes
+gc2	lda #<(1024)	; Gunpaint/Pixel Perfect: 1024 bytes
 	ldy #>(1024)
 gc3	sta ls_vekta8
 	sty ls_vekta8+1
@@ -284,10 +339,15 @@ gc4	dec ls_vekta8
 
 ; ----------------------------------------- Get BG colors 2
 
-getc02	ldy ptype		; Gunpaint?
+getc02	ldy ptype		; Gunpaint? 
 	beq gc6
+	tya
 	dey		; XRay?
 	beq gc8
+	and #15
+	cmp #$0c		; PP/PPP? 				# 1.03
+	beq gc6
+
 	ldy #0		; nein, Funpaint
 gc7	jsr unpack
 	and #$0f
@@ -406,6 +466,12 @@ unpack	lda packed	; packed at all?
 	bne getit1	; no
 	jsr basin		; yes, get counter
 	sta count
+	cmp #1		; Indikator selbst?
+	beq no		; ja, skip Test
+	lda ptype		; nein, Test auf PP
+	cmp #$fc
+	bne no
+	inc count		; ist PP: Zähler+1
 no	jsr basin		; get byte
 getit1	sta gbyte		; store it
 getit2	dec count		; and count repetitions
@@ -577,7 +643,10 @@ action	stx mx		; gauge handler
 	lda cntwert
 	sta adcnt
 	ldy offy
-	ldx offx
+	cpy #22		; #1.03: Fensterrand erreicht?
+	bne act0
+	jsr clrmess	; ja, re-Init
+act0	ldx offx
 	lda filltab,x
 	sta mess,y
 	jsr messout
@@ -630,11 +699,16 @@ getdatac	lda ptype		; Gunpaint
 	beq gd01
 	cmp #1		; Xray
 	beq gd02
+	and #15
+	cmp #$0c		; PP/PPP? 		# 1.03
+	beq gd03
 	ldx #6		; Funpaint
 	!by $2c
 gd01	ldx #13
 	!by $2c
 gd02	ldx #20
+	!by $2c
+gd03	ldx #27
 	ldy #6
 sinfo0	lda dtextc,x
 	sta loader,y
@@ -684,5 +758,6 @@ datatype  !scr "Color@"
 dtextc	!scr "FP2    "
 	!scr "GunP   "
 	!scr "XRay   "
+	!scr "PPerfct"		; # 1.03
 
 modend	!eof
