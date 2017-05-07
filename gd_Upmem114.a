@@ -1,77 +1,65 @@
 
 !src "..\godotlib.lib"
+*= $c000
 
-;    ---------------------------------------------------   
+; ***---------------------------------------------------***
 ; ***                                                   ***
 ; ***  GoDot UpMem                                      ***
 ; ***                                                   ***
 ; ***                                                   ***
-; ***                                                   ***
-; ***  1.08, 22.08.92,                                  ***
-; ***                                                   ***
-; ***  1.10, 14.11.92                                   ***
-; ***  1.11, 22.11.92                                   ***
-; ***  1.12, 03.02.93                                   ***
-; ***  1.13, 02.04.93                                   ***
-: ***  1.14, 16.08.93,                                  ***
+; ***  1.00, 02.04.93, first release                    ***
+; ***  ...                                              ***
+; ***  1.14, 16.08.93,                                  ***
 ; ***        01.11.00, complete comment revision        ***
 ; ***                                                   ***
-;    ---------------------------------------------------   
+; ***---------------------------------------------------***
 ;
 
 ; -------------------------------------------------- Declarations
 
             pport		= $01		; usually $36
+            sc_vekt20	= $20
+            sc_zl		= $22
+            sc_sp		= $23
+            sc_br		= $24
 
-            src		= $39
-            col00		= $3b
-            nr0		= $40
-            max		= $44
-            rstart		= max
-            rend		= max+1
-            cols		= $46
-            zp1		= $47
-            xbuf		= $48
-            rstep		= xbuf
-            hmzp		= $49
-            cmzp		= $4a
-            pbuf		= $4b
-
-            source		= $a6
-            dest		= $a8
-            brttmp		= $a9
-            crttmp		= $aa
-            vblock		= $aa
-            bitcnt		= $ac
-            source1		= $ae
+            sc_loop		= $a6
+            ls_vekta8	= $a8
+            gr_nr		= $aa
+            sc_screentab	= $ab
+            sc_texttab	= $ae
+            sc_merk		= $b0
             dest1		= $b2
-            hold		= $b4
-            vblock1		= $b5
 
-            irq		= $0314
+            sc_taste	= $c6
+            gr_basepal	= $02b0
+            gd_tbuffer	= $0277
+            sc_shadow	= $0334
+            sc_chgcol	= $0338
+            gr_defpals	= $03c0
             defphi		= $03ce
-            scr1		= $0432
-            scr2		= $0452
 
-            sprptr		= $07fa
+            sc_screenvek	= $0f88
+            sc_maincolor	= $0f8e
+            gr_cmode	= $0f95
+            gr_howmany	= $0f96
+            gr_picked	= $0f97
+            gr_palette	= $0f98
+            gr_redisp	= $0fbd
+            gr_bkcol	= $0fc6
 
-            fi2		= $1121
-            makeline	= $11ae
-
+            gd_initmove	= $1090
+            gd_fcol		= $110c
+            fi0		= $1114
+            gd_invert	= $1125
+            gd_setpos	= $11cc
+            gd_screen	= $11e0
+            gd_trim		= $1324
+            gd_endirq	= $13e5
+            gd_version	= $1415
+            gd_eloop	= $1423
+            savescvek	= $143f
             dithtype	= $1e30
-            areatype	= $1ef4
-
-            spr2		= $3e80
-            spr5		= $3f40
-            bttab		= $3f40
-            hist1		= $3f40
-            hist		= $3f50
-            btabold		= $3f50
-            etab		= $3f70
-            htab		= $3f80
-            htab0		= $3f90
-            rtab		= $3fb0
-
 
             palundo		= $be00
             palcanc		= $be10
@@ -83,12 +71,93 @@
             border		= $d020
             backgr		= $d021
 
+            cstart		= $fe0b
+            vram1		= $de0b
+            vram2		= $ee0b
+
+            sc_ho		= $25
+            src		= $39
+            col00		= $3b
+            nr0		= $40
+            max		= $44
+            rstart		=max
+            rend		=max+1
+            cols		= $46
+            zp1		= $47
+            xbuf		= $48
+            rstep		=xbuf
+            hmzp		= $49
+            cmzp		= $4a
+            pbuf		= $4b
+
+            sc_pos		= $a4
+            source		= $a6
+            dest		= $a8
+            vblock		= $aa
+            bitcnt		= $ac
+            source1		= $ae
+            hold		= $b4
+            vblock1		= $b5
+
+            sc_lastclipzl	= $033c
+            gr_orderedpat	= $0340
+            gr_btab		= $03b0
+            gr_qtab		= $0ee0
+            gr_pattern	= $0f00
+            gr_dither	= $0fbc
+            sc_clipzl	= $0fbe
+            sc_clipsp	= $0fbf
+            sc_clipbr	= $0fc0
+            sc_clipho	= $0fc1
+            sc_clipped	= $0fc2
+            sc_stop		= $0fc5
+
+            gd_xtxout1	= $1461
+            areatype	= $1ef4
+
+            hist1		= $3f40
+            hist		= $3f50
+            etab		= $3f70
+            htab		= $3f80
+            htab0		= $3f90
+            rtab		= $3fb0
+
             oszi3		= $d40e
             wave		= $d412
             filter		= $d418
             rausch		= $d41b
+            ls_temp		= $a7
+            brttmp		= $a9
+            crttmp		= $aa
 
-            dbuf		= $bf00
+            gr_crt		= $02a7
+            gr_brt		= $02a8
+
+            irq		= $0314
+            sc_chgcol	= $0338
+
+            scr1		= $0432
+            scr2		= $0452
+
+            sprptr		= $07fa
+
+            sc_movetab	= $0fd8
+
+            gd_plus40	= $10e7
+            gd_backu	= $10f5
+            fi1		= $111b
+            fi2		= $1121
+            makeline	= $11ae
+            delay2		= $131b
+            gd_xtxtggl	= $146d
+            gd_xcnvdez	= $1473
+
+            spr2		= $3e80
+            spr5		= $3f40
+            bttab		= $3f40
+            btabold		= $3f50
+
+            dbuf		= $bd00
             oldirq		= $be00
 
             sprxy		= $d004
@@ -113,11 +182,8 @@
 
             home		= $e566
             scroll		= $e968
-
-            cstart		= $fe0b
-            vram1		= $de0b
-            vram2		= $ee0b
-
+            bsout		= $ffd2
+;
 ; -------------------------------------------------- Header
 
             jmp start
@@ -127,7 +193,7 @@
             !pet "GoDot f000 slot4"
 created     !pet "1.14"
             !pet "16.08.93"		; date changed to 18.02.96 (start of NA distribution)
-            			; date changed again to 22.11.16 (re-start of GoDot-ing)
+            			; date changed again to
             !pet "A.Dettke/W.Kling"
 ;
 ; -------------------------------------------------- Module Management
@@ -137,7 +203,6 @@ start       stx pdis	; .x=0; clear flag (request from palette requester)
             stx list
             ldx sc_screenvek+1
             stx list+1
-
             ldx gr_nr	; get function number
             beq jevbal	; 0: Balancing
             dex
@@ -154,9 +219,12 @@ start       stx pdis	; .x=0; clear flag (request from palette requester)
             beq jevprviu	; 6: Switch Preview on
             dex
             beq jevdisp2	; 7: Redisplay
-
             clc
             rts
+
+; -------------------------------------------------- 
+; -------------------------------------------------- Graphics Screen
+; -------------------------------------------------- 
 
 jevdispl    jmp ev_display
 jevpal      jmp ev_pal
@@ -167,9 +235,7 @@ jevprviu    jmp ev_prviu
 jevdisp2    jmp ev_disp2
 jevinfo     jmp ev_info
 
-; -------------------------------------------------- 
 ; -------------------------------------------------- Show graphics
-; -------------------------------------------------- 
 
 redisplay   ldx gr_palette	; bordercolor is palette entry 0
             stx border
@@ -446,7 +512,7 @@ ep44        clc
 
 ; -------------------------------------------------- Event: Palette Requester
 
-ev_pal      jsr gd_savescvek	; save vector to main screenlist
+ev_pal      jsr savescvek	; save vector to main screenlist
             sta pdis	; set Flag: rebuild Palette requester
 
             lda gr_howmany	; compute width of GoDot palette gadget
@@ -569,7 +635,7 @@ ep91        ldx sc_merk+1	; yes, get picked color
             ldy #$04	; compute destination
             jsr gettab
             lda sc_merk+1	; get color
-            jsr gd_fi0	; show color
+            jsr fi0		; show color
             beq ep4		; unconditional branch; finished
 
 ; -------------------------------------------------- Subevent: Change GoDot Palette
@@ -1085,7 +1151,7 @@ cll1        lda gr_palette,y	; background color part of palette?
             bpl cll1
             ldy #$20	; no, set flag
 cls1        sty bktmp
-hready      rts		: no histograms when clipped
+hready      rts		; no histograms when clipped
 
 ; -------------------------------------------------- Histograms for Multi Mode
 
@@ -1573,7 +1639,7 @@ palbox      !by $0d,$03,$06,$04
 ; -------------------------------------------------- Event: Balancing Requester
 ; -------------------------------------------------- 
 
-ev_bal      jsr gd_savescvek	; save vector to main list
+ev_bal      jsr savescvek	; save vector to main list
             ldx #<(balreq)	; show balancing requester
             ldy #>(balreq)
             jsr gd_screen
@@ -1665,7 +1731,7 @@ sh1         stx sc_movetab+1
             lda #$03	; show 3 chars on screen
             sta sc_br
             ldx #$01
-            jsr gd_fi1
+            jsr fi1
             jsr makebtab	; re-compute balancing table
 
             ldy #$0f	; convert balancing values to dither patterns
@@ -1868,7 +1934,7 @@ ctrbox      !by $08,$17,$06,$03
             !scr "   @"
             !by $08,$1d,$03,$03
             !by $c0,<(se_incctr),>(se_incctr)
-            !by ">@"
+            !scr ">@"
 patbox      !by $0c,$0b,$12,$03
             !by $a0,$00,$00
 tpatbox     !by $e0,$e1,$e2,$e3,$e4,$e5,$e6,$e7
@@ -2309,7 +2375,7 @@ bl0         sta cram,y
             sta cram+79
             sta cram+80
             ldx #$fa	; wait a bit
-            jsr gd_dl2
+            jsr delay2
             lda ls_temp	; toggle flag
             eor #$01
             sta ls_temp
