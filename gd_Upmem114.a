@@ -1,5 +1,6 @@
 
 !src "..\godotlib.lib"
+*= $c000
 
 ;    ---------------------------------------------------   
 ; ***                                                   ***
@@ -13,7 +14,7 @@
 ; ***  1.11, 22.11.92                                   ***
 ; ***  1.12, 03.02.93                                   ***
 ; ***  1.13, 02.04.93                                   ***
-: ***  1.14, 16.08.93,                                  ***
+; ***  1.14, 16.08.93,                                  ***
 ; ***        01.11.00, complete comment revision        ***
 ; ***                                                   ***
 ;    ---------------------------------------------------   
@@ -1085,7 +1086,7 @@ cll1        lda gr_palette,y	; background color part of palette?
             bpl cll1
             ldy #$20	; no, set flag
 cls1        sty bktmp
-hready      rts		: no histograms when clipped
+hready      rts		; no histograms when clipped
 
 ; -------------------------------------------------- Histograms for Multi Mode
 
@@ -1868,7 +1869,7 @@ ctrbox      !by $08,$17,$06,$03
             !scr "   @"
             !by $08,$1d,$03,$03
             !by $c0,<(se_incctr),>(se_incctr)
-            !by ">@"
+            !scr ">@"
 patbox      !by $0c,$0b,$12,$03
             !by $a0,$00,$00
 tpatbox     !by $e0,$e1,$e2,$e3,$e4,$e5,$e6,$e7
