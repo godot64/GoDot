@@ -138,10 +138,10 @@ in0  	lda (sc_pos),y
 	inc sc_pos
 	bne in1
 	inc sc_pos+1
-in1inc 	sc_texttab
+in1 	inc sc_texttab
 	bne in2
 	inc sc_texttab+1
-in2lda 	sc_texttab+1
+in2	lda sc_texttab+1
 	cmp #$bf
 	bne in0
 in3	rts
