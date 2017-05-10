@@ -1,0 +1,1407 @@
+
+!src "..\godotlib.lib"
+*= $c000
+
+; -------------------------------------------------- 
+;
+;  Lader GIF für Bilder im Format 87a / 89a
+;    bis zur Größe 1024*768 Pixel/256 Farben
+;    benötigt für die Arbeit mod.DecodeGIF(hir)
+;
+;    1.00:         , first release
+;    1.01: 21.02.96,
+;    1.02: 10.05.17, reorganized loader, x-skip corrected
+;
+; -------------------------------------------------- 
+
+
+; ----------------------------------------- Equates
+
+	div8		= $30
+	palbuf1		= $32
+	palbuf2		= $34
+	palbuf3		= $36
+	gpy		= $38
+	nflg		= $39
+	zflg		= $3a
+	adcnt		= $3b
+	vektor1		= $3c
+	result		= $40
+	divisor		= $42
+
+	spalte		= $b1
+	offx		= ls_adrmisc
+	offy		= offx+1
+
+	status		= $90
+
+	swapper		= sy_area2
+	hsign		= gr_pattern
+	vsign		= gr_pattern+8
+	esign		= gr_pattern+16
+
+	variables		= $3fe0
+	modul		= $c000
+	descript		= gifvers-1
+	rahmen		= $d020
+	modname		= $e00a
+
+	hlinie		= $e0		; Konstanten (Zeichen-Offsets)
+	vlinie		= $e1
+	eck		= $e2
+	shspace		= 160
+
+; ----------------------------------------- Header
+
+header	jmp start
+	!by $80
+	!by 0
+	!by 0
+	!wo modend
+	!wo 0
+	!pet "gif:ParamSection"
+	!pet "1.02"
+	!pet "10.05.17"
+	!pet "A.Dettke/W.Kling"
+
+; ----------------------------------------- Main
+
+start	ldx used		; First start?
+	bmi readhd	; yes, read GIF-Header
+
+cn3	lda #$ff
+cn2	sta used
+	jsr last		; Zeichen rekonstruieren
+	sec		; fertig, Modul verlassen
+	rts
+
+cn4	lda #3
+	bne cn2
+
+; ----------------------------------------- GIF Header lesen
+
+readhd	jsr first		; zuerst: Zeichen umdefinieren
+	jsr chkmod	; Check auf DecodeGIF (kehrt nicht zurück, wenn Fehler)
+
+	ldx #0		; Init
+	stx ileave
+	stx xoffm
+	stx xoffm+1
+	stx yoffm
+	stx yoffm+1
+	stx nflg
+	stx zflg
+	stx yskip
+	stx dbl
+	lda maxhotab,x
+	sta maxho
+	lda ynum,x
+	sta yskiptx+1
+
+	jsr tcopy		; .x=0 ("Cols")
+	jsr getname	; store name for image information
+
+	ldx #1
+	stx xskip
+	lda maxbrtab,x
+	sta maxbr
+	lda lvlnum,x
+	sta xskiptx+1
+	stx adcnt
+	inx
+	stx xdoub
+	stx ydoub
+st2	lda ls_temp,x	; save pointers to filename
+	sta madd,x
+	dex
+	bpl st2
+
+	jsr gd_xopen	; File öffnen
+	inc used
+	jsr chkgif	; ist Datei ein GIF-Bild? (kehrt nicht zurück, wenn nicht)
+
+	lda gd_modswitch	; Memory-Handling
+	pha
+	ldx #<(giflst)	; Requester ausgeben
+	ldy #>(giflst)
+	jsr gd_xmloop	; warten...
+	pla
+	sta gd_modswitch
+
+	jmp start		; Loop
+
+; ----------------------------------------- Abschluss
+
+ld7	jsr gd_xclose	; File schließen
+	jsr gd_spron	; Mauszeiger an
+	jsr gd_xmess	; Floppymeldung zeigen
+	sec		; fertig
+	rts
+
+; ----------------------------------------- Check for DecodeGIF
+
+chkmod	sei
+	lda #$30		; RAM an (Modul liegt an $e000)
+	sta 1
+	ldx #2
+cm0	lda modname,x	; check name (for "GIF")
+	cmp head,x
+	bne nomod		; Fehler?
+	dex
+	bpl cm0
+cm1	lda #$36		; nein, GoDot an
+	sta 1
+	cli
+	rts
+
+nomod	jsr cm1		; ja, GoDot an
+	jmp failb		; Fehlerbehandlung
+
+; ----------------------------------------- 
+
+onebyte	jsr basin
+	ldx status
+	rts
+
+; ----------------------------------------- 
+
+gifhead	!by 0,0,0
+gifvers	!by 0,0,0
+hori	!wo 0
+vert	!wo 0
+colorbyte	!by 0
+backgr	!by 0
+	!by 0
+
+head	!pet "gif"
+used	!by $ff
+madd	!by 0,0,0
+;
+; ----------------------------------------- Fehler
+
+jerror	jsr ld7
+	jmp error
+
+jfaila	jmp faila
+
+error3	jsr ld7
+cont	clc
+	rts
+
+; ----------------------------------------- auf GIF testen
+
+chkgif	ldy #0		; 13 Bytes einlesen
+cv0	jsr onebyte
+	bne jerror
+	sta gifhead,y
+	iny
+	cpy #13
+	bne cv0
+cv1	lda gifhead,x	; GIF?
+	cmp head,x
+	bne jfaila	; Fehler! (kehrt nicht zurück)
+	inx
+	cpx #3
+	bne cv1
+
+	jsr ld7		; Datei schließen
+	jsr sizes		; Bilddaten in Screenlist eintragen
+	jsr getcnt	; Größe checken (kehrt nicht zurück bei Fehler)
+	bne failc
+	jsr title		; GIF-Typ, Farben
+	jsr setgname	; Filename
+	jmp requ		; und jetzt der Requester (mit dem Shape)
+
+; ----------------------------------------- Ziffern erzeugen
+
+makeziff	sta $62		; Zahl eingeben
+	stx $63
+	ldx #16
+	lda #0
+mz0	sta sy_numbers,x
+	dex
+	bpl mz0
+	inc 1
+	ldx #$90
+	sec
+	jsr $bc49		; let BASIC do the work...
+	jsr $bddf
+	dec 1
+
+	ldx #0		; Ergebnis an $0100, Länge in .x
+mz1	lda sy_numbers,x
+	beq mz2
+	inx
+	bne mz1
+mz2	dex
+	rts
+
+; ----------------------------------------- Fehlerhandling
+
+fail2	pla
+	pla
+error	pla
+	pla
+	jsr cn3
+	clc
+	rts
+
+failc	lda #64		; Picture too big
+	!by $2c
+failb	lda #32		; you must install...
+	!by $2c
+faila	lda #0		; not a GIF file
+	pha
+	jsr ld7
+	pla
+	tax
+	ldy #0
+fl0	lda err1,x
+	sta message,y
+	inx
+	iny
+	cpy #32
+	bne fl0
+	jsr gd_clrms
+	jsr messout
+	jmp error
+
+; ----------------------------------------- 
+
+title	ldx #4		; Requester-Titel erzeugen
+tle0	lda gifhead,x
+	sta giftxt,x
+	dex
+	bpl tle0
+
+colors	lda colorbyte	; Anzahl Farben
+	and #15
+	tax
+	lda bits,x
+	sta numcols
+	tax
+	bne cls1
+	lda #1
+	!by $2c
+cls1	lda #0
+	sta numcols+1
+	jsr makeziff
+	ldy #3
+cls0	lda sy_numbers,x
+	sta farben,y
+	sta gcols,y
+	dey
+	dex
+	bpl cls0
+	rts
+
+; ----------------------------------------- 
+
+err1	!scr "     ERROR: Not a GIF file.     "
+	!scr "You MUST install mod.DecodeGIF! "
+	!scr "    ERROR: Picture too big.     "
+
+; ----------------------------------------- 
+
+setgname	ldy gifdata+2	; Filenamen ins Gadget
+	dey
+	dey
+	lda #32
+sne0	dey
+	sta gifname,y
+	cpy ls_flen
+	bcs sne0
+sne1	lda ls_lastname,y
+	sta gifname,y
+	dey
+	bpl sne1
+	rts
+
+; ----------------------------------------- 
+
+bits	!by $02,$04,$08,$10,$20,$40,$80,$00
+
+; ----------------------------------------- 
+
+limits	clc		; in Anzahl Kacheln umrechnen
+	adc #7
+	bcc gc0
+	inx
+gc0	jsr durch8
+	lda div8+1
+	bne gc1
+	lda div8
+gc3	rts
+
+; ----------------------------------------- Check Größe in Kacheln
+
+getcnt	lda hori
+	ldx hori+1
+	sta shhori
+	stx shhori+1
+	jsr limits
+	cmp #129
+	bcs gc1
+	lda vert
+	ldx vert+1
+	sta shvert
+	stx shvert+1
+	jsr limits
+	cmp #97
+	bcs gc1
+gc2	lda #0
+	rts
+gc1	lda #$ff
+	rts
+
+; ----------------------------------------- Image Information
+
+getname	ldx #0
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+getdatag	ldx #9
+	!by $2c
+
+getdatac	ldx #4
+	ldy #4
+sinfo0	lda dtextc,x
+	sta datatype,y
+	dex
+	dey
+	bpl sinfo0
+	jsr setname
+	jsr setloader
+	jsr setmode
+	jmp setdata
+;
+setname	lda #0
+	ldx #<(ls_picname)
+	ldy #>(ls_picname)
+	bne si3
+setloader	lda #17
+	ldx #<(ls_iloader)
+	ldy #>(ls_iloader)
+	bne si3
+setmode	lda #25
+	ldx #<(ls_imode)
+	ldy #>(ls_imode)
+	bne si3
+setdata	lda #33
+	ldx #<(ls_idrive)
+	ldy #>(ls_idrive)
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+;
+nbuf	!fill 16,32
+	!by 0
+	!by 71,73,70
+gcols	!by 32,32,32,32,0
+modetx	!scr "160x200@"
+datatype	!scr "Color@"
+dtextc	!scr "ColorGray "
+
+; ----------------------------------------- Mainlist
+
+giflst	!by $00
+	!by 2,5,29,21,$01,0,0
+	!by 4,5,18,14,$08,0,0
+gifdata	!by 18,5,18,3,$87,0,0
+gifname	!fill 16,32
+	!by 0
+	!by 2,23,11,3,$86,0,0
+breit	!scr "    x"
+hoch	!scr "    @"
+	!by 4,28,6,3,$8e,0,0
+farben	!scr "    @"
+xpostxt	!by 6,28,6,3,$8e,0,0
+loff	!scr "    @"
+ypostxt	!by 8,28,6,3,$8f,0,0
+toff	!scr "    @"
+xskipgad	!by 10,30,4,3,$ce,<(evxskip),>(evxskip)
+xskiptx	!scr " 0@"
+yskipgad	!by 12,30,4,3,$ce,<(evyskip),>(evyskip)
+yskiptx	!scr " 0@"
+lvlgad	!by 14,30,4,3,$ce,<(evlevel),>(evlevel)
+lvltx	!scr " 0@"
+	!by 20,5,18,3,$d7,<(evload),>(evload)
+	!scr "Load GIF@"
+	!by 16,23,11,3,$ce,<(sevsclip),>(sevsclip)
+	!scr " SetClip@"
+lmodegad	!by 18,23,11,3,$ce,<(evlmode),>(evlmode)
+lmodetx	!scr "  Color  "	; ! $00 byte delimiter is top of shape list:
+
+; ----------------------------------------- Fake Requester
+
+shapelst	!by 0
+	!by 20,23,11,3,$ce,<(cn4),>(cn4)
+	!scr "  Leave  @"
+	!by $c0,2,10,7
+giftxt	!by 1,1,1,1,1,1,32,0
+	!by $c0,4,23,4
+	!scr "Cols@"
+	!by $c0,6,23,4
+	!scr "Left@"
+	!by $c0,8,23,3
+	!scr "Top@"
+	!by $c0,10,23,6
+	!scr "X-Skip@"
+	!by $c0,12,23,6
+	!scr "Y-Skip@"
+	!by $c0,14,23,5
+	!scr "Level@"
+	!by $c0,4,5,16
+string1	!fill 16,32
+	!by 0
+	!by $c0,5,5,16
+	!fill 16,32
+	!by 0
+	!by $c0,6,5,16
+	!fill 16,32
+	!by 0
+	!by $c0,7,5,16
+	!fill 16,32
+	!by 0
+	!by $c0,8,5,16
+	!fill 16,32
+	!by 0
+	!by $c0,9,5,16
+	!fill 16,32
+	!by 0
+	!by $c0,10,5,16
+	!fill 16,32
+	!by 0
+	!by $c0,11,5,16
+	!fill 16,32
+	!by 0
+	!by $c0,12,5,16
+	!fill 16,32
+	!by 0
+	!by $c0,13,5,16
+	!fill 16,32
+	!by 0
+	!by $c0,14,5,16
+	!fill 16,32
+	!by 0
+	!by $c0,15,5,16
+	!fill 16,32
+	!by 0
+	!by $80
+
+	!by 0,0,0,$ff	; Trailer
+
+; ----------------------------------------- Textausgabe
+
+tabigad	!by <(xpostxt),>(xpostxt)
+	!by <(ypostxt),>(ypostxt)
+	!by <(lvlgad),>(lvlgad)
+	!by <(xskipgad),>(xskipgad)
+	!by <(yskipgad),>(yskipgad)
+	!by <(lmodegad),>(lmodegad)
+
+gettab	lda #<(tabigad)
+	sta vektor1
+	lda #>(tabigad)
+	sta vektor1+1
+
+	lda (vektor1),y
+	sta sc_screentab
+	iny
+	lda (vektor1),y
+	sta sc_screentab+1
+	lda #0
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #3
+	bne gt0
+	stx sc_ho
+	jsr gd_trim
+	jmp gd_initmove
+
+; ----------------------------------------- Breite/Höhe in Kacheln für Shape
+
+division	lda shhori
+	ldx shhori+1
+	jsr durch8
+	lda div8
+	sta byte3
+	lda shvert
+	ldx shvert+1
+	jsr durch8
+	lda div8
+	sta byte2
+	rts
+
+durch8	sta div8
+	stx div8+1
+	lsr div8+1
+	ror div8
+	lsr div8+1
+	ror div8
+	lsr div8+1
+	ror div8
+	rts
+
+mal8	sta div8
+	asl div8
+	rol div8+1
+	asl div8
+	rol div8+1
+	asl div8
+	rol div8+1
+	lda div8+1
+	ldx div8
+	jsr makeziff
+	ldy #3
+	rts
+
+; ----------------------------------------- Variablen für Selektorrahmen
+
+xdoub	!by 2
+ydoub	!by 2
+shhori	!wo 0
+shvert	!wo 0
+byte2	!by 0
+byte3	!by 0
+xpos	!by 0
+ypos	!by 0
+xkoo	!by 70
+ykoo	!by 88
+xkoomk	!by 0
+ykoomk	!by 0
+xmax	!by 134
+ymax	!by 163
+maxbr	!by 40
+maxho	!by 25
+maxbrtab	!by 20,40,40,40,40,40,40,40
+maxhotab	!by 25,25,25,25,12
+pbuffer	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+zbr	!by 0
+zho	!by 0
+zsph	!by 0
+zspv	!by 0
+hwert	!by $80,$c0,$e0,$f0,$f8,$fc,$fe
+
+sprou	!by $fc,$ff,$ff
+sprmi	!by $04,$00,$80
+
+; ----------------------------------------- Char umdefinieren
+
+first	ldy #23
+	ldx #0
+f3	lda gr_pattern,y
+	sta pbuffer,y
+	txa
+	sta gr_pattern,y
+	dey
+	bpl f3
+	rts
+
+last	ldy #23
+f4	lda pbuffer,y
+	sta gr_pattern,y
+	dey
+	bpl f4
+	rts
+
+; ----------------------------------------- Zeile im Shape löschen 
+
+sclear	ldy #15
+	lda #32
+f13	sta (vektor1),y
+	dey
+	bpl f13
+	ldy zsph
+	rts
+
+; ----------------------------------------- Shape erzeugen
+
+requ	lda #<(string1)
+	sta vektor1
+	lda #>(string1)
+	sta vektor1+1
+
+	jsr division
+	lda byte3		; Breite: Anzahl Zeichen + Rest
+	tay
+	lsr
+	lsr
+	lsr
+	sta zsph
+	tya
+	and #7
+	sta zbr
+	lda byte2		; Höhe
+	tay
+	lsr
+	lsr
+	lsr
+	sta zspv
+	tya
+	and #7
+	sta zho
+
+	lda zspv		; Nur-Ecke?
+	ora zsph
+	beq ecke
+
+hline	ldy zbr		; nein, rechten Rand erzeugen
+	lda hwert,y
+	ldy #7
+hl0	sta hsign,y
+	dey
+	bpl hl0
+vline	lda #$ff		; unteren Rand erzeugen
+	ldy zho
+	bne hl01
+hl1	sta vsign,y
+hl01	dey
+	bpl hl1
+ecke	ldy zbr		; Ecke erzeugen
+	lda hwert,y
+	ldy zho
+	bne hl02
+hl2	sta esign,y
+hl02	dey
+	bpl hl2
+
+	ldx zspv		; Shape ausgeben:
+	beq hl8
+hl7	jsr sclear	; Zeile löschen
+	lda zbr		; Nur-Rand?
+	beq hl5
+	lda #hlinie	; nein, Linie erzeugen (rechts nach links)
+	sta (vektor1),y
+hl5	lda #shspace
+hl6	dey
+	bmi hl9
+	sta (vektor1),y
+	bne hl6
+hl9	clc		; nächste Zeile
+	lda vektor1
+	adc #21
+	sta vektor1
+	bcc hl10
+	inc vektor1+1
+hl10	dex		; alle?
+	bne hl7
+
+	lda zspv		; unten?
+	cmp #12
+	beq rst1		; ja, Ende
+
+hl8	jsr sclear	; letzte Zeile erzeugen
+	lda zho		; Nur-Rand?
+	beq rest
+	lda zbr
+	beq hl13
+	lda #eck		; nein
+	sta (vektor1),y
+hl13	lda #vlinie
+hl11	dey
+	bmi rest
+	sta (vektor1),y
+	bne hl11
+rest	clc		; nach unten Rest des Fensters löschen
+	lda vektor1
+	adc #21
+	sta vektor1
+	bcc rst0
+	inc vektor1+1
+rst0	ldy #0
+	lda (vektor1),y
+	cmp #$ff
+	beq rst1
+	lda #32
+rst2	sta (vektor1),y
+	iny
+	cpy #16
+	bne rst2
+	beq rest
+rst1	rts
+
+; ----------------------------------------- Event: SetClip
+
+ss7	jmp cont
+
+sevsclip	lda byte2		; Clip mit Selektor bestimmen
+	ora byte3
+	beq ss7
+
+	ldx #$40
+	stx vektor1
+	dex
+	stx vektor1+1
+	ldy #0
+ss4	ldx #2
+ss0	lda sprou,x
+	sta (vektor1),y
+	iny
+	dex
+	bpl ss0
+	cpy #42
+	beq ss3
+ss2	ldx #2
+ss1	lda sprmi,x
+	sta (vektor1),y
+	iny
+	dex
+	bpl ss1
+	cpy #39
+	bne ss2
+	beq ss4
+ss3	lda #0
+ss5	sta (vektor1),y
+	iny
+	cpy #64
+	bne ss5
+	lda $d002
+	sta xkoomk
+	clc
+	lda $d003
+	adc #24
+	sta ykoomk
+	lda $d010
+	pha
+	lda byte2
+	sec
+	sbc maxho
+	beq mm0
+	bcc mm0
+	!by $2c
+mm0	lda #0
+	clc
+	adc ykoo
+	sta ymax
+	lda byte3
+	sec
+	sbc maxbr
+	beq mm1
+	bcc mm1
+	!by $2c
+mm1	lda #0
+	clc
+	adc xkoo
+	sta xmax
+	lda ykoo
+	sta $d003
+	lda xkoo
+	sta $d002
+	lda xdoub
+	sta $d01d
+	lda ydoub
+	sta $d017
+	lda #2
+	sta $d015
+	lda #0
+	sta sc_keyprs
+	sta $d01c
+	sta $d010
+	lda #253
+	sta $07f9
+ss6	jsr checkpos
+	beq ss6
+	lda xkoomk
+	sta $d002
+	lda ykoomk
+	sta $d003
+	pla
+	sta $d010
+	lda #11
+	sta $07f9
+	lda #0
+	sta $d017
+	sta $d01d
+	lda #3
+	sta $d015
+	clc
+	rts
+
+; ----------------------------------------- 
+
+over1	tay
+	sec
+	sbc $d002,x
+	bcc ov0
+	tya
+	sta $d002,x
+ov0	rts
+
+over2	tay
+	sec
+	sbc $d002,x
+	bcs ov0
+	tya
+	sta $d002,x
+	rts
+
+; ----------------------------------------- 
+
+checkpos	ldx #0
+	stx div8+1
+	lda xkoo
+	jsr over1
+	lda xmax
+	jsr over2
+	inx
+	lda ykoo
+	jsr over1
+	lda ymax
+	jsr over2
+	sec
+	lda $d002
+	sbc xkoo
+	cmp xpos
+	beq ch1
+	sta xpos
+	jsr mal8
+	lda div8
+	sta xoffm
+	lda div8+1
+	sta xoffm+1
+ch2	lda sy_numbers,x
+	sta loff,y
+	dey
+	dex
+	bpl ch2
+	tya
+	bmi ch21
+	lda #32
+ch20	sta loff,y
+	dey
+	bpl ch20
+ch21	ldy #0
+	sty div8+1
+	jsr gettab
+	ldy #6
+	jsr gd_xtxout1
+ch1	sec
+	lda $d003
+	sbc ykoo
+	cmp ypos
+	beq ch3
+	sta ypos
+	jsr mal8
+	lda div8
+	sta yoffm
+	lda div8+1
+	sta yoffm+1
+ch4	lda sy_numbers,x
+	sta toff,y
+	dey
+	dex
+	bpl ch4
+	tya
+	bmi ch41
+	lda #32
+ch40	sta toff,y
+	dey
+	bpl ch40
+ch41	ldy #2
+	jsr gettab
+	ldy #6
+	jsr gd_xtxout1
+ch3	lda sc_keyprs
+	rts
+
+; ----------------------------------------- Event: Load
+
+evload	ldx #2
+eld0	lda madd,x
+	sta ls_temp,x
+	dex
+	bpl eld0
+	jsr gd_xopen
+	ldy #13		; Header überlesen (schon da)
+eld1	jsr onebyte
+	dey
+	bne eld1
+	jsr gd_clrms
+	jsr tcopy
+	jsr getpal	; Palette nach $bd00
+	jsr transvar	; Daten übertragen an mod
+	ldx #10
+eld4	lda switch,x	; Swap Module
+	sta swapper,x
+	dex
+	bpl eld4
+	jsr swapper	; mod.DecodeGIF ausführen
+	jsr ld7		; zurück
+	lda lmode
+	cmp #1
+	beq eld2
+	jsr getdatac
+	beq eld3
+eld2	jsr getdatag
+eld3	sty gr_redisp
+	jmp cn4
+
+; ----------------------------------------- Swapper
+
+switch	jsr swapper+6	; Modul einblenden
+	jsr modul		; ausführen
+sw0	ldx #$e0		; ausblenden
+	jmp gd_xswap4k
+
+; ----------------------------------------- Bildgrößen eintragen
+
+sizes	lda hori+1
+	ldx hori
+	jsr makeziff
+	ldy #0
+	lda #32
+cv4	sta breit,y
+	sta hoch,y
+	sta farben,y
+	sta loff,y
+	sta toff,y
+	sta gcols,y
+	iny
+	cpy #4
+	bne cv4
+	dey
+cv3	lda sy_numbers,x
+	sta breit,y
+	dey
+	dex
+	bpl cv3
+	lda vert+1
+	ldx vert
+	jsr makeziff
+	ldy #3
+cv2	lda sy_numbers,x
+	sta hoch,y
+	dey
+	dex
+	bpl cv2
+	rts
+
+; ----------------------------------------- 
+
+level	!by 0
+xskip	!by 1
+yskip	!by 0
+dbl	!by 0
+lmode	!by 0
+numcols	!wo 0
+lvlnum	!scr "d0123456"
+ynum	!scr "0123"
+lmodetxt	!scr "  Color   Gray 16  Gray  9 "
+
+; ----------------------------------------- Event: Level
+
+evlevel	lda spalte
+	cmp #32
+	bcs lvlinc
+lvldec	dec level
+	bpl lvl0
+	lda #4
+	sta level
+lvlinc	inc level
+lvl0	ldx level
+	cpx #6
+	bcc lvl1
+	ldx #0
+	stx level
+lvl1	lda lvlnum,x
+	sta lvltx+1
+	ldy #4
+lvl2	jsr gettab
+	ldy #6
+	jmp gd_xtxout1
+
+; ----------------------------------------- Event: X-Skip
+
+evxskip	lda spalte
+	cmp #32
+	bcs xskinc
+xskdec	dec xskip
+	bpl xsk0
+	lda #6
+	sta xskip
+xskinc	inc xskip
+xsk0	ldx xskip
+	cpx #8
+	bcc xsk1
+	ldx #0
+	stx xskip
+xsk1	lda lvlnum,x
+	sta xskiptx+1
+	jsr setshhori	; ggf. Shape anpassen
+	ldy #6
+	bne lvl2
+
+; ----------------------------------------- Event: Y-Skip
+
+evyskip	lda #0
+	sta dbl
+	lda spalte
+	cmp #32
+	bcs yskinc
+yskdec	dec yskip
+	bpl ysk0
+	lda #3
+	sta yskip
+yskinc	inc yskip
+ysk0	ldx yskip
+	cpx #4
+	bcc ysk1
+	bne ysk2
+	lda #4
+	sta dbl
+	bne ysk3
+ysk2	ldx #0
+	stx yskip
+ysk1	lda ynum,x
+ysk3	sta yskiptx+1
+	jsr setshvert	; ggf. Shape anpassen
+	ldy #8
+ysk4	bne lvl2
+
+; ----------------------------------------- Event: Modus
+
+evlmode	inc lmode
+	ldy #8
+	ldx lmode
+	cpx #3
+	bne evl0
+	ldx #0
+	stx lmode
+evl0	beq evl4
+	cpx #2
+	bne evl3
+	ldy #26
+	bne evl4
+evl3	ldy #17
+evl4	ldx #8
+evl1	lda lmodetxt,y
+	sta lmodetx,x
+	dey
+	dex
+	bpl evl1
+	ldy #10
+	bne ysk4
+
+; ----------------------------------------- Message Handling
+
+messout	ldx #<(message)
+	ldy #>(message)
+	jmp gd_xtxout2
+
+action	dec adcnt
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	cpy #22		; #1.02: Gauge Overflow
+	bne act0
+	jsr clrmess
+act0	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts
+
+filltab	!by 160,93,103,127,126,124,105,109
+cntwert	!by 4
+txt	!scr " Cols  @"
+
+message	!scr " GIF   "
+mess	!fill 25,32
+	!by 0
+
+tcopy	ldy #0
+tc0	lda txt,x
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+
+clrmess	ldx #24
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0
+	ldx #7
+	sty offy
+	stx offx
+	rts
+
+; ----------------------------------------- GIF anlesen
+
+getgif	jsr basin
+	ldx status
+	bne gg1
+	cmp #$21		; "!": Kommentar
+	beq extensm
+	cmp #$2c		; ",": description
+	beq scriptor
+	cmp #$3b		; ";": End of GIF
+	bne getgif
+gg1	rts
+
+extensm	jsr basin		; Kommentar überlesen
+overr	jsr basin
+	tay
+	beq getgif
+gg0	jsr basin
+	dey
+	bne gg0
+	beq overr
+
+scriptor	ldy #$00		; Beschreibung eintragen
+gg2	jsr basin
+	sta descript,y
+	sta leftoff,y
+	iny
+	cpy #$09
+	bcc gg2
+	lda localfl
+	tay
+	and #$40
+	sta ileave
+	beq gg4
+	lda #9		; "i" (Interleaved)
+	sta $0489
+gg4	tya
+	bmi gg3
+	rts
+
+; ----------------------------------------- 
+
+gg3	jsr compbits
+	jmp getpal1
+
+compbits	and #7
+	tax
+	inx
+numbcols	ldy bitslo,x
+	sty numcols
+	ldy bitshi,x
+	sty numcols+1
+	stx bitsppix
+	rts
+
+; ----------------------------------------- 
+
+xoffm	!wo 0
+yoffm	!wo 0
+leftoff	!wo 0
+topoff	!wo 0
+breite	!wo 0
+hoehe	!wo 0
+localfl	!by 0
+bitsppix	!by 0
+ileave	!by 0
+bitslo	!by $01,$02,$04,$08,$10,$20,$40,$80,$00,$00,$00,$00,$00
+bitshi	!by $00,$00,$00,$00,$00,$00,$00,$00,$01,$02,$04,$08,$10
+
+; ----------------------------------------- Palette
+
+getpal	lda colorbyte
+	bpl jggif
+	jsr getpal1
+jggif	jmp getgif
+
+getpal1	ldy #$bd		; Palette einlesen (Splitten der Werte)
+	sty palbuf1+1
+	iny
+	sty palbuf2+1
+	iny
+	sty palbuf3+1
+	ldy #0
+	sty palbuf1
+	sty palbuf2
+	sty palbuf3
+gpl4	sty gpy
+	jsr gpalet
+	sta (palbuf1),y
+	jsr gpalet
+	sta (palbuf2),y
+	jsr gpalet
+	sta (palbuf3),y
+	iny
+	cpy numcols
+	bne gpl4
+	rts
+
+gpalet	jsr action
+	ldy gpy
+	jmp basin
+
+; ----------------------------------------- Variablen übergeben an mod
+
+transvar	ldx #3
+tvr1	lda xoffm,x
+	sta leftoff,x
+	dex
+	bpl tvr1
+	ldx #10
+tvr0	lda descript,x
+	sta variables,x
+	lda level,x
+	sta variables+11,x
+	lda leftoff,x
+	sta variables+18,x
+	dex
+	bpl tvr0
+	rts
+
+; ----------------------------------------- Shape anpassen (hori)
+
+setshhori	lda maxbrtab,x
+	sta maxbr
+	txa
+	beq ssh0
+	lda #2
+	!by $2c
+ssh0	lda #0
+	sta xdoub
+	lda hori
+	sta shhori
+	lda hori+1
+	sta shhori+1
+ssh1	cpx #2
+	bne ssh2
+	lda #3
+	jsr divide
+	jsr storr2
+ssh2	cpx #3
+	bne ssh3
+	lsr shhori+1
+	ror shhori
+ssh3	cpx #4
+	bne ssh4
+	lda #5
+	jsr divide
+	jsr storr2
+ssh4	cpx #5
+	bne ssh5
+	lda #3
+	jsr divide
+	jsr storr
+ssh5	cpx #6
+	bne ssh6
+	lda #7
+	jsr divide
+	jsr storr2
+ssh6	cpx #7
+	bne ssh7
+	lsr shhori+1
+	ror shhori
+	lsr shhori+1
+	ror shhori
+ssh7	jmp ssv4
+
+; ----------------------------------------- Shape anpassen (vert)
+
+setshvert	lda maxhotab,x
+	sta maxho
+	cpx #4
+	beq ssv0
+	lda #2
+	!by $2c
+ssv0	lda #0
+	sta ydoub
+	lda vert
+	sta shvert
+	lda vert+1
+	sta shvert+1
+ssv1	cpx #1
+	bne ssv2
+	lsr shvert+1
+	ror shvert
+ssv2	cpx #3
+	bne ssv3
+	lsr shvert+1
+	ror shvert
+	lsr shvert+1
+	ror shvert
+ssv3	cpx #2
+	bne ssv4
+	lsr shvert+1
+	ror shvert
+	lsr shvert+1
+	ror shvert
+	lsr shvert+1
+	ror shvert
+	ldx shvert+1
+	ldy shvert
+	asl shvert
+	rol shvert+1
+	clc
+	tya
+	adc shvert
+	sta shvert
+	txa
+	adc shvert+1
+	sta shvert+1
+ssv4	jsr requ
+	lda sc_screenvek
+	pha
+	lda sc_screenvek+1
+	pha
+	ldx #<(shapelst)
+	ldy #>(shapelst)
+	jsr gd_screen
+	pla
+	sta sc_screenvek+1
+	pla
+	sta sc_screenvek
+	rts
+
+; ----------------------------------------- Division für Shape
+
+divide	sta divisor
+	lda #0
+	sta result
+	sta result+1
+dd0	sec
+	lda shhori
+	sbc divisor
+	sta shhori
+	bcs dd1
+	dec shhori+1
+	bpl dd1
+	rts
+dd1	inc result
+	bne dd0
+	inc result+1
+	bne dd0
+
+; ----------------------------------------- 
+
+storr2	asl result
+	rol result+1
+storr	lda result
+	sta shhori
+	lda result+1
+	sta shhori+1
+	rts
+
+; ----------------------------------------- 
+
+modend	!eof
