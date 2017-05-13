@@ -1,0 +1,726 @@
+
+; --------------------------------------
+;
+; mod.BalancingCol, früher mod.Brightness
+; Modul zum Verändern der 4Bit-Farben im Speicher auf RGB-Basis
+; ergänzt das "eingebaute" (Gray-) Balancing (in god.upmem)
+;
+;   1.00, 06.04.02, first release
+;   1.01, 13.05.17, added activity bar in preview gadget
+; 
+; ------------------------------------------------     
+
+	!src "..\godotlib.lib"
+	*= $c000
+
+; ------------------------------------------------ Equates
+
+	red		= $30
+	grn		= $31
+	blu		= $32
+	min		= $33
+	src		= $30
+	blcnt		= $32
+	gsum		= $33
+	dst		= $34
+	gpy		= $35
+	palbuf1		= $36	; red
+	palbuf2		= $38	; green
+	palbuf3		= $3a	; blue
+	nflg		= $3c
+	zflg		= $3d
+	adcnt		= $3e
+	minx		= $3f
+	brttmp		= $40
+	ctrtmp		= $41
+
+	bttab		= $3f40
+	btabold		= $3f50
+
+	dbuf		= $cc00
+	dbuf1		= $cc80
+	pal		= $cd00
+
+; -------------------------------------- 
+
+header	jmp start
+	!by $20
+	!by 0
+	!by 0
+	!wo modend
+	!wo 0
+	!pet "RGB brightness  "
+	!pet "1.01"
+	!pet "13.05.17"
+	!pet "A.Dettke	  "
+
+; -------------------------------------- Main
+
+start
+	jsr ev_bal	; Balancing
+	sec
+	rts
+
+; -------------------------------------- Color conversion Routines
+
+makecols	ldx #15		; get GoDot's RGB values for its standard colors
+stt01	lda gr_rgb+32,x
+	sta cblu,x
+	tay
+	lda cnibs,y
+	sta $bf00,x
+	lda gr_rgb+16,x
+	sta cgrn,x
+	tay
+	lda cnibs,y
+	sta $be00,x
+	lda gr_rgb,x
+	sta cred,x
+	tay
+	lda cnibs,y
+	sta $bd00,x
+	dex
+	bpl stt01
+	rts
+
+; -------------------------------------- Care for Balancing settings
+
+pconv	and #15
+	tax
+	lda gr_btab,x	; change value according to Balancing settings
+	rts
+
+; -------------------------------------- Get one color index byte from file
+
+getpal	ldy #$bd		; palette buffers: 
+	sty palbuf1+1	; 1: $bd00 (red)
+	iny
+	sty palbuf2+1	; 2: $be00 (green)
+	iny
+	sty palbuf3+1	; 3: $bf00 (blue)
+	ldy #0
+	sty palbuf1
+	sty palbuf2
+	sty palbuf3
+gpl4	sty gpy
+	lda (palbuf1),y	; R
+	jsr pconv		; care for balancing
+	sta red
+	lda (palbuf2),y	; G
+	jsr pconv		; dto
+	sta grn
+	lda (palbuf3),y	; B
+	jsr pconv		; dto
+	sta blu
+	jsr assigncol	; convert to GoDot 4Bit (via assigncol/makegray)
+	ldy gpy
+	sta pal,y		; and store result to $cd00+
+	iny
+	cpy numcols	; convert all GIF colors
+	bne gpl4
+	rts
+
+; -------------------------------------- Convert RGB color to C64 color
+
+assigncol	lda red
+	clc
+	adc grn
+	adc blu
+	tax
+	lda avr,x
+	ldy #0
+	cmp red
+	bne as0
+	iny
+as0	cmp grn
+	bne as1
+	iny
+as1	cmp blu
+	bne as2
+	iny
+as2	cpy #2
+	bcc cl51
+	tax
+	lda gray,x
+	tax
+	lda cpref,x
+	tax
+	lda cnibs,x
+	rts
+
+cl51	ldx level
+cl6	lda #0
+	sta dbuf1,x
+	sta nflg
+	sta zflg
+	lda cred,x
+	sec
+	sbc red
+	bne rd0
+	inc zflg
+rd0	bcs rpos
+	eor #$ff
+	adc #1
+	inc nflg
+rpos	tay
+	lda quad,y
+	sta dbuf,x
+	lda cgrn,x
+	sec
+	sbc grn
+	bne gn0
+	inc zflg
+gn0	bcs gpos
+	eor #$ff
+	adc #1
+	inc nflg
+gpos	tay
+	lda quad,y
+	clc
+	adc dbuf,x
+	sta dbuf,x
+	bcc gsk
+	inc dbuf1,x
+gsk	lda cblu,x
+	sec
+	sbc blu
+	bne bl0
+	inc zflg
+bl0	bcs bpos
+	eor #$ff
+	adc #1
+	inc nflg
+bpos	tay
+	lda nflg
+	beq nopf
+	clc
+	adc zflg
+	cmp #3
+	beq nopf
+	lda #2
+	!by $2c
+nopf	lda #0
+	clc
+	adc quad,y
+	adc dbuf,x
+	sta dbuf,x
+	bcc bsk
+	inc dbuf1,x
+bsk	inx
+	cpx #16
+	bne cl6
+
+	stx min+1
+	ldx level
+ml1	lda dbuf1,x
+	tay
+	cmp min+1
+	beq ms1
+	bcs ms2
+	bcc ms3
+ms1	lda dbuf,x
+	cmp min
+	beq ms4
+	bcs ms2
+ms3	lda dbuf,x
+ms4	sty min+1
+	sta min
+	stx minx
+ms2	inx
+	cpx #16
+	bne ml1
+	lda minx
+	tay
+	lda cpref,y
+	tay
+	lda cnibs,y
+	rts
+
+; -------------------------------------- 
+
+avr	!by 0,0,1,1,1,2,2,2
+	!by 3,3,3,4,4,4,5,5,5
+	!by 6,6,6,7,7,7,8,8,8
+	!by 9,9,9,10,10,10
+	!by 11,11,11,12,12,12
+	!by 13,13,13,14,14,14
+	!by 15,15
+
+quad	!by 0,1,4,9,16,25,36,49,64,81,100,121,144,169,196,225
+
+gray	!by 3,3,2,2,2,2,1,1,1,1,0,0,0,0,4,4
+
+cred	!by 0,3,7,11,15,0,6,7
+	!by 7,15,7,15,7,15,0,7
+
+cgrn	!by 0,3,7,11,15,0,3,0
+	!by 0,7,7,7,15,15,7,15
+
+cblu	!by 0,3,7,11,15,7,0,0
+	!by 7,0,15,7,15,0,0,7
+
+cpref	!by 11,7,3,0,15,2,9,6
+	!by 5,12,4,8,1,10,14,13
+
+uncpref	!by 3,12,5,2,10,8,7,1
+	!by 11,6,13,0,9,15,14,4
+
+numcols	!by 16
+level	!by 0
+cntwert	!by 200
+twice	!by 1
+
+; -------------------------------------- 
+
+cnibs	!by $00,$11,$22,$33,$44,$55,$66,$77
+	!by $88,$99,$aa,$bb,$cc,$dd,$ee,$ff
+
+; -------------------------------------- 
+
+rtab	!by $00,$00,$4d,$00
+	!by $9a,$00,$e7,$00
+	!by $34,$01,$81,$01
+	!by $ce,$01,$1b,$02
+	!by $68,$02,$b5,$02
+	!by $02,$03,$4f,$03
+	!by $9c,$03,$e9,$03
+	!by $36,$04,$83,$04
+
+gtab	!by $00,$00,$97,$00
+	!by $2e,$01,$c5,$01
+	!by $5c,$02,$f3,$02
+	!by $8a,$03,$21,$04
+	!by $b8,$04,$4f,$05
+	!by $e6,$05,$7d,$06
+	!by $14,$07,$ab,$07
+	!by $42,$08,$d9,$08
+
+bltab	!by $00,$00,$1c,$00
+	!by $38,$00,$54,$00
+	!by $70,$00,$8c,$00
+	!by $a8,$00,$c4,$00
+	!by $e0,$00,$fc,$00
+	!by $18,$01,$34,$01
+	!by $50,$01,$6c,$01
+	!by $88,$01,$a4,$01
+
+; -------------------------------------- Apply to 4Bit image
+
+apply	jsr makecols
+	stx gr_redisp	; care for re-render
+	jsr getpal	; convert palette to GoDot
+	jsr initad	; init sprite activity
+	jsr applybal	; apply balancing to 4Bit data (image)
+
+	ldy #16		; finished, reset Balancing
+	sty gr_ctr
+	sty gr_brt
+dc8	dey
+	tya
+	sta gr_btab,y
+	bne dc8
+dc5	sec
+	rts
+
+applybal	lda #$40		; start from $4000
+	ldy #0
+	sta src+1
+	sty src
+ab0	lda (src),y	; get color (of two pixels)
+	pha
+	lsr		; left pixel
+	lsr
+	lsr
+	lsr
+	tax
+	lda uncpref,x
+	tax
+	lda pal,x
+	and #$f0
+	sta dst
+	pla		; right pixel
+	and #$0f
+	tax
+	lda uncpref,x
+	tax
+	lda pal,x
+	and #$0f
+	ora dst
+	sta (src),y	; write back
+	jsr action
+	iny
+	bne ab0
+	inc src+1
+	lda src+1
+	cmp #$bd		; end at $bcff
+	bne ab0
+	lda $d015		; activity sprites aus
+	and #$f3
+	sta $d015
+	lda $d010
+	and #$f3
+	sta $d010
+	rts
+
+; -------------------------------------------------- Event: Balancing Requester
+
+ev_bal	ldx #<(balreq)	; show balancing requester
+	ldy #>(balreq)
+	jsr gd_screen
+	jsr gbtab		; save balancing table for Cancel
+	lda gr_brt	; save brightness and contrast values
+	sta brttmp
+	lda gr_ctr
+	sta ctrtmp
+	jsr brt0
+	jmp gd_eloop	; wait for further events
+
+; -------------------------------------------------- Select Gadget Brightness or Contrast
+
+gbset	ldx #0
+	stx sc_loop
+	and #1		; determine whether even or odd
+	bne ic0		; thus selecting the appropriate value display
+	ldx #<(brtbox)
+	ldy #>(brtbox)
+	bne bgettab
+ic0	ldx #<(ctrbox)
+	ldy #>(ctrbox)
+bgettab	stx sc_screentab
+	sty sc_screentab+1
+	lda #0
+	tax
+	tay
+bgt0	jsr gd_setpos	; get 4 parameters
+	cpx #4
+	bne bgt0
+	jsr gd_trim	; point to within in the display box
+	jmp gd_initmove	; compute screen address
+
+; -------------------------------------------------- Subevent: Increment Brightness
+
+se_incbrt	lda #0		; even function numbers: brightness
+	!by $2c
+
+; -------------------------------------------------- Subevent: Decrement Brightness
+
+se_decbrt	lda #2
+	!by $2c
+
+; -------------------------------------------------- Subevent: Increment Contrast
+
+se_incctr	lda #1		; odd function numbers: contrast
+	!by $2c
+
+; -------------------------------------------------- Subevent: Decrement Contrast
+
+se_decctr	lda #3
+	pha
+	jsr gbset		; compute screen address
+	pla
+	tay
+	and #1		; address the appropriate value
+	tax
+	lda brttmp,x
+	cpy #2		; determine function: inc or dec
+	bcc ic2
+
+	tay		; dec: is zero? (minimum)
+	beq show		; yes, no more changes
+	dec brttmp,x	; no, decrease
+	tya
+	bne show		; unconditional branch
+
+ic2	tay		; inc: is 31? (maximum)
+	cpy #$1f
+	bcs show		; yes, no more changes
+	inc brttmp,x	; no, increase
+
+show	lda brttmp,x	; get value
+	ldy #$20		; sign (positive)
+	cmp #16		; is at least 16? (median; shows as 0)
+	bmi nega		; no, lower (show as negative values)
+
+; -------------------------------------------------- 
+
+posi	sbc #16		; yes, subtract 16
+sh0	sty sc_movetab
+	jsr gd_xcnvdez	; convert value to digits
+	sta sc_movetab+2	; ones' digit
+	txa		; tens' digit
+	and #$0f		; is zero?
+	bne sh1
+	ldx #$20		; yes, replace by space
+sh1	stx sc_movetab+1
+	lda #3		; show 3 chars on screen
+	sta sc_br
+	ldx #1
+	jsr gd_fi1
+	jsr makebtab	; re-compute balancing table
+
+	ldy #15		; convert balancing values to dither patterns
+sh2	lda gr_btab,y
+	ora #$e0
+	sta tpatbox,y	; write to output buffer
+	dey
+	bpl sh2
+	ldx #<(patbox)	; compute address of patternbox on screen
+	ldy #>(patbox)
+	jsr bgettab
+	ldy #6		; show pattern
+	jmp gd_xtxout1
+
+; -------------------------------------------------- 
+
+nega	sta sc_merk	; subtract value from 16
+	lda #16
+	sec
+	sbc sc_merk
+	ldy #$2d		; sign (negative)
+	bne sh0		; unconditional branch
+
+; -------------------------------------------------- Subevent: Reset Balancing Table
+
+se_balrst	lda #16		; set median value
+	sta brttmp
+	sta ctrtmp
+brt0	lda #0		; flag: first pass
+brt1	pha
+	pha
+	jsr gbset		; reset visible values
+	pla
+	tax
+	jsr show
+	pla
+	bne brt2		; finish if second pass
+	lda #1		; flag: second pass
+	bne brt1		; unconditional branch
+brt2	clc
+	rts
+
+; -------------------------------------------------- Subevent: Accept Balancing Values
+
+se_balok	lda brttmp	; finalize values
+	sta gr_brt
+	lda ctrtmp
+	sta gr_ctr
+	jmp apply
+
+; -------------------------------------------------- Subevent: Cancel Changes
+
+se_balq	ldy #15		; restore original values
+bq1	lda btabold,y
+	sta gr_btab,y
+	dey
+	bpl bq1
+bq0	sec		; leave requester
+	rts
+
+; -------------------------------------------------- Save Balancing Table
+
+gbtab	ldy #15
+gbt0	lda gr_btab,y
+	sta btabold,y
+	dey
+	bpl gbt0
+	rts
+
+; -------------------------------------------------- Compute Balancing Table
+
+makebtab	lda ctrtmp	; contrast
+	asl
+	tax
+	lda ctrtab,x
+	sta ls_temp
+	sta sc_pos
+	inx
+	lda ctrtab,x
+	sta ls_temp+1
+	sta sc_pos+1
+	lda #0
+	sta sc_loop
+	asl sc_pos
+	rol sc_pos+1
+	asl sc_pos
+	rol sc_pos+1
+	asl sc_pos
+	rol sc_pos+1
+	lda sc_pos	; value times 8
+	sta sc_texttab
+	lda sc_pos+1
+	sta sc_texttab+1
+	asl sc_pos
+	rol sc_pos+1
+	lda sc_pos	; value times 24
+	adc sc_texttab
+	sta sc_pos
+	lda sc_pos+1
+	adc sc_texttab+1
+	sta sc_pos+1
+	bcc mbskip
+	inc sc_loop
+
+mbskip	ldx #0		; create 48 entry table
+mbloop	lda sc_pos
+	sec
+	sbc ls_temp
+	sta sc_pos
+	lda sc_pos+1
+	sbc ls_temp+1
+	sta sc_pos+1
+	lda sc_loop
+	sbc #0
+	sta sc_loop
+	lda #7
+	sec
+	sbc sc_pos+1
+	bcc mb0
+	pha
+	lda #0
+	sbc sc_loop
+	pla
+	bcs mbskip1
+mb0	lda #0
+mbskip1	sta bttab,x
+	inx
+	cpx #24
+	bne mbloop
+
+mbloop1	lda sc_pos
+	clc
+	adc ls_temp
+	sta sc_pos
+	lda sc_pos+1
+	adc ls_temp+1
+	sta sc_pos+1
+	pha
+	lda sc_loop
+	adc #0
+	sta sc_loop
+	pla
+	clc
+	adc #7
+	bcs mbf
+	cmp #16
+	bcc mbskip2
+mbf	lda #15
+mbskip2	sta bttab,x
+	inx
+	cpx #48
+	bne mbloop1
+
+	ldx brttmp	; brightness
+	ldy #0
+mbloop2	lda bttab,x
+	sta gr_btab,y
+	inx
+	iny
+	cpy #16
+	bne mbloop2
+	rts
+
+; -------------------------------------------------- 
+
+ctrtab	!by $26,$00,$30,$00,$48,$00,$60,$00
+	!by $90,$00,$98,$00,$93,$00,$a4,$00
+	!by $ab,$00,$b2,$00,$ba,$00,$c3,$00
+	!by $cd,$00,$d8,$00,$dc,$00,$f1,$00
+	!by $00,$01,$25,$01,$2c,$01,$3b,$01
+	!by $55,$01,$74,$01,$9a,$01,$c7,$01
+	!by $00,$02,$49,$02,$ab,$02,$33,$03
+	!by $00,$04,$55,$05,$74,$06,$00,$08
+
+; -------------------------------------------------- Screenlist for Balancing Requester
+
+balreq	!by $00
+	!by 6,7,26,12,$91
+	!wo 0
+	!scr "Color Balancing@"
+	!by 8,8,3,3,$c0
+	!wo se_decbrt
+	!scr "<@"
+brtbox	!by 8,11,6,3,$a0
+	!wo 0
+	!scr "    @"
+	!by 8,17,3,3,$c0
+	!wo se_incbrt
+	!scr ">@"
+	!by 8,20,3,3,$c0
+	!wo se_decctr
+	!scr "<@"
+ctrbox	!by 8,23,6,3,$a0
+	!wo 0
+	!scr "    @"
+	!by 8,29,3,3,$c0
+	!wo se_incctr
+	!scr ">@"
+patbox	!by 12,11,18,3,$a0
+	!wo 0
+tpatbox	!by $e0,$e1,$e2,$e3,$e4,$e5,$e6,$e7
+	!by $e8,$e9,$ea,$eb,$ec,$ed,$ee,$ef,$00
+	!by 15,8,8,3,$dc
+	!wo se_balrst
+	!scr "Reset@"
+	!by 15,16,8,3,$dc
+	!wo se_balok
+	!scr "Apply@"
+	!by 15,24,8,3,$dc
+	!wo se_balq
+	!scr "Leave@"
+	!by $c0,10,8,10
+	!scr "Brightness@"
+	!by $c0,10,21,8
+	!scr "Contrast@"
+	!by $80
+
+; ------------------------------------------------ sprite activity
+
+action 
+	dec adcnt		; activity-zähler abgelaufen?
+	bne ++
+	dec twice		; zählt bis 800 (800*40=32000)
+	bpl +
+	lda #3
+	sta twice
+	inc $d005		; ja, sprites bewegen
+	inc $d007
++	lda cntwert	; zähler neu setzen 
+	sta adcnt
+++ 	rts
+
+; ------------------------------------------------  sprite-activity initialisieren
+
+initad 
+	ldy #60		; 60 (plus 3) Bytes
+	lda #$00		; Sprite-Block 255 löschen
+- 	sta $3fc3,y
+	dey 
+	bpl -
+	sty $3fc0		; dünner Strich oben
+	sty $3fc1
+	sty $3fc2
+	lda #$0f		; Farbe weiß, Sprite 2 und 3
+	sta $d029
+	sta $d02a
+	lda $d01d		; doppelt breit (zus. 96 Pixel=12 Kacheln)
+	ora #$0c
+	sta $d01d
+	lda $d010		; Position setzen (Image Info)
+	ora #$0c
+	sta $d010
+	lda #$08
+	sta $d004
+	lda #$20
+	sta $d006
+	lda #$92
+	sta $d005
+	sta $d007
+	sty $07fa		; Sprite-Block 255 setzen
+	sty $07fb
+	sty adcnt
+	lda $d015
+	ora #$08		;  (linkes Sprite "verdeckt")
+	sta $d015
+	rts 
+
+modend	!eof
