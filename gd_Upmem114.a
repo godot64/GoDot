@@ -40,6 +40,7 @@
 
 	source		= $a6
 	dest		= $a8
+	lflag		= $a8
 	brttmp		= $a9
 	crttmp		= $aa
 	vblock		= $aa
@@ -829,7 +830,7 @@ scp6	clc		; inc source by 32
 	sta source
 	bcc scp7
 	inc source+1
-scp7	dec sc_sp	; as many times as horizontally indented
+scp7	dec sc_sp		; as many times as horizontally indented
 	bne scp8
 
 scp5	rts
@@ -1892,191 +1893,210 @@ tpatbox	!by $e0,$e1,$e2,$e3,$e4,$e5,$e6,$e7
 ; -------------------------------------------------- 
 ; -------------------------------------------------- Event: Display Preview
 ; -------------------------------------------------- 
+;
+; When entering this event routine you have just clicked the 
+; appropriate gadget. So, all values are still set here and now.
+; The event routine first reverts the gadget's background.
+;
 
-evprviu	jsr gd_initmove	; save SC_VEKT20
-	pha
+evprviu	jsr gd_initmove	; compute screen address
+	pha		; A-reg contains sc_vekt20+1
 	lda sc_vekt20
 	pha
-	jsr gd_invert	; invert preview area (black)
-	ldx #$c0		; save data, make space for 3 sprites
+	jsr gd_invert	; reverting to black
+
+	ldx #$c0		; make space for three sprites...
 	ldy #$00
 loop1	lda spr2-1,x
 	sta dbuf-1,x
 	tya
-	sta spr2-1,x
+	sta spr2-1,x	; and initialize to $00
 	dex
 	bne loop1
-	ldx #$c0		; clear 3 more sprites
+
+	ldx #$c0		; initialize three more sprites
 loop2	sta spr5-1,x
 	dex
 	bne loop2
 
-	sta sprpri	; init parameters
-	sta xexp
+	sta sprpri	; priority
+	sta xexp		; no expansion
 	sta yexp
-	lda #$fc		; multimode sprites
+
+	lda #$fc		; sprites 2 to 7: multi mode
 	sta sprmulti
-	ldx #$05		; sprites 2-7: medium gray
+
+	ldx #$05		; colorize: mid gray
 	lda #$0c
 loop3	sta sprcol1,x
 	dex
 	bpl loop3
-	lda #$0b		; dark gray to all
+	lda #$0b		; dark gray
 	sta sprcol2
-	lda #$0f		; light gray to all
+	lda #$0f		; light gray
 	sta sprcol3
 
-	ldx #$0b		; set position
+	ldx #$0b		; define positions (in gadget)
 loop4	lda xytab,x
 	sta sprxy,x
 	dex
 	bpl loop4
-	lda xmsb		; x>255?
+	lda xmsb		; beyond 255
 	ora #$fc
 	sta xmsb
-	ldx #$05		; activate sprite definition blocks
+
+	ldx #$05		; activate sprite pointers
 	ldy #$ff
 ploop	tya
 	sta sprptr,x
 	dey
 	dex
 	bpl ploop
-	lda #$ff		; activate all sprites
+
+	lda #$ff		; switch sprites on
 	sta sprreg
-
-; -------------------------------------------------- 
-
-	ldx #$02		; 3 times 12 tiles (times 20 rows)
+;
+; Now rendering the 4Bit Area to the sprites. Will be done as three
+; bands of 12 tiles down from left to right.
+; 
+	ldx #$02		; three times 12 tiles (20 rows down)
 m0loop	txa
 	pha
-	lda srcl,x	; source address (4bit)
+	lda srcl,x	; set source address (4Bit)
 	sta sc_pos
 	lda srch,x
 	sta sc_pos+1
-	lda dstl,x	; destination (sprites)
+	lda dstl,x	; set destination address (sprites)
 	sta sc_loop
 	lda dsth,x
 	sta sc_loop+1
-	lda #$00
+	lda #$00		; counter to skip byte 63 in sprite
 	sta sc_screentab
-	jsr makeit	; render 1 third of the image
+	jsr makeit	; render one band
 	pla
 	tax
 	dex
-	bpl m0loop	; three times
-
-	inx		; wait for key
+	bpl m0loop	; and the next two
+;
+; now rendered, wait for click to shut down sprites
+; 
+	inx		; wait for click
 	stx sc_keyprs
 wait	lda sc_keyprs
 	beq wait
 ;
-	lda xmsb		; reset all data
-	and #$03
+	lda #3		; only sprites 0+1 remain (mouse)
+	sta sprreg
+	lda xmsb		; force to lower 256 position
+	and #$03		; (sometimes flickers, can't imagine why)
 	sta xmsb
-	pla
+
+	pla		; restore gadget address
 	sta sc_vekt20
 	pla
 	sta sc_vekt20+1
-	jsr gd_invert	; and change from black to blue
-	ldx #$c0
+	jsr gd_invert	; revert to blue again
+
+	ldx #$c0		; restore rendered image from buffer
 piu0	lda dbuf-1,x
 	sta spr2-1,x
 	dex
 	bne piu0
 
-; -------------------------------------------------- 
-
-spron	lda #$03		; pointer sprites on
-	!by $2c
-
-; -------------------------------------------------- 
-
-sproff	lda #0		; pointer sprites off
-	sta sprreg
-	clc
+	clc		; don't leave screenlist
 	rts
+;------------------------------------------------------------------
+;
+; rendering 4Bit Area to 6 sprites
+;
+;------------------------------------------------------------------
+makeit	ldx #$00		; MUST be $00!
+	ldy #$14		; 20 rows of tiles down
 
-; -------------------------------------------------- Render image to sprites
-
-makeit	ldx #$00		; index, must be zero
-	ldy #$14		; counter for tile rows (only 20)
-
-prloop	tya		; save it
+prloop	tya		; start preview loop
 	pha
-	lda #$40		; flag: three passes (gets shifted left)
-	sta ls_temp+1
+	lda #$40		; flag: %0100 0000, 2 passes per tile
+	sta lflag
 
-dzloop	lda #$03
+dzloop	lda #$03		; flag: 3 passes across
 	sta brttmp
 
-zloop	ldy #$60		; cover 4 tiles
-	lda ls_temp+1	; second pass: indent to 4 pixels below
+zloop	ldy #$60		; 4 tiles from right to left
+	lda lflag		; on 2nd pass (tile): 
 	bpl bloop
-	ldy #$70
+	ldy #$70		; indent to 4 pixels below
 
-bloop	lda (sc_pos),y	; get left 4b pixel
+bloop	lda (sc_pos),y	; get 4bit data
 	lsr
 	lsr
-	lsr
-	ror crttmp	; get 2 pixels
 	lsr
 	ror crttmp
-	tya		; next tile
+	lsr
+	ror crttmp
+
+	tya		; next tile (to the left)
 	sec
 	sbc #$20
 	tay
 	bpl bloop
 
-	lda crttmp	; write to sprite
+	lda crttmp	; byte complete, write to sprites
 	sta (sc_loop,x)
-skip64	inc sc_loop	; proceed in destination
+
+skip64	inc sc_loop	; increment destination pointer
 	bne s1
 	inc sc_loop+1
-s1	inc sc_screentab	; count bytes in sprite
+
+s1	inc sc_screentab	; skip byte 63
 	lda sc_screentab
-	cmp #$3f		; skip byte 64 in sprite
+	cmp #$3f
 	beq skip64
 
-	lda sc_pos	; add 4 tiles (128)
-	clc
+	lda sc_pos	; add to 4 tiles ahead
+	clc		; (summing up to 12 tiles at last)
 	adc #$80
 	sta sc_pos
 	bcc skip
 	inc sc_pos+1
-skip	ror brttmp	; second and third pass (3 bytes width in a sprite)
+
+skip	ror brttmp	; loop for next two passes across
 	bcs zloop
 
-	lda sc_pos	; back 3 times 4 tiles
+	lda sc_pos	; 3 times 4 tiles backwards
 	sec
 	sbc #$80
 	sta sc_pos
 	lda sc_pos+1
 	sbc #$01
 	sta sc_pos+1
-	rol ls_temp+1	; first/second pass: loop
+
+	rol lflag		; loop for second pass within tile
 	bcc dzloop
 
-	lda sc_pos	; add 1280 (1 tile row)
-	clc		; (could be optimized...)
+	lda sc_pos	; add $500 (1280): next row of tiles
+	clc
 	adc #$00
 	sta sc_pos
 	lda sc_pos+1
 	adc #$05
 	sta sc_pos+1
 
-	pla		; decrement tile row counter
+	pla		; count 20 times
 	tay
 	dey
-	bpl prloop	; 20 times? 
+	bpl prloop
+	rts		; until finished
 
-	rts		; yes, finished
+;-------------------------------------------------------------
+; Data (screen positions and so on)
+;-------------------------------------------------------------
 
-; -------------------------------------------------- 
-
-srcl	!by $40,$c0,$40	; start of scan addresses
+srcl	!by $40,$c0,$40	; not from leftmost position!
 srch	!by $4d,$4b,$4a
-dstl	!by $80,$00,$80	; destination sprite addresses
+
+dstl	!by $80,$00,$80	; sprite block addresses
 dsth	!by $3f,$3f,$3e
+
 xytab	!by $07,$91,$07,$a6
 	!by $1f,$91,$1f,$a6
 	!by $37,$91,$37,$a6
@@ -2086,7 +2106,7 @@ xytab	!by $07,$91,$07,$a6
 ; -------------------------------------------------- Event: GoDot Guru
 ; -------------------------------------------------- 
 
-evinfo	jsr sproff	; pointer off
+evinfo	jsr gd_sproff	; pointer off
 
 	lda #$05		; scroll screen 5 rows down
 	sta sc_screentab
@@ -2114,7 +2134,7 @@ tastean	lda sy_tbuffer	; wait for key
 	bne tastean	; no, wait
 
 ok	jsr off		; de-activate Guru
-	jsr spron		; pointer on
+	jsr gd_spron	; pointer on
 	sec		; leave to main screen
 	rts
 
