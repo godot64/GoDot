@@ -11,6 +11,7 @@
 ;   into the graphics.
 ;
 ;    1.00, 23.01.17, first release
+;    1.01, 17.05.17, preview in hires (better positioning)
 ;
 ; ------------------------------------------------------------ 
 
@@ -29,6 +30,7 @@
 	xmal32		= $3c		; /$3d
 	counter		= $3e		; /$3f
 	xceed		= $40
+	bbline		= $41
 
 	status		= $90
 	packbyte		= $ad		; Konstante
@@ -83,8 +85,8 @@
 	!wo modend
 	!wo 0
 	!pet "GoDot Titler    "
-	!pet "1.00"
-	!pet "23.01.17"
+	!pet "1.01"
+	!pet "17.05.17"
 	!pet "A.Dettke        "
 ;
 ; ----------------------------------------- Main
@@ -166,6 +168,21 @@ canc	jsr kringel
 	sec
 	rts 
 
+; ------------------------------------------------ Event: Preview Resolution
+
+evresltn	ldx pvreso	; # 1.01 (new event: set preview resolution)
+	beq +
+	ldx #$ff
++	inx
+	stx pvreso
+	lda pvresotx,x
+	sta reso
+	jsr settab
+	ldy #16
+	jsr outtx
+	clc
+	rts
+
 ; ----------------------------------------- Interaction with ldr.Fonts
 
 getcpos	ldx #1
@@ -246,7 +263,11 @@ evs2	jsr groff
 
 ; ------------------------------------------ Switch Graphics mode on/off
 
-gron	lda #$18		; multi on
+gron	lda pvreso	; multi or
+	beq +
+	lda #$18
+	!by $2c
++	lda #$08		; no multi 	# 1.01
 	sta multreg
 	lda #$1b
 	sta charreg
@@ -590,6 +611,7 @@ initpal	lda c64pal,x	; re-display palette
 	rts
 
 ; ------------------------------------------------ create palette chooser
+
 makepal	lda gr_picked	; get current color
 	and #15
 	sta plast		; and store
@@ -695,7 +717,7 @@ error	lda border
 	clc
 	rts
 
-; ------------------------------------------------ Event: Load Font
+; ------------------------------------------------ Event: Read Font
 
 readfnt	jsr gd_xopen
 	ldy #0
@@ -771,6 +793,8 @@ rf5	sta (ls_adrmisc),y
 	dex
 	bne rf5
 	rts
+
+; ------------------------------------------------ Event: Load Font
 
 evldfnt	jsr chgdrv	; don't start with drive 12
 	lda #0
@@ -1039,71 +1063,131 @@ cll2	sta cram,x
 	inx 
 	bne cll2
 
-; ----------------------------------------------------- Quick4 Render
+; ----------------------------------------------------- Quick Render
 
-quick4	lda #<sy_4bit
+quickr	lda #<sy_4bit	; from $4000 (4bit)
 	ldx #>sy_4bit
 	sta src
 	stx src+1
-	lda #<bscreen
+	lda #<bscreen	; to $2000 (display)
 	ldx #>bscreen
 	sta dst
 	stx dst+1
 
-	ldy #0
+	ldy #0		; counts 4*64 bytes (one page)
 ql40	lda #64
 	sta bcnt
-ql4	lda (src),y
-	and #$0f
-	tax 
-	lda qtab4,x
-	lsr
-	rol byte
-	lsr
-	rol byte
-	iny 
-	lda (src),y
-	and #$0f
-	tax 
-	lda qtab4,x
-	lsr
-	rol byte
-	lsr
-	rol byte
-	iny 
-	lda (src),y
-	and #$0f
-	tax 
-	lda qtab4,x
-	lsr
-	rol byte
-	lsr
-	rol byte
-	iny 
-	lda (src),y
-	and #$0f
-	tax 
-	lda qtab4,x
-	lsr
-	rol byte
-	lsr
-	rol byte
-	iny 
 
-	lda byte
+ql9	lda pvreso	; # -- 1.01
+	beq ql4
+
+	lda (src),y	; preview in multi mode (faster)
+	and #$0f
+	tax 
+	lda qtab1,x
+	lsr
+	rol byte
+	lsr
+	rol byte
+	iny 
+	lda (src),y
+	and #$0f
+	tax 
+	lda qtab1,x
+	lsr
+	rol byte
+	lsr
+	rol byte
+	iny 
+	lda (src),y
+	and #$0f
+	tax 
+	lda qtab1,x
+	lsr
+	rol byte
+	lsr
+	rol byte
+	iny 
+	lda (src),y
+	and #$0f
+	tax 
+	lda qtab1,x
+	lsr
+	rol byte
+	lsr
+	rol byte
+	iny
+	jmp ql6
+
+ql4	lda bcnt		; # 1.01 von hier --
+	and #1
+	bne ql5
+	
+	lda #$10		; preview in hires (slower but more precise)
+	sta bbline
+-	lda (src),y	; get color pixel
+	pha
+	lsr
+	lsr
+	lsr
+	lsr
+	tax
+	lda qtab1,x	; get color pattern: %00, %01, %10 or %11
+	lsr
+	rol byte
+	pla
+	and #$0f
+	tax 
+	lda qtab2,x
+	lsr
+	rol byte
+	iny 
+	asl bbline
+	bcc -
+	bcs ql6
+
+ql5	lda #$10
+	sta bbline
+-	lda (src),y	; get color pixel
+	pha
+	lsr
+	lsr
+	lsr
+	lsr
+	tax
+	lda qtab2,x	; get color pattern: %00, %10, %01 or %11
+	lsr
+	rol byte
+	pla
+	and #$0f
+	tax 
+	lda qtab1,x
+	lsr
+	rol byte
+	iny
+	asl bbline
+	bcc -		; # -- 1.01 bis hier
+
+ql6	lda byte		; write one color pattern byte
 	ldx #0
 	sta (dst,x)
 
-	inc dst
+	inc dst		; increment destination by 1
 	bne qs1
 	inc dst+1
-qs1	dec bcnt
-	bne ql4
-	inc src+1
+
+qs1	dec bcnt		; count
+	beq ql7
+	jmp ql9
+
+ql7	inc src+1		; next page
 	lda src+1
-	cmp #>sy_bigbuffer
-	bne ql40
-	rts 
+	cmp #>sy_bigbuffer	; up to end of 4bit
+	beq ql8
+	jmp ql40
+
+ql8	rts 
+
 
 ; ------------------------------------------------ Load Font File
 
@@ -1157,6 +1241,7 @@ tabigad	!wo whichpos	; 0
 	!wo kernpos	; 10
 	!wo chars1	; 12
 	!wo chars2	; 14
+	!wo resolut	; 16
 ;
 settab	lda #<(tabigad)
 	sta sc_texttab
@@ -1199,8 +1284,10 @@ mal32	lda xmal32
 theader	!pet "Fonts Loader"
 valid	!by 0
 
-qtab4	!by $00,$00,$01,$01,$01,$01,$01,$01
+qtab1	!by $00,$00,$01,$01,$01,$01,$01,$01	; # --- 1.01
 	!by $02,$02,$02,$02,$02,$02,$03,$03 
+qtab2	!by $00,$00,$02,$02,$02,$02,$02,$02
+	!by $01,$01,$01,$01,$01,$01,$03,$03 	; # bis hier ---
 
 signs	!by 0,58,70,78,64,64,60,0		; Kringel
 	!by $3c,$66,$6e,$6e,$60,$62,$3c,0	; @
@@ -1227,6 +1314,8 @@ cntx 	!by 0
 cnty 	!by 0
 fnt	!pet "fnt.*"
 	!by 0
+pvresotx	!scr "HM"		; # 1.01
+pvreso	!by 1
 ident	!pet "god5"
 drive	!by 0
 cwidth	!by 0
@@ -1351,6 +1440,11 @@ tlist	!by $00
 chars1	!by 06,10,18,04,$8a,0,0	; char-pool
 sec1	!scr "abcdefghijklm.,!@"
 
+resolut	!by 16,15,05,03,$c0		; # 1.01 ---
+	!wo evresltn		; resolution of preview
+	!by 223,32
+reso	!scr "M@"			; # bis hier ---
+
 	!by 14,10,10,03,$c8
 	!wo evldfnt
 	!scr "Get Font@"
@@ -1396,8 +1490,8 @@ blpos	!by 04,24,2
 bline	!scr " 0@"
 	!by $c0,09,21,4
 	!scr "Char@"
-	!by $c0,16,10,4
-	!scr "Colr@"
+	!by $c0,16,10,3		; # 1.01
+	!scr "Col@"
 	!by $c0,19,15,8
 	!scr "Kerning:@"
 	!by $c0
