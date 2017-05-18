@@ -1,0 +1,278 @@
+
+	!src "..\godotlib.lib"
+	*= $c000
+
+; ------------------------------------------------------------ 
+;
+; mod.QuickRender
+;
+;  1.00: 03.08.94, first release
+;  1.01: 17.05.17, added hires preview rendering
+;
+; ----------------------------------------------------- Header
+
+	jmp start
+	!by $20
+	!by $00,$01
+	!wo modend
+	!by $00,$00
+	!pet "2/4ColQuickRendr"
+	!pet "1.01"
+	!pet "17.05.17"
+	!pet "A.Dettke        "
+
+; ----------------------------------------------------- Equates
+
+	adcnt		= $30
+	bbline		= $31
+	src		= $35
+	dst		= $37
+	byte		= $40
+	bcnt		= $41
+
+	bscreen		= $2000
+	spr255		= $3fc0
+
+	vrbak		= $ce0b
+	vrbak1		= $de0b
+	crbak		= $ee0b
+
+	spren		= $d015
+	sprcol2		= $d029
+	sprxe		= $d01d
+	msbx		= $d010
+	x2		= $d004
+	y2		= x2+1
+	sprptr		= $07f8
+
+; ----------------------------------------------------- Main
+
+start	lda #5
+	jsr initad
+	jsr setcols
+	jsr quick
+	jsr clearad
+	lda #$00		; !!!!
+	sta gr_redisp
+	clc 
+	rts 
+
+; ----------------------------------------------------- Quick Render
+
+qtab1	!by $00,$00,$01,$01,$01,$01,$01,$01
+	!by $02,$02,$02,$02,$02,$02,$03,$03 
+qtab2	!by $00,$00,$02,$02,$02,$02,$02,$02
+	!by $01,$01,$01,$01,$01,$01,$03,$03
+cntwert	!by 3
+
+quick	lda #<sy_4bit	; from $4000 (4bit)
+	ldx #>sy_4bit
+	sta src
+	stx src+1
+	lda #<bscreen	; to $2000 (display)
+	ldx #>bscreen
+	sta dst
+	stx dst+1
+
+	ldy #0		; counts 4*64 bytes (one page)
+ql40	lda #64
+	sta bcnt
+
+ql9	lda gr_cmode	; # -- 1.01
+	beq ql4
+
+	lda (src),y	; preview in multi mode (faster)
+	and #$0f		; only right pixels used
+	tax 
+	lda qtab1,x
+	lsr
+	rol byte
+	lsr
+	rol byte
+	iny 
+
+	lda (src),y
+	and #$0f
+	tax 
+	lda qtab1,x
+	lsr
+	rol byte
+	lsr
+	rol byte
+	iny 
+
+	lda (src),y
+	and #$0f
+	tax 
+	lda qtab1,x
+	lsr
+	rol byte
+	lsr
+	rol byte
+	iny 
+
+	lda (src),y
+	and #$0f
+	tax 
+	lda qtab1,x
+	lsr
+	rol byte
+	lsr
+	rol byte
+	iny
+
+	jmp ql6
+
+ql4	lda bcnt		; # 1.01 von hier --
+	and #1
+	bne ql5
+	
+	lda #$10		; preview in hires (slower but more precise)
+	sta bbline
+-	lda (src),y	; get color pixel
+	pha
+	lsr
+	lsr
+	lsr
+	lsr
+	tax
+	lda qtab1,x	; get color pattern: %00, %01, %10 or %11
+	lsr
+	rol byte
+	pla
+	and #$0f
+	tax 
+	lda qtab2,x
+	lsr
+	rol byte
+	iny 
+	asl bbline
+	bcc -
+	bcs ql6
+
+ql5	lda #$10
+	sta bbline
+-	lda (src),y	; get color pixel
+	pha
+	lsr
+	lsr
+	lsr
+	lsr
+	tax
+	lda qtab2,x	; get color pattern: %00, %10, %01 or %11
+	lsr
+	rol byte
+	pla
+	and #$0f
+	tax 
+	lda qtab1,x
+	lsr
+	rol byte
+	iny
+	asl bbline
+	bcc -		; # -- 1.01 bis hier
+
+ql6	lda byte		; write one color pattern byte
+	ldx #0
+	sta (dst,x)
+
+	inc dst		; increment destination by 1
+	bne qs1
+	inc dst+1
+
+qs1	dec bcnt		; count
+	beq ql7
+	jmp ql4
+
+ql7	jsr adinc
+
+	inc src+1		; next page
+	lda src+1
+	cmp #>sy_bigbuffer	; up to end of 4bit
+	beq ql8
+	jmp ql40
+
+ql8	rts 
+
+; ----------------------------------------------------- Set Colors
+
+setcols	sei 
+	lda #$30
+	sta 1
+	lda #0		; blk
+	sta gr_bkcol
+	lda #$cb		; m/dgry
+	ldx #0
+cll1	sta vrbak,x
+	sta vrbak+250,x
+	sta vrbak1,x
+	sta vrbak1+250,x
+	inx 
+	cpx #250
+	bne cll1
+	lda #$ff		; lgry
+	ldx #0
+cll2	sta crbak,x
+	sta crbak+250,x
+	inx 
+	cpx #250
+	bne cll2
+	lda #$36
+	sta 1
+	cli 
+	rts 
+
+; ----------------------------------------------------- 
+
+;   sprite activity display
+
+clearad	lda spren
+	and #243
+	sta spren
+	lda msbx
+	and #243
+	sta msbx
+	rts 
+;
+initad	sta adcnt
+	ldy #60
+	lda #0
+adl0	sta spr255+3,y
+	dey 
+	bpl adl0
+	sty spr255
+	sty spr255+1
+	sty spr255+2
+	lda #15
+	sta sprcol2
+	sta sprcol2+1
+	lda sprxe
+	ora #12
+	sta sprxe
+	lda msbx
+	ora #12
+	sta msbx
+	lda #8
+	sta x2
+	lda #32
+	sta x2+2
+;
+	lda #146
+	sta y2
+	sta y2+2
+	sty sprptr+2
+	sty sprptr+3
+	lda spren
+	ora #12
+	sta spren
+	rts 
+;
+adinc	dec adcnt
+	bne ais
+	lda cntwert
+	sta adcnt
+	inc y2
+	inc y2+2
+ais	rts 
+
+modend	!eof 
