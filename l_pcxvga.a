@@ -1,0 +1,939 @@
+
+!src "..\godotlib.lib"
+*	= $c000
+
+; ------------------------------------------------------------ 
+;
+;  ldr.PCX-VGA
+;  Lader für Bilder im Format 320x200 Pixel, 256 Farben, PCX
+;  gestauchte Bilder im Format 160x200 Pixel ebenfalls
+;
+;  1.00, 19.07.93, first release
+;  1.01, 18.04.95, added Balancing awareness
+;                  added squeezed format 160x200
+;  1.02, 18.05.17, changed for correct greyscale table
+;
+; ------------------------------------------------------------ 
+
+; ----------------------------------------- Equates
+
+	bytes		= $30
+	dst0		= $31	; /$32
+	dst		= $33	; /$34
+	red		= $35
+	grn		= $36
+	blu		= $37
+	bbuf		= $38
+	lcnt8		= $39
+	minx		= $3a
+	planes		= $3b
+	counter		= $3c
+	lcnt		= $3d
+	gpy		= $3e
+	gbyte		= $3f
+	min		= $40	; /$41
+	gsum		= min
+	zp0		= $42	; /$43
+	bcnt		= $44
+	adcnt		= $45
+	nflg		= $46
+	zflg		= $47
+
+	status		= $90
+
+	spalte		= sc_merk+1
+	offy		= ls_adrmisc
+	offx		= offy+1
+	shift		= $028d
+
+	pal		= $ca00
+	rbk		= pal+64
+	gbk		= rbk+64
+	bbk		= gbk+64
+	p0		= $cc00
+	dbuf		= $cd00
+	dbuf1		= dbuf+16
+
+; ----------------------------------------- Header
+
+header	jmp start
+	!by $80
+	!by 4
+	!by 1
+	!wo modend
+	!wo 0
+	!pet "PCX 256 Colors  "
+	!pet "1.02"
+	!pet "18.05.17"
+	!pet "W.Kling/A.Dettke"
+
+addtext	!pet "max 320 Breite  "
+	!pet "8 Bit/1 Plane   "
+	!by 0
+
+; ----------------------------------------- Main
+
+start	ldx #$2f		; get GoDot rgb
+stt0	lda gr_rgb,x
+	sta cred,x
+	dex 
+	bpl stt0
+
+stt1	ldx used		; requester handling
+	bmi requ
+	beq cancel
+	cpx #3
+	bcs cancel
+
+	dec used
+	jsr getname	; save file name for later use
+	jsr gd_xopen	; open file
+	jsr gd_clrms	; init gauge 
+
+	ldx #0		; out: "PCX"
+	jsr tcopy
+	lda #200		; init activity
+	sta cntwert
+	ldx #0
+	stx sflg
+	stx counter
+	inx
+	stx adcnt
+
+	jsr gethd		; get pcx header
+	jsr checkpcx	; check (no return if fail)
+	jsr getbody	; read file
+
+	lda which		; which mode?
+	beq cl01
+	jsr getdatac	; color
+	beq cl02
+cl01	jsr getdatag	; grey
+
+cl02	jsr cancel	; Abschluss
+err	jsr gd_xclose
+	jsr gd_spron
+
+	jsr gd_xmess	; Floppy-Error?
+	bcc cn2
+
+cancel	lda #$ff		; no, reset requester
+	sta used
+
+	lda shift		; if not shift:
+	and #1
+	bne cn2
+
+	ldy #16		; reset balancing
+	sty gr_ctr
+	sty gr_brt
+lll	dey 
+	tya 
+	sta gr_btab,y
+	bne lll
+
+cn2	sec 		; leave module
+	rts 
+
+; ----------------------------------------- Requester
+
+requ	inc used
+	ldx #<(pcxlst)
+	ldy #>(pcxlst)
+	jsr gd_xmloop
+	jmp stt1
+
+; ----------------------------------------- Event: Load Color
+
+sevcol	inc used
+
+; ----------------------------------------- Event: Load Grey
+
+sevgrey	inc used
+	ldx used
+	dex 
+	stx which
+	ldx #1
+	jsr gd_xload	; open file requester
+	lda #3
+	sta used
+	sec 
+	rts 
+
+; ----------------------------------------- Activity Handler
+
+action 	dec adcnt
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	cpy #22
+	bne act0
+	jsr clrmess
+act0	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+act1	lda #7
+	sta offx
+ld4 	rts
+
+tcopy	ldy #0		; anwählen
+tc0	lda txt,x
+	beq clrmess
+	sta message,y
+	inx 
+	iny 
+	bne tc0
+;
+clrmess	ldx #24		; Message initialisieren
+	lda #32
+cl0	sta mess,x
+	dex 
+	bpl cl0
+	ldy #0
+	ldx #7
+	sty offy
+	stx offx
+	rts 
+
+messout	ldx #<(message)
+	ldy #>(message)
+	jmp gd_xtxout2
+;
+filltab	!by 160,93,103,127,126,124,105,109
+
+txt	!scr " PCX   @"	; 0
+	!scr " Cols  @"	; 8
+
+message	!scr " PCX   "
+mess	!fill 25,32
+	!by 0
+
+; ----------------------------------------- 
+
+err1	!scr "ERROR: Width greater 320 pixels."
+
+err2	!scr "    ERROR: Not a PCX file.      "
+
+err4	!scr "    ERROR: Too many colors.     "
+
+err5	!scr "        Use ldr.PCX-EGA.        "
+
+; ----------------------------------------- 
+
+checkpcx	lda colplanes
+	cmp #5
+	bcs faild
+	adc bits
+	cmp #5
+	beq faile
+	sec 
+	lda #<(319)
+	sbc xmax
+	sta sflg+1
+	lda #>(319)
+	sbc xmax+1
+	bcc failc
+	ora sflg+1
+	beq set1
+	sec 
+	lda xmax
+	sbc #160
+set1	ror sflg
+	jsr setcnt	; flag if 160
+
+noe	ldx used		; set convert routine
+	beq il3
+	lda #<(assigncol)
+	ldy #>(assigncol)
+	bne il4
+il3	lda #<(makegrey)
+	ldy #>(makegrey)
+il4	sta convmode
+	sty convmode+1
+	rts 
+
+; ----------------------------------------- 
+
+convcol	jmp (convmode)
+
+convmode	!by 0,0
+
+; ----------------------------------------- Error Handler
+
+faila	ldx #32
+	!by $2c
+failc	ldx #0
+	!by $2c
+faild	ldx #64
+	!by $2c
+faile	ldx #96
+	ldy #0
+fl0	lda err1,x
+	sta message,y
+	inx 
+	iny 
+	cpy #32
+	bne fl0
+	jsr err
+	jsr gd_clrms
+	jsr messout
+	clc 
+	jmp fail3
+;
+fl1	jsr err
+	jmp fail3
+
+; ----------------------------------------- Get PCX Header
+
+gethd	ldx #0
+	stx status
+	jsr basin
+	cmp #$0a
+	bne faila
+	sta hdbuf
+	inx 
+	stx colplanes
+hdloop	lda status
+	bne hd1
+	jsr basin
+	sta hdbuf,x
+	inx 
+	cpx #128
+	bne hdloop
+hd1	bmi fl1
+	lsr bytepline+1
+	ror bytepline
+	lda colplanes
+	beq faild
+	cmp #2
+	bcs faild
+	sta planes
+	ldy #0
+	sty zp0
+	lda #>(p0)
+	sta zp0+1
+	rts 
+
+; ----------------------------------------- 
+
+setcnt	lda bytepline
+	ldx sflg
+	bmi hd0
+	asl 
+hd0	sta bytes
+	rts 
+
+; ----------------------------------------- Get Palette
+
+getpal	ldx type
+	dex 
+	bmi getp
+	beq getp
+	dex 
+	bne getp
+	ldx which
+	bne col1
+
+gr1	ldx #15
+gr0	lda dnib,x
+	sta pal,x
+	dex 
+	bpl gr0
+	rts 
+
+; ----------------------------------------- Make Grey
+
+col1	ldx #15
+col0	lda grey,x
+	tay 
+	lda cpref,y
+	tay 
+	lda dnib,y
+	sta pal,x
+	dex 
+	bpl col0
+	rts 
+;
+; ----------------------------------------- Convert Palette
+
+getp	ldy #0
+gpl4	sty gpy
+	jsr action
+	jsr basin
+	lsr 
+	lsr 
+	lsr 
+	lsr 
+	tax 
+	lda gr_btab,x
+	sta red
+;
+	jsr action
+	jsr basin
+	lsr 
+	lsr 
+	lsr 
+	lsr 
+	tax 
+	lda gr_btab,x
+	sta grn
+;
+	jsr action
+	jsr basin
+	lsr 
+	lsr 
+	lsr 
+	lsr 
+	tax 
+	lda gr_btab,x
+	sta blu
+;
+	jsr convcol
+	ldy gpy
+	sta pal,y
+	iny 
+	bne gpl4
+	rts 
+;
+; ----------------------------------------- Color to 4Bit
+
+assigncol	lda red
+	cmp grn
+	bne cl51
+	cmp blu
+	bne cl51
+	tax 
+	lda grey,x
+	jmp grok
+;
+cl51	ldx level
+cl6	lda #0
+	sta dbuf1,x
+	lda cred,x
+	sec 
+	sbc red
+	bne rd0
+	inc zflg
+rd0	bcs rpos
+	eor #$ff
+	adc #1
+	inc nflg
+rpos	tay 
+	lda quad,y
+	sta dbuf,x
+	lda cgrn,x
+	sec 
+	sbc grn
+	bne gn0
+	inc zflg
+gn0	bcs gpos
+	eor #$ff
+	adc #1
+	inc nflg
+gpos	tay 
+	lda quad,y
+	clc 
+	adc dbuf,x
+	sta dbuf,x
+	bcc gsk
+	inc dbuf1,x
+gsk	lda cblu,x
+	sec 
+	sbc blu
+	bne bl0
+	inc zflg
+bl0	bcs bpos
+	eor #$ff
+	adc #1
+	inc nflg
+bpos	tay 
+	lda nflg
+	beq nopf
+	clc 
+	adc zflg
+	cmp #3
+	beq nopf
+	lda #2
+	!by $2c
+nopf	lda #0
+	clc 
+	adc quad,y
+	adc dbuf,x
+	sta dbuf,x
+	bcc bsk
+	inc dbuf1,x
+bsk	inx 
+	cpx #16
+	bne cl6
+;
+	stx min+1
+	ldx level
+ml1	lda dbuf1,x
+	tay 
+	cmp min+1
+	beq ms1
+	bcs ms2
+	bcc ms3
+ms1	lda dbuf,x
+	cmp min
+	beq ms4
+	bcs ms2
+ms3	lda dbuf,x
+ms4	sty min+1
+	sta min
+	stx minx
+ms2	inx 
+	cpx #16
+	bne ml1
+	lda minx
+grok	tay 
+	lda cpref,y
+	tay 
+	lda dnib,y
+	rts 
+
+; ----------------------------------------- 
+
+quad	!by 0,1,4,9,16,25,36,49,64,81,100,121,144,169,196,225
+
+cred	!by 0,3,7,11,15,0,6,7
+	!by 7,15,7,15,7,15,0,7
+cgrn	!by 0,3,7,11,15,0,3,0
+	!by 0,7,7,7,15,15,7,15
+cblu	!by 0,3,7,11,15,7,0,0
+	!by 7,0,15,7,15,0,0,7
+
+cpref	!by 11,7,3,0,15,2,9,6
+	!by 5,12,4,8,1,10,14,13
+
+grey	!by 3,3,3,2,2,2,1,1,1,1,0,0,0,0,4,4	; cpref-Index für grau
+
+; ----------------------------------------- 
+
+readline	ldy #0
+next	jsr readpcx
+	sta p0,y
+	iny 
+	jsr readpcx
+	ldx sflg
+	bmi rls0
+	sta p0,y
+	iny 
+rls0	cpy bytes
+	bcc next
+	rts 
+
+; ----------------------------------------- 
+
+readpcx	lda comp
+	beq getit0
+	lda counter
+	bne getit2
+	inc counter
+	jsr basin
+	ldx status
+	bne fail4
+b1	tax 
+	and #$c0
+	cmp #$c0
+	bne getit1
+	txa 
+	and #$3f
+	sta counter
+getit0	jsr basin
+	ldx status
+	bne fail5
+b2	tax 
+getit1	txa 
+	sta gbyte
+getit2	dec counter
+	lda gbyte
+	rts 
+
+; ----------------------------------------- Fail
+
+fail4	pha 
+	txa 
+	and #$4f
+	bne b3
+	pla 
+	jmp fail2
+b3	pla 
+	jmp b1
+
+fail5	pha 
+	txa 
+	and #$4f
+	bne b4
+	pla 
+	jmp fail2
+b4	pla 
+	jmp b2
+
+fail2	pla 
+	pla 
+fail3	pla 
+	pla 
+	inc used
+	rts 
+
+; ----------------------------------------- 
+
+cols	!by 0,2,4,8,16
+
+pltab	!by 0,1,3,7,15
+
+dnib	!by $00,$11,$22,$33
+	!by $44,$55,$66,$77
+	!by $88,$99,$aa,$bb
+	!by $cc,$dd,$ee,$ff
+
+; ----------------------------------------- Convert to Grey
+
+makegrey	lda red
+	cmp grn
+	bne gs51
+	cmp blu
+	bne gs51
+	jmp grok0
+
+gs51	asl 
+	tay 
+	lda rtab,y
+	sta gsum
+	lda rtab+1,y
+	sta gsum+1
+	lda grn
+	asl 
+	tay 
+	lda gtab,y
+	clc 
+	adc gsum
+	sta gsum
+	lda gtab+1,y
+	adc gsum+1
+	sta gsum+1
+	lda blu
+	asl 
+	tay 
+	lda btab,y
+	clc 
+	adc gsum
+	sta gsum
+	lda btab+1,y
+	adc gsum+1
+	sta gsum+1
+	lda gsum
+	clc 
+	adc #128
+	lda gsum+1
+	adc #0
+grok0	tay 
+	lda dnib,y
+	rts 
+
+; ----------------------------------------- Read PCX file
+
+getbody	lda #<($4000)
+	ldx #>($4000)
+	sta dst0
+	sta dst
+	stx dst0+1
+	stx dst+1
+
+	lda #25
+	sta lcnt8
+lnloop8	lda #8
+	sta lcnt
+lnloop	jsr readline
+	ldy #0
+	lda #4
+	sta bcnt
+	ldx #0
+byloop	cpy bytes
+	bcs s6
+	lda p0,y
+	sta (dst,x)
+s6	sty gpy
+	jsr action
+	ldy gpy
+	inc dst
+	bne s3
+	inc dst+1
+s3	dec bcnt
+	bne s4
+	lda #4
+	sta bcnt
+	lda dst
+	clc 
+	adc #28
+	sta dst
+	bcc s4
+	inc dst+1
+s4	iny 
+	cpy #160
+	bne byloop
+
+	lda dst0
+	clc 
+	adc #4
+	sta dst0
+	sta dst
+	bcc s5
+	inc dst0+1
+s5	lda dst0+1
+	sta dst+1
+	dec lcnt
+	beq rdy
+	jmp lnloop
+
+rdy	lda dst0
+	clc 
+	adc #<(1248)
+	sta dst0
+	sta dst
+	lda dst0+1
+	adc #>(1248)
+	sta dst0+1
+	sta dst+1
+	dec lcnt8
+	beq rdy1
+	jmp lnloop8
+
+rdy1	jsr basin		; $0c
+
+	ldx #8		; out: "Cols"
+	jsr tcopy
+	lda #3
+	sta cntwert
+	ldx #1
+	sta adcnt
+	jsr action
+	lda #255
+	sta adcnt
+
+	jsr getpal
+
+	ldy #0		; convert rgb colors to 4Bit
+	sty dst
+	ldx #$40
+	stx dst+1
+hloop	lda (dst),y
+	tax 
+	lda pal,x
+	sta (dst),y
+	iny 
+	bne hloop
+	inc dst+1
+	lda dst+1
+	cmp #$bd
+	bne hloop
+	rts 
+
+; ----------------------------------------- 
+
+rtab	!by $00,$00,$4d,$00
+	!by $9a,$00,$e7,$00
+	!by $34,$01,$81,$01
+	!by $ce,$01,$1b,$02
+	!by $68,$02,$b5,$02
+	!by $02,$03,$4f,$03
+	!by $9c,$03,$e9,$03
+	!by $36,$04,$83,$04
+
+gtab	!by $00,$00,$97,$00
+	!by $2e,$01,$c5,$01
+	!by $5c,$02,$f3,$02
+	!by $8a,$03,$21,$04
+	!by $b8,$04,$4f,$05
+	!by $e6,$05,$7d,$06
+	!by $14,$07,$ab,$07
+	!by $42,$08,$d9,$08
+
+btab	!by $00,$00,$1c,$00
+	!by $38,$00,$54,$00
+	!by $70,$00,$8c,$00
+	!by $a8,$00,$c4,$00
+	!by $e0,$00,$fc,$00
+	!by $18,$01,$34,$01
+	!by $50,$01,$6c,$01
+	!by $88,$01,$a4,$01
+
+; ----------------------------------------- 
+
+col	!by 0
+used	!by $ff
+which	!by 0
+level	!by 0
+lvlnum	!pet "012345"
+sflg	!wo 0
+cntwert	!by 4
+
+; ----------------------------------------- 
+
+pcxlst	!by 0
+	!by 4,11,18,16,$81,0,0
+	!scr "Load MSDos PCX@"
+	!by 9,11,18,3,$ca,<(sevgrey),>(sevgrey)
+	!scr "Grey Scale@"
+	!by 12,11,11,3,$c8,<(sevcol),>(sevcol)
+	!scr "Color@"
+lvlgad	!by 12,22,7,3,$cf,<(sevlvl),>(sevlvl)
+	!scr "Lvl "
+lvltx	!scr "0@"
+	!by 15,11,18,3,$ca,<(cn2),>(cn2)
+	!scr "Cancel Load@"
+	!by $c0,6,14,10
+	!scr "Convert to@"
+	!by $80
+
+; ----------------------------------------- 
+
+sevlvl	lda spalte
+	cmp #25
+	bcs lvlinc
+lvldec	dec level
+	bpl lvl0
+	lda #4
+	sta level
+lvlinc	inc level
+lvl0	ldx level
+	cpx #6
+	bcc lvl1
+	ldx #0
+	stx level
+lvl1	lda lvlnum,x
+	sta lvltx
+	jsr gettab
+	ldy #6
+	jmp gd_xtxout1
+
+; ----------------------------------------- 
+
+gettab	lda #<(lvlgad)
+	sta sc_screentab
+	lda #>(lvlgad)
+	sta sc_screentab+1
+	lda #0
+	tax 
+	tay 
+gt0	jsr gd_setpos
+	cpx #3
+	bne gt0
+	stx sc_ho
+	jsr gd_trim
+	jmp gd_initmove
+
+; ----------------------------------------- 
+
+getname	ldx #0
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx 
+	cpx #16
+	bcc si0
+si1	rts 
+
+getdatac	ldx #4
+	!by $2c
+getdatag	ldx #9
+	ldy #4
+sinfo0	lda dtextc,x
+	sta datatype,y
+	dex 
+	dey 
+	bpl sinfo0
+
+	jsr setname
+	jsr setloader
+	jsr setmode
+	jmp setdata
+
+setname	lda #0
+	ldx #<(ls_picname)
+	ldy #>(ls_picname)
+	bne si3
+setloader	lda #17
+	ldx #<(ls_iloader)
+	ldy #>(ls_iloader)
+	bne si3
+setmode	lda #25
+	ldx #<(ls_imode)
+	ldy #>(ls_imode)
+	bne si3
+setdata	lda #33
+	ldx #<(ls_idrive)
+	ldy #>(ls_idrive)
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax 
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx 
+	iny 
+	bne si4
+si5	rts 
+
+nbuf	!fill 16,32
+	!by 0
+	!scr "PCX    @"
+modetx	!scr "160x200@"
+datatype	!scr "Color@"
+ttext	!scr "Text   "
+htext	!scr "320x200"
+mtext	!scr "160x200"
+dtextc	!scr "Color"
+dtextg	!scr "Grey "
+
+; ----------------------------------------- 
+
+hdbuf	!by 0
+version	!by 0
+comp	!by 0
+bits	!by 0
+xmin	!wo 0
+ymin	!wo 0
+xmax	!wo 0
+ymax	!wo 0
+xsize	!wo 0
+ysize	!wo 0
+palette	!by 0,0,0
+	!by 0,0,0
+	!by 0,0,0
+	!by 0,0,0
+	!by 0,0,0
+	!by 0,0,0
+	!by 0,0,0
+	!by 0,0,0
+	!by 0,0,0
+	!by 0,0,0
+	!by 0,0,0
+	!by 0,0,0
+	!by 0,0,0
+	!by 0,0,0
+	!by 0,0,0
+	!by 0,0,0
+reserved	!by 0
+colplanes	!by 0
+bytepline	!wo 0
+type	!wo 0
+dummy	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+	!by 0,0
+
+; ----------------------------------------- 
+
+modend	!eof 
