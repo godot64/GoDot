@@ -1,0 +1,420 @@
+
+	*= $c000
+	!src "..\godotlib.lib"
+
+; ----------------------------------------- 
+;
+;  ldr.Koala
+;  Loader for Multicolor Images
+;
+;  1.01, 30.10.91:  changed buffer addresses
+;  ...
+;  1.06, 15.08.05:  bugfix, correct background color
+;  1.07, 30.10.05:  added storage of original file background color
+;  1.08, 16.08.08:  bugfix, filenames of 16 chars get retrieved now
+;
+; ----------------------------------------- 
+
+
+; ----------------------------------------- Equates
+
+	ftype		= $30
+	counter		= $31
+	gbyte		= $32
+	byte		= $33
+	cnt		= $34
+	vr		= $35	; /$36
+	cr		= $37	; /$38
+	adcnt		= $39
+	dst0		= $3a	; /$3b
+
+	status		= $90
+
+	offx		= ls_adrmisc
+	offy		= offx+1
+
+	vrbuf		= $c600
+	crbuf		= vrbuf+1000
+	col0		= vrbuf+2000
+
+; ----------------------------------------- Header
+
+	jmp start
+	!by $80
+	!by $00,$00
+	!by <(modend),>(modend)
+	!by $00,$00
+	!pet "Koala (even GG) "
+	!pet "1.08"
+	!pet "16.08.08"
+	!pet "W.Kling/A.Dettke"
+
+; ----------------------------------------- Main
+
+jerror	jmp error
+
+start	lda #50		; activity counter
+	sta cntwert
+	ldx #1
+	stx adcnt
+
+	ldx sc_vekt20	; set destination address ($4000)
+	stx ftype		; .x is $00
+	stx counter	; init compress counter
+	ldy sc_vekt20+1
+	stx sc_texttab
+	sty sc_texttab+1
+
+	lda ls_nambuf	; Koala-Spades as first char in filename?
+	cmp #$c1
+	bne stt1
+	lda #$81		; yes, change to readable char
+stt1	sta ls_nambuf
+	ldx ls_temp	; length is 15 chars? (standard koala length)
+	cpx #15
+	beq stt2
+	lda #$2a		; no, add wildcard
+	sta ls_nambuf,x	; (so prevent skipping of trailing spaces)
+	inc ls_temp
+stt2	jsr getname	; save name
+
+	lda ls_nambuf	; check for compressed file ("gg" in name)
+	cmp #$47
+	bne stt3
+	cmp ls_nambuf+1
+	bne stt3
+	sta ftype		; yes, set flag
+
+; ----------------------------------------- Read Bitmap
+
+stt3	jsr gd_xopen	; open file
+	jsr onebyte	; skip start address ($6000)
+	bne jerror
+	jsr onebyte
+	bne jerror
+
+	jsr gd_clrms	; init gauge
+	ldx #18		; out: "Bitmap"
+	jsr tcopy
+	lda #<(8000)	; 8000 bytes
+	sta ls_vekta8
+	lda #>(8000)
+	sta ls_vekta8+1
+
+loop	jsr onebyte	; read bitmap
+l1	bne jerror
+	sta byte
+	jsr action	; activity
+	ldy #0
+	ldx #4		; make 4 bytes from 1 (= 8 pixels)
+bloop	lda #0		; pre-convert to 4bit
+	asl byte
+	rol
+	asl byte
+	rol
+	sta (sc_texttab),y
+	inc sc_texttab
+	bne sk
+	inc sc_texttab+1
+sk	dex
+	bne bloop
+
+	lda ls_vekta8	; count
+	bne sk1
+	dec ls_vekta8+1
+sk1	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	beq sk2
+
+	lda status	; floppy error?
+	beq loop		; no
+
+; ----------------------------------------- Read Colors
+
+sk2	lda #<(2000)	; 2000 bytes
+	sta ls_vekta8
+	lda #>(2000)
+	sta ls_vekta8+1
+	lda #<(vrbuf)	; destination buffer address
+	sta sc_texttab
+	lda #>(vrbuf)
+	sta sc_texttab+1
+
+	lda #13		; out: "Colors"
+	sta cntwert
+	ldx #1
+	sta adcnt
+	dex
+	jsr tcopy
+
+loop1	jsr onebyte	; store bytes
+	sta (sc_texttab),y
+	jsr action	; activity
+	ldy #0
+	inc sc_texttab	; count
+	bne sk3
+	inc sc_texttab+1
+sk3	lda ls_vekta8
+	bne sk4
+	dec ls_vekta8+1
+sk4	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	beq sk5
+	jmp loop1
+
+; ----------------------------------------- Read Background Color
+
+sk5	ldy #0
+	jsr onebyte
+	and #15		; make sure bgcolor is only 1 nibble
+	sta gr_fbkcol	; store original background color to GoDot
+	sta (sc_texttab),y
+
+; ----------------------------------------- Convert to 4Bit
+
+	jsr gd_xclose	; close file
+
+	lda #<(vrbuf)	; set buffer addresses
+	sta vr
+	lda #>(vrbuf)
+	sta vr+1
+	lda #<(crbuf)
+	sta cr
+	lda #>(crbuf)
+	sta cr+1
+	lda #<($4000)	; set 4bit address
+	sta sc_texttab
+	lda #>($4000)
+	sta sc_texttab+1
+	lda #<(1000)	; count (to 1000)
+	sta ls_vekta8
+	lda #>(1000)
+	sta ls_vekta8+1
+
+	lda #200		; out: "Convert"
+	sta cntwert
+	ldx #9
+	stx adcnt
+	jsr tcopy
+
+loop2	lda (vr),y	; convert video ram to VIC regs
+	pha
+	lsr
+	lsr
+	lsr
+	lsr
+	sta col0+1	; ink
+	pla
+	and #$0f
+	sta col0+2	; paper
+	lda (cr),y	; convert color ram to...
+	and #$0f
+	sta col0+3	; ...individual color
+
+	lda #32		; one tile
+	sta cnt
+bloop1	jsr action
+	ldy #0
+	lda (sc_texttab),y	; get pre-rendered 4bit data
+	tax
+	lda col0,x	; convert to 4bit
+	tax
+	lda dnib,x	; (make double nibs)
+	sta (sc_texttab),y
+	inc sc_texttab	; proceed in tile
+	bne sk6
+	inc sc_texttab+1
+sk6	dec cnt
+	bne bloop1
+
+	inc vr		; advance in buffers (next tile)
+	bne sk7
+	inc vr+1
+sk7	inc cr
+	bne sk8
+	inc cr+1
+
+sk8	lda ls_vekta8	; count 1000 tiles
+	bne sk9
+	dec ls_vekta8+1
+sk9	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	bne loop2
+
+	ldx #18		; reset text output
+	jsr tcopy
+
+; ----------------------------------------- Abschluss
+
+	jsr setinfo	; set image information
+
+sk10	jsr gd_xmess	; floppy message
+	jsr gd_spron	; mouse pointer on
+	sec		; leave loader
+	rts
+
+; ----------------------------------------- Read one Byte and decode
+
+onebyte	lda counter
+	bne getit2
+	inc counter
+	jsr basin		; indicator?
+	cmp #$fe		; (RLE indicator is #$fe)
+	bne getit1	; no, skip
+	bit ftype		; is compressed?
+	bvc getit1	; no, skip
+
+	jsr basin		; yes, get byte
+	pha
+	jsr basin		; get counter
+	sta counter
+	pla
+getit1	sta gbyte
+getit2	dec counter	; write result
+	lda gbyte
+	ldx status	; floppy status?
+	rts
+
+; ----------------------------------------- File Error
+
+error	jsr gd_xclose	; close file
+	jsr sk10		; Abschluss
+	clc		; stay in loader
+	rts
+
+; ----------------------------------------- Message Handling
+
+messout	ldx #<(message)	; ausgeben
+	ldy #>(message)
+	jmp gd_xtxout2
+
+tcopy	ldy #0		; anwählen
+tc0	lda txt,x
+	beq clrmess
+	sta message,y
+	inx 
+	iny 
+	bne tc0
+
+action	dec adcnt		; Gauge-Bar bewegen
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	cpy #22
+	bne act0
+	jsr clrmess
+act0	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts 
+
+clrmess	ldx #20		; Message initialisieren
+	lda #32
+cl0	sta mess,x
+	dex 
+	bpl cl0
+	ldy #0
+	ldx #7
+	sty offy
+	stx offx
+	rts 
+
+filltab	!by 160,93,103,127,126,124,105,109
+
+txt	!scr " Colors @"	; 0
+	!scr " Convert@"	; 9
+	!scr " Bitmap @"	; 18
+
+message	!fill 11,32
+mess	!fill 21,32
+	!by 0
+
+; ----------------------------------------- Data
+
+dnib	!by $00,$ff,$44,$cc,$55,$aa,$11,$dd
+	!by $66,$22,$99,$33,$77,$ee,$88,$bb
+
+cntwert	!by 50
+
+; ----------------------------------------- Image Information Handler
+
+getname	ldx #0
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx 
+	cpx #16
+	bcc si0
+si1	rts 
+
+getdatac	ldx #4
+	!by $2c
+getdatag	ldx #9
+	ldy #4
+sinfo0	lda dtextc,x
+	sta datatype,y
+	dex 
+	dey 
+	bpl sinfo0
+	rts 
+
+setinfo	jsr getdatac
+	jsr setname
+	jsr setloader
+	jsr setmode
+	jmp setdata
+
+setname	lda #0
+	ldx #<(ls_picname)
+	ldy #>(ls_picname)
+	bne si3
+setloader	lda #17
+	ldx #<(ls_iloader)
+	ldy #>(ls_iloader)
+	bne si3
+setmode	lda #25
+	ldx #<(ls_imode)
+	ldy #>(ls_imode)
+	bne si3
+setdata	lda #33
+	ldx #<(ls_idrive)
+	ldy #>(ls_idrive)
+si3	stx dst0
+	sty dst0+1
+	tax 
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (dst0),y
+	inx 
+	iny 
+	bne si4
+si5	rts 
+
+nbuf	!fill 16,32
+	!by 0
+
+	!scr "Koala  @"
+
+modetx	!scr "160x200@"
+datatype	!scr "Color@"
+ttext	!scr "Text   "
+htext	!scr "Hires  "
+mtext	!scr "160x200"
+dtextc	!scr "Color"
+dtextg	!scr "Grey "
+
+; ----------------------------------------- 
+
+modend	!eof
+
