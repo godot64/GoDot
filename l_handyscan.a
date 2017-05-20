@@ -47,7 +47,6 @@
 
 	sprptr		= $07f8
 
-	buffer		= $2000
 	b0		= sy_global
 	spr255		= $3fc0
 
@@ -214,7 +213,7 @@ gd0	lda stopkey	; STOP?
 	dey
 	bne gd0
 
-gd1	lda #$0e		; flicker screen border when scanning active
+gd1	lda #$0e		; flicker screen (border) when scanning active
 	sta rahmen
 
 	lda icrcia2	; start scan
@@ -225,7 +224,7 @@ gd2	cpx icrcia2	; handshake
 	bcs gd2
 
 	ldy #$41		; read 66 bytes (backwards, 640x528)
-gd3	cpx icrcia2
+gd3	cpx icrcia2	; (ein senkrechter Streifen)
 	bcs gd3
 	lda portbcia1
 	sta (sdest),y	; store
@@ -238,7 +237,7 @@ gd4	cpx icrcia2
 	bpl gd3
 
 	sty serdata	; then stop
-	lda #$06		; flicker
+	lda #$06		; toggle flicker
 	sta rahmen
 	lda cnt640	; 640 times (width of data)
 	bne mlo1
@@ -251,7 +250,7 @@ mlo1	dec cnt640
 
 mlo2	lda sdest		; no, limit height to 400 (instead of 528)
 	clc
-	adc #50
+	adc #50		; schneidet die unteren 128 Pixel ab
 	sta sdest
 	bcc loop1
 	inc sdest+1
@@ -288,7 +287,7 @@ init	sei
 
 off	jsr resetio
 	lda #$9b
-	sta bildaus
+	sta bildaus	; Bild an
 	cli
 	rts
 
@@ -576,7 +575,7 @@ end	rts
 
 ; ----------------------------------------- Activity Handler
 
-adinc	dec adcnt		; activity
+adinc	dec adcnt		; activity (sprite bar in image info)
 	bne adskip
 	inc $d005
 	inc $d007
@@ -617,7 +616,7 @@ adl0	sta $3fc0,y
 	sta $d015
 	rts
 
-clearad	lda $d015		; close activity
+clearad	lda $d015		; shut down activity
 	and #$f3
 	sta $d015
 	lda $d010
