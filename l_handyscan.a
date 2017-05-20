@@ -1,0 +1,681 @@
+
+	*= $c000
+	!src "..\godotlib.lib"
+
+; ----------------------------------------- 
+;
+;  ldr.HandyScanner
+;  Scans Images with Scanntronik HandyScanner64 Device
+;
+;  1.00, 17.07.93: first release
+;  1.01, 15.06.00:
+;  1.02, 17.06.00: added requester to choose mode
+;
+; ----------------------------------------- 
+
+
+; ----------------------------------------- Equates
+
+	vfakwert		= $30
+	hfak		= $31
+	lasttimer		= $32
+	cnt100		= $33
+	dest		= $34	; /$35
+	source		= $36	; /$37
+	trans		= $38	; /$39
+	src		= $3a	; /$3b
+	getbit		= $3c
+	setbit		= $3d
+	dst		= $3e	; /$3f
+	sdest		= $40	; /$41
+	stretch		= $42
+	pcnt		= $43
+	src0		= $44	; /$45
+	src1		= $46	; /$47
+	off0		= $48
+	off1		= $49
+	cntl8		= $4a
+	cnt640		= $4b
+	bbuf		= $4c
+	blcnt		= $4d
+	cnt4		= $4e
+	lcnt		= $4f
+	adcnt		= $50
+	dst0		= $51	; /$52
+
+	status		= $90
+
+	sprptr		= $07f8
+
+	buffer		= $2000
+	b0		= sy_global
+	spr255		= $3fc0
+
+	mirtab		= $c700
+	tab		= $c800
+	buf		= $c900
+
+	x2		= $d004
+	y2		= x2+1
+	msbx		= $d010
+	bildaus		= $d011
+	spren		= $d015
+	sprxe		= $d01d
+	rahmen		= $d020
+	sprcol2		= $d029
+
+	stopkey		= $dc01
+	timeralo		= $dc04
+	cracia1		= $dc0e
+	portbcia1		= $dd01
+	dirpacia1		= $dd03
+	timercia2		= $dd04
+	serdata		= $dd0c
+	icrcia2		= $dd0d
+	cracia2		= $dd0e
+
+; ----------------------------------------- Header
+
+header	jmp start
+	!by $80
+	!by 4
+	!by 0
+	!wo modend
+	!wo 0
+	!pet "HandyScanner 64 "
+	!pet "1.02"
+	!pet "17.06.00"
+	!pet "A.Dettke/W.Kling"
+
+; ----------------------------------------- Main
+
+start	ldx #0		; init status 
+	stx status
+	ldx #<(fourlst)	; requester
+	ldy #>(fourlst)
+	jsr gd_xmloop
+cn2	sec
+	rts
+
+; --------------------------------------------- Event: Choose Mode
+
+ev_digi	lda digi		; 3 alternatives
+	cmp #2
+	bne ecl0
+	lda #$ff
+	sta digi
+ecl0	inc digi
+	ldx digi
+	lda digioffs,x
+	tay
+	ldx #7
+ecl1	lda digitx,y	; enter text into requester
+	sta digitxt,x
+	dey
+	dex
+	bpl ecl1
+	ldx digi
+	lda grayoffs,x
+	tay
+	ldx #15
+ecl2	lda gray05,y	; set representing values accordingly
+	sta restab,x
+	dey
+	dex
+	bpl ecl2
+	jsr gettab
+	ldy #6
+	jmp gd_xtxout1
+
+; ------------------------------------------ Data
+
+digioffs	!by 7,15,23
+
+digitx	!scr " Gray 5 "	; 7
+	!scr " Gray 9 "	; 15
+	!scr " Gray16 "	; 23
+
+restab	!by 0,3,3,7,3,7,7,11
+	!by 3,7,7,11,7,11,11,15
+
+gray05	!by 0,3,3,7,3,7,7,11
+	!by 3,7,7,11,7,11,11,15
+
+gray09	!by 0,2,2,4,4,6,6,7
+	!by 7,9,9,11,11,13,13,15
+
+gray16	!by 0,1,2,3,4,5,6,7
+	!by 8,9,10,11,12,13,14,15
+
+grayoffs	!by 15,31,47
+
+; ----------------------------------------- Textausgabe
+
+gettab	lda #<(digigad)
+	sta sc_screentab
+	lda #>(digigad)
+	sta sc_screentab+1
+	lda #0
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #3
+	bne gt0
+	stx sc_ho
+	jsr gd_trim
+	jmp gd_initmove
+
+; ----------------------------------------- Screenlist Requester
+
+fourlst	!by 0
+	!by 8,11,18,11,$91,0,0
+	!scr "ScT Handyscan @"
+digigad	!by 11,19,10,3,$cf,<(ev_digi),>(ev_digi)
+digitxt	!scr " Gray 5 @"
+	!by 14,11,18,3,$ca,<(ev_dig),>(ev_dig)
+	!scr "Get Image@"
+	!by 17,11,18,3,$c9,<(cn2),>(cn2)
+	!scr "Cancel@"
+	!by $c0,11,12,5
+	!scr "Mode:@"
+	!by $80 
+
+; ------------------------------------------ Event: Digitize
+
+ev_dig	jsr getfacts	; Skalierungsfaktoren holen
+getdata	jsr init		; start scanner
+
+	lda #$40		; store data to $4000
+	sta sdest+1
+	ldy #0
+	sty sdest
+
+	asl
+	sta cnt640	; count 640 lines
+	lda #2
+	sta cnt640+1
+
+loop1	lda addvfak	; Skalierung 1:1 (300%)
+	clc
+	adc vfak
+	sta addvfak
+	lda skipl
+	adc #$00
+	beq gd1
+	tay
+
+gd0	lda stopkey	; STOP?
+	bpl gd5		; yes, end
+
+	lda timeralo	; wait
+	cmp lasttimer
+	beq gd0
+	sta lasttimer
+	dey
+	bne gd0
+
+gd1	lda #$0e		; flicker screen border when scanning active
+	sta rahmen
+
+	lda icrcia2	; start scan
+	lda #$00
+	sta serdata
+	ldx #$0f
+gd2	cpx icrcia2	; handshake
+	bcs gd2
+
+	ldy #$41		; read 66 bytes (backwards, 640x528)
+gd3	cpx icrcia2
+	bcs gd3
+	lda portbcia1
+	sta (sdest),y	; store
+	dey
+gd4	cpx icrcia2
+	bcs gd4
+	lda portbcia1
+	sta (sdest),y	; two bytes at once
+	dey
+	bpl gd3
+
+	sty serdata	; then stop
+	lda #$06		; flicker
+	sta rahmen
+	lda cnt640	; 640 times (width of data)
+	bne mlo1
+	dec cnt640+1
+mlo1	dec cnt640
+	bne mlo2
+	lda cnt640+1	; finished?
+	ora cnt640
+	beq gd5
+
+mlo2	lda sdest		; no, limit height to 400 (instead of 528)
+	clc
+	adc #50
+	sta sdest
+	bcc loop1
+	inc sdest+1
+	bne loop1		; next line
+
+gd5	jmp ready		; process data
+
+; ----------------------------------------- Start Scanner
+
+init	sei
+	jsr resetio	; first: init C64
+	lda #$00		; then init scanner
+	sta dirpacia1
+	lda #$7f
+	sta icrcia2
+	lda #$01
+	sta timercia2
+	lda #$00
+	sta timercia2+1
+	lda #$41
+	sta cracia2
+	lda #$ff
+	sta serdata
+	lda #$31
+	sta cracia1
+	lda timeralo
+	sta lasttimer
+	lda #$00		; Sprites aus
+	sta spren
+	sta bildaus	; Bild aus
+	rts
+
+; ----------------------------------------- Stop Scanner
+
+off	jsr resetio
+	lda #$9b
+	sta bildaus
+	cli
+	rts
+
+resetio	jsr $fda3		; init ROM IRQ vectors and CIA
+	dec $01
+	rts
+
+; ----------------------------------------- Get Scaling Factors
+
+getfacts	lda #$2c		; in Pagefox: 300% (1:1)
+	sta vfakwert
+	lda #1
+	sta vfakwert+1
+	sta lasttimer
+	sta addvfak
+	lda vfakwert+1
+	lsr
+	lda vfakwert
+	ror
+	sta hfak
+	lda #0		; Skipwert
+	sta skipl
+	lda #$ed		; und Faktor für 300%
+	sta vfak
+	clc
+	rts
+
+; ----------------------------------------- Process Scanner Data
+
+ready	jsr off		; Scanner aus
+	jsr mkmirtab	; compute mirror table
+	lda #$40		; start at $4000
+	sta sdest+1
+	ldy #0
+	sty sdest
+
+tt1	lda (sdest),y	; alle Bytes spiegeln und invertieren
+	tax
+	lda mirtab,x
+	eor #$ff
+	sta (sdest),y
+	iny
+	bne tt1
+	inc sdest+1
+	lda sdest+1
+	cmp #$bd
+	bne tt1
+
+	jsr convert	; nach 4Bit konvertieren
+	jsr getname	; Filenamen sichern
+	jsr setinfo	; Image Information 
+	jsr gd_spron
+	sec		; leave module
+	rts		; fertig
+
+; ----------------------------------------- Data
+
+defname	!scr "GoDotScan@"	; Name für Image Information
+
+addvfak	!by 0
+vfak	!by 0
+skipl	!by 0
+byte	!by 0
+digi	!by 0
+
+; ----------------------------------------- Create Mirror Table
+
+mkmirtab	ldx #0		; revert all values 0..255 and store
+mt0	txa
+	ldy #8
+mt1	asl
+	ror mirtab,x
+	dey
+	bne mt1
+	inx
+	bne mt0
+	rts
+
+; ----------------------------------------- Convert to 4Bit
+
+convert	jsr maketab	; create resample table
+	lda #3		; activity
+	jsr initad
+	lda #<($4000)	; start at $4000
+	ldx #>($4000)
+	sta src0
+	stx src0+1
+	lda #$ce		; process from end of data ($bd00-50)
+	ldx #$bc
+	sta src1
+	stx src1+1
+
+	lda #50		; jeweils 50 Bytes (400 Pixel)
+	sta off0
+	lda #25		; 25 Blockzeilen von 1280 Bytes
+	sta cntl8
+
+loop	jsr strip2	; umschichten
+	lda off0
+	sta off1
+	sec
+	sbc #2
+	sta off0
+	jsr squeeze	; dann zusammenschieben in buf
+
+	lda #<(buf)
+	ldx #>(buf)
+	sta src
+	stx src+1
+
+	lda #5
+	sta pcnt
+	ldy #0
+tloop	lda (src),y	; resamplete Werte zurückschreiben (je 1280 Bytes)
+	tax
+	lda tab,x
+	sta (src0),y
+	iny
+	bne tloop
+	jsr adinc		; activity
+	inc src+1
+	inc src0+1
+	dec pcnt
+	bne tloop
+
+	dec cntl8		; bis alle Blockzeilen durch
+	bne loop
+
+	iny		; Render-Flag an
+	sty gr_redisp
+	jsr clearad	; Sprites aus
+	sec		; fertig
+	rts
+
+; ----------------------------------------- Create Resample Table
+
+maketab	ldy #0		; 0..255
+mtloop	tya		; upper nibble
+	lsr
+	lsr
+	lsr
+	lsr
+	tax
+	lda restab,x	; umsetzen auf GoDot
+	asl
+	asl
+	asl
+	asl
+	sta bbuf
+	tya		; lower nibble
+	and #$0f
+	tax
+	lda restab,x	; umsetzen auf GoDot
+	ora bbuf		; combine
+	sta tab,y		; and store
+	iny
+	bne mtloop
+	rts
+
+; ----------------------------------------- Umschichten
+
+strip2	lda src0		; start at $4000
+	ldx src0+1
+	sta src
+	stx src+1
+	lda #<(buf)	; to buf at $c900
+	ldx #>(buf)
+	sta dst
+	stx dst+1
+
+	lda #40		; 40 Kacheln (eine Blockzeile)
+	sta blcnt
+
+bloop	ldy #0		; eine Kachel
+	ldx #0
+loop4	lda #4
+	sta cnt4
+loop41	lda (src),y
+	asl
+	rol b0,x
+	asl
+	rol b0,x
+	asl
+	rol b0+4,x
+	asl
+	rol b0+4,x
+	asl
+	rol b0+8,x
+	asl
+	rol b0+8,x
+	asl
+	rol b0+12,x
+	asl
+	rol b0+12,x
+	iny
+	lda (src),y
+	asl
+	rol b0+16,x
+	asl
+	rol b0+16,x
+	asl
+	rol b0+20,x
+	asl
+	rol b0+20,x
+	asl
+	rol b0+24,x
+	asl
+	rol b0+24,x
+	asl
+	rol b0+28,x
+	asl
+	rol b0+28,x
+	dey
+	lda src
+	clc
+	adc off0
+	sta src
+	bcc sk1
+	inc src+1
+sk1	dec cnt4
+	bne loop41
+	inx
+	cpx #4
+	bne loop4
+
+	ldy #31		; eine Kachel fertig
+mdloop	lda b0,y
+	sta (dst),y	; und puffern
+	dey
+	bpl mdloop
+
+	lda dst		; nächste Kachel
+	clc
+	adc #32
+	sta dst
+	bcc sk2
+	inc dst+1
+sk2	dec blcnt		; bis 40 Kacheln durch
+	bne bloop
+	rts
+
+; ----------------------------------------- Platz schaffen für konvertierte Blockzeile
+
+squeeze	lda src1		; start at $bd00-50
+	ldx src1+1
+	sta src
+	stx src+1
+	sta dst
+	stx dst+1
+	lda #$80		; 640 Rasterzeilen...
+	ldx #$02
+	sta lcnt
+	stx lcnt+1
+
+sql0	ldy off0
+	iny
+sql1	lda (src),y	; ...zusammenschieben...
+	sta (dst),y
+	dey
+	bpl sql1		; ...in kleiner werdenden Abschnitten...
+
+	lda src		; ...abwärts, zuerst bis $4500 (Blockzeile 1)
+	sec
+	sbc off1
+	sta src
+	bcs sqs0
+	dec src+1
+sqs0	lda dst
+	sec
+	sbc off0
+	sta dst
+	bcs sqs1
+	dec dst+1
+sqs1	lda lcnt
+	bne sqs2
+	dec lcnt+1
+sqs2	dec lcnt
+	lda lcnt+1
+	ora lcnt
+	bne sql0
+
+	inc src1		; Startpunkt um zwei erhöhen ($bd00-48)
+	inc src1
+end	rts
+
+; ----------------------------------------- Activity Handler
+
+adinc	dec adcnt		; activity
+	bne adskip
+	inc $d005
+	inc $d007
+	lda #3
+	sta adcnt
+adskip	rts
+
+initad	sta adcnt		; init activity bar
+	ldy #63
+	lda #0
+adl0	sta $3fc0,y
+	dey
+	bpl adl0
+	sty $3fc0
+	sty $3fc1
+	sty $3fc2
+	lda #15
+	sta $d029
+	sta $d02a
+	lda $d01d
+	ora #12
+	sta $d01d
+	lda $d010
+	ora #12
+	sta $d010
+	lda #8
+	sta $d004
+	lda #32
+	sta $d006
+
+	lda #146
+	sta $d005
+	sta $d007
+	sty $07fa
+	sta $07fb
+	lda $d015
+	ora #12
+	sta $d015
+	rts
+
+clearad	lda $d015		; close activity
+	and #$f3
+	sta $d015
+	lda $d010
+	and #$f3
+	sta $d010
+	rts
+
+; ----------------------------------------- Image Information Handler
+
+getname	ldx #0
+si0	lda defname,x
+	beq si1
+	sta nbuf,x
+	inx 
+	cpx #16
+	bcc si0
+si1	rts 
+
+setinfo	jsr setname
+	jsr setloader
+	jsr setmode
+	jmp setdata
+
+setname	lda #0
+	ldx #<(ls_picname)
+	ldy #>(ls_picname)
+	bne si3
+setloader	lda #17
+	ldx #<(ls_iloader)
+	ldy #>(ls_iloader)
+	bne si3
+setmode	lda #25
+	ldx #<(ls_imode)
+	ldy #>(ls_imode)
+	bne si3
+setdata	lda #33
+	ldx #<(ls_idrive)
+	ldy #>(ls_idrive)
+si3	stx dst0
+	sty dst0+1
+	tax 
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (dst0),y
+	inx 
+	iny 
+	bne si4
+si5	rts 
+
+nbuf	!fill 16,32
+	!by 0
+
+	!scr "HScan  @"
+modetx	!scr "320x200@"
+datatype	!scr "Gray @"
+
+; ----------------------------------------- 
+
+modend	!eof
+
