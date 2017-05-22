@@ -1,0 +1,748 @@
+
+!src "..\godotlib.lib"
+*= $c000
+
+; ----------------------------------------- 
+;
+; ldr.sps24bit
+; loader for the BossConvert sps-Spriteset files
+; retrieves game bosses (spritesets) up to 8x10 sprites each 
+; and converts them to standard multicolor/hires graphics.
+; Further versions will support multiple files in a set.
+;
+;    1.00, 12.08.08, first release
+;    1.01, 22.08.08, file filtering added
+;    1.02, 21.05.17, added reading sprite pointers from file
+;
+; ----------------------------------------- 
+
+; ----------------------------------------- Equates
+
+	temp		= $30
+	counter		= $31	; /$32
+	src		= $33	; /$34
+	dst		= $35	; /$36
+	gbyte		= $37
+	byte		= $38
+	cnt		= $39
+	cntaction		= $3a
+	currspr		= $3b	; /$3c
+	lcnt		= $3e
+	renderline	= $41	; /$42
+	sprback		= $48	; sprite background  (%00)
+	sprmul0		= $49	; multi color 0      (%01)
+	sprcol		= $4a	; sprites' own color (%10)
+	sprmul1		= $4b	; multi color 1      (%11)
+	mulconv		= $4c	; conversion buffer, up to $4f
+	status		= $90
+
+	offx		= $b2
+	offy		= offx+1
+	suni		= $1629	; kernal: directory
+	ld11		= $1825	;         load file
+	lsm1		= $194b	;         load
+	jsuni		= $19d4	;         patch
+
+	vrbuf		= $c600
+	crbuf		= vrbuf+1000
+	col0		= vrbuf+2000
+
+; --------------------------------------- Header
+
+	jmp start
+	!by $80
+	!by $04		; own "requester"
+	!by $00
+	!wo modend
+	!by $00,$00
+	!pet "Spriteset Loader"
+	!pet "1.02"
+	!pet "21.05.17"
+	!pet "A.Dettke        "
+
+; --------------------------------------- Service Routines 
+
+jerror	jmp error		; file error
+jsk10	jmp sk10		; cancel
+
+directory	inc used		; =0 now
+	lda gd_modswitch	; memory handler
+	sta ms_store
+	lda #<spstx	; prefix "SPS."
+	pha
+	lda #>spstx
+	pha
+	lda #0
+	ldx #1
+	jmp lsm1		; open file requester with file filter set
+
+; ----------------------------------------- 
+
+godir	lda #$60		; Code for RTS
+	sta jsuni		; patch system (different option)
+	jsr directory	; look for "sps." files
+	lda #$20		; un-patch to JSR
+	sta jsuni
+
+	lda #8		; open directory with new option
+	sta ls_dirmask
+	jsr suni
+	jsr gd_eloop	; wait (in file requester)
+
+	cpx #8		; command was "Load"? 
+	bne jsk10		; no: Cancel (.x=1)
+	ldx ls_drive	; set drive as source for more sps files
+	stx ls_loadfrom
+	
+; ----------------------------------------- Main
+
+start	ldx used		; First start? ($ff, then $00)
+	bmi godir		; then open file requester
+	cpx #1		; (everything else is an error)
+	bcs jerror
+
+	stx counter	; found file: clear byte counter 
+	stx counter+1
+	jsr ld11		; system: load file (set file parameters)
+	jsr getname	; save file name for later use
+	ldx ls_temp	; length of name is shorter than 16?
+	cpx #16
+	beq stt2
+	lda #$2a		; yes, attach a "*" to it
+	sta ls_nambuf,x
+	inc ls_temp	; so, increment length of name
+
+; ----------------------------------------- Proceed normal
+
+stt2	jsr gd_xopen	; open file
+	ldy #0
+stt1	jsr readbyte	; get header (14 bytes)
+	bne jerror
+	sta fheader,y
+	iny
+	cpy #14
+	bne stt1
+	jsr checkform	; richtiges Fileformat? ("GOD7")
+	bne jerror
+
+stt3	jsr amount	; # of sprites and # of bytes in total
+	
+	jsr spointers	; retrieve sprite pointers (just skip them)
+	bcs jerror
+
+	jsr gd_clrms	; clear message bar
+	lda #32		; activity counter to 32
+	sta cntwert
+	sta cntaction
+	ldx #$20		; get file, destination $2000
+	stx sc_texttab+1
+	ldx #0		; "Sprites" anwählen
+	stx sc_texttab
+	jsr tcopy
+
+	lda bytes		; count width * height * 64 bytes (bitmap)
+	sta ls_vekta8
+	lda bytes+1
+	sta ls_vekta8+1
+
+loop	ldy #0		; retrieve
+ 	jsr onebyte
+	sta (sc_texttab),y
+	jsr action
+	jsr cou5
+	bne loop
+	jsr gd_xclose	; then close file
+
+; --------------------------------------- Get Multicolor Image
+
+	lda background	; get background color (when in multi mode)
+	sta col0
+	sta gr_fbkcol	; store it (for mod.SetBGColor)
+
+	lda olap		; set actual line counters for rendering
+	bne st0
+	lda #<lcnts1
+	ldy #>lcnts1
+	bne st1
+st0	lda #<lcnts2
+	ldy #>lcnts2
+st1	sta renderline
+	sty renderline+1
+
+; --------------------------------------- Convert Sprite to 4bit
+
+convert	ldx #255
+	stx curnumber
+	ldx #10		; "Convert"
+	jsr tcopy
+	lda #1
+	sta cntwert
+	sta cntaction
+es0	jsr next
+	lda gmode
+	bne es2
+	jsr cnvhsprite	; hires (not yet iomplemented)
+	bne es1
+es2	jsr cnvmsprite	; multi
+es1	ldx maxnumber
+	cpx curnumber
+	bne es0
+
+; --------------------------------------- Shutdown
+
+	ldx #0		; reset text to default ("Sprites")
+	jsr tcopy
+	jsr setinfo	; set filename
+	stx gr_redisp	; set re-render flag
+
+sk10	jsr gd_xmess	; error message from drive
+	jsr gd_spron	; sprite pointer on
+	lda #$ff		; init requester handler
+	sta used
+	lda ms_store	; restore memory handler
+	sta gd_modswitch
+	sec		; leave loader
+	rts
+
+; ----------------------------------------- Skip Sprite Pointers
+
+spointers	ldx totnumber
+-	jsr basin
+	bcs +
+	dex
+	bne -
+	clc
++	rts
+
+; --------------------------------------- Advance to next Sprite
+
+next	ldx curnumber	; add 1
+	inx
+	cpx totnumber	; sprite number = max?
+	beq ep4		; yes, finished
+ep1	txa
+ep2	sta curnumber
+ep4	clc
+	rts
+
+; --------------------------------------- Set current sprite address
+
+setcurr	lda #$40		; start at $4000
+	ldy #0
+	sty sc_pos+1
+	sty curry
+	sty currx
+	sty currspr
+	sta currspr+1
+	ldy curnumber
+	beq scp5
+
+	ldx width		; find DIV and MOD of curnumber
+	dex
+	stx sc_pos
+	jsr gd_mal10
+	ldx sc_pos
+	dex
+	tya		; .y = curnumber
+	ldy #$ff
+sc1	inx
+	iny
+	cmp multab,x	; DIV in .y
+	bcs sc1
+	sty curry		; Zeile des Sprites im 4Bit
+
+	dex
+;	lda curnumber
+	sec
+	sbc multab,x
+	bcs sc2
+	lda curnumber
+sc2	tax
+	stx currx		; Spalte des Sprites im 4Bit
+	
+stcl	lda curry
+	beq scp1
+	asl		; Zeile mal 2
+	tax		; als Index in Tabelle
+	lda olap		; Overlap?
+	bne sc3
+	lda adds1,x	; nein, Adresse holen
+	tay
+	inx
+	lda adds1,x
+	tax
+	bne sc4
+sc3	lda adds2,x	; Adresse bei Overlap
+	tay
+	inx
+	lda adds2,x
+	tax
+sc4	tya		; und zur Basis addieren
+	adc currspr
+	sta currspr
+	txa
+	adc currspr+1
+	sta currspr+1
+
+scp1	lda currx		; plus column * 96 (3 bytes wide in 4bit)
+	beq scp5
+	sta temp
+scp6	clc
+	lda currspr
+	adc #$60
+	sta currspr
+	bcc scp7
+	inc currspr+1
+scp7	dec temp
+	bne scp6		; makes start address 
+
+scp5	lda currspr
+	ldy currspr+1
+	sta dst		; in 4bit
+	sty dst+1
+
+	lda curnumber
+	ldy #0
+	jsr amount64
+	sta src		; in sprite bitmap
+	tya
+	clc
+	adc #$20
+	sta src+1
+	ldy #63
+	lda (src),y
+	sta spritecol2
+
+	rts 
+
+; --------------------------------------- Convert one Sprite (multi)
+
+cnvmsprite
+	jsr setcurr
+
+; --------------------------------------- Convert Multi
+
+msprite	lda background	; result at sprback,x
+	jsr getdnib
+	sta sprback
+	lda spritecol2
+	jsr getdnib
+	sta sprcol
+	lda spritecol0
+	jsr getdnib
+	sta sprmul0
+	lda spritecol1
+	jsr getdnib
+	sta sprmul1
+
+	ldx #0		; must be 0
+	ldy #3
+
+prloop	tya
+	pha
+	sta temp
+	ldy curry		; sprite raster line
+	lda offs,y
+	clc
+	adc temp
+	tay
+	lda (renderline),y	; now convert:
+	beq gs7
+	sta lcnt		; counts remaining lines per tile 
+
+zloop	ldy #0
+
+mk3	jsr mnox		; one byte to 4bit
+
+mk72	inc src		; next byte
+	bne mk73
+	inc src+1
+
+mk73	cpy #$60		; third is processed?
+	bne mk3		; no, loop
+
+	clc		; yes, next raster line
+	lda dst
+	adc #4
+	sta dst
+	bcc mk75
+	inc dst+1
+
+mk75	dec lcnt		; alle durch?
+	bne zloop
+
+	clc		; next block line
+	lda dst
+	adc #$e0
+	sta dst
+	lda dst+1
+	adc #$04
+	sta dst+1
+
+gs7	pla		; all block lines per sprite?
+	tay
+	dey
+	bpl prloop
+	jmp action	; then action
+
+; --------------------------------------- Render Multi no expand
+
+mnox	jsr mulindex
+mnx1	pha
+	lda mulconv,x	; get bit pattern
+	and #3
+	tax
+	lda sprback,x	; übertragen nach 4bit
+	sta (dst),y
+mnx2	pla
+	tax
+	inx
+	txa
+	iny
+	cpx #4
+	bne mnx1
+	ldx #0
+	tya
+	clc
+	adc #28 		; y+32 = next tile in 4Bit
+	tay
+	rts
+
+; --------------------------------------- Isolate Multi color indexes
+
+mulindex	lda (src,x)	; get sprite bitmap
+mex0	asl
+	rol mulconv,x	; get two bits
+	asl
+	rol mulconv,x
+	inx
+	cpx #4		; four times (1 byte)
+	bne mex0
+	tax		; .a=0
+	rts
+
+cnvhsprite
+	rts
+
+; --------------------------- 
+
+error	jsr gd_xclose
+	jsr sk10
+	clc
+	rts
+
+; --------------------------------------- Make Double Nibbles
+
+getdnib	and #$0f		; Farbe holen
+	tax
+	lda dnib,x
+	rts
+
+; --------------------------------------- Decompress Image 
+
+; compression: flag, counter, byte ; $00 counts 256
+
+; --------------------------------------- 
+
+onebyte	lda counter	; repeated byte?
+	ora counter+1
+	bne getit2	; yes, re-get value
+
+	inc counter	; no, counter to 1
+	jsr basin		; get 1 byte
+	cmp comprfl	; compression flag?
+	bne getit1	; no
+
+	ldx compressed	; compressed?
+	beq getit1	; no
+
+	jsr basin		; compressed: get counter
+	sta counter
+	beq rb2		; $00 equals 256 bytes
+	lda #0
+	beq rb3
+rb2	lda #1
+rb3	sta counter+1
+	jsr basin		; get byte to compress
+
+getit1	sta gbyte		; and store
+
+getit2	lda counter	; count repetition
+	bne rb4
+	dec counter+1
+rb4	dec counter
+	lda gbyte		; re-get byte
+	ldx status
+	rts
+
+readbyte	jsr basin
+	ldx status
+	rts
+
+; --------------------------------------- Activity Display
+
+messout	ldx #<(message)
+	ldy #>(message)
+	jmp gd_xtxout2
+
+tcopy	ldy #0
+tc0	lda txt,x
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+;
+action	dec cntaction
+	bne ld4
+	lda cntwert
+	sta cntaction
+	ldy offy
+	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts
+
+clrmess	ldx #20
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0
+	ldx #7
+	sty offy
+	stx offx
+	rts
+
+filltab	!by 160,93,103,127,126,124,105,109
+
+cntwert	!by 32
+
+txt	!scr " Sprites @"	; 0
+	!scr " Convert @"	; 10
+	
+message	!fill 11,32
+mess	!fill 21,32
+	!by 0
+
+; --------------------------------------- Correct Format?
+
+checkform	ldx #$ff
+cf0	inx
+	cpx #4
+	beq cf1
+	lda fheader,x	; "GOD7"?
+	cmp signature,x
+	beq cf0
+cf1	rts
+
+; --------------------------------------- Compute amount of sprites in set
+
+amount	ldy #0		; (breite-1)*10 + (höhe-1) = Index in Tabelle
+	sty sc_pos+1
+	ldx width
+	dex
+	stx sc_pos
+	jsr gd_mal10
+	clc
+	lda sc_pos
+	adc height
+	tax
+	dex
+	lda multab,x
+	sta totnumber	; amount of sprites
+	tax
+	dex
+	stx maxnumber
+
+	jsr amount64	; amount of bytes
+	sta bytes		; store
+	sty bytes+1
+	rts
+
+amount64	sta sc_pos	; compute .a * 64
+	sty sc_pos+1	; set .y to 0!
+	asl sc_pos	; *2
+	rol sc_pos+1
+	asl sc_pos	; *4
+	rol sc_pos+1
+	asl sc_pos	; *8
+	rol sc_pos+1
+	asl sc_pos	; *16
+	rol sc_pos+1
+	asl sc_pos	; *32
+	rol sc_pos+1
+	asl sc_pos	; *64
+	rol sc_pos+1
+	lda sc_pos	; max is 80 * 64 = 5120 (per frame)
+	ldy sc_pos+1
+	rts
+
+; --------------------------------------- Counters
+
+cou5	inc sc_texttab
+	bne cou6
+	inc sc_texttab+1
+cou6	lda ls_vekta8
+	bne cou7
+	dec ls_vekta8+1
+cou7	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	rts
+;
+; --------------------------------------- File Header Variables
+
+fheader	!pet "...."	; file signature
+width	!by 0
+height	!by 0
+gmode	!by 0		; 0: hires, 1: multi
+olap	!by 0		; 0: no, 1: yes
+background
+	!by 0		; screen background color
+spritecol0
+	!by 0		; $d025 (pattern %01)
+spritecol1
+	!by 0		; $d026 (pattern %11)
+order	!by 0		; 0: sideways, 1: downways
+compressed
+	!by 0		; 0: no, 1: yes
+frames	!by 0		; # of animframes (0: no anim)
+
+spritecol2
+	!by 0		; $d027... (pattern %10)
+comprfl	!by $ad		; GoDot's compression indicator
+
+spstx	!pet "sps.*"	; filetype prefix
+	!by 0
+used	!by $ff		; double start of loader
+ms_store	!by 0
+signature	!pet "god7"	; signature
+currx	!by 0
+curry	!by 0
+curnumber	!by 0
+totnumber	!by 0
+maxnumber	!by 0
+bytes	!wo 0
+
+multab	!by 01,02,03,04,05,06,07,08,09,10	; Multiplikationstabelle y*x
+	!by 02,04,06,08,10,12,14,16,18,20	; Wert = multab+(y-1)*10,(x-1)
+	!by 03,06,09,12,15,18,21,24,27,30
+	!by 04,08,12,16,20,24,28,32,36,40
+	!by 05,10,15,20,25,30,35,40,45,50
+	!by 06,12,18,24,30,36,42,48,54,60
+	!by 07,14,21,28,35,42,49,56,63,70
+	!by 08,16,24,32,40,48,56,64,72,80
+	!by 09,18,27,36,45,54,63,72,81,90
+	!by 10,20,30,40,50,60,70,80,90,100
+
+offs	!by 00,04,08,12,16,20,24,28,32,36	; Offsets in lcnts
+
+lcnts1	!by 0,5,8,8		; 0
+	!by 2,8,8,3		; 1
+	!by 0,7,8,6		; 2
+	!by 4,8,8,1		; 3
+	!by 1,8,8,4		; 4
+	!by 0,6,8,7		; 5
+	!by 3,8,8,2		; 6
+	!by 0,8,8,5		; 7
+	!by 0,5,8,8		; 8
+
+lcnts2	!by 0,5,8,8		; 0
+	!by 0,8,8,5		; 1
+	!by 3,8,8,2		; 2
+	!by 0,6,8,7		; 3
+	!by 1,8,8,4		; 4
+	!by 4,8,8,1		; 5
+	!by 0,7,8,6		; 6
+	!by 2,8,8,3		; 7
+	!by 0,5,8,8		; 8
+	!by 0,8,8,5		; 9
+
+; --------------------------------------- Tables and records
+
+; --- Spritepositionen:
+adds1	!wo $0000,$0a14,$1908,$231c,$3210,$4104,$4b18,$5a0c,$6900,$7314
+adds2	!wo $0000,$0a0c,$1418,$2304,$2d10,$371c,$4608,$5014,$5f00,$690c,$7318
+
+; --------------------------------------- Palette Table for MC double pixels
+
+dnib	!by $00,$ff,$44,$cc,$55,$aa,$11,$dd
+	!by $66,$22,$99,$33,$77,$ee,$88,$bb
+
+; --------------------------------------- Save Filename
+
+getname	ldx #0
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+; --------------------------------------- Image Information
+
+getdatag	ldx #9
+	!by $2c
+getdatac	ldx #4
+	ldy #4
+sinfo0	lda dtextc,x
+	sta datatype,y
+	dex
+	dey
+	bpl sinfo0
+	rts
+
+setinfo	jsr getdatac
+	jsr setname
+	jsr setloader
+	jsr setmode
+	jmp setdata
+
+setname	lda #0
+	ldx #<(ls_picname)
+	ldy #>(ls_picname)
+	bne si3
+setloader	lda #17
+	ldx #<(ls_iloader)
+	ldy #>(ls_iloader)
+	bne si3
+setmode	lda #25
+	ldx #<(ls_imode)
+	ldy #>(ls_imode)
+	bne si3
+setdata	lda #33
+	ldx #<(ls_idrive)
+	ldy #>(ls_idrive)
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!fill 16,32
+	!by 0
+	!scr "Sprites@"	; 17
+modetx	!scr "160x200@"	; 25
+datatype	!scr "Color@"	; 33
+
+htext	!scr "320x200"	; 46
+mtext	!scr "160x200"
+
+dtextc	!scr "Color"	; 4
+	!scr "Gray "	; 9
+
+modend	!eof
