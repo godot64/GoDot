@@ -1,8 +1,6 @@
-; .petscii
-;.include "godotlib.min"
-!src "..\godotlib.lib"
-;.ob "mBoss,p,w"
-*= $c000
+
+	!src "..\godotlib.lib"
+	*= $c000
 
 ; ------------------------------------------------------------ 
 ;
@@ -15,6 +13,7 @@
 ;    1.03, 14.08.08, added: Super Histogram, save requester
 ;    1.04, 12.09.16, bugfix, sprite only one color? fixed
 ;    1.05, 14.09.16, added: select sprite on graphics screen
+;    1.06, 22.05.17, added: save sprite pointer chunk (as $ad-bytes)
 ;
 ; ------------------------------------------------------------ 
 
@@ -69,8 +68,8 @@ header 	jmp start
 	!wo  modend
 	!wo  0
 	!pet "Boss Converter  "
-	!pet "1.05"
-	!pet "14.09.16"
+	!pet "1.06"
+	!pet "22.05.17"
 	!pet "A. Dettke       "
 
 ; --------------------------------------- Main
@@ -127,7 +126,7 @@ setcols	sta sc_chgcol
 	ldx #4
 	jmp gd_fcol
 
-; --------------------------------------- Event: Opem Save Data Requester
+; --------------------------------------- Event: Open Save Data Requester
 
 evsave	lda totnumber
 	beq esv0
@@ -173,6 +172,7 @@ esn0	lda filename,y
 	jsr ckout
 	jsr gd_clrms	; clear message gadget
 	jsr write
+
 esn1	jsr clrch		; close file
 	lda #12
 	jsr close
@@ -409,7 +409,7 @@ evs2	inx
 	sta spritey
 	pla
 	sta spritex
-	jsr sr3		; ### 14.09.16: 
+	jsr sr3		; ### 1.05: von hier ---
 
 	ldy totnumber	; defined?
 	beq evs3		; no
@@ -435,7 +435,7 @@ evs2	inx
 	jsr ep2
 
 evs3	clc
-	rts		; ### bis hier
+	rts		; ### --- bis hier
 
 ; --------------------------------------- Switch Graphics/Text
 
@@ -517,7 +517,7 @@ gt0	jsr gd_setpos
 ; --------------------------------------- Show Requester
 
 showreq	lda height
-	sta defdh		; ### 13.09.16
+	sta defdh		; ### 1.04
 	jsr gd_xcnvdez
 	sta hgttx+1
 	cpx #$30
@@ -525,7 +525,7 @@ showreq	lda height
 	ldx #$20
 sr0	stx hgttx
 	lda width
-	sta defdw		; ### 13.09.16
+	sta defdw		; ### 1.04
 	jsr gd_xcnvdez
 	sta widtx+1
 	cpx #$30
@@ -974,7 +974,7 @@ totals	lda #$30		; Vorbesetzung: "00"
 	ldy height	; Höhe = 0?
 	beq tt2		; dann Ergebnis auch 0
 	lda #0
-	sta totnumber	; ### 13.09.16
+	sta totnumber	; ### 1.04
 	jsr htimes10	; ###
 	lda #$30		; Vorbesetzung: "00" ($30 auch in .x)
 	ldy width		; Breite = 0?
@@ -996,7 +996,7 @@ tt1	stx totnum
 
 ; ----------------------------------------- Height times 10
 
-htimes10	sta sc_pos+1	; ### 13.09.16
+htimes10	sta sc_pos+1	; ### 1.04, von hier ---
 	dey
 	sty sc_pos
 	jsr gd_mal10	; Höhe mal 10
@@ -1007,7 +1007,7 @@ htimes10	sta sc_pos+1	; ### 13.09.16
 	lda #0
 	adc #>multab
 	sta multable+1
-	rts		; ### bis hier
+	rts		; ### --- bis hier
 
 ; ----------------------------------------- Gauge for Save
 
@@ -1052,12 +1052,20 @@ err8 	sec
 
 write	ldx #0
 wr0	lda fheader,x
-	jsr onebyte	; ### 14.09.16: catch floppy err
+	jsr onebyte	; ### 1.05: catch floppy err
 err7	bne err9		; ###
 	inx
 	cpx #14
 	bne wr0
 	stx writing
+
+	ldx totnumber	; ### 1.06: write sprite pointer chunk
+	lda #$ad		; (max. 80 bytes)
+-	jsr onebyte
+	bne err9
+	dex
+	bne -
+
 	lda order
 	pha
 	beq wr3
@@ -1068,7 +1076,7 @@ wr3	lda curnumber
 	stx curnumber
 
 wr1	jsr evnext
-	ldx numcols	; ### 12.09.16: what if numcols only 1
+	ldx numcols	; ### 1.04: what if numcols only 1
 	dex		; ###
 	bne wr10		; ###
 	lda #3
@@ -1101,7 +1109,7 @@ wr9	sta sprtcol2
 	stx gs20+2
 	ldx #0
 wr2	lda showspr,x
-	jsr onebyte	; ### 14.09.16: catch floppy err
+	jsr onebyte	; ### 1.05: catch floppy err
 err6	bne err7		; ###
 	inx
 	cpx #64
@@ -1118,7 +1126,7 @@ err6	bne err7		; ###
 	beq wr4
 	jsr evdirct
 wr4	lda #$ad
-	jsr onebyte	; ### 14.09.16: catch floppy err
+	jsr onebyte	; ### 1.05: catch floppy err
 	bne err6		; ###
 	clc
 	rts
@@ -1156,8 +1164,8 @@ maxwidth	!by 8		; more than 8 isn't possible
 maxheight	!by 9		; 9 (normal sprites) or 10 (overlap)
 stwidth	!by 0
 stheight	!by 0
-defdh	!by 0		; ### 14.09.16: height when defined
-defdw	!by 0		; ###           width when defined
+defdh	!by 0		; ### 1.05: height when defined
+defdw	!by 0		; ###       width when defined
 currh	!by 0		; ### current height on selector
 currw	!by 0		; ### current width on selector
 currx	!by 0
