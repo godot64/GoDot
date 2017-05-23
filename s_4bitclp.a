@@ -1,0 +1,550 @@
+
+!src "..\godotlib.lib"
+*= $c000
+
+; ----------------------------------------- 
+;
+; svr.4BitClip
+;     Saver for GoDot 4Bit Clips
+;
+; 1.00: 05.08.97, first release
+;       17.11.00, completely rewrote comment
+; 1.01: 06.07.03, added Temp access for screen moves
+; 1.02: 22.08.04, bugfix: show name of Temp after first use
+;
+; ----------------------------------------- 
+
+	cnt		= $31
+	byte		= $33
+	clpzl		= $34
+	clpsp		= $35
+	clpbr		= $36
+	clpho		= $37
+	entry		= $3a
+	adcnt		= $3e
+
+	packbyte		= $ad	; constant
+	offx		= $b2
+	offy		= $b3
+	mlen		= $fd
+	cpos		= $fe
+
+	avail		= sy_global+$20
+	rdata		= avail-2
+	mal19		= $bd8c	; part of dev.REU
+
+; ---------------------------------------- Header
+
+header	jmp start
+	!by $40
+	!by 0
+	!by 1
+	!wo modend
+	!wo 0
+	!pet "4Bit Godot Clip "
+	!pet "1.02"
+	!pet "22.08.04"
+	!pet "A.Dettke        "
+
+; ---------------------------------------- Main
+
+start	ldx gr_nr		; get function number
+	dex		; "Input" if 1
+	bne st0
+	jmp initinp
+
+; ---------------------------------------- Save Clip
+
+st0	jsr gd_sproff	; sprite pointer off
+	lda gd_modswitch	; save module management flag
+	pha
+	lda ls_flen	; any file selected?
+	beq st1		; no, finished
+
+	sta wflen		; store name length
+	lda #1		; set Activity Display to "Start immediately"
+	sta adcnt
+	lda #200		; activity counter
+	sta cntwert
+
+	jsr swerte	; save current REU values
+	lda ls_drive	; RAM selected?
+	cmp #12
+	beq st01		; yes, skip disk access
+
+	jsr wopen		; open write file
+	bne st2		; branch if error
+	jsr getname	; save name for later use
+	ldx #12		; open file for output
+	jsr ckout
+
+st01	jsr gd_clrms	; clear message gadget
+	ldx #0		; enter first message ("Clip")
+	stx ramtype
+	jsr tcopy
+
+	jsr write		; save image
+
+st2	jsr clrch		; close file
+	lda #12
+	jsr close
+	jsr err9		; floppy message
+	bne st1		; error?
+
+	lda ls_drive	; RAM selected?
+	cmp #12
+	beq st1		; yes, skip image info
+
+	jsr setname	; set disk filename
+
+st1	pla		; restore module handler
+	sta gd_modswitch
+	jsr gd_spron	; sprites on
+	jsr swerte	; restore REU values
+	jsr restorerd
+	sec		; leave saver
+	rts
+
+; --------------------------- 
+; --------------------------- Input Routines
+
+!src "..\input.inc"
+
+; --------------------------- 
+; --------------------------- 
+
+; ---------------------------------------- Diskaccess
+
+pw	!pet "w,p,"
+drinit	!pet "i0"
+wflen	!by 0
+
+wopen	jsr inull
+	bne err8
+	ldy wflen
+	ldx #3
+wo1	lda pw,x
+	sta ls_nambuf,y
+	iny
+	dex
+	bpl wo1
+	sty wflen
+	lda #12
+	tay
+	ldx ls_drive
+	jsr filpar
+	lda wflen
+	ldx #<(ls_nambuf)
+	ldy #>(ls_nambuf)
+	jsr filnam
+	jsr copen
+	jmp err9
+
+inull	ldx #<(drinit)
+	ldy #>(drinit)
+	lda #2
+	jsr gd_sendcom
+err9	jsr gd_xmess
+	lda ls_err2
+	and #15
+err8	sec
+	rts
+
+; ---------------------------------------- Activity Display
+
+messout	ldx #<(message)
+	ldy #>(message)
+	jmp gd_xtxout2
+
+tcopy	ldy #0
+tc0	lda txt,x
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+
+action	dec adcnt
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	cpy #22
+	bne act0
+	jsr clrmess
+act0	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts
+
+clrmess	ldx #20
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0
+	ldx #7
+	sty offy
+	stx offx
+	rts
+;
+filltab	!by 160,93,103,127,126,124,105,109
+;
+cntwert	!by 50
+;
+txt	!scr " Clip  @"
+;
+message	!fill 10,32
+mess	!fill 21,32
+	!by 0
+;
+; ---------------------------------------- Image Info (short)
+
+getname	ldx #0
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+;
+setname	lda #0
+	ldx #<(ls_picname)
+	ldy #>(ls_picname)
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!fill 16,32
+	!by 0
+
+
+; ---------------------------------------- 
+; ---------------------------------------- Save Clip Routines
+; ---------------------------------------- 
+
+; first entry at WRITE
+
+ramtype	!by 0			; which REU is attached?
+owerte	!by 0,$40,0,$83,7,1,0
+oreudata	!by 0,$40,0,$83,7,1,0
+reudata	!by 0,$40,0,$83,7,1,0
+awerte	!by byte,0,0,$83,7,0,$7d
+typereu	!by 0,0,0,0,3,7,0,0,1,0
+
+; ---------------------------------------- file signature "GOD1"
+
+magic	!pet "1dog"
+
+; ---------------------------------------- Compute Start address of Clip
+
+setclip	lda #$40		; 4Bit starting from $4000
+	sta sc_texttab+1
+	ldy #0
+	sty sc_texttab
+
+stcl	lda sc_lastclpzl	; row
+	beq scp1		; is zero: skip
+	sta clpzl
+scp4	clc
+	lda sc_texttab+1	; else add 1280, "row" times
+	adc #5
+	sta sc_texttab+1
+	dec clpzl
+	bne scp4
+
+scp1	lda sc_lastclpzl+1	; column
+	beq scp5		; is zero: skip
+	sta clpsp
+scp6	clc
+	lda sc_texttab	; else add 32, "column" times
+	adc #$20
+	sta sc_texttab
+	bcc scp7
+	inc sc_texttab+1
+scp7	dec clpsp
+	bne scp6
+scp5	lda sc_texttab
+	sta reudata
+	lda sc_texttab+1
+	sta reudata+1
+	rts
+
+; ---------------------------------------- Compute Width of Clip
+
+compclip	sty ls_vekta8+1	; Hibyte to zero
+	clc		; Lobyte times 32
+	lda sc_lastclpzl+2
+	sta ls_vekta8
+	asl ls_vekta8
+	rol ls_vekta8+1
+	asl ls_vekta8
+	rol ls_vekta8+1
+	asl ls_vekta8
+	rol ls_vekta8+1
+	asl ls_vekta8
+	rol ls_vekta8+1
+	asl ls_vekta8
+	rol ls_vekta8+1
+	rts
+
+; ---------------------------------------- Counters
+
+count	inc sc_vekt20
+	bne cou5
+	inc sc_vekt20+1
+cou5	inc sc_texttab
+	bne cou6
+	inc sc_texttab+1
+cou6	lda ls_vekta8	; number of bytes
+	bne cou7
+	dec ls_vekta8+1
+cou7	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	rts
+
+; ---------------------------------------- 
+; ---------------------------------------- Save Clip
+; ---------------------------------------- 
+
+write	lda ls_drive+6	; REU attached?
+	and #15
+	cmp #3
+	bcc wr02		; no, check selected unit
+	sta ramtype	; yes, store type (0 = no REU)
+	tax 
+	lda typereu,x	; set appropriate bank for Temp access
+	sta reudata+4
+	sta awerte+4
+
+wr02	lda ls_drive	; RAM selected?
+	cmp #12
+	beq wr04		; yes, skip disk access
+
+	ldx #3		; save "GOD1" first (no start address)
+wr00	lda magic,x	; (standard signature is "GOD0" instead)
+	jsr bsout
+	dex
+	bpl wr00
+
+	inx
+	stx ramtype
+wr01	lda sc_lastclpzl,x	; followed by row, col, wid, hgt of Clip
+	jsr bsout		; (not contained in "GOD0"-files)
+	inx
+	cpx #4
+	bne wr01
+	beq wr03
+
+wr04	jsr cleartemp	; check for mem and clear if available
+wr03	jsr setclip	; compute start address of data to save
+	lda #0		; init values:
+	sta byte		; output data byte
+	sta cnt		; data byte counter
+	sta cnt+1
+	lda sc_lastclpzl+3	; height of Clip (# of tile rows to save)
+	sta clpho
+
+wr1	ldy #0		; compute width (times 32: # of 4Bit tiles)
+	jsr compclip
+	lda reudata+3
+	pha
+	lda reudata+2
+	pha
+	lda sc_texttab+1	; save current vector to start of clip
+	pha
+	lda sc_texttab
+	pha
+
+wr0	ldy #0		; compress bytes and save
+	lda (sc_texttab),y
+	jsr pack
+	jsr action	; ...while Activity Display works
+	jsr cou5		; count amount of data bytes to save
+	bne wr0
+
+	pla		; re-get start address of row
+	sta sc_texttab
+	sta reudata
+	pla
+	clc		; add 1280 (1 tile row)
+	adc #5
+	sta sc_texttab+1
+	sta reudata+1
+	pla
+	sta reudata+2
+	pla
+	clc
+	adc #5
+	sta reudata+3
+	dec clpho		; count rows (height)
+	bne wr1		; until finished
+
+	lda ls_drive	; RAM selected?
+	cmp #12
+	beq wr2		; yes, skip disk access
+
+	lda byte		; Finish: last compress
+	eor #$ff
+	jsr pack
+	lda #packbyte	; attach pack indicator byte
+	jsr bsout
+wr2	sec		; finished, leave module
+	rts
+
+; ------------------------------------------ GoDot's compression algorithm
+
+pack	ldy ramtype
+	bne wr2temp
+
+	cmp byte		; current byte equals previous one?
+	beq incr		; yes, count
+
+p256	pha		; else save
+	lda cnt+1		; counted 256 times?
+	bne wl0		; no
+
+	lda cnt		; new data byte?
+	beq wl1		; yes, count
+
+	cmp #4		; more than three?
+	bcs wl0		; yes, output
+
+	lda byte		; byte equals pack indicator byte?
+	cmp #packbyte
+	bne wl2		; no, output data byte
+
+wl0	lda #packbyte	; else output indicator byte
+	jsr bsout
+	lda cnt		; output counter
+	jsr bsout
+	lda #1		; and set to 1 for next
+	sta cnt
+	lda #0
+	sta cnt+1
+
+wl2	lda byte		; output data byte
+	jsr bsout
+	dec cnt		; decrement counter downto zero
+	bne wl2		; (when 3 identical)
+
+wl1	pla		; re-get current byte
+	sta byte		; and save as previous byte
+
+incr	inc cnt		; count
+	bne wl3
+	inc cnt+1		; up to 256
+			; (and now recursion: P256)
+	jsr p256		; then output (counter 256 becomes 0)
+	dec cnt		; synchronize counter
+			; (which got incremented in INCR)
+wl3	rts
+
+; ------------------------------------------ Write to Temp Buffer
+
+wr2temp	sta byte
+	jsr sr2		; prepare
+	lda #$90		; Stash
+	jsr gd_reu
+	inc reudata	; adjust next addresses
+	bne rr1
+	inc reudata+1
+rr1	inc reudata+2
+	bne rr0
+	inc reudata+3
+rr0	rts
+
+; ------------------------------------------ Clear Temp Buffer
+
+cleartemp	jsr activate	; activate Temp00 (obsolete)
+	
+	ldx #0		; and then clear it
+	stx byte
+	inx 
+	stx rm_tmpsaved
+	lda #%10111111	; fix C64 source address
+	sta reubase+10
+	ldx #6		; prepare...
+sr0	lda awerte,x
+	sta rm_werte,x
+	dex
+	bpl sr0
+	lda #$90		; ...and commit
+	jsr gd_reu
+	lda #%00111111	; release source address
+	sta reubase+10
+
+sr2	ldx #6		; now prepare the save process
+sr1	lda reudata,x
+	sta rm_werte,x
+	dex
+	bpl sr1
+	rts
+
+; ---------------------------------------- save REU values
+
+swerte	php		; exchange
+	ldx #6
+sw0	lda rm_werte,x
+	pha
+	lda owerte,x
+	tay
+	pla
+	sta owerte,x
+	tya
+	sta rm_werte,x
+	dex
+	bpl sw0
+	plp
+	rts
+
+; ---------------------------------------- restore reudata values
+
+restorerd	ldx #6		; restore
+rrd0	lda oreudata,x
+	sta reudata,x
+	dex
+	bpl rrd0
+	rts
+	
+; ---------------------------------------- Activate Temp
+
+activate	ldx #0		; transfer a32k-routine to Global
+ak0	lda a32k,x
+	sta avail,x
+	inx
+	cmp #$60		; up to RTS
+	bne ak0
+	jmp avail		; and start it
+
+a32k	lda reudata+4	; bank in REU
+	sta rdata		; store in Global
+	jsr gd_getback	; switch in RAM Device
+	
+	ldx #0		; target: entry 4 ("temp00")
+	lda #4
+	jsr mal19
+	ldy #0		; store bank # to entry, thus activate it
+	lda rdata
+	sta (entry),y
+	jsr gd_getback	; switch back to saver
+	rts
+
+modend	!eof
+
