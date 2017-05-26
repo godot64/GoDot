@@ -17,9 +17,11 @@
 ;
 ; 1.00,         : first release
 ; 1.01, 26.05.01: ?
+; 1.02, 26.05.17: added passover address of cmy table in header
 ; 
 ; -------------------------------------- 
 
+	cmytab		= $e008	; passover address
 	modname		= $e00a
 
 	ctablex		= $e867
@@ -43,8 +45,8 @@
 	!wo modend
 	!wo 0
 	!pet "Adjust CMY color"
-	!pet "1.01"
-	!pet "26.05.01"
+	!pet "1.02"
+	!pet "26.05.17"
 	!pet "A.Dettke        "
 
 ; -------------------------------------- Main
@@ -89,7 +91,7 @@ start	ldx #<cmylst	; Screenliste ausgeben
 	ldy sc_merk	; nächstes Grau
 	iny 
 	iny 
-	cpy #44		; bis alle durch
+	cpy #42		; bis alle durch
 	bne -
 
 	jsr gd_eloop	; warten
@@ -181,6 +183,13 @@ mkdec	jsr gd_xcnvdez
 
 ; -------------------------------------- Set Printer's CMY Table Address
 
+cmytabo	lda cmytab+1
+	ora #$20
+	tay
+	lda cmytab
+	cpy #$20
+	rts
+
 setprinter
 	jsr godotoff	; RAM
 	ldx #0
@@ -192,6 +201,8 @@ setprinter
 
 +	cpx #3
 	bne +
+	jsr cmytabo
+	bne spr0
 	lda #<ctablex	; ja, Tabellenadresse angeben
 	ldy #>ctablex
 	bne spr0
@@ -205,6 +216,8 @@ setprinter
 
 +	cpx #3
 	bne +
+	jsr cmytabo
+	bne spr0
 	lda #<ctabhp	; ja, Tabellenadresse angeben
 	ldy #>ctabhp
 	bne spr0
@@ -218,6 +231,8 @@ setprinter
 
 +	cpx #3
 	bne +
+	jsr cmytabo
+	bne spr0
 	lda #<ctabcan	; ja, Tabellenadresse angeben
 	ldy #>ctabcan
 	bne spr0
@@ -231,6 +246,8 @@ setprinter
 
 +	cpx #3
 	bne +
+	jsr cmytabo
+	bne spr0
 	lda #<ctabeps	; ja, Tabellenadresse angeben
 	ldy #>ctabeps
 
@@ -321,7 +338,6 @@ tabigad 	!wo txblk		; 0
 	!wo hlgr2		; 38
 	!wo hlgr3		; 40
 	!wo hlwht		; 42
-	!wo last1		; 44 (Dummy)
 
 settab	lda #<tabigad 
 	sta sc_texttab
@@ -375,7 +391,6 @@ hlgr1	!by $06,$05,$05,$03
 hlgr2	!by $0a,$05,$05,$03
 hlgr3	!by $0e,$05,$05,$03 
 hlwht	!by $12,$05,$05,$03
-last1	!by $14,$02,$0d,$05	; Dummy
 
 ; -------------------------------------- Screenlist
 
