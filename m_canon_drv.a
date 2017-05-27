@@ -977,7 +977,7 @@ parprint	sei
 
 	lda $dd00		; Handshake
 	and #$fb
-	sta $dd00
+	sta $dd00		; STROBE
 	ora #4
 	sta $dd00
 busy	lda $dd0d
@@ -985,7 +985,7 @@ busy	lda $dd0d
 	bne bsy0
 	dey
 	beq timeout
-bsy0	and #$10		; warten auf STROBE
+bsy0	and #$10		; warten auf BUSY
 	beq busy
 
 bsy1	lda #0		; dann weiter
