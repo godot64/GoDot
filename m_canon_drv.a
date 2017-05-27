@@ -60,7 +60,7 @@ header	jmp start
 	!by 0
 	!by 0
 	!wo modend
-	!wo cyan		; new: publish CMY table
+	!wo cyan			; new: publish CMY table
 	!pet "CanonBJC600/4000"
 	!pet "1.04"
 	!pet "26.05.17"
@@ -706,7 +706,7 @@ cnorm	iny		; norm: .y=2
 clarge	iny		; lrge: .y=1
 	rts
 
-nocent	ldy #0		; kein Shift, nicht am linken Rand: .y=0
+nocent	ldy #0		; kein Shift oder nicht am linken Rand: .y=0
 	rts
 
 ; ------------------------------------ Event: Cancel
@@ -781,7 +781,7 @@ options	!by 47
 colorfl	!by 3
 hpflag	!by 1
 passes	!by 1,0,4,3
-passtext	!pet "   4   2   1slow"
+passtext	!scr "   4   2   1slow"
 shingfl	!by 1
 rasfl	!by 1
 pixfl	!by 0
