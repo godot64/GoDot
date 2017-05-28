@@ -1,0 +1,1808 @@
+
+	!src "..\godotlib.lib"
+	*=$c000
+
+; ------------------------------------------------ 
+;
+; mod.ClipWorks
+; Modul zum Setzen und Bearbeiten von Bildschirmausschnitten (Clips)
+;
+; 1.04, 15.08.93
+; 1.05, 20.03.02: removed Dirty flag,
+;                 changed captions of clip windows
+; 1.06, 05.10.05: bugfix: wrong colors when executed from ram
+;
+; ------------------------------------------------ 
+
+	pport		= $01
+	wordlo		= $07
+	int		= $14
+
+	adcnt		= $30
+	dispmk		= $32
+	col		= $33
+	data		= $34
+	src		= $35
+	dst		= $37
+	colnr		= $39
+	linenr		= colnr
+	blcnt		= $3a
+	dstend		= $3b
+	sum		= $3d
+	clpf		= $3f
+	scrf		= $40
+	aprxf		= $41
+	which		= $42
+	bbuf		= which+1
+	scnt		= which+2
+	slot		= $45
+	v1buf		= $47
+	v2buf		= $48
+	cbuf		= $49
+	cnt		= $4a
+
+	sprptr		= $07f8
+
+	areatype		= $1ef5
+	ibuff		= sy_global
+	spr255		= sy_global+$80
+	buf0		= sy_bigbuffer
+	bufend		= buf0-1
+	buf1		= buf0+512
+
+	modul		= $c000
+
+	x2		= $d004
+	y2		= x2+1
+	msbx		= spritehi
+	grafreg		= $d011
+	spren		= $d015
+	multreg		= $d016
+	charreg		= $d018
+	sprxe		= $d01d
+	rahmen		= $d020
+	backgr		= $d021
+	sprcol2		= $d029
+
+	vram2		= $ce0b
+	vram1		= $de0b
+	cstart		= $ee0b
+	buf11		= buf1+320
+
+
+; ------------------------------------------------ Header
+
+	jmp start
+	!by $20
+	!by 0
+	!by 0		; module is not dirty
+	!wo modend
+	!wo 0
+	!pet "ClipWorks       "
+	!pet "1.05"
+	!pet "20.03.02"
+	!pet "A. Dettke       "
+
+; ------------------------------------------------ Main
+
+start	ldx #1		; set flag for activated ClipWorks requester
+	stx pdis
+	ldx sc_screenvek	; save vector to mainlist
+	stx list
+	ldx sc_screenvek+1
+	stx list+1
+	lda gd_modswitch	; save module management byte
+	sta cntmerk
+	lda ls_flen	; save length of filename
+	sta flmerk
+	lda gr_redisp	; save flag for re-render
+	sta dispmk
+	lda sc_clipped	; save flag for "clip already set"
+	sta clipmk
+	jsr checkcols	; where is which module? (for re-display)
+
+	ldx #<(arealst)	; display ClipWorks requester
+	ldy #>(arealst)
+	jsr gd_screen
+
+	ldx #0		; clear keyboard
+	stx sc_keyprs
+	stx sc_loop	; clear flag for graphics mode
+	ldx #2		; ??? (no use)
+	stx ls_flen
+	inx
+	stx gr_redisp	; force re-render
+ar0	lda sc_clipzl,x	; save current clip values...
+	sta clipundo,x	; for Undo
+	sta clipcan,x	; for Cancel
+	dex
+	bpl ar0
+
+	lda sc_iflag	; save input flag
+	sta ifmerk
+	ldx #10		; input restricted to 11 valid chars
+	stx sc_iflag
+ar1	lda ziff,x	; which are 0..9 and Space
+	sta ibuff,x	; create table
+	dex
+	bpl ar1
+	jsr sevclundo	; perform Undo (and set lastbr, lastho)
+
+	jmp gd_eloop	; wait for clicks
+
+; ------------------------------------------------ Event: Accept
+
+sevclacc	ldy #4		; transfer new clip values to GoDot table
+	lda sc_clipzl	; row
+	sta sc_lastclpzl	; (is 0?)
+	bne sc0
+	dey
+sc0	lda sc_clipsp	; column
+	sta sc_lastclpzl+1	; (is 0?)
+	bne sc1
+	dey
+sc1	lda sc_clipbr	; width
+	sta sc_lastclpzl+2	; (is 40?)
+	cmp #40
+	bne sc2
+	dey
+sc2	lda sc_clipho	; height
+	sta sc_lastclpzl+3	; (is 25?)
+	cmp #25
+	bne cl10
+	dey
+cl10	sty sc_clipped	; if .y=0 then no clip, full screen
+	iny
+	jmp cl9		; finish function
+
+; ------------------------------------------------ Event: Cancel
+
+sevclcan	ldy #3		; restore values
+cl8	lda clipcan,y
+	sta sc_clipzl,y
+	dey
+	bpl cl8
+	lda clipmk
+	sta sc_clipped
+	ldy dispmk
+
+cl9	sty gr_redisp	; finish module: set appropriate re-render flag
+	ldx #0		; clear ClipWorks requester flag
+	stx pdis
+	lda cntmerk	; restore values
+	sta gd_modswitch
+	lda ifmerk
+	sta sc_iflag
+	lda flmerk
+	sta ls_flen
+	jsr isclip	; adjust Area Type display (Full or Clip)
+	sec		; leave module to main screen
+	rts
+
+; ------------------------------------------------ 
+
+checkcols	sei 		; GoDot off
+	ldx #$00
+	stx pport
+
+	ldy #$03		; set lobyte of...
+	sty slot
+
+	lda #$f0		; ...Slot4, check for types of module there
+	sta slot+1	; (may be cram when input is active)
+	jsr sethicol	; (otherwise unchanged)
+
+	lda #$c0		; ...Slot1 and check
+	sta slot+1
+	jsr sethicol
+
+	lda #$d0		; ...Slot2 and check
+	sta slot+1
+	jsr sethicol
+
+	lda #$e0		; ...Slot3 and check
+	sta slot+1
+	jsr sethicol
+
+	lda #$36		; GoDot on again
+	sta pport
+	cli 
+	rts 
+
+; ------------------------------------------------ 
+
+sethicol	lda (slot,x)	; get type of module (at $c003): $20, $40, $80
+	tay 
+	and #$40		; is saver there? (contains vram1)
+	beq +		; no, next type
+
+	jsr c147		; yes, set color buffer 
+	sta v1buf
+	bne ++
+
++	tya 		; loader? ($80, contains cram)
+	bpl +		; no, next type
+
+	jsr c147		; yes, set accordingly
+	sta cbuf
+	bne ++
+
++	jsr c147		; so, it's a modifier (contains vram2)
+	sta v2buf
+
+++	rts 
+
+c147 	lda slot+1	; get hibyte...
+	ora #$0e		; ...and OR %00001110 to it (ie $ce)
+	rts 		; thus: get correct hi address of color buffers
+
+; ------------------------------------------------ 
+; ------------------------------------------------ graphics display
+; ------------------------------------------------ 
+
+redisplay	ldx gr_palette	; set border to color 0 (normally black)
+	stx rahmen
+	jsr setcolors	; get colors from their buffers
+
+	lda gr_cmode	; which mode?
+	beq dp4
+	lda #$18		; multicolor
+	sta multreg
+dp4	lda #$1b		; hires
+	sta charreg
+	lda #$3b
+	sta grafreg
+	lda gr_redisp	; Flag: display graphics set?
+	bne dp3		; yes, branch and leave
+
+; ------------------------------------------------ End display
+
+dp2	jsr getcolors	; no, end display: save colors
+	jsr tmode		; activate textmode
+oldreq	lda sc_screenvek	; save vector to current screenlist (ClipWorks)
+	pha
+	lda sc_screenvek+1
+	pha
+	lda pdis		; is ClipWorks requester active?
+	beq dp5		; no, branch (will never occur)
+	ldx list		; yes, re-build main screen
+	ldy list+1
+	jsr gd_screen
+dp5	pla		; and then re-build ClipWorks requester
+	tay
+	pla
+	tax
+	jsr gd_screen
+dp3	clc		; leave
+	rts
+
+; ------------------------------------------------ Switch textmode on
+
+tmode	ldx #$13
+	lda #$1b
+	stx charreg
+	sta grafreg
+	lda #$08
+	sta multreg
+	lda sc_maincolor
+	sta rahmen
+	sta backgr
+	rts
+
+; ------------------------------------------------ 
+; ------------------------------------------------ 
+; Routines to handle GoDot's graphics color buffers
+; for comments see sources for god.upmem
+; ------------------------------------------------ 
+; ------------------------------------------------ 
+
+setcveks	sei
+	lda #$35
+	sta 1
+	lda cbuf 		; color ram
+	ldx #$d8
+	bne scv0
+setbveks	lda v1buf 	; vram1
+	ldx #4
+	dec 1
+scv0	stx $b3
+	ldy #0
+	sty sc_merk
+	sty $b2
+	dey
+setlast	sty gr_bkcol
+	ldy #<(cstart)
+	sty $20
+	sta $21
+	lda #<(500)
+	sta $a8
+	lda #>(500)
+	sta $a9
+	ldy #0
+	rts
+
+count	inc $20
+	bne cou5
+	inc $21
+cou5	inc $b2
+	bne cou6
+	inc $b3
+cou6	lda $a8
+	bne cou7
+	dec $a9
+cou7	dec $a8
+	lda $a8
+	ora $a9
+	rts
+
+getcolors	jsr setcveks
+stco	lda ($b2),y
+	sta sc_merk
+	inc $b2
+	bne stc0
+	inc $b3
+stc0	lda ($b2),y
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	lda sc_merk
+	sta ($20),y
+	jsr count
+	bne stco
+	jsr setbveks
+stc1	lda ($b2),y
+	sta ($20),y
+	jsr count
+	bne stc1
+	ldy gr_bkcol
+	bpl scv1
+	ldy #0
+	lda v2buf 	; vram2
+	jsr setlast
+	beq stc1
+scv1	lda #$36
+	sta 1
+	cli
+	lda backgr
+	and #15
+	sta gr_bkcol
+	rts
+
+setcolors	lda gr_bkcol
+	sta backgr
+	pha
+	jsr setcveks
+stc2	sty sc_merk
+	lda ($20),y
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	sta ($b2),y
+	inc $b2
+	bne stc3
+	inc $b3
+stc3	lda sc_merk
+	sta ($b2),y
+	jsr count
+	bne stc2
+	jsr setbveks
+stc4	lda ($20),y
+	sta ($b2),y
+	jsr count
+	bne stc4
+	ldy gr_bkcol
+	bpl scv1
+	pla
+	tay
+	lda v2buf 	; vram2
+	jsr setlast
+	beq stc4
+
+; ------------------------------------------------ Display Clip values
+
+tabigad	!by <(zeile),>(zeile)
+	!by <(spalte),>(spalte)
+	!by <(breite),>(breite)
+	!by <(hoehe),>(hoehe)
+
+settab	lda #<(tabigad)
+	sta sc_texttab
+	lda #>(tabigad)
+	sta sc_texttab+1
+	rts
+
+gettab	lda (sc_texttab),y
+	sta sc_screentab
+	iny
+	lda (sc_texttab),y
+	sta sc_screentab+1
+	iny
+	sty sc_merk
+	stx sc_merk+1
+	lda #$00
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #$04
+	bne gt0
+	jsr gd_trim
+	jmp gd_initmove
+
+; ------------------------------------------------ Event: SetClip
+
+ss14	jmp ss15
+
+sevsetcl	ldx #0		; clear STOP flag
+	stx sc_stop
+	jsr redisplay	; display graphics
+ss0	lda sc_stop	; STOP?
+	bne ss14		; yes, switch to textmode, show values
+	lda sc_keyprs	; any key (fire, left mouse button)?
+	beq ss0		; no, loop
+
+	jsr gd_position	; compute position of mouse pointer
+	tay		; left of screen?
+	bmi ss14		; yes, reject value
+	cmp #40		; right of screen?
+	bcs ss14		; yes, reject
+	sta clipsp1	; ok, store as upper left corner (column)
+	sta sc_sp
+	lda sc_merk	; beyond top of screen?
+	tay
+	bmi ss14		; yes, reject
+	cmp #25		; beyond bottom?
+	bcs ss14		; yes, reject
+	sta clipzl1	; ok, store as upper left corner (row)
+	sta sc_zl
+
+	ldy #1		; show clip (1 tile)
+	sty lastho
+	sty lastbr
+	jsr invertcl
+
+ss1	ldy #0		; clear clicks
+	sty sc_keyprs
+	jsr gd_position	; compute position of mouse pointer
+	cmp #40		; out of right border?
+	bcs ss1		; yes, loop
+	sta clipsp2	; no, store column
+	sec		; compute width
+	sbc clipsp1	; right edge beyond left?
+	bcc ss13		; yes, loop
+	adc #0		; width changed?
+	cmp lastbr
+	beq ss11a		; no, proceed
+	iny		; else: increment
+ss11	sta brtmp
+ss11a	lda sc_merk	; out of bottom border?
+	cmp #25
+	bcs ss1		; yes, loop
+	sta clipzl2	; no, store row
+	sec		; compute height
+	sbc clipzl1	; bottom edge above top?
+	bcc ss13		; yes, loop
+	adc #0
+	cmp lastho	; height changed?
+	bne ss12		; no, loop
+	dey
+	bmi ss13
+ss12	sta hotmp
+	jsr invertcl	; invert previous clip area on screen (off)
+	lda brtmp		; store current values as previous
+	sta lastbr
+	lda hotmp
+	sta lastho
+	jsr invertcl	; invert current clip area
+ss13	lda sc_stop	; STOP?
+	bne break		; yes, finish
+	lda sc_keyprs	; any clicks?
+	beq ss1		; no, loop
+
+; ------------------------------------------------ End of SetClip
+
+	lda clipzl1	; store current clip values for undo
+	sta clipundo
+	lda clipsp1
+	sta clipundo+1
+	lda lastbr
+	sta clipundo+2
+	lda lastho
+	sta clipundo+3
+
+; ------------------------------------------------ 
+
+break	jsr invertcl	; invert clip area (to off)
+ss15	jsr dp2		; end graphics display
+ss16	ldy #3		; set (old) clip values for GoDot
+ss4	lda clipundo,y
+	sta sc_clipzl,y
+	dey
+	bpl ss4
+
+; ------------------------------------------------ Show Clip Values
+
+showclip	ldy #0		; care for text mode
+	sty sc_loop
+	jsr settab	; show clip row value
+	jsr gettab
+	lda sc_clipzl
+	jsr tshow
+	ldy sc_merk	; show clip column value
+	jsr gettab
+	lda sc_clipsp
+	jsr tshow
+	ldy sc_merk	; show clip width value
+	jsr gettab
+	lda sc_clipbr
+	jsr tshow
+	ldy sc_merk	; show clip height value
+	jsr gettab
+	lda sc_clipho
+	jsr tshow
+	clc
+	rts
+
+; ------------------------------------------------ Event: ShowClip
+
+sevshowcl	ldx #0		; clear key buffer
+	stx sy_tbuffer
+	jsr redisplay	; turn graphics on
+	lda sc_clipzl	; set clip values
+	sta sc_zl
+	lda sc_clipsp
+	sta sc_sp
+	lda lastbr
+	beq rdy
+	lda lastho
+	beq rdy
+	lda #0		; clear toggle flag
+	sta togg
+sh0	jsr invertcl	; blink clip
+	ldx #250
+	jsr gd_dl2
+	lda togg
+	eor #1
+	sta togg
+	lda $dc00		; fire?
+	and #16
+	beq sh1		; yes, finish
+	lda sy_tbuffer	; any key?
+	beq sh0		; no, loop
+sh1	lda togg		; finish
+	and #1		; clip in blink phase?
+	beq sh0		; no, add one blink
+	jsr invertcl	; yes, clip to off
+rdy	jmp dp2		; text mode on, finished
+
+; ------------------------------------------------ Event: Undo Clip
+
+sevclundo	ldy #3		; init value buffer
+ss51	lda clipcan,y
+	sta clipundo,y
+	sta sc_zl,y
+	dey
+	bpl ss51
+ss53	lda clipundo+2
+	sta lastbr
+	lda clipundo+3
+	sta lastho
+	jmp ss16		; and show new values
+
+; ------------------------------------------------ Event: Last Clip
+
+sevlastcl	ldy #3		; init value buffer
+ss52	lda sc_lastclpzl,y
+	sta clipundo,y
+	dey
+	bpl ss52
+	jmp ss53		; and show new values
+
+; ------------------------------------------------ Event: Full Screen
+
+sevfull	ldy #3		; init value buffer
+ss54	lda full,y
+	sta clipundo,y
+	dey
+	bpl ss54
+	jmp ss53		; and show new values
+
+; ------------------------------------------------ Show values
+
+tshow	jsr gd_xcnvdez	; convert .a to digits
+	ldy #8
+	sta (sc_screentab),y
+	txa
+	and #15
+	bne ss5
+	ldx #$20
+ss5	txa
+	dey
+	sta (sc_screentab),y
+	ldy #6		; and display
+	jmp gd_xtxout1
+
+; ------------------------------------------------ Invert clip area
+
+invertcl	ldx #0		; care for text mode
+	stx sc_loop
+	jsr gd_initmove	; compute address
+inv0	ldy #0		; .y index for width
+inv1	cpy lastbr
+	beq inv2
+	lda sc_vekt20+1
+	pha
+	lda (sc_vekt20),y	; first invert video ram
+	eor #$ff
+	sta (sc_vekt20),y
+	lda sc_vekt20+1
+	clc
+	adc #$d4		; then color ram
+	sta sc_vekt20+1
+	lda (sc_vekt20),y
+	eor #$ff
+	sta (sc_vekt20),y
+	pla
+	sta sc_vekt20+1
+	iny
+	bne inv1		; one row
+inv2	inx		; next one
+	cpx lastho
+	beq ready		; finished if height
+	jsr gd_plus40	; else add 40 for next
+	bne inv0
+ready	rts
+
+; ------------------------------------------------ Adjust gadget caption in "Exec Area"
+
+isclip	lda sc_clipped	; clip set?
+	beq cloff		; no
+	ldy #3		; yes
+	!by $2c
+cloff	ldy #7
+	ldx #4
+im1	lda set,y
+	sta areatype-1,x
+	dey
+	dex
+	bne im1
+	rts
+
+; ------------------------------------------------ Event: Input
+
+sevrinp	ldx #0		; row
+	!by $2c
+sevcinp	ldx #1		; column (Col)
+	!by $2c
+sevhinp	ldx #2		; width (Hor)
+	!by $2c
+sevvinp	ldx #3		; height (Ver)
+	stx inmerk	; store as type
+	lda #<(ibuff)	; set address for table of valid chars
+	sta ls_vekta8
+	lda #>(ibuff)
+	sta ls_vekta8+1
+	jsr gd_xinput	; perform input (part of saver)
+	lda #>(ls_nambuf)	; get result
+	sta ls_vekta8+1
+	lda #<(ls_nambuf)
+	sta ls_vekta8
+
+	ldy #2		; delimit result buffer (.a=0)
+	sta ls_nambuf,y
+	ldy #$ff		; init integer value
+	sta int
+	sta int+1
+getword	iny		; convert digits to integers
+	lda (ls_vekta8),y
+	cmp #32
+	beq getword
+	cmp #$3a
+	bcs gw0
+	sec
+	sbc #$30
+	sec
+	sbc #$d0
+	bcs gw0
+	sbc #$2f
+	sta wordlo
+	lda int+1
+	sta ls_temp
+	cmp #$19
+	bcs gw0
+	lda int
+	asl
+	rol ls_temp
+	asl
+	rol ls_temp
+	adc int
+	sta int
+	lda ls_temp
+	adc int+1
+	sta int+1
+	asl int
+	rol int+1
+	lda int
+	adc wordlo
+	sta int
+	bcc getword
+	inc int+1
+	bne getword
+
+; ------------------------------------------------ Check for valid values
+
+gw0	lda inmerk	; get flag for type of inputted value
+	tax		; save to .x
+	eor #3
+	tay
+	txa		; was row?
+	beq gw1		; yes
+
+	cpx #1		; was column?
+	beq gw1		; yes
+
+	lda int		; no, value was zero?
+	beq gw2		; yes, finish
+	bne gw4		; else proceed
+
+gw1	lda sc_clipzl,y	; was row+ver>max or was hor+col>max?
+gw3	clc
+	adc int
+	sta int+1
+	sec
+	lda max-2,y
+	sbc int+1
+	bcc gw2		; yes, no change
+	lda int
+	sta clipundo,x
+gw2	jmp ss53		; and show value
+
+gw4	lda sc_clipzl,y	; care for right value
+	pha
+	tya
+	eor #3
+	tay
+	pla
+	jmp gw3
+
+; ------------------------------------------------ Screenlist for ClipWorks
+
+arealst	!by 0
+	!by 1,12,16,23,$91,0,0
+	!scr "ClipWorks@"
+zeile	!by 3,16,4,3,$e0,<(sevrinp),>(sevrinp)
+	!by 32,32,0
+spalte	!by 3,23,4,3,$e0,<(sevcinp),>(sevcinp)
+	!by 32,32,0
+breite	!by 6,16,4,3,$e0,<(sevhinp),>(sevhinp)
+	!by 32,32,0
+hoehe	!by 6,23,4,3,$e0,<(sevvinp),>(sevvinp)
+	!by 32,32,0
+	!by 9,12,8,3,$d8,<(sevsetcl),>(sevsetcl)
+	!scr " Clip @"
+	!by 9,20,8,3,$df,<(sevshowcl),>(sevshowcl)
+	!scr " Show @"
+	!by 12,12,8,3,$d8,<(sevfull),>(sevfull)
+	!scr " Full @"
+	!by 12,20,8,3,$df,<(sevlastcl),>(sevlastcl)
+	!scr " Last @"
+	!by 15,12,8,3,$d8,<(sevzoom),>(sevzoom)
+	!scr " Zoom @"
+	!by 15,20,8,3,$df,<(sevshrink),>(sevshrink)
+	!scr "Shrink@"
+	!by 18,12,8,3,$d8,<(sevclclip),>(sevclclip)
+	!scr "ClrClp@"
+	!by 18,20,8,3,$df,<(sevclacc),>(sevclacc)
+	!scr "Accept@"
+	!by 21,12,16,3,$d9,<(sevclcan),>(sevclcan)
+	!scr "Cancel@"
+	!by $c0,3,12,3
+	!scr "Row@"
+	!by $c0,3,19,3
+	!scr "Col@"
+	!by $c0,6,12,3
+	!scr "Wid@"
+	!by $c0,6,19,3
+	!scr "Hgt@"
+	!by $80
+
+; ------------------------------------------------ 
+
+set	!scr "Clip"
+	!scr "Full"
+
+ziff	!pet " 0123456789"
+max	!by 40,25
+pdis	!by 0
+list	!wo 0
+clipmk	!by 0
+cntmerk	!by 0
+ifmerk	!by 0
+flmerk	!by 0
+inmerk	!by 0
+lastbr	!by 0
+lastho	!by 0
+clipundo	!by 0,0,0,0
+clipcan	!by 0,0,0,0
+full	!by 0,0,40,25
+clipzl1	!by 0
+clipzl2	!by 0
+clipsp1	!by 0
+clipsp2	!by 0
+brtmp	!by 0
+hotmp	!by 0
+togg	!by 0
+zoomfl	!by 0
+
+
+; ------------------------------------------------ Event: Zoom
+
+sevzoom	lda #$80		; flag
+	!by $2c
+
+; ------------------------------------------------ Event: Shrink
+
+sevshrink	lda #0		; flag
+	sta zoomfl
+	jsr swap		; save first page of module
+	jsr vres		; shrink/zoom vertically
+	jsr hres		; shrink/zoom horizonzally
+	jsr swap		; restore first page 
+	jmp clearad	; activity off, finished
+
+; ------------------------------------------------ vertically
+
+vres	lda sc_clipho	; height = 25?
+	cmp #25
+	bne vstart0
+	rts		; yes, finished
+
+vstart0	asl
+	tax
+
+	lda zoomfl	; shrink or zoom?
+	bmi ssh0
+	lda vratio,x	; shrink
+	sta clpf
+	lda vratio+1,x
+	jmp ssh1
+ssh0	lda vratio+1,x	; zoom
+	sta clpf
+	lda vratio,x
+ssh1	sta scrf
+	lsr
+	sta aprxf
+
+	lda #8		; init activity
+	jsr initad
+	ldy #0
+	tya
+vclrlp	sta buf1,y
+	iny
+	bne vclrlp
+
+	lda #$00		; start at column #0 (of 320)
+	sta colnr
+	sta colnr+1
+vloop00	lda colnr+1
+	lsr
+	sta src+1
+	lda colnr		; determine left or right pixel
+	ror
+	bcs odd0
+	ldx #$0f		; right
+	!by $2c
+odd0	ldx #$f0		; left
+	stx which
+	tax		; compute start address
+	and #$03
+	sta src
+	txa
+	and #$fc
+	asl
+	rol src+1
+	asl
+	rol src+1
+	asl
+	rol src+1
+	ora src
+	sta src
+	lda src+1
+	ora #$40		; relative to 4Bit
+	sta src+1
+
+	ldx #0		; buffer 1 vertical band (of 1 pixel width)
+	stx sum
+vloop0	ldy #0
+vloop1	lda (src),y
+	bit which
+	bvs odd1
+	lsr
+	lsr
+	lsr
+	lsr
+odd1	and #$0f
+	beq nskip0
+	sta sum
+nskip0	sta buf0,x
+	inx
+	iny
+	iny
+	iny
+	iny
+	cpy #32		; 1 tile?
+	bcc vloop1
+	lda src+1		; yes, next below
+	clc
+	adc #>(1280)
+	sta src+1		; end of 4Bit?
+	cmp #$bd
+	bcc vloop0	; no, loop
+
+	lda sum		; anything to process?
+	bne nc0
+	jmp nc		; no, next column
+
+; ------------------------------------------------ 
+
+nc0	lda zoomfl	; process data
+	bmi nc01
+	lda #<(buf0)
+	ldx #>(buf0)
+	sta src
+	stx src+1
+
+	lda sc_clipzl
+	tax
+	asl
+	asl
+	asl
+	sta dst
+	lda #>(buf1)
+	sta dst+1
+	txa
+	clc
+	adc sc_clipho
+	asl
+	asl
+	asl
+	jmp nc02
+
+nc01	lda #<(buf1)
+	ldx #>(buf1)
+	sta dst
+	stx dst+1
+	lda sc_clipzl
+	tax
+	asl
+	asl
+	asl
+	sta src
+	lda #>(buf0)
+	sta src+1
+	lda #200
+nc02	sta dstend
+
+	lda clpf
+	sta scnt
+	ldy #0
+vrlp0	lda aprxf
+	sta sum
+	lda #0
+	sta sum+1
+
+	ldx scrf
+vrlp1	lda (src),y
+	clc
+	adc sum
+	sta sum
+	bcc vrskp2
+	inc sum+1
+vrskp2	dec scnt
+	bne vrskp3
+	inc src
+	bne vrskp4
+	inc src+1
+vrskp4	lda clpf
+	sta scnt
+vrskp3	dex
+	bne vrlp1
+
+	ldy #0
+	lda sum
+	ldx sum+1
+vdivlp	sec
+	sbc scrf
+	bcs vrskp5
+	dex
+	bmi vrskp6
+vrskp5	iny
+	bne vdivlp
+
+; ------------------------------------------------ 
+
+vrskp6	tya		; write back
+	ldy #0
+	sta (dst),y
+	inc dst
+	lda dst
+	cmp dstend
+	bne vrlp0
+
+	lda colnr+1
+	lsr
+	sta dst+1
+	lda colnr
+	ror
+	bcs odd2
+	ldx #$0f
+	!by $2c
+odd2	ldx #$f0
+	stx which
+	tax
+	and #$03
+	sta dst
+	txa
+	and #$fc
+	asl
+	rol dst+1
+	asl
+	rol dst+1
+	asl
+	rol dst+1
+	ora dst
+	sta dst
+	lda dst+1
+	ora #$40
+	sta dst+1
+
+	ldx #0
+vloop2	ldy #0
+vloop3	lda buf1,x
+	bit which
+	bvs odd3
+	asl
+	asl
+	asl
+	asl
+odd3	sta bbuf
+	lda (dst),y
+	and which
+	ora bbuf
+	sta (dst),y
+	inx
+	iny
+	iny
+	iny
+	iny
+	cpy #32
+	bcc vloop3
+	lda dst+1
+	clc
+	adc #>(1280)
+	sta dst+1
+	cmp #$bd
+	bcc vloop2
+
+; ------------------------------------------------ 
+
+nc	inc colnr		; address next column
+	bne vskip0
+	inc colnr+1
+vskip0	lda colnr
+	cmp #<(320)
+	bne vskip1
+	lda colnr+1
+	bne vok
+
+vskip1	dec adcnt		; activity display
+	bne vadskp
+	inc y2
+	inc y2+2
+	lda #8
+	sta adcnt
+vadskp	jmp vloop00	; start over
+
+vok	rts
+
+; ------------------------------------------------ 
+
+vratio	!by 0,0,1,25,2,25,3,25
+	!by 4,25,1,5,6,25,7,25
+	!by 8,25,9,25,2,5,11,25
+	!by 12,25,13,25,14,25,3,5
+	!by 16,25,17,25,18,25,19,25
+	!by 4,5,21,25,22,25,23,25
+	!by 24,25
+
+; ------------------------------------------------ horizontally
+
+hres	lda sc_clipbr
+	cmp #40
+	bne hstart0
+	rts
+
+hstart0	asl
+	tax
+	lda zoomfl
+	bmi ssv0
+	lda hratio,x
+	sta clpf
+	lda hratio+1,x
+	jmp ssv1
+ssv0	lda hratio+1,x
+	sta clpf
+	lda hratio,x
+ssv1	sta scrf
+	lsr
+	sta aprxf
+	lda #5
+	jsr initad
+	ldy #0
+	tya
+hclrlp	sta buf1,y
+	sta buf1+256,y
+	iny
+	bne hclrlp
+
+; ------------------------------------------------ 
+
+	lda #$00		; line counter (200)
+	sta linenr
+hloop00	lda linenr
+	pha
+	lsr
+	lsr
+	lsr
+	tax
+	pla
+	and #$07
+	asl
+	asl
+	sta dst
+	lda line8,x
+	sta dst+1
+
+	lda #<(buf0)
+	ldx #>(buf0)
+	sta src
+	stx src+1
+	ldx #0
+	stx sum
+	lda #40
+	sta blcnt
+hloop0	ldy #0
+hloop1	lda (dst),y
+	beq nskip1
+	sta sum
+nskip1	pha
+	lsr
+	lsr
+	lsr
+	lsr
+	sta (src,x)
+	inc src
+	bne hskip0
+	inc src+1
+hskip0	pla
+	and #$0f
+	sta (src,x)
+	inc src
+	bne hskip1
+	inc src+1
+hskip1	iny
+	cpy #4
+	bne hloop1
+	lda dst
+	clc
+	adc #32
+	sta dst
+	bcc hskip2
+	inc dst+1
+hskip2	dec blcnt
+	bne hloop0
+
+	lda sum
+	bne hskip21
+	jmp nl
+
+; ------------------------------------------------ 
+
+hskip21	lda zoomfl
+	bmi zom0
+	lda #<(buf0)
+	ldx #>(buf0)
+	sta src
+	stx src+1
+
+	lda sc_clipsp
+	tax
+	asl
+	asl
+	asl
+	sta dst
+	ldy #>(buf1)
+	bcc hrskp0
+	iny
+hrskp0	sty dst+1
+
+	txa
+	clc
+	adc sc_clipbr
+	asl
+	asl
+	asl
+	sta dstend
+	ldy #>(buf1)
+	bcc hrskp1
+	iny
+hrskp1	sty dstend+1
+	jmp zom2
+
+zom0	lda #<(buf1)
+	ldx #>(buf1)
+	sta dst
+	stx dst+1
+	lda sc_clipsp
+	tax
+	asl
+	asl
+	asl
+	sta src
+	ldy #>(buf0)
+	bcc hrskp01
+	iny
+hrskp01	sty src+1
+	lda #<buf11
+	sta dstend
+	lda #>buf11
+	sta dstend+1
+
+zom2	lda clpf
+	sta scnt
+	ldy #0
+hrlp0	lda aprxf
+	sta sum
+	lda #0
+	sta sum+1
+	ldx scrf
+hrlp1	lda (src),y
+	clc
+	adc sum
+	sta sum
+	bcc hrskp2
+	inc sum+1
+hrskp2	dec scnt
+	bne hrskp3
+	inc src
+	bne hrskp4
+	inc src+1
+hrskp4	lda clpf
+	sta scnt
+hrskp3	dex
+	bne hrlp1
+
+	ldy #0
+	lda sum
+	ldx sum+1
+hdivlp	sec
+	sbc scrf
+	bcs hrskp5
+	dex
+	bmi hrskp6
+hrskp5	iny
+	bne hdivlp
+
+hrskp6	tya
+	ldy #0
+	sta (dst),y
+	inc dst
+	bne hrskp7
+	inc dst+1
+hrskp7	lda dst+1
+	cmp dstend+1
+	bne hrlp0
+	lda dst
+	cmp dstend
+	bne hrlp0
+
+	lda linenr
+	pha
+	lsr
+	lsr
+	lsr
+	tax
+	pla
+	and #$07
+	asl
+	asl
+	sta dst
+	lda line8,x
+	sta dst+1
+
+	lda #<(buf1)
+	ldx #>(buf1)
+	sta src
+	stx src+1
+	ldx #0
+	lda #40
+	sta blcnt
+hloop2	ldy #0
+hloop3	lda (src,x)
+	asl
+	asl
+	asl
+	asl
+	inc src
+	bne hskip3
+	inc src+1
+hskip3	ora (src,x)
+	inc src
+	bne hskip4
+	inc src+1
+hskip4	sta (dst),y
+	iny
+	cpy #4
+	bne hloop3
+	lda dst
+	clc
+	adc #32
+	sta dst
+	bcc hskip5
+	inc dst+1
+hskip5	dec blcnt
+	bne hloop2
+
+; ------------------------------------------------ 
+
+nl	inc linenr
+	lda linenr
+	cmp #200
+	beq hok
+
+	dec adcnt
+	bne adskp
+	inc y2
+	inc y2+2
+	lda #5
+	sta adcnt
+adskp	jmp hloop00
+
+hok	rts
+
+
+; ------------------------------------------------ 
+
+line8	!by $40,$45,$4a,$4f,$54
+	!by $59,$5e,$63,$68,$6d
+	!by $72,$77,$7c,$81,$86
+	!by $8b,$90,$95,$9a,$9f
+	!by $a4,$a9,$ae,$b3,$b8
+
+; ------------------------------------------------ 
+
+hratio	!by 0,0,1,40,1,20,3,40
+	!by 1,10,1,8,3,20,7,40
+	!by 1,5,9,40,1,4,11,40
+	!by 3,10,13,40,7,20,3,8
+	!by 2,5,17,40,9,20,19,40
+	!by 1,2,21,40,11,20,23,40
+	!by 3,5,5,8,13,20,27,40
+	!by 7,10,29,40,3,4,31,40
+	!by 4,5,33,40,17,20,7,8
+	!by 9,10,37,40,19,20,39,40
+
+; ------------------------------------------------ 
+;   sprite activity display
+
+
+clearad	lda #$ff
+	sta dispmk
+clearad2	lda spren
+	and #243
+	sta spren
+	lda msbx
+	and #243
+	sta msbx
+	clc
+	rts
+
+initclr	jsr ai2
+	bne ai3
+initad	sta adcnt
+ai3	ldy #60
+	lda #0
+adl0	sta spr255+3,y
+	dey
+	bpl adl0
+	sty spr255
+	sty spr255+1
+	sty spr255+2
+	lda #15
+	sta sprcol2
+	sta sprcol2+1
+	lda sprxe
+	ora #12
+	sta sprxe
+	lda msbx
+	ora #12
+	sta msbx
+	lda #8
+	sta x2
+	lda #32
+	sta x2+2
+
+	lda #146
+	sta y2
+	sta y2+2
+	lda #$ff
+	sta sprptr+2
+	sta sprptr+3
+	lda spren
+	ora #12
+	sta spren
+	rts
+
+; ------------------------------------------------ 
+
+adinc	lda adcnt
+	bne ai0
+	dec adcnt+1
+ai0	dec adcnt
+	lda adcnt
+	ora adcnt+1
+	bne ai1
+ai2	lda #$f8
+	sta adcnt
+	lda #3
+	sta adcnt+1
+	inc $d005
+	inc $d007
+ai1	rts
+
+; ------------------------------------------------ 
+
+cancelclr	ldx mkscreen
+	ldy mkscreen+1
+	stx sc_screenvek
+	sty sc_screenvek+1
+	jmp oldreq
+
+swap	ldy #0
+r20	lda modul,y
+	ldx modend,y
+	sta modend,y
+	txa
+	sta modul,y
+	iny
+	bne r20
+	rts
+
+; ------------------------------------------------ 
+; ClrClp
+
+; ------------------------------------------------ Event: ClrClp
+
+sevclclip	ldx sc_screenvek	; save current screenlist (ClipWorks)
+	ldy sc_screenvek+1
+	stx mkscreen
+	sty mkscreen+1
+	ldx #<(clcllst)	; and show new one (ClrClp)
+	ldy #>(clcllst)
+	jsr gd_screen
+
+	sta sc_loop	; care for text mode
+	ldx palgad	; palette gadget values
+	inx
+	stx palzl
+	stx sc_zl
+	ldx palgad+1
+	inx
+	stx palsp
+	stx sc_sp
+	ldx #4		; 4x4 area (color chooser)
+	stx sc_br
+	stx sc_ho
+	jsr gd_esm3	; compute address and invert
+
+	lda gr_picked	; get previously selected color to .x
+	and #15		; (will be marked by "+")
+	tax
+	jsr initpal	; and show colors
+	jmp gd_eloop	; wait for clicks
+
+; ------------------------------------------------ create palette chooser
+
+makepal	lda gr_picked	; get current color
+	and #15
+	sta plast		; and store
+
+	lda palsp		; create chooser, first column
+	sta sc_sp
+	pha
+	ldx #1		; width and height = 1
+	stx sc_br
+	stx sc_ho
+	dex
+	stx cnty		; counters = 0
+	stx hold
+
+mp1	stx cntx
+	ldy hold
+	lda gr_basepal,y	; get color
+	sta sc_chgcol
+	ldx #4
+	jsr gd_fcol	; colorize area (1x1)
+	sec		; is PICKED color?
+	lda sc_vekt20
+	sbc #40
+	sta sc_vekt20
+	lda sc_vekt20+1
+	sbc #$d4
+	sta sc_vekt20+1
+	ldy sc_chgcol
+	cpy plast
+	beq mp2
+	lda #160		; no, write shift space
+	bne mp3
+mp2	lda #171		; yes, write "+"
+mp3	ldy #0
+	sta (sc_vekt20),y
+	inc sc_sp		; next column
+	inc hold
+	ldx cntx
+	inx
+	cpx #4
+	bne mp1
+
+	pla		; re-get start column
+	pha
+	sta sc_sp
+	ldx #0
+	inc sc_zl		; next row
+	inc cnty
+	lda cnty
+	cmp #4
+	bne mp1
+
+	pla		; clear stack
+	rts		; finished
+
+; ------------------------------------------------ Event: Pick Color
+
+evgetcol	sec		; compute row where user clicked
+	lda sc_merk
+	sbc palzl
+	asl
+	asl
+	sta hold
+	sec		; compute column
+	lda sc_merk+1
+	sbc palsp
+	clc
+	adc hold
+	tax		; take as index into palette
+	lda gr_basepal,x
+	tax
+	ora #$80		; sign valid
+	sta gr_picked
+initpal	lda c64pal,x	; re-display palette
+	sta col
+	jsr makepal
+	clc
+	rts
+
+; ------------------------------------------------ 
+
+palzl	!by 0
+palsp	!by 0
+hold	!by 0
+vert	!by 0
+plast	!by 0
+cntx	!by 0
+cnty	!by 0
+cntmk	!wo 0
+mkscreen	!wo 0
+data0	!wo 0
+c64pal	!by $00,$ff,$44,$cc,$55,$aa,$11,$dd
+	!by $66,$22,$99,$33,$77,$ee,$88,$bb
+
+; ------------------------------------------------ Screenlist for ClrClp
+
+clcllst	!by 0
+	!by 13,1,18,10,$01,0,0
+palgad	!by 15,2,6,6,$40,<(evgetcol),>(evgetcol)
+	!by 14,8,11,3,$cf,<(evinside),>(evinside)
+	!by 32,73,14,19,9,4,5,0
+	!by 17,8,11,3,$cf,<(evoutside),>(evoutside)
+	!by 32,79,21,20,19,9,4,5,0
+	!by 20,8,11,3,$cd,<(cancelclr),>(cancelclr)
+	!by 32,76,5,1,22,5,0
+	!by $80
+
+; ------------------------------------------------ .x times 1280
+
+mal1280	clc
+	lda #0
+ml0	adc #5
+	dex
+	bne ml0
+	rts
+
+; ------------------------------------------------ .a times 32
+
+mal32	ldx #0
+	stx cnt+1
+	sta cnt
+	asl cnt
+	rol cnt+1
+	asl cnt
+	rol cnt+1
+	asl cnt
+	rol cnt+1
+	asl cnt
+	rol cnt+1
+	asl cnt
+	rol cnt+1
+	rts
+
+; ------------------------------------------------ Clear 4Bit by selected color
+
+zero1	ldy #0
+	beq z1
+ml1	lda cnt
+	bne ml2
+	dec cnt+1
+ml2	dec cnt
+	lda cnt
+	ora cnt+1
+	beq ml3
+	jsr adinc
+z1	 lda col
+	sta (data),y
+	inc data
+	bne ml1
+	inc data+1
+	bne ml1
+ml3	rts
+
+zero2	lda cnt+1
+	ldx cnt
+	sta cntmk+1
+	stx cntmk
+	ldx vert
+ml7	jsr zero1
+	clc
+	lda data0+1
+	adc #5
+	sta data0+1
+	sta data+1
+	lda data0
+	sta data
+	lda cntmk+1
+	sta cnt+1
+	lda cntmk
+	sta cnt
+	dex
+	bne ml7
+	rts
+
+; ------------------------------------------------ Event: Outside
+
+evoutside	jsr initclr	; init activity display 
+	lda #25		; 25 tile rows
+	sta vert
+	lda #$40		; start of 4Bit: $4000
+	ldy #0
+	sta data+1
+	sty data
+	ldx sc_clipzl	; clip from top?
+	beq ml4		; yes
+	jsr mal1280	; no, clear 
+	sta cnt+1
+	stx cnt
+	jsr zero1
+ml4	clc		; compute height
+	lda sc_clipzl
+	adc sc_clipho
+	sta sc_merk
+	sec
+	lda #25		; is 25?
+	sbc sc_merk
+	beq ml5		; yes, proceed
+	tax		; no, clear
+	jsr mal1280
+	sta cnt+1
+	stx cnt
+	ldx sc_merk
+	jsr mal1280
+	clc
+	adc #$40
+	sta data+1
+	stx data
+	jsr zero1
+ml5	lda sc_clipsp	; get indent, clip from left border?
+	beq ml6		; yes
+	jsr mal32		; no, clear
+	jsr initclr
+	lda #$40
+	sta data0+1
+	sta data+1
+	lda #0
+	sta data0
+	sta data
+	jsr zero2
+ml6	clc		; compute width
+	lda sc_clipsp
+	adc sc_clipbr
+	sta sc_merk
+	jsr mal32
+	clc
+	lda #0
+	adc cnt
+	sta data
+	sta data0
+	lda #$40
+	adc cnt+1
+	sta data+1
+	sta data0+1
+	sec
+	lda #40		; up to right border?
+	sbc sc_merk
+	beq ml8		; yes, no clip (= no outside)
+	jsr mal32		; no, clear
+ml9	jsr zero2
+	dex
+	stx dispmk
+ml8	jmp clearad2	; activity off, finished
+
+; ------------------------------------------------ Event: Inside
+
+evinside	jsr initclr	; init activity display
+	lda #$40		; start from $4000
+	ldy #0
+	sta data0+1
+	sta data+1
+	sty data0
+	sty data
+	ldx sc_clipzl	; from top?
+	beq il4		; yes
+	jsr mal1280	; no, compute start
+	sta cnt+1
+	stx cnt
+	jsr add
+il4	lda sc_clipsp	; from left?
+	beq il5		; yes
+	jsr mal32		; no, compute indent
+	jsr add
+il5	lda sc_clipbr	; compute width
+	jsr mal32
+	lda sc_clipho	; and height
+	sta vert
+	jmp ml9		; clear
+
+; ------------------------------------------------ 
+
+add	clc
+	lda data0
+	adc cnt
+	sta data0
+	sta data
+	lda data0+1
+	adc cnt+1
+	sta data0+1
+	sta data+1
+	rts
+
+; ------------------------------------------------ 
+
+modend	!eof
