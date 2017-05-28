@@ -1,0 +1,445 @@
+
+!src "..\godotlib.lib"
+*= $c000
+
+; -------------------------------------------------- 
+;
+;  ldr.Doodle
+;    Lader für Hires-Bilder im Doodle-Format
+;
+;  1.00
+;  1.01
+;  1.02
+;  1.03
+;  1.04, 16.07.98:
+;  1.05, 28.05.17: re-organized, some minor changes
+;
+; -------------------------------------------------- 
+
+
+; ----------------------------------------- Equates
+
+	ftype		= $30
+	counter		= $31
+	gbyte		= $32
+	byte		= $33
+	adcnt		= $40
+	merk		= $41
+	vv		= $43
+	vr		= $45
+	cr		= $47
+
+	status		= $90
+
+	offx		= ls_adrmisc
+	offy		= offx+1
+
+	vrbuf		= $c600
+	crbuf		= vrbuf+$0400
+	col0		= vrbuf+$0800
+
+; ----------------------------------------- Header
+
+	jmp start
+	!by $80
+	!by $00
+	!by $00
+	!wo modend
+	!wo $00
+	!pet "Doodle (even JJ)"
+	!pet "1.05"
+	!pet "28.05.17"
+	!pet "A.Dettke        "
+
+; ----------------------------------------- Main
+
+jerror	jmp error
+
+start	lda #7		; Activity: Init
+	sta cntwert
+	ldx #0
+	stx ftype		; Kompressionsflag auf 0
+	stx counter
+	inx
+	stx adcnt
+	jsr getname	; Filenamen sichern
+
+	lda ls_nambuf
+	cmp #$4a		; "j"? (komprimiert?)
+	bne stt2
+	cmp ls_nambuf+1
+	bne stt2
+	sta ftype		; ja, Flag setzen
+
+; ----------------------------------------- Read File: Colors
+
+stt2	jsr gd_xopen	; File öffnen
+	jsr onebyte	; Startadresse überlesen
+	bne jerror
+	jsr onebyte
+	bne jerror
+	jsr gd_clrms	; Activity vorbereiten
+	ldx #0		; out: "Colors"
+	jsr tcopy
+read1	lda #0		; 1024 bytes nach vrbuf laden ($c600) 
+	sta ls_vekta8
+	sta sc_texttab
+	lda #4
+	sta ls_vekta8+1
+	lda #>(vrbuf)
+	sta sc_texttab+1
+	jsr rloop		; Farben einlesen
+	bne jerror	; bei Fehler: Abbruch
+
+; ----------------------------------------- Read File: Bitmap
+
+	lda #52
+	sta cntwert
+	lda #1
+	sta adcnt
+	ldx #18		; out: "Bitmap"
+	jsr tcopy
+
+read2	lda #0		; 8192 Bytes nach $a000 laden
+	sta ls_vekta8
+	sta sc_texttab
+	lda #$20
+	sta ls_vekta8+1
+	lda #$a0
+	sta sc_texttab+1
+	jsr rloop		; Bitmap einlesen
+	bne jerror	; bei Fehler: Abbruch
+
+; ----------------------------------------- Convert to 4Bit
+
+	jsr gd_xclose	; File schließen
+	jsr conhir	; Farben umschichten nach crbuf und vrbuf
+	jsr hires		; nach 4Bit konvertieren
+
+; ----------------------------------------- Abschluss
+
+	jsr setinfo	; Image Information
+
+sk11	ldx #18		; out: "Bitmap" (reset messages)
+	jsr tcopy
+
+sk10	jsr gd_xmess	; Floppy-Meldung (kurz)
+	jsr gd_spron		; Mauszeiger an
+	sec		; Lader verlassen
+	rts
+
+; ----------------------------------------- Unpack
+
+onebyte	lda counter
+	bne getit2
+	inc counter
+	jsr basin
+	cmp #$fe		; Pack-Indikator: $fe
+	bne getit1
+	bit ftype
+	bvc getit1
+	jsr basin		; Byte
+	pha
+	jsr basin		; Zähler
+	sta counter
+	pla
+getit1	sta gbyte
+
+getit2	dec counter
+	lda gbyte
+	ldx status
+	rts
+
+; ----------------------------------------- Error Handler
+
+error	jsr gd_xclose	; File schließen
+	jsr sk11		; Abschluss
+	clc
+	rts
+
+; ----------------------------------------- File einlesen
+
+rloop	jsr onebyte	; ein Byte einlesen
+	sta (sc_texttab),y	; und speichern
+	txa		; .x enthält den Status
+	and #$bf		; Fehler?
+	bne rl3		; dann Abbruch
+	jsr action	; Activity
+	ldy #0		; .y wieder herstellen
+	inc sc_texttab	; Zielzeiger erhöhen
+	bne rl1
+	inc sc_texttab+1
+rl1	lda ls_vekta8	; Bytes abzählen
+	bne rl2
+	dec ls_vekta8+1
+rl2	dec ls_vekta8
+	lda ls_vekta8	; fertig, wenn 0
+	ora ls_vekta8+1
+	bne rloop
+rl3	rts
+
+; ----------------------------------------- Message Handler
+
+messout	ldx #<(message)
+	ldy #>(message)
+	jmp gd_xtxout2
+
+tcopy	ldy #0
+tc0	lda txt,x
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+
+action	dec adcnt		; Gauge out
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	cpy #22		; #1.05: Gauge Overflow abfangen
+	bne act0
+	jsr clrmess
+act0	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts
+
+clrmess	ldx #20
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0
+	ldx #7
+	sty offy
+	stx offx
+	rts
+
+filltab	!by 160,93,103,127,126,124,105,109
+
+cntwert	!by 50
+
+txt	!scr " Colors @"	; 0
+	!scr " Convert@"	; 9
+	!scr " Bitmap @"	; 18
+	!scr " Expand @"	; 27
+	!scr " Move   @"	; 36
+
+message	!scr " Bitmap    "
+mess	!fill 21,32
+	!by 0
+
+; ----------------------------------------- Convert Hires to 4Bit
+
+hires	lda #50
+	sta cntwert
+	lda #1
+	sta adcnt
+	ldx #9		; out: "Convert"
+	jsr tcopy
+
+	lda #<(8000)	; 8000 Bytes
+	sta ls_vekta8
+	lda #>(8000)
+	sta ls_vekta8+1
+	lda #0
+	tay
+	sta vr
+	sta cr
+	sta sc_texttab
+	sta vv
+	lda #$a0		; von $a000 (Bitmap)
+	sta cr+1
+	asl
+	sta sc_texttab+1	; nach $4000 (4Bit)
+	lda #>(vrbuf)	; ink
+	sta vr+1
+	lda #>(crbuf)	; paper
+	sta vv+1
+
+hloop1	ldx #8		; 8 Rasterlinien
+	stx merk
+hilp	lda (cr),y	; Bitmap holen
+	sta byte
+	jsr action	; Activity
+	ldy #0
+
+	ldx #4		; Pixel isolieren
+hl2	asl byte
+	bcc hl3
+	lda (vv),y	; ink (Pixel an)
+	!by $2c
+hl3	lda (vr),y	; paper (Pixel aus)
+	and #$0f
+	tay
+	lda dnib,y	; 4Bit-Farbe
+	and #$f0		; zuerst ink
+	sta col0		; nach col0
+
+	ldy #0
+	asl byte		; nächstes Pixel
+	bcc hl4
+	lda (vv),y	; an (ink)
+	!by $2c
+hl4	lda (vr),y	; aus (paper)
+	and #$0f
+	tay
+	lda dnib,y	; 4Bit-Farbe
+	and #$0f
+	ora col0		; mit erstem Pixel verknüpfen
+
+	ldy #0		; wegschreiben nach 4Bit
+	sta (sc_texttab),y
+
+	inc sc_texttab	; 4Bit-Zeiger erhöhen (fortschreitend)
+	bne lh5
+	inc sc_texttab+1
+lh5	dex		; 4 Doppelpixel zählen (eine Rasterzeile)
+	bne hl2
+
+	inc cr		; Pufferzeiger erhöhen (nächstes Bitmap-Byte)
+	bne hl6
+	inc cr+1
+hl6	lda ls_vekta8	; Bitmap abzählen
+	bne hl7
+	dec ls_vekta8+1
+hl7	dec ls_vekta8
+	dec merk		; 8 Rasterlinien zählen (eine Kachel)
+	bne hilp
+
+	inc vr		; nächste Kachel ink
+	bne hl8
+	inc vr+1
+hl8	inc vv		; nächste Kachel paper
+	bne hl9
+	inc vv+1
+hl9	lda ls_vekta8	; 8000 Bytes durch?
+	ora ls_vekta8+1
+	bne hloop1	; nein, Loop
+	rts
+
+; ----------------------------------------- Farben umschichten
+
+conhir	lda #7
+	sta cntwert
+	lda #1
+	sta adcnt
+	ldx #36		; out: "Move"
+	jsr tcopy
+
+	ldx #4		; 4 Pages
+	stx merk
+	lda #0
+	tay
+	sta ls_vekta8
+	sta sc_texttab
+	lda #>(vrbuf)	; Farbpuffer anwählen (vrbuf: ink, crbuf: paper)
+	sta ls_vekta8+1
+	lda #>(crbuf)
+	sta sc_texttab+1
+ml2	lda (ls_vekta8),y	; Byte aus vrbuf holen
+	sty vv		; .y=0..$ff
+	asl		; oberes Nibble nach vv, unteres Nibble ins obere
+	rol vv
+	asl
+	rol vv
+	asl
+	rol vv
+	asl
+	rol vv
+	ora vv		; beide Nibbles wieder verknüpfen
+	sta (sc_texttab),y	; nach crbuf schreiben
+	tya		; .y retten
+	pha
+	jsr action	; Activity
+	pla		; .y zurück und erhöhen
+	tay
+	iny
+	bne ml2		; eine Page
+	inc ls_vekta8+1	; Pufferzeiger erhöhen
+	inc sc_texttab+1
+	dec merk		; 4 Pages zählen
+	bne ml2
+	rts
+
+; ----------------------------------------- Data
+
+dnib	!by $00,$ff,$44,$cc,$55,$aa,$11,$dd
+	!by $66,$22,$99,$33,$77,$ee,$88,$bb
+
+; ----------------------------------------- Image Information Handler
+
+getname	ldx #0
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+getdatac	ldx #4
+	!by $2c
+getdatag	ldx #9
+	ldy #4
+sinfo0	lda dtextc,x
+	sta datatype,y
+	dex
+	dey
+	bpl sinfo0
+	rts
+
+setinfo	jsr getdatac
+	jsr setname
+	jsr setloader
+	jsr setmode
+	jmp setdata
+
+setname	lda #0
+	ldx #<(ls_picname)
+	ldy #>(ls_picname)
+	bne si3
+setloader   lda #17
+	ldx #<(ls_iloader)
+	ldy #>(ls_iloader)
+	bne si3
+setmode	lda #25
+	ldx #<(ls_imode)
+	ldy #>(ls_imode)
+	bne si3
+setdata	lda #33
+	ldx #<(ls_idrive)
+	ldy #>(ls_idrive)
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!fill 16,32
+	!by 0
+	!scr "Doodle @"
+	!scr "320x200@"
+datatype	!scr "Color@"
+ttext	!scr "Text   "
+htext	!scr "320x200"
+mtext	!scr "160x200"
+dtextc	!scr "Color"
+dtextg	!scr "Grey "
+
+; ----------------------------------------- 
+
+modend	!eof
