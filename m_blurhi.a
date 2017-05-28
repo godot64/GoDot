@@ -1,0 +1,337 @@
+;	!src "..\godotlib.lib"	; library nicht erforderlich
+	*=$c000
+
+; -------------------------------------------------------------- 
+;
+; GoDot Modifier Blur High
+; -> Konvolution: starke Weichzeichnung
+;
+; 1.00, 06.04.93
+; 1.01, 24.09.93
+;
+; reworked on 28.05.2017
+;
+; -------------------------------------------------------------- 
+
+; -------------------------------------------------------------- Declarations
+
+	lcnt		= $30
+	adcnt		= $31
+	dst		= $35
+	src		= $37
+	tcnt		= $3a
+
+	gr_redisp		= $0fbd
+
+	buf_o 		= $c600
+	buf_m 		= $c800
+	buf_u 		= $ca00
+	buf_r 		= $cc00
+
+; -------------------------------------------------------------- Header
+
+	jmp start
+
+	!by $20		; Modifier
+	!by 0
+	!by 0
+	!wo modend
+	!wo 0		; reserved
+	!pet "blur high       "
+	!pet "1.01"
+	!pet "06.04.93"
+	!pet "W.Kling         "
+
+addtext	!pet "         "
+	!pet "1 1 1 1 1"
+	!pet "1 1 2 1 1"
+	!pet "1 1 1 1 1"
+	!pet "         "
+	!by 0
+
+; -------------------------------------------------------------- Main
+
+start 	jsr init_sa	; init sprite activity
+	lda #0		; Start mit Rasterzeile 0
+	sta lcnt		; je drei rasterzeilen puffern:
+	jsr puffern	; erste (320 bytes)
+	jsr umlagern	; puffer umlagern und dadurch die erste verdoppeln (=definierter rand)
+
+- 	jsr umlagern	; puffer um eins nach oben rücken
+	inc lcnt		; die nächste rasterzeile unten puffern
+	jsr puffern
+	jsr konvol	; konvolution durchführen
+
+	dec lcnt		; letzte rasterzeile anpeilen
+	jsr w_ergeb	; und ergebnis der konvolution ins 4bit schreiben
+	jsr adinc
+
+	inc lcnt		; nächste rasterzeile anpeilen
+	lda lcnt
+	cmp #199		; bis letzte erreicht
+	bne -
+
+	jsr puffern	; letzte bearbeiten (definierter rand):
+	jsr umlagern	; puffern
+	jsr konvol	; konvolution
+	jsr w_ergeb	; ergebnis ins 4bit
+
+	jmp abschl
+
+; -------------------------------------------------------------- konvolution
+
+konvol 	ldy #0
+-	lda buf_m,y	; matrixzentrum*2 (linke Hälfte)
+	asl 
+	adc buf_o-2,y	; Drumherum addieren
+	adc buf_o-1,y
+	adc buf_o,y
+	adc buf_o+1,y
+	adc buf_o+2,y
+	adc buf_m-2,y
+	adc buf_m-1,y
+	adc buf_m+1,y
+	adc buf_m+2,y
+	adc buf_u-2,y
+	adc buf_u-1,y
+	adc buf_u,y
+	adc buf_u+1,y
+	adc buf_u+2,y
+	lsr 
+	lsr 
+	lsr 
+	lsr 		; ergebnis/16
+	sta buf_r,y	; sichern
+
+	lda buf_m+160,y	; (rechte Hälfte)
+	asl 
+	adc buf_o+158,y
+	adc buf_o+159,y
+	adc buf_o+160,y
+	adc buf_o+161,y
+	adc buf_o+162,y
+	adc buf_m+158,y
+	adc buf_m+159,y
+	adc buf_m+161,y
+	adc buf_m+162,y
+	adc buf_u+158,y
+	adc buf_u+159,y
+	adc buf_u+160,y
+	adc buf_u+161,y
+	adc buf_u+162,y
+	lsr 
+	lsr 
+	lsr 
+	lsr 		; ergebnis/16 
+	sta buf_r+160,y	; sichern
+	iny 
+	cpy #160		; zählen (320 Bytes)
+	bne -
+	rts 
+
+; -------------------------------------------------------------- sprite activity
+
+adinc 	dec adcnt
+	bne +
+	inc $d005
+	inc $d007
+	lda #5
+	sta adcnt
++	rts 
+
+; -------------------------------------------------------------- Move Buffers
+
+; --- puffer buffer_m nach buffer_o (zur oberen rasterzeile)
+; --- und buffer_u nach buffer_m umlagern (zur mittleren)
+ 
+umlagern 
+	ldy #0
+- 	lda buf_m-2,y
+	sta buf_o-2,y
+	lda buf_m+160,y
+	sta buf_o+160,y
+	lda buf_u-2,y
+	sta buf_m-2,y
+	lda buf_u+160,y
+	sta buf_m+160,y
+	iny 
+	cpy #163
+	bne -
+	rts 
+
+; -------------------------------------------------------------- Fill Buffer
+; --- puffer buffer_u (wird am ende obere rasterzeile) füllen
+ 
+puffern 
+	lda lcnt		; laufende Rasterzeile/8
+	pha 
+	lsr 
+	lsr 
+	lsr 
+	tax 
+	pla 
+	and #$07		; (rasterzeile and 7)*4
+	asl 
+	asl 
+	sta src		; = adresse lo
+	lda hi_rows,x	; = adresse hi
+	sta src+1
+	lda #<buf_u	; ziel: buffer_u
+	ldx #>buf_u
+	sta dst
+	stx dst+1
+
+	ldx #0		; 40 bytes übertragen und in einzelpixel wandeln
+	lda #40
+	sta tcnt
+
+--	ldy #$00
+-	lda (src),y	; linkes pixel isolieren
+	pha 
+	lsr 
+	lsr 
+	lsr 
+	lsr 
+	sta (dst,x)	; puffern
+	inc dst
+	bne +
+	inc dst+1
++	pla 		; rechtes pixel isolieren 
+	and #$0f
+	sta (dst,x)
+	inc dst
+	bne +
+	inc dst+1
++	iny 
+	cpy #4		; 4 mal
+	bne -
+
+	lda src		; nächste kachel
+	clc 
+	adc #32
+	sta src
+	bcc +
+	inc src+1
++	dec tcnt		; 40 mal
+	bne --
+
+	lda buf_u		; die ersten beiden werte davor (definierter rand)
+	sta buf_u-1
+	sta buf_u-2
+	lda buf_u+319	; der letzte zweimal dahinter
+	sta buf_u+320
+	sta buf_u+321
+	rts 
+
+; -------------------------------------------------------------- Move Result to 4Bit
+; --- ergebnispuffer buffer_result nach 4bit schreiben
+ 
+w_ergeb 
+	lda lcnt
+	pha 
+	lsr 
+	lsr 
+	lsr 
+	tax 		; als index in hi
+	pla 
+	and #$07		; (rasterzeile and 7)*4
+	asl 
+	asl 
+	sta src
+	lda hi_rows,x
+	sta src+1
+	lda #<buf_r	; quelle: buffer_result
+	ldx #>buf_r
+	sta dst
+	stx dst+1
+
+	ldx #0		; rasterlinie zurück nach 4bit
+	lda #40		; 40 mal
+	sta tcnt
+--	ldy #0
+-	lda (dst,x)	; pixel wieder zusammenführen
+	asl 
+	asl 
+	asl 
+	asl 
+	inc dst
+	bne +
+	inc dst+1
++	ora (dst,x)	; aus 2 pixel ein 4bit-byte
+	inc dst
+	bne +
+	inc dst+1
++	sta (src),y	; nach 4bit
+	iny 
+	cpy #4		; 4 mal (eine kachel)
+	bne -
+
+	lda src		; nächste kachel
+	clc 
+	adc #32
+	sta src
+	bcc +
+	inc src+1
++	dec tcnt		; 40 mal
+	bne --
+	rts 
+
+; -------------------------------------------------------------- 
+; --- 4bit-high-adressen der kachelzeilen
+
+hi_rows 
+	!by $40, $45, $4a, $4f, $54, $59, $5e, $63
+	!by $68, $6d, $72, $77, $7c, $81, $86, $8b
+	!by $90, $95, $9a, $9f, $a4, $a9, $ae, $b3, $b8 
+
+; -------------------------------------------------------------- abschluss
+
+abschl 
+	lda $d015		; sprites aus
+	and #$f3
+	sta $d015
+	lda $d010
+	and #$f3
+	sta $d010
+	lda #$ff		; redisp setzen
+	sta gr_redisp
+	clc 		; fertig
+	rts 
+
+; -------------------------------------------------------------- sprite-activity initialisieren
+
+init_sa 
+	ldy #60		; 60 (plus 3) Bytes
+	lda #$00		; Sprite-Block 255 löschen
+- 	sta $3fc3,y
+	dey 
+	bpl -
+	sty $3fc0		; dünner Strich oben
+	sty $3fc1
+	sty $3fc2
+	lda #$0f		; Farbe weiß
+	sta $d029
+	sta $d02a
+	lda $d01d		; doppelt breit
+	ora #$0c
+	sta $d01d
+	lda $d010		; Position setzen
+	ora #$0c
+	sta $d010
+	lda #$08
+	sta $d004
+	lda #$20
+	sta $d006
+	lda #$92
+	sta $d005
+	sta $d007
+	sty $07fa		; Sprite-Block 255 setzen
+	sty $07fb
+	lda $d015
+	ora #$0c
+	sta $d015
+	lda #5		; Zähler initialisieren
+	sta adcnt
+	rts 
+
+modend	!eof
