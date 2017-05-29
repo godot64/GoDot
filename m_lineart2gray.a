@@ -1,0 +1,724 @@
+
+	!src "..\godotlib.lib"
+	*= $c000
+
+; ------------------------------------------------ 
+;
+; mod.LineArt2Gray
+;  Modul zum Konvertieren eines Schwarzweiß-Bildes (LineArt)
+;  in Graustufen: 5 (Paletten-Graus), 9 (Hardware-Graus und
+;  16 (Standard-Grayscale)
+;
+;  1.00, 29.05.17: first release
+;
+; ------------------------------------------------ 
+
+
+	lcnt		= $30
+	tcnt		= $31
+	dst		= $33
+	src		= $35
+	xbuf		= $37
+	bc		= $38
+	bitcnt		= $39
+	bbuf		= $3a
+	ybuf		= $3b
+	rstart		= $3c
+	rend		= $3d
+	rstep		= $3e
+	howmin1		= $3f
+	pos		= $40
+	hold		= $42
+	zp1		= $43
+	adcnt		= $44
+
+	spr255		= $3fc0
+
+	buf_o 		= $c600
+	buf_m 		= $c800
+	buf_u 		= $ca00
+	buf_r 		= $cc00
+
+	qtab		= $ca00
+	fgtab		= $ca10
+	bgtab		= $ca20
+	etab		= $ca30
+	rtab		= $cb00
+
+	msbx		= $d010
+	spren		= $d015
+	sprxe		= $d01d
+	sprcol2		= $d029
+	
+; ------------------------------------------------ Header
+
+	jmp start
+	!by $20		; Modifier
+	!by 0
+	!by 0
+	!wo modend
+	!wo 0		; reserved
+	!pet "Convert BW2Gray "
+	!pet "1.00"
+	!pet "28.05.17"
+	!pet "A.Dettke        "
+
+; ------------------------------------------------ Main
+
+start	ldx #<(graylst)
+	ldy #>(graylst)
+	jmp gd_xmloop
+
+; ------------------------------------------------ Apply Blur
+
+blur4bit	lda #5
+	sta cntwert
+	jsr initad	; init sprite activity
+
+	lda #0		; Start mit Rasterzeile 0
+	sta lcnt		; je drei rasterzeilen puffern:
+	jsr puffern	; erste (320 bytes)
+	jsr umlagern	; puffer umlagern und dadurch die erste verdoppeln (=definierter rand)
+
+- 	jsr umlagern	; puffer um eins nach oben rücken
+	inc lcnt		; die nächste rasterzeile unten puffern
+	jsr puffern
+	jsr konvol	; konvolution durchführen
+
+	dec lcnt		; letzte rasterzeile anpeilen
+	jsr w_ergeb	; und ergebnis der konvolution ins 4bit schreiben
+
+	jsr action	; Activity
+
+	inc lcnt		; nächste rasterzeile anpeilen
+	lda lcnt
+	cmp #199		; bis letzte erreicht
+	bne -
+
+	jsr puffern	; letzte bearbeiten (definierter rand):
+	jsr umlagern	; puffern
+	jsr konvol	; konvolution
+	jsr w_ergeb	; ergebnis ins 4bit
+
+	jmp resetbal
+
+; -------------------------------------------------------------- konvolution
+
+konvol 	ldy #0
+-	lda buf_m,y	; matrixzentrum*2 (linke Hälfte)
+	asl 
+	adc buf_o-2,y	; Drumherum addieren
+	adc buf_o-1,y
+	adc buf_o,y
+	adc buf_o+1,y
+	adc buf_o+2,y
+	adc buf_m-2,y
+	adc buf_m-1,y
+	adc buf_m+1,y
+	adc buf_m+2,y
+	adc buf_u-2,y
+	adc buf_u-1,y
+	adc buf_u,y
+	adc buf_u+1,y
+	adc buf_u+2,y
+	lsr 
+	lsr 
+	lsr 
+	lsr 		; ergebnis/16
+	sta buf_r,y	; sichern
+
+	lda buf_m+160,y	; (rechte Hälfte)
+	asl 
+	adc buf_o+158,y
+	adc buf_o+159,y
+	adc buf_o+160,y
+	adc buf_o+161,y
+	adc buf_o+162,y
+	adc buf_m+158,y
+	adc buf_m+159,y
+	adc buf_m+161,y
+	adc buf_m+162,y
+	adc buf_u+158,y
+	adc buf_u+159,y
+	adc buf_u+160,y
+	adc buf_u+161,y
+	adc buf_u+162,y
+	lsr 
+	lsr 
+	lsr 
+	lsr 		; ergebnis/16 
+	sta buf_r+160,y	; sichern
+	iny 
+	cpy #160		; zählen (320 Bytes)
+	bne -
+	rts 
+
+; -------------------------------------------------------------- Move Buffers
+
+; --- puffer buffer_m nach buffer_o (zur oberen rasterzeile)
+; --- und buffer_u nach buffer_m umlagern (zur mittleren)
+ 
+umlagern 
+	ldy #0
+- 	lda buf_m-2,y
+	sta buf_o-2,y
+	lda buf_m+160,y
+	sta buf_o+160,y
+	lda buf_u-2,y
+	sta buf_m-2,y
+	lda buf_u+160,y
+	sta buf_m+160,y
+	iny 
+	cpy #163
+	bne -
+	rts 
+
+; -------------------------------------------------------------- Fill Buffer
+; --- puffer buffer_u (wird am ende obere rasterzeile) füllen
+ 
+puffern 
+	lda lcnt		; laufende Rasterzeile/8
+	pha 
+	lsr 
+	lsr 
+	lsr 
+	tax 
+	pla 
+	and #$07		; (rasterzeile and 7)*4
+	asl 
+	asl 
+	sta src		; = adresse lo
+	lda hi_rows,x	; = adresse hi
+	sta src+1
+	lda #<buf_u	; ziel: buffer_u
+	ldx #>buf_u
+	sta dst
+	stx dst+1
+
+	ldx #0		; 40 bytes übertragen und in einzelpixel wandeln
+	lda #40
+	sta tcnt
+
+--	ldy #$00
+-	lda (src),y	; linkes pixel isolieren
+	pha 
+	lsr 
+	lsr 
+	lsr 
+	lsr 
+	sta (dst,x)	; puffern
+	inc dst
+	bne +
+	inc dst+1
++	pla 		; rechtes pixel isolieren 
+	and #$0f
+	sta (dst,x)
+	inc dst
+	bne +
+	inc dst+1
++	iny 
+	cpy #4		; 4 mal
+	bne -
+
+	lda src		; nächste kachel
+	clc 
+	adc #32
+	sta src
+	bcc +
+	inc src+1
++	dec tcnt		; 40 mal
+	bne --
+
+	lda buf_u		; die ersten beiden werte davor (definierter rand)
+	sta buf_u-1
+	sta buf_u-2
+	lda buf_u+319	; der letzte zweimal dahinter
+	sta buf_u+320
+	sta buf_u+321
+	rts 
+
+; -------------------------------------------------------------- Move Result to 4Bit
+; --- ergebnispuffer buffer_result nach 4bit schreiben
+ 
+w_ergeb 
+	lda lcnt
+	pha 
+	lsr 
+	lsr 
+	lsr 
+	tax 		; als index in hi
+	pla 
+	and #$07		; (rasterzeile and 7)*4
+	asl 
+	asl 
+	sta src
+	lda hi_rows,x
+	sta src+1
+	lda #<buf_r	; quelle: buffer_result
+	ldx #>buf_r
+	sta dst
+	stx dst+1
+
+	ldx #0		; rasterlinie zurück nach 4bit
+	lda #40		; 40 mal
+	sta tcnt
+--	ldy #0
+-	lda (dst,x)	; pixel wieder zusammenführen
+	tax
+	lda gr_btab,x	; Balancing berücksichtigen
+	ldx #0
+	asl 
+	asl 
+	asl 
+	asl
+	sta bbuf
+	inc dst
+	bne +
+	inc dst+1
++	lda (dst,x)
+	tax
+	lda gr_btab,x	; Balancing berücksichtigen
+	ora bbuf		; aus 2 pixel ein 4bit-byte
+	ldx #0
+	inc dst
+	bne +
+	inc dst+1
++	sta (src),y	; nach 4bit
+	iny 
+	cpy #4		; 4 mal (eine kachel)
+	bne -
+
+	lda src		; nächste kachel
+	clc 
+	adc #32
+	sta src
+	bcc +
+	inc src+1
++	dec tcnt		; 40 mal
+	bne --
+	rts 
+
+; -------------------------------------- Initialize Tables
+
+inittabs	lda #0
+	sta qtab		; quantization table
+	ldy #1
+	clc
+itl1	adc cols		; number of grays used
+	tax
+	lsr
+	lsr
+	lsr
+	lsr
+	sta qtab,y
+	sty bbuf
+	txa
+	sec
+	sbc bbuf
+	lsr
+	lsr
+	lsr
+	lsr
+	sta bgtab-1,y	; table for backgrounds
+	txa
+	iny
+	cpy #16
+	bcc itl1
+	lda bgtab+14
+	sta bgtab+15
+
+	ldy #1
+	ldx #0
+	stx etab		; table for dither ranges
+	inx
+itl2	lda bgtab,y
+	cmp bgtab-1,y
+	beq its1
+	tya
+	sta etab,x
+	inx
+its1	iny
+	cpy #16
+	bcc itl2
+	lda #15
+	sta etab,x
+	sta rtab+15
+
+	ldy #15
+itl3	ldx bgtab,y
+	inx
+	txa
+	sta fgtab,y	; foreground grays
+	dey
+	bpl itl3
+
+	ldx #0
+rtl0	lda etab,x	; create dither
+	sta rstart	; start of range
+	lda etab+1,x
+	sta rend		; end of range
+	sec
+	sbc rstart
+	tay		; .y = range
+	lda rdtab,y	; see below
+	sta rstep
+	ldy rstart
+
+	lda #0		; one range ---
+rtl1	sta bbuf
+	lsr
+	lsr
+	lsr
+	lsr
+	sta rtab,y
+	lda bbuf
+	clc
+	adc rstep
+	iny
+	cpy rend
+	bcc rtl1		; /one range ---
+
+	inx		; next range
+	cpx howmin1	; until number of grays
+	bcc rtl0
+
+	ldy #15
+itl4	ldx qtab,y	; exchange offsets with grays (from dnib)
+	lda etab,x
+	tax
+	lda dnib,x
+	sta qtab,y	; quantization table
+	ldx fgtab,y
+	lda etab,x
+	tax
+	lda dnib,x
+	sta fgtab,y	; foreground table
+	ldx bgtab,y
+	lda etab,x
+	tax
+	lda dnib,x
+	sta bgtab,y	; background table
+	dey
+	bpl itl4
+
+	rts
+
+; -------------------------------------- Event: Apply Dither
+
+sevapply	jsr blur4bit	; zuerst der Weichzeichner
+
+	lda #3		; dann die Farbreduzierung
+	sta cntwert
+	jsr initad	; Init Activity
+
+	ldx cols		; Anzahl Farben
+	dex		; merken
+	stx howmin1
+	jsr inittabs	; Tabellen generieren
+
+	lda dither	; Dithermodus anwählen
+	asl
+	tay
+	lda dithadr,y
+	ldx dithadr+1,y
+	sta pos		; und Einsprungadresse setzen
+	stx pos+1
+
+	lda #128		; Bitmaske %1000000 erstellen
+	sta bitcnt
+	lda #<($4000)	; ab $4000 (4Bit)
+	ldx #>($4000)
+	sta src
+	stx src+1
+
+	ldy #0		; Index auf 0
+rcloop	tya		; auf 4Bit-Kachel beziehen
+	and #31
+	lsr
+	lsr
+	sta ybuf		; Rasterzeile in der Kachel merken (für Dither)
+
+	lda (src),y	; zwei Pixel, zuerst das linke...
+	sta bbuf		; merken
+
+	ldx mode		; Hires? (mode 0)
+	bne mcskip
+	lsr		; dann Pixel ins Lo-Nibble
+	lsr
+	lsr
+	lsr
+mcskip	and #$0f		; bei Multi: nur Lo-Nibble
+	jsr pixel		; aufrastern
+	and #$f0		; kommt zurück mit Bitmuster-Byte
+	sta xbuf		; oberes Nibble merken
+
+	lsr bitcnt	; Maske nach rechts: %01000000
+	lda bbuf		; Originalbyte zurückholen
+	and #$0f		; unteres Nibble bearbeitten
+	jsr pixel		; aufrastern
+	and #$0f		; unteres Nibble isolieren
+	ora xbuf		; mit oberem verknüpfen
+
+	sta (src),y	; zwei Pixel gerastert nach 4Bit zurückschreiben
+
+	lsr bitcnt	; Maske rücken: %00100000
+	bcc bclr
+	ror bitcnt	; wenn abgearbeitet: Bit wieder oben einfügen
+bclr	iny		; eine Page
+	bne rcloop
+
+	jsr action	; Activity (nach 256 Pixeln)
+	inc src+1		; nächste Page
+	lda src+1
+	cmp #$bd		; bis 4Bit-Ende erreicht
+	bne rcloop
+
+	jmp abschluss	; Activity beenden
+
+; -------------------------------------- Event: Set Dither
+
+sevdith	ldx dither	; 0: ordered - 1: pattern
+	beq +
+	ldx #$ff
++	inx		; or increment
+
+dth1	stx dither	; offset auf Dither merken
+	lda #<(dithtx)
+	sta sc_texttab
+	lda #>(dithtx)
+	sta sc_texttab+1
+	txa
+	asl
+	tay
+	lda dithtxadr,y
+	tax
+	lda dithtxadr+1,y
+	tay
+	jmp gd_xtxtggl
+
+; -------------------------------------- Event: Set # of grays
+
+sevgrays	ldy ncols		; Index auf Farben (5, 9 und 16)
+	cpy #2
+	bne +
+	ldy #$ff
++	iny
+	sty ncols
+
+	lda colors,y	; Farbnummer nach Ziffern
+	sta cols		; Farbe publizieren
+	jsr gd_xcnvdez	; in Ziffern wandeln
+	ldy #1
+	sta coltx,y	; in Screenlist eintragen
+	txa
+	and #15
+	bne co1
+	ldx #32
+co1	txa
+	dey
+	sta coltx,y
+
+	ldy #6		; und anzeigen
+	jmp gd_xtxout1
+
+; --------------------------------------
+
+setgreyad	ldx #<(sgray)
+	ldy #>(sgray)
+	bne set0
+setdithad	ldx #<(sdith)
+	ldy #>(sdith)
+set0	stx sc_screentab
+	sty sc_screentab+1
+	lda #0
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #3
+	bne gt0
+	jsr gd_trim
+	jmp gd_initmove
+
+; -------------------------------------- Dither routines
+
+pixel	jmp (pos)		; Einsprung
+
+; -------------------------------------- 
+
+dtord	sta zp1		; Ordered
+	tax
+	lda rtab,x
+	ldx ybuf		
+	ora offs,x
+	tax
+	lda gr_orderedpat,x
+	jmp dh1
+
+; -------------------------------------- 
+
+dtpat	sta zp1		; Pattern
+	tax
+	lda rtab,x
+	asl
+	asl
+	asl
+	ora ybuf
+	tax
+	lda gr_pattern,x
+
+dh1	ldx mode		; Hires?
+	beq dp0
+	and #$0f		; nein, Multi (anderes Pattern)
+	tax
+	lda mcpat,x
+dp0	ldx zp1
+	and bitcnt
+	bne fgr
+
+bgr	lda bgtab,x
+	rts
+
+fgr	lda fgtab,x
+	rts
+
+; ------------------------------------------------ Reset Balancing Table
+
+resetbal	ldy #15		; Balancingtabelle resetten
+-	tya
+	sta gr_btab,y
+	dey
+	bpl -
+	lda #16
+	sta gr_ctr
+	sta gr_brt
+	rts
+
+; -------------------------------------- Requester
+
+graylst	!by 0
+	!by 6,12,15,10,$91,0,0
+	!scr "Line Art to@"
+sgray	!by 10,23,4,3,$cf,<(sevgrays),>(sevgrays)
+coltx	!scr " 5@"
+sdith	!by 12,18,9,3,$ce,<(sevdith),>(sevdith)
+dithtx	!scr "Ordered@"
+	!by 14,19,8,3,$ce,<(sevcan),>(sevcan)
+	!scr "Cancel@"
+	!by 14,12,7,3,$c7,<(sevapply),>(sevapply)
+	!scr "Apply@"
+	!by $c0,7,14,9
+	!scr "Grayscale@"
+	!by $c0,12,12,4
+	!scr "Dith@"
+	!by $c0,10,12,5
+	!scr "Grays@"
+	!by $80
+
+; ------------------------------------------------ Data
+
+dither	!by 0
+mode	!by 0
+ncols	!by 0
+cols	!by 5
+colors	!by 5,9,16
+cntwert	!by 5
+
+
+dithadr	!wo dtord
+	!wo dtpat
+
+dithtxadr	!wo dthord
+	!wo dthpat
+
+dthord	!scr "Ordered@"
+dthpat	!scr "Pattern@"
+
+offs	!by $00,$10,$20,$30
+	!by $00,$10,$20,$30
+
+mcpat	!by $00,$03,$0c,$0f	; Multicolor pattern
+	!by $30,$33,$3c,$3f
+	!by $c0,$c3,$cc,$cf
+	!by $f0,$f3,$fc,$ff
+
+rdtab	!by $00,$f0,$78,$50
+	!by $3c,$30,$28,$22
+	!by $1e,$1b,$18,$16
+	!by $14,$12,$11,$10
+
+dnib	!by $00,$11,$22,$33,$44,$55,$66,$77
+	!by $88,$99,$aa,$bb,$cc,$dd,$ee,$ff
+
+hi_rows	!by $40, $45, $4a, $4f, $54, $59, $5e, $63
+	!by $68, $6d, $72, $77, $7c, $81, $86, $8b
+	!by $90, $95, $9a, $9f, $a4, $a9, $ae, $b3, $b8 
+
+; ------------------------------------------------ sprite activity
+
+action 
+	dec adcnt		; activity-zähler abgelaufen?
+	bne +
+	inc $d005		; ja, sprites bewegen
+	inc $d007
+	lda cntwert	; zähler neu setzen 
+	sta adcnt
++ 	rts
+
+; ------------------------------------------------ activity off
+
+abschluss	lda spren
+	and #243
+	sta spren
+	lda msbx
+	and #243
+	sta msbx
+	lda #$ff		; redisp setzen
+	sta gr_redisp
+
+; ------------------------------------------------ Event: Cancel
+
+sevcan	sec
+	rts
+
+; ------------------------------------------------  sprite-activity initialisieren
+
+initad 
+	ldy #60		; 60 (plus 3) Bytes
+	lda #$00		; Sprite-Block 255 löschen
+- 	sta $3fc3,y
+	dey 
+	bpl -
+	sty $3fc0		; dünner Strich oben
+	sty $3fc1
+	sty $3fc2
+	lda #$0f		; Farbe weiß, Sprite 2 und 3
+	sta $d029
+	sta $d02a
+	lda $d01d		; doppelt breit (zus. 96 Pixel=12 Kacheln)
+	ora #$0c
+	sta $d01d
+	lda $d010		; Position setzen (Image Info)
+	ora #$0c
+	sta $d010
+	lda #$08
+	sta $d004
+	lda #$20
+	sta $d006
+	lda #$92
+	sta $d005
+	sta $d007
+	sty $07fa		; Sprite-Block 255 setzen
+	sty $07fb
+	lda #1
+	sta adcnt
+	lda $d015
+	ora #$0c
+	sta $d015
+	rts 
+
+; ------------------------------------------------ 
+
+modend 	!eof
+
+
+
