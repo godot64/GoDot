@@ -19,11 +19,13 @@
 ;   1.28, 05.10.05:
 ;   1.29, 28.01.17: changed mouse register due to change in system driver
 ;   1.30. 29.01.17: added Hold Mouse Position on Move Commands
+;   1.31, 29.05.17: added ability to preview graphics correctly, also when executed from RAM
 ;
 ; ------------------------------------------------------------ 
 
 ; --------------------------------------- Equates
 
+	pport		= $01
 	zsp 		= $30
 	zzl 		= $31
 	spi 		= $32
@@ -37,6 +39,10 @@
 	mkx 		= $3c
 	mky 		= $3d
 	vpos 		= $3e
+	slot		= $45
+	v1buf		= $47
+	v2buf		= $48
+	cbuf		= $49
 
 	lastkey 		= $c5	; current key
 	mac 		= $fb
@@ -66,8 +72,8 @@
 	!wo (modend)
 	!wo 0
 	!pet "Edit 4bit pixels"
-	!pet "1.30"
-	!pet "29.01.17"
+	!pet "1.31"
+	!pet "29.05.17"
 	!pet "AD/ H.McMenamin "
 
 ; ------------------------------------------ Main
@@ -76,6 +82,7 @@ start:	jsr makech	; define new character
 	jsr savecols	; save screen colors
 	jsr bestcols	; set best colors
 	jsr makespr	; define spritebox
+	jsr checkcols	; where is which module? (for re-display)
 	ldx #<(pixlst)	; build requesters
 	ldy #>(pixlst)
 	jsr gd_screen	; returns with .A = 0
@@ -998,6 +1005,63 @@ evdisplay:
 	jsr sprbox
 	jmp display 	; redisplay magnification
 
+; ------------------------------------------------ Check Color Rams
+; ### 1.31 ab hier ---
+checkcols	sei 		; GoDot off
+	ldx #$00
+	stx pport
+
+	ldy #$03		; set lobyte of...
+	sty slot
+
+	lda #$f0		; ...Slot4, check for types of module there
+	sta slot+1	; (may be cram when input is active)
+	jsr sethicol	; (otherwise unchanged)
+
+	lda #$c0		; ...Slot1 and check
+	sta slot+1
+	jsr sethicol
+
+	lda #$d0		; ...Slot2 and check
+	sta slot+1
+	jsr sethicol
+
+	lda #$e0		; ...Slot3 and check
+	sta slot+1
+	jsr sethicol
+
+	lda #$36		; GoDot on again
+	sta pport
+	cli 
+	rts 
+
+; ------------------------------------------------ 
+
+sethicol	lda (slot,x)	; get type of module (at $c003): $20, $40, $80
+	tay 
+	and #$40		; is saver there? (contains vram1)
+	beq +		; no, next type
+
+	jsr c147		; yes, set color buffer 
+	sta v1buf
+	bne ++
+
++	tya 		; loader? ($80, contains cram)
+	bpl +		; no, next type
+
+	jsr c147		; yes, set accordingly
+	sta cbuf
+	bne ++
+
++	jsr c147		; so, it's a modifier (contains vram2)
+	sta v2buf
+
+++	rts 
+
+c147 	lda slot+1	; get hibyte...
+	ora #$0e		; ...and OR %00001110 to it (ie $ce)
+	rts 		; thus: get correct hi address of color buffers
+: ### 1.31 bis hier ---
 ; ------------------------------------------ 
 
 dp13:	sty sc_stop	; re-init stop flag
@@ -1131,15 +1195,15 @@ tmode:	ldx #$13
 
 setcveks:	sei
 	lda #$35
-	sta 1
-	lda #>(cstart)
+	sta pport
+	lda cbuf 		; color ram ### 1.31 
 	ldx #$d8
 	bne scv0
 	
 ; ------------------------------------------ 
-setbveks:	lda #>(vram1)
+setbveks	lda v1buf 	; vram1 ### 1.31 
 	ldx #4
-	dec 1
+	dec pport
 scv0:	stx $b3
 	ldy #0
 	sty sc_merk
@@ -1199,11 +1263,11 @@ stc1:	lda ($b2),y
 	ldy gr_bkcol
 	bpl scv1
 	ldy #0
-	lda #>(vram2)
+	lda v2buf 	; vram2 ### 1.31 
 	jsr setlast
 	beq stc1
 scv1:	lda #$36
-	sta 1
+	sta pport
 	cli
 	lda $d021
 	and #15
@@ -1242,7 +1306,7 @@ stc4:	lda ($20),y
 	bpl scv1
 	pla
 	tay
-	lda #>(vram2)
+	lda v2buf 	; vram2 ### 1.31 
 	jsr setlast
 	beq stc4
 ; ------------------------------------------ 
