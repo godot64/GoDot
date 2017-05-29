@@ -1,0 +1,613 @@
+
+	!src "..\godotlib.lib"
+	*= $c000
+
+; --------------------------------------
+;
+;     mod.applydither
+;
+;     1.00, 12.12.92, first release (incl. GUI)
+;     1.01, 13.08.93, changed dither routines
+;     1.02, 15.08,04, bug in "inittables" fixed
+; 
+; -------------------------------------- 
+
+
+; -------------------------------------- Equates
+
+	src		= $35
+	xbuf		= $37
+	bc		= $38
+	bitcnt		= $39
+	bbuf		= $3a
+	ybuf		= $3b
+	rstart		= $3c
+	rend		= $3d
+	rstep		= $3e
+	howmin1		= $3f
+	pos		= $40
+	hold		= $42
+	zp1		= $43
+	adcnt		= $44
+
+	sprptr		= $07f8
+	spr255		= $3fc0
+
+	qtab		= $ca00
+	fgtab		= $ca10
+	bgtab		= $ca20
+	etab		= $ca30
+	rtab		= $cb00
+	
+	x2		= $d004
+	y2		= x2+1
+	msbx		= spritehi
+	spren		= $d015
+	sprxe		= $d01d
+	sprcol2		= $d029
+	
+	oszi3		= $d40e
+	wave		= $d412
+	filter		= $d418
+	rausch		= $d41b
+
+; -------------------------------------- Header
+
+	jmp start
+	!by $20
+	!by $00,$00
+	!wo (modend)
+	!by $00,$00
+	!pet "internal dither "
+	!pet "1.02"
+	!pet "15.08.04"
+	!pet "W.Kling/A.Dettke"
+
+; -------------------------------------- Mainloop
+
+start	ldx #<(applst)
+	ldy #>(applst)
+	jmp gd_xmloop
+
+; -------------------------------------- Set Dither
+
+sevdith	ldx dither	; aktuelles Dithering
+
+	lda sc_merk+1	; column of pointer
+	cmp #22
+	bcs dth0
+	dex		; decrement
+	bpl dth1
+	ldx #4
+	bne dth1
+dth0	inx		; or increment
+	cpx #5
+	bcc dth1
+	ldx #0
+dth1	stx dither
+
+	lda #<(dithtx)	; neues Dithering
+	sta sc_texttab
+	lda #>(dithtx)
+	sta sc_texttab+1
+	txa
+	asl
+	tay
+	lda dtaddr,y
+	tax
+	lda dtaddr+1,y
+	tay
+	jmp gd_xtxtggl	; anzeigen
+
+; -------------------------------------- Set Graphics Mode
+
+sevmode	lda #<(modetx)	; Textausgabe vorbereiten
+	sta sc_texttab
+	lda #>(modetx)
+	sta sc_texttab+1
+
+	lda mode		; Modus ändern
+	bne scc0
+	lda #2
+	ldx #<(mult)
+	ldy #>(mult)
+	bne scc1
+scc0	lda #0
+	ldx #<(hirs)
+	ldy #>(hirs)
+scc1	sta mode
+	jmp gd_xtxtggl	; anzeigen
+
+; -------------------------------------- Set # of grays to reduce to
+
+sevred	ldy cols		; aktuelle Anzahl Farben
+
+	lda sc_merk+1	; Cursorspalte
+	cmp #22
+	bcs co2
+	dey
+	cpy #2
+	bcs co0
+	ldy #15
+	bne co0
+co2	iny
+	cpy #16
+	bcc co0
+	ldy #2
+
+co0	tya		; neue Farbanzahl
+	sta cols
+
+	jsr gd_xcnvdez	; in Ziffern umwandeln
+	ldy #2
+	sta coltx,y
+	txa
+	and #15
+	bne co1
+	ldx #32
+co1	txa
+	dey
+	sta coltx,y
+	ldy #6		; und ausgeben
+	jmp gd_xtxout1
+
+; -------------------------------------- Take over settings of main screen
+
+sevmain	ldy gr_howmany	; (Anzahl Farben)
+svm1	dey
+	cpy #15
+	beq svm1
+	sty cols
+	ldy #22
+	sty sc_merk+1
+	jsr setredad	; Adresse setzen (Reduktion)...
+	jsr sevred
+
+	lda gr_cmode	; (Modus)
+	bne svm0
+	lda #2
+	!by $2c
+svm0	lda #0
+	sta mode
+	jsr setmodead	; ...(Modus)
+	jsr sevmode
+
+	ldy gr_dither	; (Dither)
+	dey
+	sty dither
+	jsr setdithad	; ...(Dither)
+	jmp sevdith
+
+; -------------------------------------- Gadgets Screenoutput
+
+setredad	ldx #<(sred)
+	ldy #>(sred)
+	bne set0
+setmodead	ldx #<(smode)
+	ldy #>(smode)
+	bne set0
+setdithad	ldx #<(sdith)
+	ldy #>(sdith)
+set0	stx sc_screentab
+	sty sc_screentab+1
+	lda #0
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #3
+	bne gt0
+	jsr gd_trim
+	jmp gd_initmove
+
+; -------------------------------------- Apply Dither
+
+sevapply	jsr initad	; Init Activity
+
+	ldx cols		; Anzahl Farben
+	cpx #16		; größer 15?
+	bcc jau
+	jmp nix		; dann nichts tun
+
+jau	dex		; merken
+	stx howmin1
+	jsr inittabs	; Tabellen generieren
+
+	ldx #$80		; Noise initialisieren
+	stx filter
+	stx oszi3
+	stx oszi3+1
+	lda #0
+	sta wave
+	inx
+	stx wave
+
+	lda dither	; Dithermodus anwählen
+	asl
+	tay
+	lda dithadr,y
+	ldx dithadr+1,y
+	sta pos
+	stx pos+1
+
+	lda #128		; Bitmaske %1000000 erstellen
+	sta bitcnt
+	lda #<($4000)	; ab $4000 (4Bit)
+	ldx #>($4000)
+	sta src
+	stx src+1
+
+	ldy #0		; ab Rasterzeile 0
+rcloop	tya
+	and #31
+	lsr
+	lsr
+	sta ybuf
+
+	lda (src),y	; zwei Pixel, zuerst das linke...
+	sta bbuf		; merken
+
+	ldx mode		; Hires? (mode 0)
+	bne mcskip
+	lsr		; dann Pixel ins Lo-Nibble
+	lsr
+	lsr
+	lsr
+mcskip	and #$0f		; bei Multi: nur Lo-Nibble
+	jsr pixel		; aufrastern
+	and #$f0		; kommt zurück mit Bitmuster-Byte
+	sta xbuf		; oberes Nibble merken
+
+	lsr bitcnt	; Maske nach rechts: %01000000
+	lda bbuf		; Originalbyte zurückholen
+	and #$0f		; unteres Nibble bearbeitten
+	jsr pixel		; aufrastern
+	and #$0f		; unteres Nibble isolieren
+	ora xbuf		; mit oberem verknüpfen
+
+	sta (src),y	; nach 4Bit zurückschreiben
+
+	lsr bitcnt	; Maske rücken: %00100000
+	bcc bclr
+	ror bitcnt	; wenn abgearbeitet: Bit wieder oben einfügen
+bclr	iny		; eine Page
+	bne rcloop
+
+	jsr adinc		; Activity (nach 256 Pixeln)
+	inc src+1		; nächste Page
+	lda src+1
+	cmp #$bd		; bis 4Bit-Ende erreicht
+	bne rcloop
+
+	ldy #15		; Balancingtabelle resetten
+rsloop	tya
+	sta gr_btab,y
+	dey
+	bpl rsloop
+	lda #16
+	sta gr_ctr
+	sta gr_brt
+
+nix	jsr exit		; Activity beenden
+	rts
+
+; -------------------------------------- Dither routines
+
+pixel	jmp (pos)
+
+dithadr	!by <(dtoff),>(dtoff)
+	!by <(dthab),>(dthab)
+	!by <(dtpat),>(dtpat)
+	!by <(dtnoi),>(dtnoi)
+	!by <(dtrnd),>(dtrnd)
+
+; -------------------------------------- 
+
+dtoff	tax		; Off
+	lda qtab,x
+	rts
+
+; -------------------------------------- 
+
+dthab	sta zp1		; Ordered
+	tax
+	lda rtab,x
+	ldx ybuf		
+	ora offs,x	  ; ,y
+	tax
+	lda gr_orderedpat,x
+	jmp dh1
+
+; -------------------------------------- 
+
+dtpat	sta zp1		; Pattern
+	tax
+	lda rtab,x
+	asl
+	asl
+	asl
+	ora ybuf		;hold
+	tax
+	lda gr_pattern,x
+dh1	ldx mode
+	beq dp0
+	and #$0f
+	tax
+	lda mcpat,x
+dp0	ldx zp1
+	and bitcnt
+	beq bgr
+	bne fgr
+
+; -------------------------------------- 
+
+dtrnd	tax		; Random
+	lda rtab,x
+	beq bgr
+	cmp #8
+	bcs fgr
+	lda rtab+1,x
+	beq dr0
+	cmp #8
+	bcc bgr
+dr0	jsr getrnd
+rold	lda zp1
+	and #1
+	beq bgr
+	bne fgr
+
+; -------------------------------------- 
+
+dtnoi	tax		; Noise
+	lda rtab,x
+	beq bgr
+	sta hold
+	jsr getrnd
+nold	lda hold
+	cmp zp1
+	bcs fgr
+
+bgr	lda bgtab,x
+	rts
+
+fgr	lda fgtab,x
+	rts
+
+; -------------------------------------- 
+
+getrnd	lda mode
+	beq gr00
+	lda bitcnt
+	and #$55
+	bne gr01
+gr00	lda rausch
+	and #15
+	sta zp1
+gr01	rts
+
+; -------------------------------------- 
+
+offs	!by $00,$10,$20,$30
+	!by $00,$10,$20,$30
+
+mcpat	!by $00,$03,$0c,$0f	; Multicolor pattern
+	!by $30,$33,$3c,$3f
+	!by $c0,$c3,$cc,$cf
+	!by $f0,$f3,$fc,$ff
+
+; -------------------------------------- Create Tables
+
+inittabs	lda #0
+	sta qtab		; quantization table
+	ldy #1
+	clc
+itl1	adc cols		; number of grays used
+	tax
+	lsr
+	lsr
+	lsr
+	lsr
+	sta qtab,y
+	sty bbuf
+	txa
+	sec		; v1.02 (only change)
+	sbc bbuf
+	lsr
+	lsr
+	lsr
+	lsr
+	sta bgtab-1,y	; table for backgrounds
+	txa
+	iny
+	cpy #16
+	bcc itl1
+	lda bgtab+14
+	sta bgtab+15
+
+	ldy #1
+	ldx #0
+	stx etab		; table for dither ranges
+	inx
+itl2	lda bgtab,y
+	cmp bgtab-1,y
+	beq its1
+	tya
+	sta etab,x
+	inx
+its1	iny
+	cpy #16
+	bcc itl2
+	lda #15
+	sta etab,x
+	sta rtab+15
+
+	ldy #15
+itl3	ldx bgtab,y
+	inx
+	txa
+	sta fgtab,y		; foreground grays
+	dey
+	bpl itl3
+
+	ldx #0
+rtl0	lda etab,x		; create dither
+	sta rstart		; start of range
+	lda etab+1,x
+	sta rend		; end of range
+	sec
+	sbc rstart
+	tay		; .y = range
+	lda rdtab,y		; see below
+	sta rstep
+	ldy rstart
+	lda #0		; one range ---
+rtl1	sta bbuf
+	lsr
+	lsr
+	lsr
+	lsr
+	sta rtab,y
+	lda bbuf
+	clc
+	adc rstep
+	iny
+	cpy rend
+	bcc rtl1		; /one range ---
+	inx		; next range
+	cpx howmin1		; until number of grays
+	bcc rtl0
+
+	ldy #15
+itl4	ldx qtab,y		; exchange offsets with grays (from dnib)
+	lda etab,x
+	tax
+	lda dnib,x
+	sta qtab,y		; quantization table
+	ldx fgtab,y
+	lda etab,x
+	tax
+	lda dnib,x
+	sta fgtab,y		; foreground table
+	ldx bgtab,y
+	lda etab,x
+	tax
+	lda dnib,x
+	sta bgtab,y		; background table
+	dey
+	bpl itl4
+
+	rts
+
+; --------------------------------------
+
+rdtab	!by $00,$f0,$78,$50
+	!by $3c,$30,$28,$22
+	!by $1e,$1b,$18,$16
+	!by $14,$12,$11,$10
+
+dnib	!by $00,$11,$22,$33,$44,$55,$66,$77
+	!by $88,$99,$aa,$bb,$cc,$dd,$ee,$ff
+
+; --------------------------------------
+
+;   sprite activity display
+
+
+adinc	dec adcnt
+	bne adskip1
+	lda #3
+	sta adcnt
+	inc y2
+	inc y2+2
+adskip1	rts
+
+exit	lda spren
+	and #243
+	sta spren
+	lda msbx
+	and #243
+	sta msbx
+	lda #$ff
+	sta gr_redisp
+sevcan	sec
+	rts
+
+initad	ldy #60
+	lda #0
+adl0	sta spr255+3,y
+	dey
+	bpl adl0
+	lda #$ff		; old type! (.y = $ff!)
+	sta spr255
+	sta spr255+1
+	sta spr255+2
+	lda #15
+	sta sprcol2
+	sta sprcol2+1
+	lda sprxe
+	ora #12
+	sta sprxe
+	lda msbx
+	ora #12
+	sta msbx
+	lda #8
+	sta x2
+	lda #32
+	sta x2+2
+
+	lda #146
+	sta y2
+	sta y2+2
+	lda #$ff
+	sta sprptr+2
+	sta sprptr+3
+	lda spren
+	ora #12
+	sta spren
+	lda #3
+	sta adcnt
+	rts
+
+; -------------------------------------- Requester
+
+applst	!by 0
+	!by 6,8,22,14,$81,0,0
+	!scr "Apply Dither@"
+sdith	!by 8,15,14,3,$c0,<(sevdith),>(sevdith)
+dithtx	!scr "  Ordered   @"
+smode	!by 11,15,14,3,$c0,<(sevmode),>(sevmode)
+modetx	!scr "   Hires    @"
+sred	!by 14,19,6,3,$e0,<(sevred),>(sevred)
+coltx	!scr "  2 @"
+	!by 17,8,6,3,$c7,<(sevmain),>(sevmain)
+	!scr "Main@"
+	!by 17,14,8,3,$cc,<(sevapply),>(sevapply)
+	!scr "Apply@"
+	!by 17,22,8,3,$cd,<(sevcan),>(sevcan)
+	!scr "Cancel@"
+	!by $c0,8,8,5
+	!scr "Dith:@"
+	!by $c0,11,8,5
+	!scr "Mode:@"
+	!by $c0,14,8,9
+	!scr "Reduce to@"
+	!by $c0,14,24,4
+	!scr "Cols@"
+	!by $80
+
+; -------------------------------------- Data
+
+dither	!by 1
+mode	!by 0
+cols	!by 2
+
+dtaddr	!wo (dthoff),(dthord),(dthpat),(dthnoi),(dthrnd)
+dthoff	!scr "     Off    @"
+dthord	!scr "  Ordered   @"
+dthpat	!scr "  Pattern   @"
+dthnoi	!scr "   Noise    @"
+dthrnd	!scr "   Random   @"
+
+hirs	!scr "   Hires    @"
+mult	!scr "   Multi    @"
+
+modend	!eof
