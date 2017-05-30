@@ -11,6 +11,8 @@
 ;    1.00:         , first release
 ;    1.01: 21.02.96,
 ;    1.02: 10.05.17, reorganized loader, x-skip corrected
+;    1.03: 30.05.17, bugfix for mod.DecodeGIFhir
+;                    (pass over address for resolution string)
 ;
 ; -------------------------------------------------- 
 
@@ -58,10 +60,10 @@ header	jmp start
 	!by 0
 	!by 0
 	!wo modend
-	!wo 0
+	!wo modetx
 	!pet "gif:ParamSection"
-	!pet "1.02"
-	!pet "10.05.17"
+	!pet "1.03"
+	!pet "30.05.17"
 	!pet "A.Dettke/W.Kling"
 
 ; ----------------------------------------- Main
@@ -954,9 +956,9 @@ eld3	sty gr_redisp
 
 ; ----------------------------------------- Swapper
 
-switch	jsr swapper+6	; Modul einblenden
+switch	jsr swapper+6	; sw0: Modul einblenden
 	jsr modul		; ausführen
-sw0	ldx #$e0		; ausblenden
+sw0	ldx #$e0		; und wieder ausblenden
 	jmp gd_xswap4k
 
 ; ----------------------------------------- Bildgrößen eintragen
@@ -1109,7 +1111,7 @@ action	dec adcnt
 	lda cntwert
 	sta adcnt
 	ldy offy
-	cpy #22		; #1.02: Gauge Overflow
+	cpy #22		; #1.02: catch Gauge Overflow
 	bne act0
 	jsr clrmess
 act0	ldx offx
