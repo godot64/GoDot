@@ -207,7 +207,7 @@ mkt0	lda tabs-$40,x
 
 ; --------------------------------------- 
 
-version	!byte $01,$35	; Versionsnummer in SED-Format (1.35)
+version	!byte $01,$36	; Versionsnummer in SED-Format (1.36)
 
 ; --------------------------------------- 
 
