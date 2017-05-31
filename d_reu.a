@@ -13,10 +13,51 @@
 ;   1.04, 23.09.03, bug: double files in DIR fixed
 ;   1.05, 28.08.16, bug: Undo 4Bit could fail
 ;	14.05.17, combined sources of section 1 and 2
+;   1.06, 31.05.17, changed: length of swp.file (to 4096 bytes)
 ; 
 ; -------------------------------------- 
-
-
+;
+; Basic RAM Structure:
+;
+;  $000000: $c000:	!by $00		; wenn das Device eigeblendet ist: Flag für Präsenz
+;  $000001: $c001:	!wo Offset	; Offset des nächsten zu installierenden Moduls in der aktuellen Bank
+;  $000003: $c003:	!by Bank		; aktuelle Bank für das nächste zu installierende Modul
+;  $000004: $c004:	!pet "RM.Handler"	; 10 Zeichen: Name des Device
+;
+;  $00000e: $c00e:	!by FrameCount	; Zähler für Frames bei Vollbild-Animationen (bis max. 255)
+;  $00000f: $c00f:	!wo Offset	; Offset in Bank für nächstes Vollbild
+;  $000011: $c011:	!by Bank		; Bank für das nächste Vollbild
+;  $000012: $c012	!by REUClear	; Flag: Initialize REU on next boot (when set, Standard: $20 = on; $00 = off)
+;
+; jetzt folgen die System-Directory-Einträge "Undo 4Bit", "Undo Rendered" und "swp.file"
+; jeder Directory-Eintrag ist 19 Bytes lang, im ersten Eintrag befindet sich die Information über den Modultypen:
+; $00: Systemfile 
+; $10: Hidden-Flag
+; $20: Modifier
+; $40: Saver
+; $80: Lader
+; $c0: End of Directory
+;
+;  $000013: $c013	!by $00		; Typ (oberes Nibble) und Bank (unteres Nibble) für den folgenden Eintrag
+;  $000014: $c014	!wo $1000		; Offset in dieser Bank (Länge: $7d00 = 32000 Bytes)
+;  $000016: $c016	!pet "Undo 4Bit       "	; Name der Datei
+;
+;  $000026: $c026	!by $00		; wie oben
+;  $000027: $c027	!wo $8d00		; (Länge 9500 Bytes)
+;  $000028: $c028	!pet "Undo Rendered   "
+;
+;  $000039: $c039	!by $f0		; Hidden
+;  $00003a: $c03a	!wo $b21c		; (Länge 4096 Bytes; bisher: 3500 Bytes)
+;  $00003b: $c03b	!pet "swp.file        "
+;
+;  $00004c: $c04c	!by $07		; Eintrag für "temp00"
+;  $00004d: $c04d	!wo $8300		; liegt am Ende des verfügbaren Extra-RAMs
+;  $00004e: $c04e	!pet "temp00          "
+;
+;  $00005f: $c05f	!by $x0		; erster regulärer Directory-Eintrag (gleicher Aufbau)
+;  $000060: $c060	!wo c21c
+;  $000061: $c061	!pet "................"
+; 
 ; -------------------------------------- Equates
 
 	low		= $30
@@ -33,7 +74,7 @@
 	units		= $1cf8
 	blocks		= $3f40
 
-	swapfile		= $b21c
+	swapfile		= $b21c	; now: 4096 bytes!
 	back		= $befd
 	dirbuf		= $bf00
 	modul		= $c000
@@ -52,8 +93,8 @@ ramdev	jmp start
 	!wo modend
 	!wo 0
 	!pet "REU Handler     "
-	!pet "1.05"
-	!pet "28.08.16"
+	!pet "1.06"
+	!pet "31.05.17"
 	!pet "A. Dettke       "
 
 ; -------------------------------------- Main
@@ -219,9 +260,9 @@ lm0	lda (entry),y
 	lda ls_dirmask	; Grafik?
 	beq undo		; ja, dann Save Temp (eigener Saver!) oder Undo
 
-	lda #$ac		; sonst: Execute (in dev, Teil2)
-	sta rm_werte+5	; dazu: 3500 Bytes (Länge SWPFILE) austauschen
-	lda #$0d
+	lda #$00		; sonst: Execute (in dev, Teil2)
+	sta rm_werte+5	; dazu: 4096 Bytes (Länge SWPFILE) austauschen ### 1.06
+	lda #$10
 	sta rm_werte+6
 	jmp rldex		; Sprung dorthin
 ;
@@ -758,9 +799,9 @@ lm3	lda #<(swapfile)	; aktuelles Modul in Sicherheit bringen (ins Swapfile)
 	sta rm_swapw+2
 	lda #>(swapfile)
 	sta rm_swapw+3
-	lda #<(3500)
+	lda #<(4096)	; ### 1.06 (größer!)
 	sta rm_swapw+5
-	lda #>(3500)
+	lda #>(4096)
 	sta rm_swapw+6
 	jsr gd_swapd	; (swapd wird hier "missbraucht")
 
