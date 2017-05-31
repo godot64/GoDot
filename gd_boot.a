@@ -1,0 +1,2083 @@
+;.petscii
+;.ob "init_obj,p,w"
+;.ba $2000
+
+; ------------------------------------------------------------ 
+;
+; GoDot Launcher
+; File to boot GoDot and initialize connected hardware
+;
+;   1.26, 10.02.95
+;   1.27, 16.02.95
+;   1.28, 06.08.95
+;   1.29, 06.10.96 ; introducing CMDTypes, check for Flash8
+;   1.30, 09.10.00 ; Check for Flash8 removed and replaced by
+;                    check for SuperRAM
+;   1.31, 27.09.03 ; bug in RAM command fixed (counted uninstalled MODs)
+;   1.32, 06.10.03 ; follow-up bug fixed (overwriting system buffers)
+;   1.33, 09.01.05 ; "temp00" activated by default
+;   1.34, 23.09.16 ; bugfix in befram und befreuclr
+;   1.35, 19.10.16 ; bugfix in befreuclr (never noticed it!)
+;   1.36, 31.05.17 ; changed length of swp.file to 4096 bytes
+;
+; ------------------------------------------------------------ 
+
+!src "..\godotlib.lib"
+
+	booter		= $2000
+
+*= $0801
+
+	!word $0814
+	!word 100
+	!byte $9e		; Basic-Line: SYS 2070
+	!pet " 2070 : ad 16"
+	!byte 0,0,0
+
+	lda #$35		; transfer 18 blocks of data to $2000...
+	sta sc_merk
+	lda #$08
+	sta sc_merk+1
+	ldx #18
+	ldy #0
+b1	lda (sc_merk),y
+b2	sta booter,y
+	iny
+	bne b1
+	inc sc_merk+1
+	inc b2+2
+	dex
+	bne b1
+	jmp booter	; ...and then start there
+
+; --------------------------------------- Equates
+
+	pport		= $01
+	wordlo		= $07
+	int		= $14
+	
+	bytes		= $30
+	entry		= $3a	; /$3b
+	status		= $90
+	cntreads		= $ac
+	index		= $ac
+	endflag		= $b1
+	flag34		= $b2
+	count		= $b3
+	namelen		= $b7
+	drivenr		= $ba
+	namepos		= $bb
+	nummer		= $fc
+	zaehler		= $fd
+	byte		= $fe
+	iwerte		= $0300
+	irq		= $0314
+	sprite0		= $07f8
+	sprite1		= $07f9
+	devs		= $0fa2
+	adrive		= $0fc3
+	gdrive		= adrive+1
+	scm1		= $148e
+	sm2		= $14e2
+	ld11		= $1825
+	filtype		= $1d29 ; selfmodifying kernel!
+	ramtype		= $1d8f
+	hirs		= $1db4
+	scrmode		= $1edc
+	numcols		= $1ee9
+	
+	godinit		= $3800
+	
+	mal19		= $bd8c
+
+	modul		= $c000
+	bootinit		= $c012
+	ram		= $cab0
+	
+	spr0x		= $d000
+	spr0y		= $d001
+	spronoff		= $d015
+	tscreen		= $d018
+	border		= $d020
+	backgr		= $d021
+	spr0col		= $d027
+	spr1col		= $d028
+	fast		= $d030
+	vdc		= $d600
+	vdcdata		= $d601
+	pfox		= $de80
+	reupres		= $df09
+	iecin		= $ffa5
+	untalk		= $ffab
+	load		= $ffd5
+	
+; --------------------------------------- Main
+
+!pseudopc booter {
+
+init	lda #$36		; Basic off
+	sta pport
+	jsr paramtrs	; any command line parameters?
+	jsr mktabs	; preset tables 
+	stx spronoff	; Sprites off
+	lda #14		; lower case characters on
+	jsr bsout
+	jsr setcols	; preset colors
+	jsr opening	; output "Waiting for GoDot..." 
+	jsr load4		; load Sysfiles, Sys-Check
+	jsr setcols	; set colors definitely
+	jsr spritean	; define pointer
+	ldx mousex	; set mouse position 
+	stx spritex
+	stx spr0x
+	ldx mousex+1
+	beq m01
+	ldx #3
+	stx $d010
+m01	ldx mousey
+	stx spr0y
+	inx
+	inx
+	stx spritey
+	ldy mousecol0	; set pointer colors
+	sty spr0col
+	ldy mousecol1
+	sty spr1col
+	lda #$0b		; activate Spriteblock 
+	sta sprite1
+	sta sprite0
+	lda soffx		; define Hotspot 
+	sta sy_soffx
+	lda soffy
+	sta sy_soffy
+	sei		; activate GoDot-IRQ 
+	lda irq+1
+	sta sy_irqalt+1
+	lda irq
+	sta sy_irqalt
+	lda #$31
+	sta irq
+	lda #$13
+	sta irq+1
+	cli
+	ldx #$10		; preset Balancing values
+	stx gr_ctr
+	stx gr_brt
+	dex		; preset Palettes
+m1	lda paldef,x
+	sta gr_palette,x
+	sta gr_basepal,x
+	dex
+	bpl m1
+	lda mode		; preset Graphics mode and...
+	sta gr_cmode
+	lda colors	; number of colors
+	sta gr_howmany
+	jsr gd_xcnvdez	; and enter to the display
+	sta numcols+2
+	txa
+	and #15
+	bne m2
+	ldx #32
+m2	stx numcols+1
+	jsr gd_makeqtab	; create Quantisation table 
+	lda tickcnt	; define Doubleclick 
+	sta sc_ticks
+	lda #$03		; switch on Mouse pointer
+	sta spronoff
+	sta gr_redisp	; force Rendering on first "Display"
+	lda version	; enter Version number 
+	sta sysdrive+1
+	lda version+1
+	sta sysdrive+2
+	jsr mktabs	; set tables definitely
+	jsr setpat	; enter Dither pattern 
+	jmp sy_into	; Start GoDot
+
+; --------------------------------------- 
+
+mktabs	ldx #$40		; GoDottabellen nach $0340
+mkt0	lda tabs-$40,x
+	sta iwerte,x
+	inx
+	bne mkt0
+	stx rm_tmpsaved	; Flags initialisieren
+	stx rm_reusize
+	rts
+
+; --------------------------------------- 
+
+version	!byte $01,$35	; Versionsnummer in SED-Format (1.35)
+
+; --------------------------------------- 
+
+setcols	ldy #11		; Textfarben setzen
+m0	lda textcols,y
+	sta sc_shadow,y
+	dey
+	bpl m0
+	lda sc_chgcol
+	sta border
+	sta backgr
+	sta sc_maincolor
+	rts
+
+; --------------------------------------- 
+
+sprdata	!byte $00,$00,$00,$60,$00,$00,$70,$00	; Systemzeiger
+	!byte $00,$38,$00,$00,$1c,$00,$00,$0e
+	!byte $00,$00,$07,$00,$00,$03,$80,$00
+	!byte $01,$c0,$00,$00,$e0,$00,$00,$70
+	!byte $00,$00,$20,$00,$00,$00,$00,$00
+	!byte $00,$00,$00,$00,$00,$00,$00,$00
+	!byte $00,$00,$00,$00,$00,$00,$00,$00
+	!byte $00,$00,$00,$00,$00,$00,$00,$00,0
+;
+soffx	!byte 24		; Offsets für linke obere Ecke
+soffy	!byte 50		; des sichtbaren Screens
+
+; --------------------------------------- 
+
+werte0	!byte $ae,$00	; Werte für REU-Test
+	!byte $00,$00,$04
+	!byte $02,$00,$1f
+	!byte $00
+
+; --------------------------------------- 
+
+mess	!byte $4d,$2d,$52,$c6,$e5,$02	; "m-r..."
+m1571	!pet "u0>m1"		; 1571 auf doppelseitig schalten
+
+; --------------------------------------- 
+
+charset	!pet "god.set"
+chlen	!byte $07
+mainprg	!pet "god.main"
+mplen	!byte $08
+slot4	!pet "god.upmem"
+s4len	!byte $09
+godini	!pet "god.ini         "
+godini2	!pet "god.ini"
+ini	!pet "ini."
+godlen	!byte $07
+rboot	!byte $ff
+
+; --------------------------------------- 
+
+textout	!scr "Waiting for GoDot ..."
+
+; --------------------------------------- 
+
+opening	lda #$93		; "Waiting for GoDot..." ausgeben
+	jsr bsout
+	ldy #20
+	ldx $0286
+lop0	lda textout,y
+	sta $0689,y
+	txa
+	sta $da89,y
+	dey
+	bpl lop0
+	rts
+
+; --------------------------------------- 
+
+setscreen	lda #$12		; GoDot-Boot-Screen ausgeben
+	sta tscreen
+	lda #8
+	jsr bsout
+	ldx #<(godlst)
+	ldy #>(godlst)
+	jsr gd_screen
+	lda #11
+	sta sc_chgcol
+	lda #9
+
+; --------------------------------------- 
+
+scolor	ldx #7		; Logo einfärben
+	ldy #26
+	jsr sm2
+	ldx #5
+	stx sc_ho
+	stx sc_loop
+	jsr gd_initmove
+	lda sc_chgcol
+	jmp gd_fi0
+
+; --------------------------------------- 
+
+	a=224	; Definition des Boot-Screens
+	b=a+1
+	c=a+2
+	d=a+3
+	e=a+4
+	f=a+5
+	g=a+6
+	h=a+7
+	i=a+8
+	j=a+9
+	k=a+10
+	l=a+11
+	m=a+12
+	n=a+13
+	o=a+14
+	p=a+15
+	s=32
+	ss=160
+
+; --------------------------------------- Boot Screen
+
+godlst	!byte $93
+	!byte 0,0,40,25,$02,0,0
+	!byte 22,3,34,3,$8c,0,0,87,5,12,3,15,13,5,33,0
+	!byte $c0,1,6,26,a,ss,ss,ss,b,s,s,s,s,s,s,s,ss,ss,ss,ss,b
+	!byte s,s,s,s,s,s,s,ss,s,0
+	!byte $c0,2,6,26,ss,e,s,f,ss,s,a,ss,ss,ss,b,s
+	!byte ss,s,s,f,ss,s,a,ss,ss,ss,b,i,ss,ss,0
+	!byte $c0,3,6,26,ss,s,s,s,s,s,ss,e,s,f,ss,s
+	!byte ss,s,s,s,ss,s,ss,e,s,f,ss,s,ss,s,0
+	!byte $c0,4,6,26,ss,s,s,ss,ss,s,ss,s,s,s,ss,s
+	!byte ss,s,s,s,ss,s,ss,s,s,s,ss,s,ss,s,0
+	!byte $c0,5,6,26,ss,s,s,s,ss,s,ss,s,s,s,ss,s
+	!byte ss,s,s,s,ss,s,ss,s,s,s,ss,s,ss,s,0
+	!byte $c0,6,6,26,ss,g,s,h,ss,s,ss,g,s,h,ss,s
+	!byte ss,s,s,h,ss,s,ss,g,s,h,ss,s,ss,g,0
+	!byte $c0,7,6,26,c,ss,ss,ss,d,s,c,ss,ss,ss,d,s
+	!byte ss,ss,ss,ss,d,s,c,ss,ss,ss,d,s,c,ss,0
+	!byte $c0,8,6,26,j,k,k,k,l,s,j,k,k,k,l,s
+	!byte k,k,k,k,l,s,j,k,k,k,l,s,j,k,0
+	!byte $c0,9,6,26,m,s,s,s,m,s,m,s,s,s,m,s
+	!byte m,s,s,s,m,s,m,s,s,s,m,s,m,s,0
+	!byte $c0,10,6,26,n,s,s,s,n,s,n,s,s,s,n,s
+	!byte n,s,s,s,n,s,n,s,s,s,n,s,n,s,0
+	!byte $c0,11,6,26,o,s,s,o,o,s,o,s,s,s,o,s
+	!byte o,s,s,s,o,s,o,s,s,s,o,s,o,s,0
+	!byte $c0,12,6,26,p,s,s,s,s,s,p,s,s,s,p,s
+	!byte p,s,s,s,p,s,p,s,s,s,p,s,p,s,0
+	
+	!byte $c0,15,8,20
+	!scr "A. Dettke & W. Kling@"
+	!byte $c0,17,14,9
+	!scr "1991-2016@"
+
+	!byte $c0,19,8,20
+	!scr "C64 Image Processing@"
+	!byte $80
+
+; --------------------------------------- 
+
+message	!scr "Installing: "
+mess1	!scr "                @"
+
+setmess	ldx #15		; "Installing ..." ausgeben
+	lda #32
+smc0	sta mess1,x
+	dex
+	bpl smc0
+;
+putmess	lda #20		; in Zeile 20
+	ldx #6		; Spalte 6
+	ldy #28		; mit Breite 28
+	jsr sm2
+	jsr gd_clrline
+	ldx #<(message)
+	ldy #>(message)
+	jmp gd_xtxout2
+
+; --------------------------------------- Systemfiles laden
+
+load4	lda chlen		; zuerst Zeichensatz (god.set)
+	ldx #<(charset) 
+	ldy #>(charset)
+	jsr filnam
+	lda #$01
+	ldx drivenr
+	ldy #$00
+	jsr filpar
+	lda #$00
+	tax
+	ldy #$08
+	jsr load
+	bcs error
+	lda mplen		; dann den Kernel (god.main)
+	ldx #<(mainprg)
+	ldy #>(mainprg)
+	jsr filnam
+	lda #$01
+	ldx drivenr
+	ldy #$00
+	jsr filpar
+	lda #$00
+	tax
+	ldy #$10
+	jsr load
+	bcs error
+	jsr setscreen	; Bootscreen aktivieren
+	lda s4len		; dann die Renderroutinen (god.upmem)
+	ldx #<(slot4)
+	ldy #>(slot4)
+	jsr filnam
+	lda #$01
+	ldx drivenr
+	ldy #$00
+	jsr filpar
+	lda #$00
+	tax
+	ldy #$f0
+	jsr load
+	bcs error
+	lda godlen	; und schließlich die INI-Datei (god.ini)
+	ldx #<(godini)
+	ldy #>(godini)
+	jsr filnam
+	lda #$01
+	ldx drivenr
+	ldy #$00
+	jsr filpar
+	lda #$00
+	tax
+	ldy #$38
+	jsr load
+	bcc l4
+	inc noparse	; bei Fehler: "nicht auswerten" aktivieren
+l4	lda drivenr	; Bootdrive bekanntmachen
+	sta ls_drive
+	sta gdrive
+	sta adrive
+	sta sysdrive
+	sta ls_bootdrive
+	jsr what		; Systemcheck
+	jsr parser	; INI-File auswerten
+	jmp defaults	; und die gelesenen Werte aktivieren
+	
+; --------------------------------------- 
+
+error	jmp reset	; bei Fehler: Reset
+
+; ---------------------------------------
+
+spritean  lda #$c0		; Spritedaten eintragen
+	sta sc_vekt20
+	ldx #$02
+	stx sc_vekt20+1
+	ldy #$3e
+sa1	lda sprdata,y
+	sta (sc_vekt20),y
+	dey
+	bpl sa1
+	rts
+
+; --------------------------------------- RAM-Check
+
+textfox	jsr vdctest	; zuerst: VDC
+
+testscpu	sed		; dann SuperCPU: Fehler in 6502 erzeugen
+	lda #$99
+	adc #1		; wird negativ auf 6502
+	cld
+	bmi no65816
+
+	lda $d0bc		; Supercpu?
+	bmi no65816	; nein, dann nicht beachten
+	sta $d07b		; ja, dann Turbo an!
+	ldy cmdoff+4	; RAM-Drive kennzeichnen mit ">"
+	lda #$3e		; (einziges sichtbares SCPU-Flag!)
+	sta filtype,y
+
+	ldx #$30		; mit " 0" vorbesetzen
+	ldy #$20
+	lda $d27f		; letze RAM-Bank holen
+	sta rm_sram	; als Flag merken
+	beq ts03		; kein RAM, skippen
+
+	bpl ts01		; 16 MB?
+	ldx #$36		; ja
+	ldy #$31
+	bne ts00
+
+ts01	cmp #$40		; 4 MB?
+	bcc ts02
+	ldx #34
+	bne ts00
+
+ts02	cmp #$0f		; 1 MB?
+	bne ts00
+	ldx #$31
+	
+ts00	stx ramtype+13	; ja, eintragen
+	sty ramtype+12
+	lda #$4d	; M
+	sta ramtype+14
+	lda #$42	; B
+	sta ramtype+15
+	lda #7		; ja, eintragen: Flag
+	sta gd_modswitch
+ts03	bne testreu	; jetzt REU testen (hat Vorrang)
+
+; ---------------------------------------
+
+no65816	lda pport		; nein, Pagefox vorhanden?
+	pha
+	lda #$37		; Basic an
+	sta pport
+	ldy #$00
+	ldx #$09		; Flag vorbesetzen
+	sty pfox		; Pagefox einblenden
+	lda $8000,x	; Modulkennung da?
+	cmp #$50
+	bne tr0
+	inx
+	lda $8000,x
+	cmp #$46
+	bne tr0
+	ldx #$03		; ja, Flag aktivieren
+tr0	pla
+	sta pport		; Basic wieder aus
+	dey
+	sty pfox		; Pagefox wieder ausblenden
+	cpx #$0a
+	bne tr1
+	dex
+tr1	stx gd_modswitch
+	lda rm_vdcflag	; Pagefox im C128?
+	beq tr11
+	cpx #9		; ja, dann hat PFox Vorrang
+	bne tr11
+	lda #2
+	sta gd_modswitch
+tr11	cpx #$09
+	bcc testend
+	
+; ---------------------------------------
+
+testreu	ldx #$00		; REU vorhanden?
+	lda reupres
+	cmp #$1f
+	bne tr2
+	lda reupres+1
+	cmp #$3f
+	bne tr2
+	ldx #$02
+tr2	txa
+	beq testend
+	asl		; ja, Flag setzen
+	sta gd_modswitch
+	lda #$4c		; Einsprung aktivieren
+	sta ramvec
+	lda #<(ram)
+	sta ramvec+1
+
+	lda reubase	; Kapazität feststellen
+	and #$10
+	bne tr4
+	asl gd_modswitch
+tend0	bne testend	; ist REU 1700
+tr4	ldy #$91		; sonst: Check der Größe
+	jsr setreu0	; zwei Bytes ab $040000 lesen
+	lda #$b0		; dann 1 Byte schreiben
+	sta werte0
+	dec werte0+5
+	dec werte0+8
+	dey
+	sty sc_merk
+	jsr setreu0
+	inc werte0+2	; ein anderes Byte dahinter schreiben
+	inc sc_merk
+	jsr setreu0
+	dec werte0+2
+	iny
+	jsr setreu0	; und wieder auslesen
+	lda #$ae
+	sta werte0
+	inc werte0+5
+	inc werte0+8
+	tya		; Bytes vergleichen
+	sec
+	sbc sc_merk
+	beq tr3		; kein Unterschied; REU 1764 (keine Bank 4)
+	inc gd_modswitch	; sonst: REU 1750 (8 Banks)
+tr3	dey		; ursprüngliche Bytes zurückschreiben
+	jsr setreu0	
+
+testend	ldx #$0c		; Ergebnis in Drivelist eintragen
+	lda gd_modswitch
+	ora devs,x
+	sta devs,x
+	sec
+	rts
+	
+; ---------------------------------------
+
+setreu0	ldx #$08		; REU aktivieren,
+sre00	lda werte0,x	; Kommando in Y
+	sta reubase+2,x
+	dex
+	bpl sre00
+	sty reucom
+	rts
+
+; --------------------------------------- Drivetest
+
+what	jsr gd_which	; welche sind angeschlossen?
+
+	lda ls_drive	; alle ab 8 (bis 11) checken
+	pha
+	ldx #$08
+wh2	lda #$02		; Zähler für Bytes
+	sta cntreads
+
+	ldy #$00		; Drive da?
+	lda devs,x
+	and #$0f
+	beq whw		; nein, skip
+
+	sta devs,x	; M-R senden (Einschaltmeldung holen)
+	ldy #$05
+wh4	lda mess,y
+	sta sc_movetab,y
+	dey
+	bpl wh4
+
+wh3	lda #<(sc_movetab)	; dieser Teil wird mehrfach verwendet
+	sta namepos
+	lda #>(sc_movetab)
+	sta namepos+1
+wh32	lda #$06		; $06 wird modifiziert
+	sta namelen
+	txa
+	jsr scm1		; Kommando an Drive senden
+	txa
+	ldy #$6f
+	jsr gd_talk
+	jsr iecin		; Antwort holen
+	sta sc_merk
+	jsr iecin
+	sta sc_merk+1
+wh31	jsr untalk	; JSR wird modifiziert
+
+	lda sc_merk	; Zahl? (aus 1541, 71, 70): 7 oder 4
+	and #$f0
+	cmp #$30
+	beq wh5
+	jmp w1581		; nein, dann anderer Floppytyp
+
+wh5	lda sc_merk	; "7"?
+	and #$0f
+	cmp #$07
+	bne wh1
+	lda sc_merk+1	; "70" oder "71"?
+wh1	asl		; ins obere Nibble
+	asl
+	asl
+	asl
+	tay
+	ora devs,x	; eintragen
+	sta devs,x
+	bmi fd81		; 8 war 1581
+
+	cpy #$20		; CMD?
+	bne whw
+	lda #34		; ja, T1, S34 eintragen (Directory)
+	ldy #1
+	bne setts
+fd81	lda #3		; sonst: T40, S3 (1581)
+	ldy #40
+	bne setts
+whw	lda #1		; oder:  T18, S1 (15xx)
+	ldy #18
+setts	sta ls_ftabs-8,x
+	tya
+	sta ls_ftabt-8,x
+
+	inx		; durch alle Drives
+	cpx #$0c
+	beq whw31
+	jmp wh2
+
+whw31	lda #$20		; RAM-Typen nach Drive 12 (vorbesetzen)
+	sta devs,x
+	dec namelen
+
+	ldx #8		; "U0>M1" an 1571 schicken
+whw3	ldy #4
+whw0	lda m1571,y
+	sta sc_movetab,y
+	dey
+	bpl whw0
+whw1	lda devs,x
+	and #$10
+	beq whw2
+	txa
+	sta ls_drive
+	pha
+	jsr scm1
+	jsr ld10
+	pla
+	tax
+whw2	inx
+	cpx #12
+	bne whw3
+
+; ---------------------------------------
+
+	jsr textfox	; nun: RAM-Check
+
+	tax		; Current Drive zurück
+	pla
+	sta ls_drive
+	sta bootinit	; REUCLEAR=1 erzwingen (Rebootflag)
+	txa		; kein RAM?
+	and #15
+	cmp #9
+	bcs whx
+
+	jsr ldramdev	; doch: RAM-Device laden
+	bne whx		; Fehler, fertig
+
+	lda #$ff		; Rebootflag bearbeiten
+	ldx bbu		; RAM-Header eintragen
+	bne mr1		; Re-Init erlaubt?
+	lda #3		; nein, nur Zeiger zurücksetzen
+mr1	sta rboot
+	ldx #94
+mr0	lda rentries,x	; Header in RAM-Directory schreiben
+	sta modul,x	; (an $c000)
+	dex
+	cpx rboot
+	bne mr0
+	ldx #10		; dann FirstInit aktivieren
+	jsr ram
+	jsr gd_swapd	; und Directory ins RAM schreiben
+whx	rts
+
+; --------------------------------------- CMD Detect
+
+w1581	dec cntreads	; Fremdhersteller?
+	beq none		; ja, als 1541 eintragen
+
+	lda #$a4		; CMD-Drive checken
+	sta sc_movetab+3
+	lda #$fe
+	sta sc_movetab+4
+	lda #$4c
+	sta wh31
+	jsr wh3
+	lda sc_merk	; Drivetypen merken
+	sta ls_cmdtypes-8,x
+	cmp #$48		; "H" für HD
+	beq setcmd
+	cmp #$46		; "F" für FD
+	beq setcmd
+	cmp #$52		; "R" für RAMLink
+	bne n81
+setcmd	lda cmdoff-8,x	; Drive kennzeichnen mit ">"
+	tay
+	lda #$3e
+	sta filtype,y
+	lda #"g"		; "g-p" ausführen (Partitionstyp)
+	sta sc_movetab
+	lda #"p"
+	sta sc_movetab+2
+	lda #3
+	sta wh32+1
+	jsr wh3
+	lda #6		; und auswerten:
+	sta wh32+1
+	ldy sc_merk	; null= foreign
+	beq none
+	dey		; eins= Native
+	beq natv
+	dey		; zwei= 1541
+	beq none
+	lda #1		; drei= 1571 
+	dey
+	sta sc_merk+1
+	beq none
+	dey		; vier= 1581
+	beq f81
+none	lda #4		; entsprechende Typen eintragen
+	!byte $2c
+natv	lda #2
+	!byte $2c
+f81	lda #8
+	sta sc_merk
+	lda #$20
+	sta wh31
+	jmp wh5		; weiter im Drivecheck
+	
+; ---------------------------------------
+
+n81	lda #$e9		; Position für 1581-Meldung
+	sta sc_movetab+3
+	lda #$a6
+	sta sc_movetab+4
+	lda #$20
+	sta wh31
+	jmp wh3
+
+; ---------------------------------------
+
+cmdoff	!byte 34,41,49,57,66	; Positionen für ">"
+
+; --------------------------------------- Module laden
+
+defaults	lda #$30		; C64 auf RAM schalten
+	sta pport
+	ldx #$03		; alle Slots mit CLC/RTS vorbesetzen
+	ldy #$00
+	lda #$c0
+	sty sc_vekt20
+df00	sta sc_vekt20+1
+	lda #$18
+	sta (sc_vekt20),y
+	iny
+	lda #$60
+	sta (sc_vekt20),y
+	clc
+	lda sc_vekt20+1
+	adc #$10
+	dey
+	dex
+	bne df00
+	lda #$36		; C64 auf "BASIC aus" schalten
+	sta pport
+
+	jsr setmess	; "Installing: ..." ausgeben
+	lda #$04
+	sta ls_dirmask	; zuerst Modul
+	lda modlen
+	sta ls_flen
+	tax
+	sec
+	sbc #$04
+	sta ls_flen2
+	dex
+df0	lda defmod,x	; Filenamen eintragen
+	sta ls_nambuf,x
+	lda bcmod+4,x	; auch im Bildschirmcode
+	sta ls_lastname,x	; auch für die Anzeige
+	sta mess1,x	; und für die Aktivitätsanzeige
+	dex
+	bpl df0
+	jsr putmess	; Aktivitätsanzeige
+	jsr ld11		; und Modul laden
+
+	jsr setmess
+	lsr ls_dirmask	; dann Saver
+	lda svrlen
+	sta ls_flen
+	tax
+	sec
+	sbc #$04
+	sta ls_flen2
+	dex
+df1	lda defsvr,x
+	sta ls_nambuf,x
+	lda bcsvr+4,x
+	sta ls_lastname,x
+	sta mess1,x
+	dex
+	bpl df1
+	jsr putmess
+	jsr ld11		; Saver laden
+
+	jsr setmess
+	lsr ls_dirmask	; zuletzt Lader
+	lda ldrlen
+	sta ls_flen
+	tax
+	sec
+	sbc #$04
+	sta ls_flen2
+	dex
+df2	lda defldr,x
+	sta ls_nambuf,x
+	lda bcldr+4,x
+	sta ls_lastname,x
+	sta mess1,x
+	dex
+	bpl df2
+	jsr putmess
+	jmp ld11		; Lader laden
+	
+; --------------------------------------- Check C128 VDC
+
+vdctest	sei		; VDC vorhanden?
+	lda vdc
+	pha
+	lda vdcdata
+	pha
+	ldx #$12
+	lda #$40		; Prüfwert auf VDC-Register 18 legen
+	jsr setd600
+	ldy #$f5		; warten
+	ldx #$00
+tv0	inx
+	bne tv0
+	iny
+	bne tv0
+	lda vdcdata	; immer noch da?
+	cmp #$40
+	beq vdctype	; ja, VDC vorhanden
+tv4	pla		; sonst, Ende des Tests
+	sta vdcdata
+	pla
+	sta vdc
+	cli
+	rts
+;
+setd600	stx vdc		; Register wählen
+	ldx #$00
+tv1	inx
+	bne tv1
+	sta vdcdata	; Daten eintragen
+	rts
+;
+readvdc	stx vdc		; Register wählen
+tv2	bit vdc
+	bpl tv2
+	lda vdcdata	; Daten abholen
+	rts
+;
+clrareg	ldx #$12		; Register löschen (18 und 19)
+	jsr clr
+clrlo	inx
+clr	lda #$00
+setvdc	stx vdc
+tv5	bit vdc
+	bpl tv5
+	sta vdcdata
+	rts
+	
+; ---------------------------------------
+
+tv6	lda #14		; C64II kennzeichnen
+	sta ramtype+7
+	bne tv4
+
+; ---------------------------------------
+
+vdctype	lda fast		; Fast-Bit in $d030 gesetzt?
+	and #1
+	bne tv6		; ja, C64II
+
+	jsr vdcinit	; 640x200-VDC initialisieren
+	jsr clrareg
+	ldx #$1f
+	jsr readvdc
+	pha
+	ldx #$12
+	lda #$80
+	jsr setvdc
+	jsr clrlo
+	ldx #$1f
+	jsr readvdc
+	pha
+
+	jsr test64k	; 64K-VDC?
+	bne vt3		; nein, skip
+
+	lda #$3f		; sonst: initialisieren
+	ldx #$1c
+	jsr setvdc
+	bmi vt0
+
+vt3	lda #$21		; 16K-VDC: kein Undo möglich (Flag)
+	bne vt1
+
+vt0	lda #$81		; 64K-VDC, Flags setzen
+vt1	sta rm_vdcflag
+	bpl vt2
+	ldx #28
+	lda #$3f
+	jsr setvdc
+	lda #$32
+	sta ramtype+11
+
+vt2	ldx #$12		; VDC-Inhalt rekonstruieren
+	lda #$80
+	jsr setvdc
+	jsr clrlo
+	ldx #$1f
+	pla
+	jsr setvdc
+	jsr clrareg
+	ldx #$1f
+	pla
+	jsr setvdc
+	jmp tv4		; abschließen
+
+; ---------------------------------------
+
+vdcinit	ldx #$00		; 640x200 einstellen
+vi0	lda vdctab,x
+	jsr setvdc
+	inx
+	cpx #$25
+	bne vi0
+	rts
+
+; ---------------------------------------
+
+test64k	jsr clrareg	; Byte an $8000 schreiben und lesen
+	ldx #$1f
+	jsr clr
+	ldx #$12
+	lda #$80
+	jsr setvdc
+	jsr clrlo
+	ldx #$1f
+	lda #$ff
+	jsr setvdc
+	jsr clrareg
+	ldx #$1f
+	jmp readvdc	; wenn $ff: 16K-VDC
+
+; ---------------------------------------
+
+merktype	!byte $00
+noparse	!byte 0
+
+; ---------------------------------------
+
+vdctab	!byte $7f,$50,$66,$49,$26,$e0,$19,$20
+	!byte $fc,$e7,$a0,$e7,$00,$00,$00,$00
+	!byte $00,$00,$00,$00,$08,$00,$78,$e8
+	!byte $20,$87,$f0,$00,$2f,$e7,$00,$00
+	!byte $00,$00,$7d,$64
+	!byte $f5
+
+; --------------------------------------- $0340-Tabellen
+
+tabs	!byte $00,$00,$00,$00,$44,$44,$44,$44	; Ordered Dither ($0340)
+	!byte $cc,$dd,$dd,$dd,$ff,$ff,$ff,$ff
+	!byte $00,$00,$44,$11,$11,$11,$11,$33
+	!byte $33,$77,$77,$77,$77,$dd,$ff,$ff
+	!byte $00,$00,$00,$44,$44,$44,$cc,$cc
+	!byte $cc,$cc,$dd,$dd,$dd,$ff,$ff,$ff
+	!byte $00,$11,$11,$11,$11,$33,$33,$33
+	!byte $33,$33,$33,$77,$77,$77,$77,$ff
+;
+cred	!byte 11,7,3,0,15			; RGB-Werte der Farben ($0380)
+	!byte 6,15,13,12,10,8,0,0,0,10,14
+cgrn	!byte 11,7,3,0,15
+	!byte 4,7,8,4,15,0,8,0,12,15,14
+cblu	!byte 11,7,3,0,15
+	!byte 0,7,5,12,14,0,15,10,5,6,7
+;
+baltab	!byte $00,$01,$02,$03,$04,$05,$06,$07	; Default Balancing: 0,0 ($03b0)
+	!byte $08,$09,$0a,$0b,$0c,$0d,$0e,$0f
+;
+palhi	!byte $80				; Defaultpaletten (14 Stück an $03c0)
+	!byte $81,$91,$91,$90,$d0,$aa,$ab,$b3
+	!byte $b1,$ff,$bf,$ef,$ff
+pallo	!byte 1,1,1
+	!byte $11,$8b,$8b,$4d,$55,$ab,$bf,$d1
+	!byte $77,$ef,$ef
+;
+lastn	!pet "Untitled        "		; ls_lastname ($03dc)
+;
+swapw	!byte 0,$c0				; RAM-Strukturen ($03ec)
+	!byte 0,0,0
+	!byte <(4096),>(4096)
+werte	!byte 0,$c0,0,0,0,0,0			; ($03f3)
+
+sysdrive	!byte 0				; ($03fa)
+versionnm	!byte 0,0
+
+ramvec	clc				; Vektor auf RAM Device ($03fd)
+	rts				; (JMP $cab0)
+	!byte $ca
+	
+; ---------------------------------------
+
+syspat	!byte $00,$00,$00,$00,$00,$00,$00,$00	; System-Pattern (gr_pattern, $0f00)
+	!byte $00,$44,$00,$11,$00,$44,$00,$11
+	!byte $00,$55,$00,$11,$00,$55,$00,$11
+	!byte $00,$55,$00,$55,$00,$55,$00,$55
+	!byte $00,$55,$22,$55,$00,$55,$22,$55
+	!byte $88,$55,$22,$55,$88,$55,$22,$55
+	!byte $aa,$55,$22,$55,$aa,$55,$22,$55
+	!byte $aa,$55,$aa,$55,$aa,$55,$aa,$55
+	!byte $ee,$55,$aa,$55,$ee,$55,$aa,$55
+	!byte $ee,$55,$bb,$55,$ee,$55,$bb,$55
+	!byte $ff,$55,$bb,$55,$ff,$55,$bb,$55
+	!byte $ff,$55,$ff,$55,$ff,$55,$ff,$55
+	!byte $ff,$77,$ff,$55,$ff,$77,$ff,$55
+	!byte $ff,$77,$ff,$77,$ff,$77,$ff,$77
+	!byte $ff,$77,$ff,$ff,$ff,$77,$ff,$ff
+	!byte $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff
+
+; ---------------------------------------
+
+setpat	ldx #127
+spt0	lda syspat,x
+	sta gr_pattern,x		; nach $0f00
+	dex
+	bpl spt0
+	rts
+
+; ---------------------------------------
+;
+;  	Aufrufparameterauswertung (LOAD "godot",dr:"parameter")
+;
+; ---------------------------------------
+
+paramtrs	ldy #0		; SLOW aktivieren (1MHz)
+	sty fast
+	lda #2		; ":" in BASIC-Eingabepuffer suchen
+	sty ls_vekta8
+	sta ls_vekta8+1
+pms1	lda (ls_vekta8),y
+	cmp #$3a
+	beq pms0
+	iny
+	bne pms1
+pms2	rts		; nichts gefunden, fertig
+
+; ---------------------------------------
+
+pms0	cpy #80		; außerhalb einer BASIC-Zeile?
+	bcs pms2		; ja, fertig
+
+	jsr readeq	; Anführungszeichen?
+	iny
+	jsr addy
+	ldy #0
+	lda (ls_vekta8),y
+	cmp #34
+	bne pms2		; nein, fertig
+
+	jsr inca8		; folgt "ini." auf ":"+quote?
+	ldx #0
+pms6	lda (ls_vekta8),y
+	cmp ini,x
+	bne pms7		; nein, gleich weiter
+	inx
+	iny
+	cpy #4		; ja, "ini." überlesen
+	bne pms6
+	!byte $2c
+
+pms7	ldy #0		; "ini." auf jeden Fall erzeugen
+	ldx #0		; (falls es fehlte)
+pms9	lda ini,x
+	sta godini,x
+	inx
+	cpx #4
+	bne pms9
+
+pms4	lda (ls_vekta8),y	; die nächsten Zeichen dahinter holen
+	beq pms3
+	cmp #34
+	beq pms3
+	sta godini,x
+	iny
+	inx
+	cpx #17
+	bne pms4
+
+	ldy godlen	; waren zu viele, dann "god.ini" als Default
+	dey
+pms5	lda godini2,y
+	sta godini,y
+	dey
+	bpl pms5
+	rts
+
+pms3	stx godlen	; sonst Namenslänge eintragen
+	rts		; und zurück zur Auswertung
+	
+; --------------------------------------- 
+; --------------------------------------- Interpreter
+; ---------------------------------------
+
+parser	lda noparse	; Parsen erlaubt?
+	beq parseinit	; ja
+	rts
+
+parseinit	lda #<(godinit)	; Zeiger auf INI-Datei setzen (an $3800)
+	sta ls_vekta8
+	lda #>(godinit)
+	sta ls_vekta8+1
+	bne parse
+
+pnext	jsr addy		; nächstes Zeichen 
+parse	ldy #0		; Flags initialisieren
+	sty endflag
+	sty flag34
+	jsr find34	; Anführungszeichen finden
+	cpx #3		; alle Zeilen durch?
+	beq fertig	; dann fertig
+
+next	iny		; Zeilenende?
+	lda (ls_vekta8),y
+	and #$7f
+	beq p8		; ja, neue Zeile
+	cmp #13		; RETURN? (SEQ-Text)
+	beq p8		; ja, neue Zeile
+
+p0	cmp #$41		; kein Buchstabe?
+	bcc next
+	cmp #$5b
+	bcs next		; dann übergehen
+
+	sty sc_merk	; Offset auf Zeichen merken
+	ldx #<(keylist)	; Keywordtabelle anpeilen
+	stx sc_texttab
+	ldx #>(keylist)
+	stx sc_texttab+1
+	ldx #0		; Zähler auf Null
+	stx count
+comp	sec		; Keyword checken
+	sbc (sc_texttab,x)
+	beq p1		; Übereinstimmung
+
+	cmp #$80		; letztes Zeichen erreicht?
+	beq p6		; ja, Keyword ausführen
+
+p5	lda (sc_texttab,x)	; Ende der Keywordtabelle?
+	beq pnext		; ja, nächstes Quellzeichen anpeilen
+	bmi p4		; Ende eines Keywords, zählen
+	inc sc_texttab	; Keywordrest überlesen
+	bne p5
+	inc sc_texttab+1
+	bne p5
+
+p4	inc count		; zählen der überlesenen Keywords
+	ldy sc_merk	; Zeiger zurück auf Anfang des Quellwortes
+	!byte $a9
+
+p1	iny		; nächstes Zeichen vergleichen
+	lda (ls_vekta8),y
+	and #$7f
+	inc sc_texttab
+	bne comp
+	inc sc_texttab+1
+	bne comp
+
+p6	cpy sc_merk	; Zeiger hat sich nicht bewegt?
+	beq next		; dann nächstes Quellzeichen
+
+	jsr readeq	; Zeiger auf Keyword-Parameter setzen
+	jsr execute	; Befehl ausführen
+	ldy #0		; Befehlsende mit Anführungszeichen?
+	lda (ls_vekta8),y
+	cmp #34
+	bne p7		; nein
+p8	jsr inca8		; ja, überlesen
+p7	jmp parse		; und weiterparsen
+
+; --------------------------------------- Befehlsausführung
+
+execute	jsr addy		; Zeiger in INI vorrücken (auf Parameter)
+	ldy #0
+	lda count		; Zähler ist Befehlstoken
+	asl
+	tax		; Vektor holen
+	lda beflist+1,x
+	pha
+	lda beflist,x
+	pha
+fertig	rts		; Befehl ausführen
+
+; ---------------------------------------
+
+find34	ldx #0		; Anführungszeichen suchen (bzw. Zeilenende)
+f0	lda (ls_vekta8),y
+	beq f4		; Zeilenende?
+	cmp #13		; RETURN (Zeilenende in SEQ-File)?
+	beq f4		; ja, Flags checken
+
+	cmp #34		; erstes Anführungszeichen?
+	beq f1		; ja, Flags setzen 
+
+	sty endflag
+f3	jsr inca8
+	bne f0
+f4	inc endflag	; Ende einer Zeile markieren
+	ldx endflag	; Ende des Quelltextes (3 mal Null)?
+	cpx #3
+	beq f5		; ja, fertig
+	ora flag34	; nein, kein Anführungszeichen bisher?
+	beq f3		; ja, weiter checken
+
+f1	inc flag34	; Flag für Anführungszeichen
+	lda #0		; Flag für *kein* Ende der Zeile
+	sta endflag
+f5	rts
+
+; ---------------------------------------
+
+readeq	iny		; Zeiger hinter Gleichheitszeichen setzen
+	lda (ls_vekta8),y
+	cmp #32
+	beq readeq
+	cmp #$3d
+	beq readeq
+	dey
+	rts
+
+; ---------------------------------------
+
+inca8	inc ls_vekta8	; Quellzeiger vorrücken
+	bne in0
+	inc ls_vekta8+1
+in0	rts
+
+; ---------------------------------------
+
+addy	tya		; Offset zu Quellzeiger addieren
+	clc
+	adc ls_vekta8
+	sta ls_vekta8
+	bcc a0
+	inc ls_vekta8+1
+a0	rts
+
+; --------------------------------------- 
+; ---------------------------------------
+
+getword	lda (ls_vekta8),y	; Ziffern nach Word wandeln
+	cmp #$2c
+	beq gw
+	clc
+	rts
+gword	lda #1
+	sta zaehler
+gw	ldx #0
+	stx int
+	stx int+1
+gw1	jsr inca8
+	lda (ls_vekta8),y
+	cmp #32
+	beq gw1
+	cmp #$3a
+	bcs gw0
+	sec
+	sbc #$30
+	sec
+	sbc #$d0
+	bcs gw0
+	sbc #$2f
+	sta wordlo
+	lda int+1
+	sta ls_temp
+	cmp #$19
+	bcs gw0
+	lda int
+	asl
+	rol ls_temp
+	asl
+	rol ls_temp
+	adc int
+	sta int
+	lda ls_temp
+	adc int+1
+	sta int+1
+	asl int
+	rol int+1
+	lda int
+	adc wordlo
+	sta int
+	bcc gw1
+	inc int+1
+	bne gw1
+gw0	lda int
+	rts
+
+; ---------------------------------------
+
+getname	ldx #0		; Strings einlesen
+	iny
+gn0	lda (ls_vekta8),y
+	beq gn4
+	cmp #13
+	bne gn4
+	lda #0
+gn4	sta sc_movetab,x
+	beq gn1
+	cmp #34
+	beq gn1
+	iny
+	inx
+	cpx #16
+	bne gn0
+gn1	stx sc_br
+	lda #32
+gn3	cpx #16
+	beq gn2
+	sta sc_movetab,x
+	inx
+	bne gn3
+gn2	lda #0
+	sta sc_movetab,x
+	jsr addy
+	lda sc_br
+	rts
+
+; --------------------------------------- 
+; --------------------------------------- Befehle
+; ---------------------------------------
+
+befcols	jsr gw		; COLORS n
+	bcc co1
+	sta colors
+co1	rts
+
+; ---------------------------------------
+
+befmode	jsr gw		; MODE n
+	bcc mo1
+	ldx #4
+	tay
+	beq mo0
+	lda #2
+	ldx #10
+mo0	sta mode
+	ldy #4
+mo2	lda hirs,x
+	sta scrmode,y
+	dex
+	dey
+	bpl mo2
+mo1	rts
+
+; ---------------------------------------
+
+befticks	jsr gw		; TICKS n
+	bcc ti1
+	sta tickcnt
+ti1	rts
+
+; --------------------------------------- 
+
+befmsxy	jsr gw		; MOUSEXY x,y
+	bcc ms1
+	sta mousex
+	lda int+1
+	sta mousex+1
+ms1	jsr getword
+	bcc ms0
+	sta mousey
+ms0	rts
+
+; ---------------------------------------
+
+befmscols	jsr gw		; MOUSECOLORS a,b
+	bcc mc1
+	sta mousecol0
+mc1	jsr getword
+	bcc mc0
+	sta mousecol1
+mc0	rts
+
+; ---------------------------------------
+
+beftxcols	jsr gword		; TEXTCOLORS a,b,c,d,e
+	bcc tc
+	sta textcols
+tc	jsr getword
+	ldx zaehler
+	bcc tc0
+	sta textcols,x
+tc0	inx
+	stx zaehler
+	cpx #5
+	bne tc
+	rts
+
+; ---------------------------------------
+
+befclip	jsr gword	; CLIP x,y,b,h
+	bcc cl1
+	sta clip
+cl1	jsr getword
+	ldx zaehler
+	bcc cl0
+	sta clip,x
+cl0	inx
+	stx zaehler
+	cpx #4
+	bne cl1
+	rts
+
+; ---------------------------------------
+
+befdefcol	jsr gw		; DEFCOLORS n,a,..,n
+	bcc dcende
+	cmp #2
+	bcc dcende
+	cmp #16
+	bcs dcende
+	tax
+	stx zaehler
+	stx nummer
+	sty index
+dc0	jsr getword
+	ldx index
+	bcs dc1
+	lda paldef,x
+dc1	sta palcol,x
+	inc index
+	dec zaehler
+	bne dc0
+	sty index
+dc4	ldx index
+	lda palcol,y
+dc3	cmp paldef,x
+	beq dc2
+	inx
+	cpx #16
+	bne dc3
+dc2	txa
+	sta palcol,y
+	iny
+	cpy nummer
+	bne dc4
+	sty zaehler
+	dec nummer
+	dec nummer
+	ldy #0
+	sty lopal
+	sty hipal
+dc6	lda #0
+	sta byte
+	sta byte+1
+	lda palcol,y
+	tax
+	sec
+dc5	ror byte
+	ror byte+1
+	dex
+	bpl dc5
+
+	lda byte
+	ora hipal
+	sta hipal
+	lda byte+1
+	ora lopal
+	sta lopal
+	iny
+	cpy zaehler
+	bne dc6
+	ldx nummer
+	lda lopal
+	sta pallo,x
+	lda hipal
+	sta palhi,x
+dcende	rts
+
+; ---------------------------------------
+
+befloader	jsr getname	; LOADER "ldr.xy"
+	beq ld2
+	sta ldrlen
+	tax
+ld0	dex
+	bmi ld1
+	lda sc_movetab,x
+	sta defldr,x
+	bne ld0
+ld1	jsr gd_cnvbc
+	sta bcldr,y
+ld3	dey
+	bmi ld2
+	lda sc_movetab,y
+	sta bcldr,y
+	bne ld3
+ld2	rts
+
+; ---------------------------------------
+
+befsaver	jsr getname	; SAVER "svr.xy"
+	beq sv2
+	sta svrlen
+	tax
+sv0	dex
+	bmi sv1
+	lda sc_movetab,x
+	sta defsvr,x
+	bne sv0
+sv1	jsr gd_cnvbc
+	sta bcsvr,y
+sv3	dey
+	bmi sv2
+	lda sc_movetab,y
+	sta bcsvr,y
+	bne sv3
+sv2	rts
+
+; ---------------------------------------
+
+befmod	jsr getname	; MODULE "mod.xy"
+	beq md2
+	sta modlen
+	tax
+md0	dex
+	bmi md1
+	lda sc_movetab,x
+	sta defmod,x
+	bne md0
+md1	jsr gd_cnvbc
+	sta bcmod,y
+md3	dey
+	bmi md2
+	lda sc_movetab,y
+	sta bcmod,y
+	bne md3
+md2	rts
+
+; ---------------------------------------
+
+befpat	jsr getname	; PATTERN "pat.xy"
+	beq md2
+	sta ls_temp
+	ldx #128
+	lda #0
+	sta bytes+1
+	ldy #$0f
+fileread	stx bytes
+	tax
+	lda ls_vekta8
+	pha
+	lda ls_vekta8+1
+	pha
+	stx sc_vekt20
+	sty sc_vekt20+1
+	ldx #<(sc_movetab)
+	lda #>(sc_movetab)
+	stx ls_vekta8
+	sta ls_vekta8+1
+pt2	jsr fload
+	tax
+	pla
+	sta ls_vekta8+1
+	pla
+	sta ls_vekta8
+	rts
+
+; ---------------------------------------
+
+befram	tya		; RAM "xxx.xy"
+	pha
+	lda sysdrive	; RAM present?
+	cmp #12
+	bne rm2		; no
+	
+	sta ls_flen2	; yes, namelength = 12
+	jsr gd_swapd	; switch on
+	
+	lda modul+18	; get flag REUINIT
+	pha
+	jsr gd_swapd	; switch off
+	pla		; ### 23.09.16: counting of nextram discarded
+	beq rm2
+
+rm4	jsr setmess	; write "Installing: ..." to screen
+	pla
+	tay
+	pha
+	jsr getname
+	beq rm2
+	sta ramlen
+	sta ls_flen
+	sta rm_rlen
+	tax
+rm0	dex
+	bmi rm1
+	lda sc_movetab,x
+	sta defram,x
+	sta ls_nambuf,x
+	bne rm0
+rm1	jsr setmess1
+	jsr putmess
+
+	inx		; load module to $c000 (Execution Area)
+	stx ls_dirmask
+	lda ls_vekta8
+	pha
+	lda ls_vekta8+1
+	pha
+	lda #0
+	sta spronoff
+	jsr ld11
+
+	lda ls_err2	; error?
+	and #15
+	beq rm5		; no		(27.09.03) ---
+	lda rm_nextram	; starts at entry 5
+	cmp #6		; protect system buffers (undo, temp & swp)
+	bcc rm3
+	dec rm_nextram	; yes, decrement counter	---
+	bne rm3
+	
+rm5	lda modul+3	; save modtype
+	pha
+	jsr gd_swapd	; switch RAM on
+	pla
+	tay		; set parameter for func 6 (modtype in .y)
+	ldx #6		; save mod to RAM (function 6)
+	jsr ram
+	
+rm3	pla		; finished
+	sta ls_vekta8+1
+	pla
+	sta ls_vekta8
+rm2	pla
+	rts
+
+; ---------------------------------------
+
+befptr	jsr getname	; POINTER "ptr.xy"
+	beq ptr2
+	sta ls_temp
+	lda #0
+	sta bytes+1
+	ldx #65
+	lda #<(sprdata)
+	ldy #>(sprdata)
+	jsr fileread
+	txa
+	bne ptr2
+	lda sprdata+$3f
+	cmp #16
+	bcs ptr2
+	sta soffx
+	sec
+	lda #24
+	sbc soffx
+	sta soffx
+	lda sprdata+$40
+	cmp #16
+	bcs ptr2
+	sta soffy
+	sec
+	lda #50
+	sbc soffy
+	sta soffy
+ptr2	rts
+
+; ---------------------------------------
+
+befusevdc	jsr gw		; VDC n
+	bcc uv1
+	bne uv1
+	lda rm_vdcflag
+	beq uv1
+	ora #$40
+	sta rm_vdcflag
+uv1	rts
+
+; ---------------------------------------
+
+befusepfx	jsr gw		; PFOX n
+	bcc px1
+	bne px1
+	lda rm_vdcflag
+	beq uv1
+	ora #$10
+	sta rm_vdcflag
+px1	rts
+
+; ---------------------------------------
+
+befreuclr	jsr gw		; REUCLEAR n
+	pha
+
+	lda sysdrive	; RAM present?
+	cmp #12
+	bne bss2		; no
+	
+	jsr gd_swapd
+	pla
+	sta modul+18
+
+	lda #4		; Auf jeden Fall nextram korrekt setzen:
+	sta sc_merk
+	iny
+	inx
+bss1	inc sc_merk	; Einträge zählen...
+	lda sc_merk
+	jsr mal19
+	lda (entry),y
+	and #$f0
+	cmp #$c0
+	bne bss1
+	lda sc_merk	; ...bis leerer Eintrag
+	sta rm_nextram
+	
+	jmp gd_swapd
+
+bss2	pla
+	rts
+
+
+; ---------------------------------------
+
+fload	jsr gd_xopen
+	jsr setmess1
+	lda sc_vekt20
+	pha
+	lda sc_vekt20+1
+	pha
+	jsr putmess
+	pla
+	sta sc_vekt20+1
+	pla
+	sta sc_vekt20
+	lda #0
+	sta spronoff
+	jsr onebyte
+	bne ld7
+	jsr onebyte
+	bne ld7
+ld6	lda status
+	bne ld7
+	jsr basin
+	sta (sc_vekt20),y
+	inc sc_vekt20
+	bne ld9
+	inc sc_vekt20+1
+ld9	lda bytes
+	tax
+	bne ld8
+	dec bytes+1
+ld8	dec bytes
+	txa
+	ora bytes+1
+	bne ld6
+ld7	jsr gd_xclose
+ld10	jsr gd_xmess
+	lda ls_err2
+	and #15
+	rts
+
+; ---------------------------------------
+
+onebyte	jsr basin
+	ldy #0
+	ldx status
+	rts
+
+; ---------------------------------------
+
+beffrom	jsr gw		; LOADFROM n
+	bcc bf0
+	cmp #12
+	bcs bf0
+	cmp #8
+	bcc bf0
+	sta gdrive
+bf0	rts
+
+; ---------------------------------------
+
+befsvto	jsr gw		; SAVETO n
+	bcc bf0
+	cmp #12
+	bcs bf0
+	cmp #8
+	bcc bf0
+	sta adrive
+	rts
+
+; ---------------------------------------
+
+setmess1	jsr gd_cnvbc
+	ldy #15
+ld12	lda sc_movetab,y
+	sta mess1,y
+	dey
+	bpl ld12
+	rts
+
+; ---------------------------------------
+
+keylist	!pet "colorS"
+	!pet "defcolorS"
+	!pet "textcolorS"
+	!pet "mousecolorS"
+	!pet "mousexY"
+	!pet "cliP"
+	!pet "modE"
+	!pet "tickS"
+	!pet "loadeR"
+	!pet "saveR"
+	!pet "modulE"
+	!pet "patterN"
+	!pet "raM"
+	!pet "pointeR"
+	!pet "vdC"
+	!pet "loadfroM"
+	!pet "savetO"
+	!pet "pfoX"
+	!pet "reucleaR"
+	!byte 0
+;
+beflist	!word (befcols)-1
+	!word (befdefcol)-1
+	!word (beftxcols)-1
+	!word (befmscols)-1
+	!word (befmsxy)-1
+	!word (befclip)-1
+	!word (befmode)-1
+	!word (befticks)-1
+	!word (befloader)-1
+	!word (befsaver)-1
+	!word (befmod)-1
+	!word (befpat)-1
+	!word (befram)-1
+	!word (befptr)-1
+	!word (befusevdc)-1
+	!word (beffrom)-1
+	!word (befsvto)-1
+	!word (befusepfx)-1
+	!word (befreuclr)-1
+
+; --------------------------------------- Defaults
+
+colors	!byte 2
+mode	!byte 0
+tickcnt	!byte 13
+mousex	!word 80
+mousey	!byte 80
+mousecol0	!byte 1
+mousecol1	!byte 0
+textcols	!byte 0,14,12,15,6,0,0,0
+clip	!byte 0,0,40,25
+paldef	!byte 0,6,9,11,2,4,8,12
+	!byte 14,10,5,15,3,7,13,1
+palcol	!byte 0,0,0,0,0,0,0,0
+	!byte 0,0,0,0,0,0,0,0
+lopal	!byte 0
+hipal	!byte 0
+ldrlen	!byte 13
+defldr	!pet "ldr.4BitGoDot   "
+bcldr	!scr "ldr.4BitGoDot@  @"
+svrlen	!byte 13
+defsvr	!pet "svr.4BitGoDot   "
+bcsvr	!scr "svr.4BitGoDot@  @"
+modlen	!byte 13
+defmod	!pet "mod.ClipWorks   "
+bcmod	!scr "mod.ClipWorks@  @"
+patlen	!byte 0
+defpat	!pet "                "
+ramlen	!byte 0
+defram	!pet "                "
+ptrlen	!byte 0
+defptr	!pet "                "
+
+; --------------------------------------- Default RAM Entries
+
+rentries	!byte 0			; REU-Flag ($00)
+	!byte $1c,$c2,$00		; 0: (v1.36: neue Startadresse wg. Swapfile)
+	!pet "RM.Handler    "	;    RAM-Handler
+bbu	!byte 32			;    (darin: Anim-Counter und REUClear-Flag)
+	!byte 0,$00,$10		; 1:
+	!pet "Undo 4Bit       "	;    Undo 4Bit
+	!byte 0,$00,$8d		; 2:
+	!pet "Undo Rendered   "	;    Undo Rendered
+	!byte $f0,$1c,$b2		; 3:
+	!pet "swp.file        "	;    Swapfile (v1.36: neue Länge von 4096)
+	!byte $07,0,$83		;    (v1.33: Temp activated (vorher $17 statt $07))
+	!pet "temp00          "	; 4:
+				;    Temp (first user entry: 5)
+
+; ---------------------------------------
+
+devname	!byte 7			; Länge des Filenamens
+	!pet "UER.ved"		; dev.REU (Filename rückwärts)
+	!word 1360		; max. Länge des Files
+	!byte 8
+	!pet "xoFP.ved"		; dev.PFox
+	!word 1360
+	!byte 7
+	!pet "CDV.ved"		; dev.VDC
+	!word 1360
+	!byte 8
+	!pet "MARS.ved"		; dev.SRAM (09.10.00)
+	!word 1360
+
+; ---------------------------------------
+
+offsets	!byte $80,$80,$80,$80,0,0,$80,$80,0	; Offset auf devname oder $80
+;             $80,$80, 21, 10,0,0,$80, 31,0
+
+; ---------------------------------------
+
+ldramdev	pha		; Typflag retten (0 bis 9)
+	jsr gd_swapd	; RAM einblenden, .x=$ff
+	lda modul+6	; "."? (im Namen "RM.Handler")
+	cmp #$2e
+	bne initdir	; nein, Device laden
+
+	lda bootinit	; sonst: REU-Flag testen
+	sta bbu
+	bne initdir	; neu initialisieren, wenn gesetzt
+	pla		; sonst fertig
+	inx
+	beq ldok
+
+; ---------------------------------------
+
+initdir	jsr gd_swapd	; RAM ausblenden
+	ldx #16		; RAM-Directory löschen
+	ldy #0
+	sty sc_merk
+	lda #$c0
+	sta sc_merk+1
+ln1	sta (sc_merk),y
+	iny
+	bne ln1
+	inc sc_merk+1
+	dex
+	bne ln1
+	ldx #6		; REU-Records initialisieren
+ln2	lda swapw,x
+	sta ls_lastname+16,x
+	dex
+	bpl ln2
+	pla		; Offset auf Device-Eintrag holen
+	tax
+	lda offsets,x
+	bmi notok		; Fehler?
+	tax		; nein, Namenslänge holen
+	lda devname,x
+	sta ls_temp
+	sta sc_br
+	tay
+	inx
+ln0	lda devname,x	; Namen puffern
+	sta sc_movetab-1,y
+	inx
+	dey
+	bne ln0
+	lda devname,x	; max. Filelänge holen
+	sta bytes+1
+	inx
+	lda devname,x
+	tax
+	lda #<(ram)	; und Device laden
+	ldy #>(ram)
+	jsr fileread
+	txa
+	beq ldok
+
+notok	lda #$18		; Bei Fehler: RAM sperren
+	sta ramvec
+	lda #$60
+	sta ramvec+1
+	bne ln3
+
+ldok	lda #12		; Sysdrive ist nun RAM
+	sta sysdrive
+	lda #5		; ersten freien Dir-Eintrag ansteuern
+	sta rm_nextram
+	txa		; .x ist Flag für Erfolg (=0)
+ln3	rts
+
+; ---------------------------------------
+}
+	!eof
