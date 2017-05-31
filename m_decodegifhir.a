@@ -1,0 +1,1372 @@
+
+	!src "..\godotlib.lib"
+	*= $c000
+
+; -------------------------------------------------- 
+
+; mod.DecodeGIFhir
+
+;   1.00, 08.03.02, first release
+;   1.01, 16.03.02, changed: graphics mode info
+;   1.02, 31.05.17, bugfix: adapted to latest ldr.GIF
+; 
+; -------------------------------------------------- 
+
+	pport		= $01
+
+	red		= $30
+	grn		= $31
+	blu		= $32
+
+	src		= $30	; /$31
+	dst		= $32	; /$33
+	blcnt		= $34
+	gsum		= $35
+	palbuf1		= $37	; /$38
+	palbuf2		= $39	; /$3a
+	palbuf3		= $3b	; /$3c
+	nflg		= $3d
+	zflg		= $3e
+	adcnt		= $3f
+	table		= $40	; /$41
+	buffer		= $42	; /$43
+	min		= $44	; /$45
+	tablo		= $46	; /$47
+	tabhi		= $48	; /$49
+	code		= $4a	; /$4b
+	current		= $4c
+	minx		= $4d
+	tabaddlo		= $4e	; /$4f
+	tabaddhi		= $50	; /$51
+	result		= $52	; /$52
+	divis		= $54
+	gpy		= $55
+
+	status		= $90
+	offx		= $b2
+	offy		= $b3
+
+	decodebuf		= $2000
+	dcbuf2		= $3000
+	dcbuf3		= $4000
+
+	hori		= $3fe4
+	vert		= $3fe6
+	level		= $3feb
+	xscale		= $3fec
+	yscale		= $3fed
+	dbl		= $3fee
+	lmode		= $3fef
+	numcols		= $3ff0
+	leftoff		= $3ff2
+	topoff		= $3ff4
+	breite		= $3ff6
+	hoehe		= $3ff8
+	ileave		= $3ffc
+
+	data		= $4000
+	codebuf		= $5000
+	buf1		= $6000
+
+	buf0		= $cc00
+	dbuf		= $cc00
+	dbuf1		= $cc80
+	pal		= $cd00
+
+; -------------------------------------- 
+
+header	jmp start
+	!by $20
+	!by 0
+	!by 0
+	!wo modend
+	!wo 0
+	!pet "gif: LoadSection"
+	!pet "1.02"
+	!pet "31.05.17"
+	!pet "A.Dettke/W.Kling"
+addtxt	!pet "viva D. Jansen!!"
+	!by 0
+
+; -------------------------------------- Start module
+
+sk12	jmp noreu
+
+start	pla		; retrieve calling address
+	tax
+	pla
+	tay
+	pha
+	txa
+	pha
+	cpy #2		; directly executed?
+	bne direct	; yes, error message
+
+	lda ls_ramdrive	; REU angeschlossen?
+	and #15
+	cmp #9
+	beq sk12		; nein, gar kein Ram
+	cmp #7		; nur SuperRAM?
+	beq sk12		; ja, skip Rest
+	and #12
+	beq sk12		; kein REU, skip Rest
+
+	jmp decoder	; no, decode
+
+; -------------------------------------- Error on Startup: Illegal direct
+
+direct	ldx #<(giflst)
+	ldy #>(giflst)
+	jsr gd_xmloop
+cancel	sec
+	rts
+
+; -------------------------------------- Screenlist: Directly Executed
+
+giflst	!by 0
+	!by 5,11,18,15,$81,0,0
+	!scr "DecodeGIF@"
+	!by 17,15,9,3,$cc,<(cancel),>(cancel)
+	!scr " Leave @"
+	!by $c0,7,11,16
+	!scr "This Module will@"
+	!by $c0,9,11,16
+	!scr "be automatically@"
+	!by $c0,11,11,16
+	!scr "used by ldr.GIF.@"
+	!by $c0,13,11,15
+	!scr "It doesn't work@"
+	!by $c0,15,13,11
+	!scr "on its own.@"
+	!by $80
+
+head	!by $47,$49,$46	; "GIF"
+
+; -------------------------------------- 
+
+noreu	jsr gd_spron
+	jsr clrmess
+	jsr messout
+	ldx #<(warnlst)
+	ldy #>(warnlst)
+	jmp gd_xmloop
+
+; -------------------------------------- 
+
+warnlst	!by 0
+	!by 8,9,21,9,$81,0,0
+	!scr "MESSAGE@"
+	!by 14,23,7,3,$cd,<(cancel),>(cancel)
+	!scr "Leave@"
+	!by $c0,10,10,16
+	!scr "No REU detected.@"
+	!by $c0,12,11,15
+	!scr "You can't load.@"
+	!by $80
+
+; -------------------------------------- Activity Display
+
+adinc	dec adcnt
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	cpy #22		; #1.02: catch Gauge Overflow
+	bne act0
+	jsr clrmess
+act0	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts
+
+messout	ldx #<(message)
+	ldy #>(message)
+	jmp gd_xtxout2
+
+filltab	!by 160,93,103,127,126,124,105,109
+cntwert	!by 4
+message	!fill 7,32
+mess	!fill 25,32
+	!by 0
+
+txt	!scr " TrFrm @" 	; 0
+	!scr " DeCde @"	; 8
+	!scr " Skip  @"	; 16
+	!scr " Cnvrt @"	; 24
+
+tcopy	ldy #0
+tc0	lda txt,x
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+
+clrmess	ldx #24
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0
+	ldx #7
+	sty offy
+	stx offx
+	rts
+
+; -------------------------------------- Color conversion Routines
+
+makecols	ldx #15		; get GoDot's RGB values for its standard colors
+stt01	lda gr_rgb+32,x
+	sta cblu,x
+	lda gr_rgb+16,x
+	sta cgrn,x
+	lda gr_rgb,x
+	sta cred,x
+	dex
+	bpl stt01
+	rts
+
+; -------------------------------------- Distributor to pconv or makegray
+
+convcol	jmp (convmode)
+convmode	!wo (assigncol)
+
+; -------------------------------------- Care for Balancing settings
+
+pconv	pha		; R, G, or B values
+	jsr adinc
+	pla
+	lsr
+	lsr
+	lsr
+	lsr
+	tax
+	lda gr_btab,x	; change value according to Balancing settings
+	ldy gpy
+	rts
+
+; -------------------------------------- Get one color index byte from file
+
+getpal	ldy #$bd		; palette buffers: 
+	sty palbuf1+1	; 1: $bd00 (red)
+	iny
+	sty palbuf2+1	; 2: $be00 (green)
+	iny
+	sty palbuf3+1	; 3: $bf00 (blue)
+	ldy #0
+	sty palbuf1
+	sty palbuf2
+	sty palbuf3
+gpl4	sty gpy
+	lda (palbuf1),y
+	jsr pconv		; care for balancing
+	sta red
+	lda (palbuf2),y
+	jsr pconv		; dto
+	sta grn
+	lda (palbuf3),y
+	jsr pconv		; dto
+	sta blu
+	jsr convcol	; convert to GoDot 4Bit (via assigncol/makegray)
+	ldy gpy
+	sta pal,y		; and store result to $cd00+
+	iny
+	cpy numcols	; convert all GIF colors
+	bne gpl4
+	rts
+
+; -------------------------------------- Convert RGB color to C64 color
+
+assigncol	lda red
+	clc
+	adc grn
+	adc blu
+	tax
+	lda avr,x
+	ldy #0
+	cmp red
+	bne as0
+	iny
+as0	cmp grn
+	bne as1
+	iny
+as1	cmp blu
+	bne as2
+	iny
+as2	cpy #2
+	bcc cl51
+	tax
+	lda gray,x
+	tax
+	lda cpref,x
+	tax
+	lda cnibs,x
+	rts
+
+cl51	ldx level
+cl6	lda #0
+	sta dbuf1,x
+	sta nflg
+	sta zflg
+	lda cred,x
+	sec
+	sbc red
+	bne rd0
+	inc zflg
+rd0	bcs rpos
+	eor #$ff
+	adc #1
+	inc nflg
+rpos	tay
+	lda quad,y
+	sta dbuf,x
+	lda cgrn,x
+	sec
+	sbc grn
+	bne gn0
+	inc zflg
+gn0	bcs gpos
+	eor #$ff
+	adc #1
+	inc nflg
+gpos	tay
+	lda quad,y
+	clc
+	adc dbuf,x
+	sta dbuf,x
+	bcc gsk
+	inc dbuf1,x
+gsk	lda cblu,x
+	sec
+	sbc blu
+	bne bl0
+	inc zflg
+bl0	bcs bpos
+	eor #$ff
+	adc #1
+	inc nflg
+bpos	tay
+	lda nflg
+	beq nopf
+	clc
+	adc zflg
+	cmp #3
+	beq nopf
+	lda #2
+	!by $2c
+nopf	lda #0
+	clc
+	adc quad,y
+	adc dbuf,x
+	sta dbuf,x
+	bcc bsk
+	inc dbuf1,x
+bsk	inx
+	cpx #16
+	bne cl6
+
+	stx min+1
+	ldx level
+ml1	lda dbuf1,x
+	tay
+	cmp min+1
+	beq ms1
+	bcs ms2
+	bcc ms3
+ms1	lda dbuf,x
+	cmp min
+	beq ms4
+	bcs ms2
+ms3	lda dbuf,x
+ms4	sty min+1
+	sta min
+	stx minx
+ms2	inx
+	cpx #16
+	bne ml1
+	lda minx
+	tay
+	lda cpref,y
+	tay
+	lda cnibs,y
+	rts
+
+; -------------------------------------- 
+
+avr	!by 0,0,1,1,1,2,2,2
+	!by 3,3,3,4,4,4,5,5,5
+	!by 6,6,6,7,7,7,8,8,8
+	!by 9,9,9,10,10,10
+	!by 11,11,11,12,12,12
+	!by 13,13,13,14,14,14
+	!by 15,15
+
+quad	!by 0,1,4,9,16,25,36,49,64,81,100,121,144,169,196,225
+
+gray	!by 3,3,2,2,2,2,1,1,1,1,0,0,0,0,4,4
+
+cred	!by 0,3,7,11,15,0,6,7
+	!by 7,15,7,15,7,15,0,7
+
+cgrn	!by 0,3,7,11,15,0,3,0
+	!by 0,7,7,7,15,15,7,15
+
+cblu	!by 0,3,7,11,15,7,0,0
+	!by 7,0,15,7,15,0,0,7
+
+cpref	!by 11,7,3,0,15,2,9,6
+	!by 5,12,4,8,1,10,14,13
+
+; -------------------------------------- 
+
+cnibs	!by $00,$11,$22,$33
+	!by $44,$55,$66,$77
+	!by $88,$99,$aa,$bb
+	!by $cc,$dd,$ee,$ff
+
+; -------------------------------------- Gray Conversion Routine
+
+makegray	lda red
+	cmp grn
+	bne gs51
+	cmp blu
+	bne gs51
+	jmp grok0
+
+gs51	asl
+	tay
+	lda rtab,y
+	sta gsum
+	lda rtab+1,y
+	sta gsum+1
+	lda grn
+	asl
+	tay
+	lda gtab,y
+	clc
+	adc gsum
+	sta gsum
+	lda gtab+1,y
+	adc gsum+1
+	sta gsum+1
+	lda blu
+	asl
+	tay
+	lda bltab,y
+	clc
+	adc gsum
+	sta gsum
+	lda bltab+1,y
+	adc gsum+1
+	sta gsum+1
+	lda gsum
+	clc
+	adc #128
+	lda gsum+1
+	adc #0
+grok0	tay
+	jmp store
+
+; -------------------------------------- 
+
+rtab	!by $00,$00,$4d,$00
+	!by $9a,$00,$e7,$00
+	!by $34,$01,$81,$01
+	!by $ce,$01,$1b,$02
+	!by $68,$02,$b5,$02
+	!by $02,$03,$4f,$03
+	!by $9c,$03,$e9,$03
+	!by $36,$04,$83,$04
+
+gtab	!by $00,$00,$97,$00
+	!by $2e,$01,$c5,$01
+	!by $5c,$02,$f3,$02
+	!by $8a,$03,$21,$04
+	!by $b8,$04,$4f,$05
+	!by $e6,$05,$7d,$06
+	!by $14,$07,$ab,$07
+	!by $42,$08,$d9,$08
+
+bltab	!by $00,$00,$1c,$00
+	!by $38,$00,$54,$00
+	!by $70,$00,$8c,$00
+	!by $a8,$00,$c4,$00
+	!by $e0,$00,$fc,$00
+	!by $18,$01,$34,$01
+	!by $50,$01,$6c,$01
+	!by $88,$01,$a4,$01
+
+igray	!by $00,$30,$03,$33,$33,$73,$37,$77
+	!by $77,$b7,$7b,$bb,$bb,$fb,$bf,$ff
+
+; -------------------------------------- Decode GIF image
+
+decoder	jsr makecols	; retrieve RGB values from GoDot
+	lda #4
+	sta cntwert
+	lda lmode
+	sta modus		; which mode: gray or color?
+	beq dc0
+	lda #<(makegray)
+	ldx #>(makegray)
+	bne dc1
+dc0	lda #<(assigncol)
+	ldx #>(assigncol)
+dc1	sta convmode	; set routine entries accordingly
+	stx convmode+1
+	ldx #0
+	jsr tcopy
+	jsr gd_clrms
+	inx
+	stx adcnt
+	jsr getpal	; convert GIF palette to GoDot
+	jsr limits	; compute skip values
+	lda ileave	; care for interleaved flag
+	bne dc5		; finish if set
+
+	jsr gd_clrms	; init gauge bar
+	jsr init		; init vectors and counters
+	jsr initread	; init skip counters
+	jsr readgif	; retrieve GIF data (image) to RAM
+	jsr doundo	; Re-get from RAM (to $4000)
+	jsr decrunch	; convert to card graphics
+	lda mundo
+	sta rm_ramundo
+
+	sei		; ### 1.02 ab hier ---
+	lda #$34
+	sta pport
+	ldy $e008
+	lda $e009
+	beq +
+	ora #$20
+	sta dst+1
+	sty dst
+	ldx #0
+	lda #$33		; set graphics mode info to "320x200"
+	sta (dst,x)
+	inc dst
+	lda #$32
+	sta (dst,x)
++	lda #$36
+	sta pport
+	cli		; ### 1.02 bis hier ---
+
+	ldy #16		; finished, reset Balancing
+	sty gr_ctr
+	sty gr_brt
+dc8	dey
+	tya
+	sta gr_btab,y
+	bne dc8
+dc5	sec
+	rts
+
+; -------------------------------------- GIF decoding routines
+
+readgif	jsr basin
+	sta codesize
+	jsr basin
+	sta tabcount
+	tax
+	beq gg6
+
+	jsr basin
+	sta current
+	lda #$08
+	sta bitcount
+	lda #<codebuf
+	sta buffer
+	lda #>codebuf
+	sta buffer+1
+
+nexttab	jsr pdecode
+decdloop	jsr makebytes
+	lda code
+	ldy code+1
+	cmp clearcode
+	bne gg4
+	cpy clearcode+1
+	beq nexttab
+gg4	cmp eoicode
+	bne gg5
+	cpy eoicode+1
+	beq gg5		; ??? gg6?
+gg5	jsr maketabs
+	lda code
+	sec
+	sbc clearcode
+	lda code+1
+	sbc clearcode+1
+	bcs decode
+	lda code
+	jsr render
+	jmp decdloop
+
+gg1	sec
+gg6	rts
+
+decode	lda code+1
+	clc
+	adc #>decodebuf
+	sta tabaddlo+1
+	adc #$10
+	sta tabaddhi+1
+	adc #$10
+	sta table+1
+	lda code
+	sta tabaddlo
+	sta tabaddhi
+	sta table
+	ldy #$01
+	lda (table),y
+	dey
+	sta (buffer),y
+	inc buffer
+	bne gg7
+	inc buffer+1
+	lda buffer+1
+	cmp #>buf1
+	bcs gg8
+gg7	lda (tabaddhi),y
+	sta code+1
+	lda (tabaddlo),y
+	sta code
+	sec
+	sbc clearcode
+	lda code+1
+	sbc clearcode+1
+	bcs decode
+gg8	lda code
+	jsr render
+	jmp inloop
+
+readbuf	ldy #$00
+	dec buffer
+	lda (buffer),y
+	jsr render
+inloop	lda buffer
+	bne readbuf
+	lda buffer+1
+	cmp #>codebuf
+	beq gg9
+	dec buffer+1
+	bne readbuf
+gg9	jmp decdloop
+
+gg10	rts
+
+; -------------------------------------- 
+
+maketabs	lda tablo+1
+	cmp #>dcbuf2
+	bcc gg11
+	ldy tablo
+	bne gg10
+	lda code
+	sec
+	sbc clearcode
+	lda code+1
+	sbc clearcode+1
+	bcs gg12
+	lda code
+	jmp gg13
+
+gg11	lda code
+	ldy #$00
+	sta (tablo),y
+	sec
+	sbc clearcode
+	lda code+1
+	sta (tabhi),y
+	sbc clearcode+1
+	bcs gg12
+	lda code
+	jmp gg13
+
+gg12	lda code+1
+	clc
+	adc #>dcbuf3
+	sta table+1
+	lda code
+	sta table
+	lda (table),y
+gg13	tax
+	lda tablo
+	sta table
+	lda tablo+1
+	clc
+	adc #$20
+	sta table+1
+	txa
+	sta (table),y
+	iny
+	sta (table),y
+	inc tablo
+	inc tabhi
+	bne gg14
+	inc tablo+1
+	inc tabhi+1
+gg14	lda tablo
+	cmp presssize
+	bne gg15
+	lda tablo+1
+	sec
+	sbc #>decodebuf
+	cmp presssize+1
+	bne gg15
+	ldy csizepl1
+	cpy #$0c
+	bcs gg15
+	iny
+	sty csizepl1
+	lda bitslo,y
+	ora #$01
+	sta presssize
+	lda bitshi,y
+	sta presssize+1
+gg15	rts
+
+; -------------------------------------- 
+
+pdecode	ldy codesize
+	lda bitshi,y
+	sta clearcode+1
+	tax
+	lda bitslo,y
+	sta clearcode
+	pha
+	iny
+	sty csizepl1
+	lda bitshi,y
+	sta presssize+1
+	lda bitslo,y
+	ora #$01
+	sta presssize
+	pla
+	tay
+	iny
+	bne gg16
+	inx
+gg16	sty eoicode
+	stx eoicode+1
+	iny
+	bne gg17
+	inx
+gg17	sty tablo
+	sty tabhi
+	txa
+	clc
+	adc #>decodebuf
+	sta tablo+1
+	clc
+	adc #$10
+	sta tabhi+1
+	lda #<decodebuf
+	ldy #>decodebuf
+	ldx #$30
+	jmp erase
+
+; -------------------------------------- 
+
+makebytes	lda #$00
+	sta code
+	sta code+1
+	ldy #$00
+	ldx bitcount
+gg18	lsr current
+	bcc gg19
+	lda bitslo,y
+	ora code
+	sta code
+	lda bitshi,y
+	ora code+1
+	sta code+1
+gg19	dex
+	bne iss0
+	dec tabcount
+	bne issize
+	jsr basin
+	sta tabcount
+	tax
+	bne issize
+	pla
+	pla
+	rts
+
+; -------------------------------------- 
+
+issize	jsr basin
+	sta current
+	ldx #$08
+iss0	iny
+	cpy csizepl1
+	bcc gg18
+	stx bitcount
+	rts
+
+; -------------------------------------- 
+
+erase	sty sc_merk+1
+	ldy #0
+	sty sc_merk
+era0	sta (sc_merk),y
+	iny
+	bne era0
+	inc sc_merk+1
+	dex
+	bne era0
+	rts
+
+; -------------------------------------- 
+
+bitslo	!by $01,$02,$04,$08,$10,$20,$40,$80,$00,$00,$00,$00,$00
+bitshi	!by $00,$00,$00,$00,$00,$00,$00,$00,$01,$02,$04,$08,$10
+
+tabcount	!by 0
+bitcount	!by 0
+codesize	!by 0
+clearcode	!wo 0
+eoicode	!wo 0
+presssize	!wo 0
+csizepl1	!by 0
+
+
+;...meanwhile, in the accumulator
+
+; -------------------------------------- 
+
+render	tay		; save code byte to .Y
+again	lda tskip		; skip at the top?
+	ora tskip+1
+	beq lread		; no, branch
+
+	lda pxlcnt	; valid pixels all retrieved?
+	ora pxlcnt+1
+	beq newline
+
+next	lda pxlcnt	; no, dec pixel counter
+	bne s1
+	dec pxlcnt+1
+s1	dec pxlcnt
+	rts
+
+; -------------------------------------- 
+
+newline	lda xs		; restore pixel counter
+	ldx xs+1
+	sta pxlcnt
+	stx pxlcnt+1
+
+	lda tskip		; dec top counter
+	bne s2
+	dec tskip+1
+s2	dec tskip
+	lda tskip
+	ora tskip+1
+	bne s21
+
+	ldx #8		; skip finished, re-init gauge
+	jsr tcopy
+	jsr gd_clrms
+	inx
+	stx adcnt
+	lda #200
+	sta cntwert
+s21	jsr adinc
+	jmp next
+
+; -------------------------------------- Skip left
+
+lread	lda lskip		; skip on the left?
+	ora lskip+1
+	beq mread		; no, branch
+
+	lda lskip		; yes, dec counter
+	bne s3
+	dec lskip+1
+s3	dec lskip
+s51	rts
+
+; -------------------------------------- 
+
+mread	ldx bufptr	; retrieved all pixels of a line?
+	cpx px2read
+	beq rread		; yes, skip right
+
+	dec xskip		; no, x-scaling active?
+	bpl s51		; yes, skip
+	lda xskip		; x-skip value was $00 (double x)?
+	cmp #$fe
+	bne mrd3
+	jsr mrd2		; yes, store color twice
+
+mrd3	lda stxskip	; restore scale factor
+	sta xskip
+
+	jsr mrd2		; store color
+	bne s5
+
+	lda yskip		; y-scaling active?
+	bne s5		; yes, skip
+
+	jmp adinc		; activity
+
+; -------------------------------------- 
+mrd2	lda lrflag	; left or right pixel?
+	bne mrd0
+	lda pal,y		; left: get color byte
+	and #$f0
+	sta buf0,x
+	jmp mrd1
+mrd0	lda pal,y		; right: get color byte
+	and #$0f
+	ora buf0,x
+	sta buf0,x	; store to buffer
+	inc bufptr
+mrd1	lda lrflag	; toggle flag
+	eor #$ff
+	sta lrflag
+	rts
+; -------------------------------------- 
+
+rread	lda rskip		; skip on the right?
+	ora rskip+1
+	beq newline1
+
+	lda rskip		; yes, dec counter
+	bne s4
+	dec rskip+1
+s4	dec rskip
+	rts
+
+; -------------------------------------- 
+
+newline1	jsr initread	; ------> init skip counters
+	dec yskip		; skip vertically?
+	bpl next1
+	lda scaley
+	sta yskip
+	sty mrky
+	jsr crunch	; ------> write to RAM
+	ldy mrky
+	inc linenr	; next line
+	lda linenr	; up to 200
+	cmp #200
+	beq exit		; ------> leave decode
+next1	jmp again
+
+; -------------------------------------- 
+
+exit	pla
+	pla
+	sec
+s5	rts
+
+;------------snip------------
+
+initread	lda xo
+	ldx xo+1
+	sta lskip
+	stx lskip+1
+	lda xr
+	ldx xr+1
+	sta rskip
+	stx rskip+1
+	lda xs
+	ldx xs+1
+	sta pxlcnt
+	stx pxlcnt+1
+	lda #0
+	sta bufptr
+	sta lrflag
+	rts
+
+; -------------------------------------- Store to RAM
+
+crunch	jsr write2undo
+	lda double
+	beq s52
+	inc linenr
+	jsr write2undo
+s52	rts
+
+; -------------------------------------- 
+
+write2undo
+	lda #$90		; Stash
+	jsr gd_reu
+	clc
+	lda rm_werte+2
+	adc #160
+	sta rm_werte+2
+	bcc w2u0
+	inc rm_werte+3	; Bank (+4) doesn't get exceeded
+w2u0	rts
+
+; -------------------------------------- 
+init	lda #0		; start at line #0
+	sta linenr
+	lda yo		; set top skip counter
+	ldx yo+1
+	sta tskip
+	stx tskip+1
+	ldx scalex	; set scale factors
+	lda scale,x
+	sta stxskip
+	sta xskip
+	lda scaley
+	sta yskip
+
+	lda #0		; clear buf0 ($cc00-$cc9f)
+	tay
+s7	sta buf0,y
+	iny
+	cpy #160
+	bne s7
+
+	ldx #6		; init Undo address in REU ($1000)
+	lda #0
+wu0	sta rm_werte,x
+	dex
+	bpl wu0
+	lda #>buf0	; from BUF0 (in C64)
+	sta rm_werte+1
+	lda #$10		; to UNDO (in REU)
+	sta rm_werte+3
+	lda #160		; 160 bytes to transfer each time
+	sta rm_werte+5
+	lda rm_ramundo	; fake UNDO
+	sta mundo
+	lda #1
+	sta rm_ramundo
+	rts
+
+; -------------------------------------- 
+
+scale	!by $ff,0,0,1,1,2,2,3
+stxskip	!by 0
+scalex	!by 0
+scaley	!by 0
+xskip	!by 0
+yskip	!by 0
+px2read	!wo 160
+linenr	!by 0
+bufptr	!by 0
+bbuf	!by 0
+cnt1	!by 0
+
+tskip	!wo 0
+lskip	!wo 0
+rskip	!wo 0
+
+pxlcnt	!wo 0
+
+xs	!wo 0
+ys	!wo 0
+xo	!wo 0
+yo	!wo 0
+xr	!wo 0
+modus	!by 0
+mrky	!by 0
+
+; -------------------------------------- Compute Skip values
+
+limits	lda topoff	; top offset?
+	ora topoff+1
+	beq dc9
+	ldx #16
+	bne dc10
+dc9	ldx #8
+	lda #200
+	sta cntwert
+dc10	jsr tcopy
+	lda #160		; set # of pixels to read to 160
+	sta px2read
+	ldx xscale	; retrieve values from LOADER
+	stx scalex
+	lda yscale	; yskip
+	sta scaley
+	lda dbl		; double (yskip=enlarge)
+	sta double
+	ldx #1
+	stx adcnt
+	dex
+	lda double
+	beq dc41
+	stx scaley	; if double then yskip=0
+
+dc41	txa		; set values to 0 (tskip..xr)
+dc4	sta tskip,x
+	inx
+	cpx #18
+	bne dc4
+
+	ldx #3		; take over left offset and top offset
+dc2	lda leftoff,x
+	sta xo,x
+	lda hori,x	; the same for hori and vert (=> xs/ys)
+	sta xs,x
+	dex
+	bpl dc2
+
+	ldx scalex	; get value for x-scale (0=>320)
+	lda xtablo,x
+	sta breite
+	lda xtabhi,x
+	sta breite+1
+	lda #<(200)	; height => 200
+	sta hoehe
+	lda #>(200)
+	sta hoehe+1
+;			zu klein in x ?
+	sec
+	lda hori		; original width minus target width
+	sbc breite
+	lda hori+1
+	sbc breite+1
+	bcc dc3		; target is narrower, so take care
+;			rechtsskip:
+dc7	sec
+	lda hori
+	sbc breite
+	pha
+	lda hori+1
+	sbc breite+1
+	tax
+	sec
+	pla
+	sbc leftoff
+	sta xr
+	txa
+	sbc leftoff+1
+	sta xr+1
+	rts
+
+; -------------------------------------- 
+
+dc3	lda hori		; original width replaces target width
+	sta breite
+	sta px2read
+	lda hori+1
+	sta breite+1
+	ldx scalex
+	beq dc7
+	inx
+	sta sc_merk+1	; store width
+	lda breite
+	sta sc_merk
+	stx divis		; get divisor (scale factor + 1)
+	lda #0
+	sta result
+	sta result+1
+
+dc33	sec		; divide width by scale 
+	lda sc_merk
+	sbc divis
+	sta sc_merk
+	bcs dc32
+	dec sc_merk+1
+	bpl dc32
+	lda result
+	ldx result+1
+	bne dc33
+	jmp dc34
+dc32	inc result
+	bne dc33
+	inc result+1
+	bne dc33
+
+dc34	bne dc36
+	cmp #160
+	bcc dc35
+dc36	lda #160
+dc35	sta px2read
+	clc
+	lda sc_merk
+	adc divis
+	sta sc_merk
+	clc
+	lda xo
+	adc sc_merk
+	sta xo
+	bcc dc31
+	inc xo+1
+dc31	jmp dc7
+
+; ---------------------------------------------------------------------
+; -------------------------------------------------------------- DoUndo
+; ---------------------------------------------------------------------
+doundo	lda #<undo	; eigentliche Routine verschieben
+	ldx #>undo	; (weil das Modul ausgeblendet wird)
+	sta ls_vekta8
+	stx ls_vekta8+1
+	ldy #xtablo-undo
+sloop	lda (ls_vekta8),y
+	sta sy_global,y	; nach GLOBAL
+	dey
+	bpl sloop
+	jmp sy_global	; und dann ausführen
+
+; sy_global (at $3f40):
+
+undo 	jsr gd_swapd	; Ram einblenden
+	ldx #10		; FirstInit
+	jsr rm_ramvec
+
+	ldx #6		; Parameter setzen
+	lda #0
+md0	sta rm_werte,x
+	dex
+	bpl md0
+	lda #>data	; nach 4Bit-Bereich im C64
+	sta rm_werte+1
+	lda #$10		; von Undo im Ram
+	sta rm_werte+3
+	lda #$7d		; 32000 Bytes
+	sta rm_werte+6
+	lda #1		; Flag für 4Bit-Undo setzen
+	sta rm_nextentry
+
+getundo	ldx #8		; und GetUndo
+	jsr rm_ramvec
+	ldx #1		; danach ForceOff (Ram ausblenden)
+	jmp rm_ramvec	
+
+; -------------------------------------- 
+
+; scale:	      0   1   2   3   4   5   6   7
+xtablo	!by $a0,$40,$e0,$80,$20,$c0,$60,$00
+xtabhi	!by $00,$01,$01,$02,$03,$03,$04,$05
+
+; -------------------------------------- 
+
+decrunch	ldx #24		; Message: "Cnvrt"
+	jsr tcopy
+	jsr gd_clrms
+	inx 
+	stx adcnt
+	lda #50
+	sta cntwert
+	lda #>data	; from $4000
+	sta src+1
+	sta buffer+1
+	lda #>decodebuf	; to $2000
+	sta dst+1
+	ldy #0
+	sty src
+	sty dst
+	sty buffer
+
+	lda #25		; 25 blocklines
+	sta min
+
+dch7	ldx #5
+dch0	lda (src),y	; copy 1280 bytes to buffer
+	sta (dst),y
+	iny
+	bne dch0
+	inc src+1
+	inc dst+1
+	dex
+	bne dch0
+
+	clc		; restore vectors
+	lda buffer+1
+	sta src+1
+	lda #>decodebuf
+	sta dst+1
+
+	lda #8 		; 8 lines per blockline
+	sta minx
+
+dch6	lda #40		; with 40 tiles each
+	sta blcnt
+
+dch4	ldy #0		; swap data
+dch1	lda (dst),y	; from $2000+
+	sta (src),y	; to $4000+
+	iny
+	cpy #4
+	bne dch1
+
+	sty mrky
+	jsr adinc
+	ldy mrky
+	clc		; advance to next tile in $4000
+	lda src
+	adc #32
+	sta src
+	bcc dch2
+	inc src+1
+dch2	clc		; and in $2000
+	lda dst
+	adc #4
+	sta dst
+	bcc dch3
+	inc dst+1
+
+dch3	dec blcnt		; 40 times
+	bne dch4
+
+	clc
+	lda buffer
+	adc #4
+	sta buffer
+	sta src
+	bcc dch5
+	inc buffer+1
+dch5	lda buffer+1
+	sta src+1
+
+	dec minx		; 8 times
+	bne dch6	
+
+	clc		; advance to next blockline in $4000
+	lda buffer
+	adc #<1248
+	sta buffer
+	sta src
+	lda buffer+1
+	adc #>1248
+	sta buffer+1
+	sta src+1
+
+	lda #>decodebuf
+	sta dst+1
+	lda #0
+	sta dst
+	tay
+
+	dec min		; 25 times
+	beq dch8
+	jmp dch7
+
+dch8	rts
+
+; -------------------------------------- 
+
+store	lda modus
+	beq skp01
+	cmp #1
+	beq skp01
+	lda igray,y
+	jmp skp02
+skp01	lda cnibs,y
+skp02	rts
+
+; -------------------------------------- 
+
+double	!by 0
+lrflag	!by 0
+mundo	!by 0
+
+; -------------------------------------- 
+
+modend	!eof
