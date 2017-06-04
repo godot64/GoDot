@@ -1,0 +1,1340 @@
+
+	!src "..\godotlib.lib"
+	*= $0801
+
+; ------------------------------------------ 
+;
+; IFLI-Diashow
+;  Display FunpainterII images in a loop
+;
+; 1.01, 30.03.97:  Parser zugefügt
+; 1.02, 03.06.17:  mehrere Logos nacheinander
+;
+; ------------------------------------------ 
+
+	pport		= $01
+	vekt02		= $02
+	int		= $14
+
+	timer		= $40
+	pcnt		= $57
+	pbyte		= $58
+	vekt		= $59
+	qflag		= $5b
+	index		= $5c
+	cnt8		= $5d
+	mbyte		= $5e
+	mvekt		= $5f
+	lscreen		= $61
+	lcnt		= $63
+	indx		= $64
+
+	status		= $90
+	stopkey		= $91
+	sekadr		= $b9
+	drive		= $ba
+	ld3		= $d3
+
+	temp		= $f7
+	zaehler		= temp+1
+	wordlo		= temp+2
+	mint		= temp+3
+	flen		= $f8
+	cnt		= $f9
+	formok		= $fb
+	mpport		= $fc
+	mlen		= $fd
+
+	nambuf		= $0100
+
+	header		= $3ff0
+	packed		= $3ffe
+	packbyte		= $3fff
+
+	icolor		= $8000
+	ifli		= $8400
+	piclist		= $9400
+
+	v_graphics	= $d011
+	v_raster		= $d012
+	v_gmode		= $d016
+	v_vaddress	= $d018
+	v_irq		= $d019
+	v_irqmask		= $d01a
+	v_rahmen		= $d020
+	v_backgr		= $d021
+
+	colorram		= $d800
+
+	cia1_keybrow	= $dc00
+	cia1_keybcol	= $dc01
+	cia1_irq		= $dc0d
+	cia2_vicbase	= $dd00
+
+	strout		= $ab1e
+	sektlk		= $ff96
+	getin		= $ffa5
+	untalk		= $ffab
+	talk		= $ffb4
+	setnam		= $ffbd
+	setlfs		= $ffba
+	open		= $ffc0
+	close		= $ffc3
+	chkin		= $ffc6
+	clrch		= $ffcc
+	basin		= $ffcf
+	bsout		= $ffd2
+	plot		= $fff0
+	ramirq		= $fffe
+
+; ------------------------------------------ BASIC-Header
+
+	!by 1,1		; Line-Link
+	!by $ad,0	; Zeilennummer
+
+	!by $9e,$32,$30,$36,$35,58,$24,$41,$44
+
+; ---	BASIC line: SYS 2065:$ad
+
+	!by 0		; Line-End
+	!by 0,0		; End of BASIC prog
+
+; ------------------------------------------ Diashow Main
+
+start	jsr params	; Check for Parameters
+	lda units		; set bootdrive as drive
+	sta drive
+
+; ------------------------------------------ 
+
+diashow	jsr logodis	; display logo
+
+	lda #0		; Init Liste der Bilder
+	sta piclist
+	lda #$30		; init Error number to "00"
+	sta errnum
+	sta errnum+1
+	jsr dirlist	; retrieve directory
+
+	lda piclist	; empty?
+	beq nextdisk	; then demand next drive
+
+	jsr setplist	; set vector to directory
+
+; ------------------------------------------ Display Loop
+
+show	jsr logodis	; display logo
+	jsr getfname	; get (first) filename
+	bne ok		; read file if present
+
+nextdisk	jsr next		; no, demand next drive
+	jmp diashow	; start over
+
+; ------------------------------------------ Read file and Display
+
+ok	jsr fname		; show name
+	jsr prepact	; init activity
+	jsr loadf		; load file
+	lda formok	; is fp2?
+	bne show		; no, skip, next image
+	jsr pause		; otherwise: wait a little time
+	jsr display	; display image
+	jmp show		; loop
+
+; ------------------------------------------ New Disk
+
+next	jsr switch	; if there's a next one: continue at "nextdisk"
+
+	jsr logodis	; otherwise: display logo
+	clc
+	ldx #3		; print at 3,9:
+	ldy #9
+	jsr plot
+	lda #<(ndisk1)	; out: "neue diskette einlegen"
+	ldy #>(ndisk1)
+	jsr strout
+	clc
+	ldx #5		; print at 5,14:
+	ldy #14
+	jsr plot
+	lda #<(ndisk2)	; out: "und space"
+	ldy #>(ndisk2)
+	jsr strout
+	clc
+	ldx #8		; print at 8,8
+	ldy #8
+	jsr plot
+	lda #<(ndisk3)	; out: "oder mit stop beenden"
+	ldy #>(ndisk3)
+	jsr strout
+
+; ------------------------------------------ Wait for keyboard
+
+wait	lda stopkey	; Stop? 
+	cmp #$7f
+	beq c64reset	; yes, reset the machine
+	cmp #$ef		; Space?
+	bne wait
+	rts		; yes, continue
+
+; ------------------------------------------ Check for Loop
+
+switch	ldx dindx		; next drive
+swt1	inx
+	lda dindx,x
+	beq swt0		; no next drive? then check for loop
+	bmi swt1		; no drive? then proceed to end of list
+swt2	sta drive		; set new drive
+	stx dindx		; (store index)
+	pla		; not back to where we came from...
+	pla
+	rts		; ...but back into the loop
+
+swt0	tax
+	lda dloop		; are we in endless loop?
+	bne swt3		; no, end
+	pha
+	pha
+	beq swt1
+swt3	stx dindx		; yes, start over
+	jmp swt1
+
+; ------------------------------------------ Reset C64
+
+c64reset	jmp $fce2		; reset
+
+; ------------------------------------------ Set Directory Buffer
+
+setplist	ldy #<(piclist)
+	lda #>(piclist)
+	sty vekt
+	sta vekt+1
+	rts
+
+; ------------------------------------------ Get Filename
+
+getfname	ldx #15		; clear last filename
+	lda #32
+gf1	sta namout,x
+	dex
+	bpl gf1
+
+	ldy #0		; Länge des Filenamens ermitteln
+	lda (vekt),y
+	beq gfend		; wenn 0, kein File, Ende
+	sta flen		; sonst: setzen
+
+	inc vekt
+	bne gf0
+	inc vekt+1
+gf0	lda (vekt),y	; Namen setzen
+	sta nambuf,y
+	sta namout,y
+	iny
+	cpy flen
+	bne gf0
+
+	clc
+	lda vekt		; Vektor in die Liste anpassen
+	adc #16
+	sta vekt
+	bcc gfend
+	inc vekt+1
+gfend	rts
+
+; ------------------------------------------ 
+
+fname	clc		; print at 17,8
+	ldx #17
+	ldy #8
+	jsr plot
+	lda #<(name)	; out: "loading: filename"
+	ldy #>(name)
+	jmp strout
+
+; ------------------------------------------ Activity
+
+action	lda stopkey	; STOP?
+	cmp #$7f
+	bne ac2
+
+	lda #$37		; ja, Loop verlassen, Meldung
+	sta pport
+	pla
+	pla
+	jmp wrong
+
+ac2	dec cnt		; Activityzähler abgelaufen?
+	bne noaction
+	lda mlen		; Maskenzähler abgelaufen?
+	beq noaction
+
+	lda cntwert	; ja, Zähler neu setzen
+	sta cnt
+	lsr cnt8		; Bitmaske rücken
+	bcc ac0
+	ror cnt8		; wenn Bitmaske abgelaufen: neu setzen
+	dec mlen		; Maskenzähler herunterzählen
+	beq noaction
+
+	inc index		; wenn abgelaufen: Maskenindex bewegen
+	ldy index
+	lda (mvekt),y	; nächstes Maskenbyte holen
+	sta mbyte		; merken
+
+ac0	lda pport
+	pha
+	lda #$36
+	sta pport
+	asl mbyte		; Maskenbyte rücken
+	bcs ac1
+	lda #$a3		; %0: Zeichen 163
+	!by $2c
+ac1	lda #$b8		; %1: Zeichen 178
+	jsr diaout	; ausgeben
+	sei
+	pla
+	sta pport
+	ldy #0		; .y muss auf 0
+
+noaction	rts
+
+; ------------------------------------------ Prepare Activity
+
+prepact	ldx pass
+	lda maskelo,x	; Maske anpeilen
+	sta mvekt
+	lda maskehi,x
+	sta mvekt+1
+	inx		; nächste Maske
+	cpx #3
+	bne +
+	ldx #0		; nach drei: von vorne
++	stx pass
+
+	ldy #0
+	sty lcnt
+	sty indx		; auf die 16 Zeilen Ausgabe
+	sty lscreen
+	lda (mvekt),y	; erstes Byte holen
+	sta mlen		; ist Länge
+	inc mlen
+	inc mvekt
+	bne +
+	inc mvekt+1
++	lda (mvekt),y	; nächstes Byte holen
+	sta mbyte		; ist Maskenbyte
+	lda cntwert	; Zähler setzen
+	sta cnt
+	dey		; -1
+	sty index		; auf Index
+	lda #4
+	sta lscreen+1
+	lda #1
+	sta cnt8
+	clc
+	ldx #0		; Print at 0,0
+	ldy #0
+	jsr plot
+	lda #155		; "hellgrau"
+	jmp bsout
+
+; ------------------------------------------ 
+
+dirlist	jsr setplist	; set vector to directory buffer, returns .y=0
+
+	lda #13		; open 13, drive, 0, "$" for input
+	ldx drive
+	jsr setlfs
+	lda #1
+	ldx #<(dollar)
+	ldy #>(dollar)
+	jsr setnam
+	jsr open
+	ldx #13
+	jsr chkin
+
+	lda #0
+	sta status
+	jsr basin		; get bytes until status not $00
+	lda status
+	beq dir
+
+	jsr enddir	; otherwise close #13
+	jmp meldung	; and show floppy message
+
+; ------------------------------------------ Read Directory
+
+dir	jsr basin		; skip Link
+	jsr basin
+	jsr basin		; skip Progtype
+
+loop	jsr basin		; skip track&sector
+	jsr basin
+
+d0	jsr basin		; skip space
+	cmp #32
+	beq d0
+
+	ldy #0		; look for quotes
+	sty qflag
+	iny
+	ldx #16		; length of entry name
+	bne d2
+
+d3	eor qflag		; last quote?
+	beq d4		; yes, advance
+	sta qflag
+
+d1	jsr basin		; read next byte
+d2	cmp #$22		; was quote?
+	beq d3		; yes, last quote?
+	cmp #18		; was reverse on?
+	beq d1		; yes, next byte
+
+	sta (vekt),y	; otherwise: buffer byte (name string)
+	iny
+	dex		; count length of entry name
+	bne d1
+
+d4	dey
+	tya
+	ldy #0
+	sta (vekt),y	; Länge davor
+	iny
+	lda (vekt),y
+	cmp #$5e		; Hochpfeil am Namensanfang?
+	beq d6		; ja, zweites Zeichen auch Hochpfeil?
+	dey		; nein, 0 setzen (nächster Eintrag überschreibt diesen)
+	tya
+	sta (vekt),y
+	beq d5		; und nächstes Zeichen holen
+
+d6	iny
+	eor (vekt),y	; zweites Zeichen auch Hochpfeil?
+	bne d5		; nein, weiter
+	lda vekt		; ja, Vektor auf nächsten Eintrag
+	clc
+	adc #17
+	sta vekt
+	bcc d5
+	inc vekt+1
+
+d5	jsr basin		; lesen bis $00
+	tax
+	bne d5
+
+	jsr basin		; skip file length
+	jsr basin
+
+	lda status
+	bne enddir
+	beq loop		; next entry
+
+enddir	jsr clrch		; close #13
+	lda #13
+	jmp close
+
+; ------------------------------------------ Display Logo
+
+logodis	lda #0		; alles schwarz
+	sta v_rahmen
+	sta v_backgr
+	lda #$93		; CLR/Home
+	jsr bsout
+	clc
+	ldy #0		; print at 0,19
+	ldx #19
+	jsr plot
+	inc logcnt
+	ldx logcnt
+	cpx #5
+	bne +
+	sty logcnt
+	lda #<logo2
+	ldy #>logo2
+	bne ++
++	lda #<(logo1)	; out: Logo
+	ldy #>(logo1)
+++	jmp strout
+
+; ------------------------------------------ GoDot Logo
+
+logo1	!by $8e,$08,$1e,$92			; Groß/Grafik, fix, grün, RVS off
+	!by $d5,$c0,$c0,$c9,$20,$20,$20,$b0	; 1. Zeile (40 Zeichen)
+	!by $c0,$c0,$c9,$20,$20,$20,$20,$20
+	!by $d5,$c0,$c0,$c9,$20,$20,$20,$20
+	!by $20,$20,$20,$20,$20,$c9,$20,$20
+	!by $20,$2e,$20,$20,$20,$20,$20,$20
+
+	!by $dd,$c0,$c0,$ae,$d5,$c0,$c9,$dd	; 2. Zeile
+	!by $20,$20,$dd,$d5,$c0,$c9,$db,$c0
+	!by $dd,$c0,$c0,$ae,$b0,$c0,$c9,$d5
+	!by $c0,$ae,$b0,$c0,$c9,$ab,$c0,$c9
+	!by $c0,$ae,$d5,$c0,$c9,$d5,$c0,$c9
+
+	!by $dd,$20,$20,$dd,$dd,$20,$dd,$dd	; 3. Zeile
+	!by $20,$20,$dd,$dd,$20,$dd,$dd,$20
+	!by $dd,$20,$20,$dd,$dd,$20,$20,$dd
+	!by $20,$dd,$dd,$20,$dd,$dd,$20,$dd
+	!by $20,$dd,$dd,$20,$20,$ca,$c0,$c9
+
+	!by $ca,$c0,$c0,$cb,$ca,$c0,$cb,$ad	; 4. Zeile
+	!by $c0,$c0,$cb,$ca,$c0,$cb,$ca,$c0
+	!by $ca,$c0,$c0,$cb,$b1,$20,$20,$ca
+	!by $c0,$b1,$ab,$c0,$cb,$b1,$20,$b1
+	!by $20,$b1,$ca,$c0,$cb,$ca,$c0,$cb
+
+	!by $20,$20,$20,$20,$20,$20,$20,$20	; 5. Zeile
+	!by $20,$20,$20,$20,$20,$20,$20,$20
+	!by $20,$20,$20,$20,$20,$20,$20,$20
+	!by $20,$20,$dd,$20,$20,$20,$20,$20
+	!by $20,$20,$20,$20,$20,$20,$20,$20,0	; (0=fertig)
+
+logo2	!by $8e,$08,$81,$92			; Groß/Grafik, fix, orange, RVS off
+	!by $20,$20,$20,$20,$c0,$c0,$c0,$c0	; 1. Zeile (40 Zeichen)
+	!by $c0,$c0,$c0,$c0,$c0,$c0,$c0,$c0
+	!by $c0,$c0,$c0,$c0,$c0,$c0,$c0,$c0
+	!by $c0,$c0,$c0,$c0,$c0,$c0,$c0,$c0
+	!by $c0,$c0,$c0,$c0,$ae,$20,$20,$20
+
+	!by $20,$20,$20,$dd,$20,$c0,$c0,$20	; 2. Zeile
+	!by $20,$20,$20,$c0,$c0,$ae,$20,$20
+	!by $20,$ab,$20,$20,$c0,$c0,$20,$20
+	!by $20,$20,$20,$20,$20,$20,$dd,$20
+	!by $20,$d1,$20,$20,$dd,$20,$20,$20
+
+	!by $20,$20,$20,$dd,$dd,$20,$c0,$ae	; 3. Zeile
+	!by $20,$c0,$ae,$dd,$20,$dd,$20,$c0
+	!by $ae,$dd,$20,$dd,$20,$c0,$ae,$b0
+	!by $20,$c0,$b3,$20,$c0,$ae,$ab,$c0
+	!by $ae,$20,$cd,$ce,$dd,$20,$20,$20
+
+	!by $20,$20,$20,$dd,$dd,$20,$20,$dd	; 4. Zeile
+	!by $dd,$20,$dd,$dd,$20,$dd,$dd,$20
+	!by $dd,$dd,$20,$dd,$20,$20,$dd,$dd
+	!by $dd,$20,$dd,$dd,$20,$dd,$dd,$20
+	!by $dd,$dd,$ce,$cd,$dd,$20,$20,$20
+
+	!by $20,$20,$20,$dd,$ad,$c0,$c0,$bd	; 5. Zeile
+	!by $ad,$c0,$bd,$b1,$c0,$bd,$ad,$c0
+	!by $bd,$ad,$c0,$ad,$c0,$c0,$bd,$dd
+	!by $ad,$c0,$b1,$db,$c0,$b1,$bd,$20
+	!by $dd,$dd,$20,$20,$dd,$20,$20,$20
+
+	!by $20,$20,$20,$ad,$c0,$c0,$c0,$c0	; 6. Zeile
+	!by $c0,$c0,$c0,$c0,$c0,$c0,$c0,$c0
+	!by $c0,$c0,$c0,$c0,$c0,$c0,$c0,$c0
+	!by $c0,$c0,$c0,$dd,$c0,$c0,$c0,$c0
+	!by $c0,$c0,$c0,$c0,$bd,$20,$20,0	; (0=fertig)
+
+; ------------------------------------------ Activity Logo
+
+maske1	!by 80			; 16 Zeilen á 5 Maskenbytes
+	!by $00,$00,$00,$00,$00	; jedes 1-Bit: Zeichen on Screen
+	!by $1e,$00,$00,$00,$00	; 5*8 Maskenbits = 40 Zeichen
+	!by $1e,$3f,$c7,$80,$78
+	!by $1e,$3f,$c7,$80,$78	; "IFLI"
+	!by $1e,$3f,$c7,$80,$78
+	!by $1e,$3c,$07,$80,$78
+	!by $1e,$3c,$07,$80,$78
+	!by $1e,$3f,$87,$80,$78
+	!by $1e,$3f,$87,$80,$78
+	!by $1e,$3f,$87,$80,$78
+	!by $1e,$3c,$07,$80,$78
+	!by $1e,$3c,$07,$fc,$78
+	!by $1e,$3c,$07,$fc,$78
+	!by $1e,$3c,$07,$fc,$78
+	!by $00,$00,$00,$00,$78
+	!by $00,$00,$00,$00,$00
+
+maske2	!by 80			; 16 Zeilen á 5 Maskenbytes
+	!by $00,$00,$00,$00,$00	; jedes 1-Bit: Zeichen on Screen
+	!by $00,$00,$00,$00,$00	; 5*8 Maskenbits = 40 Zeichen
+	!by $00,$00,$00,$00,$00
+	!by $0f,$f8,$78,$3f,$80	; "DIA"
+	!by $0f,$1c,$78,$3f,$80
+	!by $0f,$0e,$78,$7b,$c0
+	!by $0f,$07,$78,$7b,$c0
+	!by $0f,$07,$78,$f1,$e0
+	!by $0f,$07,$78,$ff,$e0
+	!by $0f,$0e,$79,$e0,$f0
+	!by $0f,$0e,$79,$e0,$f0
+	!by $0f,$3c,$7b,$c0,$78
+	!by $0f,$f0,$7b,$c0,$78
+	!by $00,$00,$00,$00,$00
+	!by $00,$00,$00,$00,$00
+	!by $00,$00,$00,$00,$00
+
+maske3	!by 80			; 16 Zeilen á 5 Maskenbytes
+	!by $00,$00,$00,$00,$00	; jedes 1-Bit: Zeichen on Screen
+	!by $3e,$10,$00,$00,$00	; 5*8 Maskenbits = 40 Zeichen
+	!by $7f,$30,$00,$00,$00
+	!by $c0,$30,$00,$00,$00	; "Show"
+	!by $c0,$30,$00,$00,$00
+	!by $e0,$30,$00,$0c,$03
+	!by $7e,$37,$87,$cc,$03
+	!by $3f,$3f,$cf,$e6,$06
+	!by $01,$b8,$dc,$76,$06
+	!by $01,$b0,$d8,$36,$06
+	!by $01,$b0,$d8,$37,$6e
+	!by $c1,$b0,$dc,$73,$6c
+	!by $ff,$b0,$cf,$e3,$6c
+	!by $7f,$30,$c7,$c1,$98
+	!by $00,$00,$00,$00,$00
+	!by $00,$00,$00,$00,$00
+
+; ------------------------------------------ 
+
+lcols	!by 15,12
+signs	!by 32,239,228,160,228,239,249,226,226,120,119,119,99,119,120,32
+
+dindx	!by 1
+units	!by $ff,$ff,$ff,$ff,0
+time	!by 0,0,0
+dloop	!by 0
+logcnt	!by 0
+
+pass	!by 0
+maskelo	!by <maske1, <maske2, <maske3
+maskehi	!by >maske1, >maske2, >maske3
+
+; ------------------------------------------ Activity
+
+diaout	ldy #0		; in .a: Ausgabezeichen ($b8/$a3)
+	tax
+	inc lcnt		; Kachelzähler
+	lda lcnt
+	cmp #40		; bis 40
+	bne di2
+	sty lcnt
+	inc indx		; jede Zeile neues Zeichen
+di2	cpx #$a3		; Overscore?
+	beq di1
+	ldx indx		; nein, die anderen Zeichen durchgehen (16)
+	lda signs,x
+	!by $2c
+di1	lda #100		; BCode: Underscore
+	sta (lscreen),y
+	tax
+	clc
+	lda lscreen+1
+	pha
+	adc #$d4
+	sta lscreen+1
+	cpx #100
+	beq di4
+	ldx #0		; Colors
+	!by $2c
+di4	ldx #1
+	lda lcols,x
+	sta (lscreen),y
+	pla
+	sta lscreen+1
+	inc lscreen	; next tile on screen
+	bne di3
+	inc lscreen+1
+di3	rts
+
+; ------------------------------------------ Messages
+
+cntwert	!by 51
+dollar	!pet "$"
+home	!by 19,155,18,0		; "home-lgr-RVSon@"
+
+ndisk1	!by 150			; "lrd"
+	!pet "neue diskette einlegen"
+	!by 0
+ndisk2	!pet "und <space>"
+	!by 0
+ndisk3	!pet "oder mit <stop> beenden"
+	!by 0
+
+derr	!by 18,28			; "RVSon-red"
+	!pet " fehler #"
+errnum	!pet "00"
+	!pet " beim laden! "
+	!by 146,0			; "reverse_off@"
+
+name	!by 153			; "lgn"	
+	!pet "loading: "
+namout	!fill 16,32
+	!by 0
+
+; ------------------------------------------ Uhr
+
+countdown	ldx #0
+	stx timer
+	stx timer+1
+	stx timer+2
+	ldx #201
+
+-	lda time
+	beq ++
+	dex
+	bne ++
+	ldx #201
+	inc timer
+	bne +
+	inc timer+1
+	bne +
+	inc timer+2
++	lda timer+1
+	cmp time+2
+	bne ++
+	lda timer
+	cmp time+1
+	bcc +
+++	lda cia1_keybrow	; Keyboard abfragen
+	and cia1_keybcol
+	and #$10
+	bne -		; nichts gedrückt: Loop
++	rts
+
+pause	ldx #0
+	stx timer
+	stx timer+1
+	stx timer+2
+	ldx #201
+
+-	dex
+	bne ++
+	ldx #201
+	inc timer
+	bne +
+	inc timer+1
+	bne +
+	inc timer+2
++	lda timer+1
+	cmp #$01		; 5 Sekunden
+	bne ++
+	lda timer
+	cmp #$2c
+	bcc +
+++	lda cia1_keybrow	; Keyboard abfragen
+	and cia1_keybcol
+	and #$10
+	bne -		; nichts gedrückt: Loop
++	rts
+
+; ------------------------------------------ Show IFLI image
+
+display	jsr prepifli
+	jsr iflion
+	jsr countdown
+
+-	lda v_graphics	; Raster Bit 9 aus?
+	bpl -		; ja, loop
+
+	sei
+	lda #$6b
+	sta v_graphics
+	lda #$00
+	sta v_irqmask
+	lda #$81
+	sta cia1_irq
+	lda #$37
+	sta pport
+-	lda v_graphics
+	bpl -
+	lda #$03
+	sta cia2_vicbase
+	lda #$15
+	sta v_vaddress
+	lda #$08
+	sta v_gmode
+	lda #$1b
+	sta v_graphics
+	cli
+
+reinit	lda #$37
+	sta pport
+	rts
+
+; ------------------------------------------ Load Image
+
+loadf	lda #$00
+	sta formok
+	lda flen
+	ldx #<(nambuf)
+	ldy #>(nambuf)
+	jsr setnam
+	lda #13		; Open 13,drive,0,"filename" for input
+	ldx drive
+	ldy #$00
+	jsr setlfs
+	jsr open
+	ldx #13
+	jsr chkin
+	jsr basin		; Skip start address
+	jsr basin
+	lda status
+	beq readfile
+	jmp endread
+
+; ------------------------------------------ 
+
+readfile	lda #$40		; store from $4000
+	sta vekt02+1
+	ldy #$00
+	sty vekt02
+
+-	jsr basin		; get fp2 header
+	sta header,y
+	iny
+	cpy #16
+	bne -
+
+	ldy #$00
+	lda status
+	bne endread
+
+	ldx #$0d		; check header
+-	lda header,x
+	cmp hcheck,x
+	bne wrong
+	dex
+	bpl -
+
+	lda packed	; is compressed?
+	bne depack	; yes
+
+; ------------------------------------------ 
+
+-	jsr basin		; no, read straight
+	sei
+	sty pport
+	sta (vekt02),y
+	ldx #$36
+	stx pport
+	jsr action
+	cli
+	jsr increm
+	bcs endread
+
+	lda status
+	beq -
+	bne endread
+
+; ------------------------------------------ Decompress FP2 image
+
+depack	jsr basin
+	cmp packbyte	; Packindikator?
+	bne +
+	jsr basin		; ja, Zähler
+	beq ++		; Ende, wenn $00
+	tax
+	jsr basin		; Byte
+	jmp +++
+
++	ldx #$01
++++	sta pbyte
+	sei
+	sty pport
+	stx pcnt
+-	lda pbyte
+	sta (vekt02),y
+	jsr action
+	jsr increm
+	dec pcnt
+	bne -
+
+	ldx #$36
+	stx pport
+	lda status
+	beq depack
+++	lda #$36
+	sta pport
+	cli
+
+; ------------------------------------------ 
+
+endread	jsr enddir
+	lda status	; (Speeder!)
+	cmp #$40
+	bne meldung
+	rts
+
+; ------------------------------------------ Falsches Format
+
+wrong	lda #$01
+	sta formok
+	jmp enddir
+
+; ------------------------------------------ Floppy Message
+
+meldung	lda #$02		; roter Rahmen (blinkt)
+	sta v_rahmen
+	lda drive
+	jsr talk
+	lda #$6f
+	sta sekadr
+	jsr sektlk
+	jsr getin		; get error number 1+2
+	sta errnum
+	jsr getin
+	sta errnum+1
+ml0	jsr getin		; skip text until RETURN
+	cmp #$0d
+	bne ml0
+	jsr untalk
+	jsr reinit
+	jsr logodis
+	clc
+	ldx #7		; print at 7,8
+	ldy #8
+	jsr plot
+	lda #<(derr)	; out: "fehler #xx beim laden"
+	ldy #>(derr)
+	jsr strout
+	jsr wait		; wait for key
+	pla
+	pla
+	jmp show		; back into loop
+
+; ------------------------------------------ Advance while loading
+
+increm	inc vekt02
+	bne +
+	inc vekt02+1
++	lda vekt02
+	ldx vekt02+1
+	cpx #$83
+	bne ++
+	cmp #$e8
+	bne +
+	sty vekt02
+	lda #$c0
+	sta vekt02+1
++
+-	clc
+	rts
+
+++	cpx #$ff
+	bne -
+	cmp #$a4
+	bne -
+	sec
+	rts
+
+; ------------------------------------------ IFLI: Prepare
+
+prepifli	lda #$3b		; Bitmap $6000
+	sta iflirout+1
+	lda #$08		; Farben $4000
+	sta smod2+1
+	lda #$40		; Backgr $7f40
+	sta smod3+1
+	lda #$7f
+	sta smod3+2
+	lda #$00		; Speedcode $8400
+	sta vekt02
+	lda #$84
+	sta vekt02+1
+	ldx #$d0
+
+--	ldy #$11
+-	lda iflirout,y
+	sta (vekt02),y
+	dey
+	bpl -
+	clc
+	lda vekt02
+	adc #$12
+	sta vekt02
+	bcc +
+	inc vekt02+1
++	clc
+	lda iflirout+1
+	adc #$01
+	and #$07
+	ora #$38
+	sta iflirout+1
+	lda smod2+1
+	adc #$10
+	and #$7f
+	sta smod2+1
+	inc smod3+1
+	dex
+	beq +
+	cpx #100
+	bne --
+
+	lda #$40		; Backgr $ff40
+	sta smod3+1
+	lda #$ff
+	sta smod3+2
+	bne --
+
++	ldy #$00
+	lda #$60		; RTS dahinter
+	sta (vekt02),y
+	rts
+
+; ------------------------------------------ Speedcode
+
+iflirout	lda #$ff
+	sta v_graphics
+smod2	lda #$ff		; self modification
+	sta v_vaddress
+smod3	lda $ffff		; self modification
+	sta v_backgr
+	bit ld3		; column of cursor
+
+; ------------------------------------------ IFLI Darstellung
+
+iflion	lda v_graphics	; sync
+	bpl iflion
+	sei
+	lda #$6b		; Bild aus
+	sta v_graphics
+	lda #$35
+	sta pport
+	ldx #$00
+-	lda icolor,x	; Colorram ($d800) besetzen
+	sta colorram,x
+	lda icolor+$0100,x
+	sta colorram+$0100,x
+	lda icolor+$0200,x
+	sta colorram+$0200,x
+	lda icolor+$0300,x
+	sta colorram+$0300,x
+	inx
+	bne -
+	lda #$00		; Videoram an $cc00
+	sta cia2_vicbase
+	lda #$38
+	sta v_vaddress
+	lda #$19		; Multi
+	sta v_gmode
+	lda #$7f
+	sta cia1_irq
+	lda cia1_irq
+	lda #$01
+	sta v_irqmask
+	sta v_irq
+	lda #<(rirq)
+	sta ramirq
+	lda #>(rirq)
+	sta ramirq+1
+	lda #$2f
+	sta v_raster
+-	lda v_graphics	; sync
+	bpl -
+	lda #$3b		; Grafik an
+	sta v_graphics
+	cli
+	rts
+
+; ------------------------------------------ 
+
+	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0
+
+; ------------------------------------------ 
+
+eoirq	pla
+	sta pport
+	pla
+	tay
+	pla
+	tax
+	pla
+	rti
+
+rirq	pha
+	lda pport
+	sta mpport
+	lda #$35
+	sta pport
+	lda #<(rirq2)
+	sta ramirq
+	lda #$30
+	sta v_raster
+	dec v_irq
+	cli
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+rirq2	nop
+	nop
+	nop
+	nop
+	nop
+	pla
+	pla
+	pla
+	txa
+	pha
+	tya
+	pha
+	lda mpport
+	pha
+	jsr ifli
+	dec v_irq
+
+	lda v_gmode	; interlace
+	eor #$01
+	sta v_gmode
+	lda cia2_vicbase	; switch images
+	eor #$02
+	sta cia2_vicbase
+
+	lda #$2f
+	sta v_raster
+	lda #<(rirq)
+	sta ramirq
+	lda #>(rirq)
+	sta ramirq+1
+	jmp eoirq
+
+; ------------------------------------------ 
+
+hcheck	!pet "funpaint (mt) "
+cright	!pet "    coded in 1991 by manfred trenz    "
+l9457	!pet "show 1994 by arndt dettke"
+	!by 0
+
+; ------------------------------------------ 
+; ------------------------------------------ Interpreter
+; ------------------------------------------ 
+
+params	ldx #0		; Init Units
+	lda #$ff
+pm0	sta units,x
+	inx
+	cpx #4
+	bne pm0
+
+	lda #0
+	sta units,x
+	ldx #2
+pm1	sta time,x	; Init Timer
+	dex
+	bpl pm1
+
+	sta dloop		; Init Looper
+
+	lda drive		; get bootdrive
+	sta units		; is first unit
+
+	lda #2		; Pointer to Filename at $0200
+	ldy #0
+	sta vekt+1
+	sty vekt
+pms1	lda (vekt),y
+;	beq pms2		; line end? then leave
+	cmp #$3a		; look for ":" (begin of parameters)
+	beq pms0		; found!
+	iny
+	bne pms1
+
+pms2	rts		; not found
+
+; ------------------------------------------ Parameter einlesen
+
+!ct pet {
+
+pms0	cpy #80		; BASIC-Zeilenlänge erreicht?
+	bcs pms2		; ja, Abbruch
+
+	jsr readeq	; nächstes gülitiges Zeichen holen
+	iny
+	jsr addy		; Vektor auf dieses Zeichen setzen
+
+jm0	ldy #0
+	lda (vekt),y	; Zeichen holen (bis $00)
+	beq pms2
+
+	cmp #"u"		; "u" (für "Units")?
+	bne jm1
+	jsr drives	; dann Driveliste erstellen
+	bne jm0
+
+jm1	cmp #"w"		; "w" (für "Wait")?
+	bne jm2
+	jsr timeset	; dann Timer setzen
+	bne jm0
+
+jm2	cmp #"l"		; "l" (für "Loop")?
+	bne jm3
+	jsr setloop	; dann Schleife setzen
+	bne jm0
+
+jm3	jsr incv		; weiterlesen bis $00
+	bne jm0
+
+}
+
+; ------------------------------------------ Units
+
+drives	lda drive		; aktueller Drive
+	sta units		; ist Vorgabe
+	jsr readeq	; nächstes Zeichen überlesen ("=" und Space)
+	jsr gword		; Zahl einlesen
+	bcc dr0
+	cmp #8		; zwischen 8 und 12?
+	bcc dr0
+	cmp #12
+	bcs dr0
+	sta units		; dann gülig
+
+dr0	jsr getword	; mehrere Units?
+
+	ldx zaehler	; Anzahl
+	php
+	pha
+	lda #$ff		; vorbesetzen mit -1
+	sta units,x
+	pla
+	plp
+	bcc dr1		; Nummer gülitig?
+	sta units,x	; dann Unitnummer setzen
+dr1	inx
+	stx zaehler	; noch eine?
+	cpx #4		; höchstens 4
+	bne dr0
+	jmp incv		; Zeiger rücken
+
+; ------------------------------------------ Wait
+
+timeset	jsr readeq	; überlesen bis Zahl (Sekunden)
+	jsr gw
+	bcc dr2
+	sta time		; merken, wenn gülitig
+	jsr mal60		; mal 60
+dr2	jmp incv		; Zeiger rücken
+
+; ------------------------------------------ Loop
+
+setloop	jsr readeq	; überlesen bis Zahl (0 oder 1)
+	jsr gw
+	bcc dr3
+	sta dloop		; setzen, wenn gültig
+dr3	jmp incv		; Zeiger rücken
+
+; ------------------------------------------ Wert mal 2
+
+mal2	asl int
+	rol int+1
+	dex
+	bne mal2
+	rts
+
+; ------------------------------------------ Wert mal 60
+
+mal60	ldx #0
+	stx int+1
+	sta int
+	clc
+	ldx #2
+	jsr mal2		; mal 4, merken
+	lda int
+	sta mint
+	lda int+1
+	sta mint+1
+	ldx #4
+	jsr mal2		; mal 16 (also mal 64 zusammen)
+	sec
+	lda int		; minus mal 4 (gleich mal 60)
+	sbc mint
+	sta time+1
+	lda int+1
+	sbc mint+1
+	sta time+2
+	rts
+
+; ------------------------------------------ Überlesen
+
+readeq	iny
+	lda (vekt),y
+	cmp #32		; Space
+	beq readeq
+	cmp #$3d		; Gleichheitszeichen
+	beq readeq
+	dey
+	rts
+
+; ------------------------------------------ Increment
+
+incv	inc vekt
+	bne in0
+	inc vekt+1
+in0	rts
+
+; ------------------------------------------ Add .y
+
+addy	tya
+	clc
+	adc vekt
+	sta vekt
+	bcc a0
+	inc vekt+1
+a0	rts
+
+; ------------------------------------------ More than 1 parameter
+
+getword	lda (vekt),y
+	cmp #$2c
+	beq gw
+	clc
+	rts
+
+; ------------------------------------------ Get Word
+
+gword	lda #1
+	sta zaehler
+gw	ldx #0
+	stx int
+	stx int+1
+
+gw1	jsr incv
+gw2	lda (vekt),y
+	cmp #32
+	beq gw1
+	cmp #$3a
+	bcs gw0
+	sec
+	sbc #$30
+	sec
+	sbc #$d0
+	bcs gw0
+	sbc #$2f
+	sta wordlo
+	lda int+1
+	sta temp
+	cmp #$19
+	bcs gw0
+	lda int
+	asl
+	rol temp
+	asl
+	rol temp
+	adc int
+	sta int
+	lda temp
+	adc int+1
+	sta int+1
+	asl int
+	rol int+1
+	lda int
+	adc wordlo
+	sta int
+	bcc gw1
+	inc int+1
+	bne gw1
+gw0	lda int
+	rts
+
+; ------------------------------------------ 
+
+modend	!eof
