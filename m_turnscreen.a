@@ -1,0 +1,1339 @@
+
+	!src "..\godotlib.lib"
+	*= $c000
+
+; --------------------------------------- 
+;
+; mod.TurnScreen
+;  Turn a chooseable 25x25 tiles area by 90 degrees
+;
+; 1.00, 07.07.02: first release
+; 1.01, 05.10.05:
+; 1.02, 05.06.17: enhanced: graphics redisplay when executed from REU
+;
+; --------------------------------------- 
+
+; --------------------------------------- Header
+
+            jmp start
+            !by $20
+            !by $00,$00
+            !wo (modend)
+            !by $00,$00
+            !pet "TurnScreen 90 dg"
+            !pet "1.02"
+            !pet "05.06.17"
+            !pet "A.Dettke        "
+
+; --------------------------------------- Equates
+
+	pport		= $01
+
+	merky		= $30
+	merkx		= $31
+	dst		= $32
+	hcnt		= $34
+	tilecnt		= $35
+	cntbr		= $36
+	cntx		= $37
+	breite		= $38
+	hoehe		= $39
+	toggle		= $3a
+	adcnt		= $3b
+	gbyte		= $3c
+
+	slot		= $45
+	v1buf		= $47
+	v2buf		= $48
+	cbuf		= $49
+
+	buf		= rm_werte+2	; (value= $8300 in bank 7)
+	lutable		= $cd00
+	vram2		= $ce0b
+	vram1		= $de0b
+	cstart		= $ee0b
+
+; --------------------------------------- Main
+
+start 	lda ls_ramdrive	; REU attached?
+	and #15
+	cmp #9
+	beq sk12		; no, no extended RAM at all
+	cmp #7		; only SuperRAM?
+	beq sk12		; yes, skip everything
+	and #12
+	beq sk12		; no REU, skip everything
+
+	lda gd_modswitch	; care for module management
+	pha
+	lda sc_screenvek	; save vector to mainlst
+	sta mainlst
+	lda sc_screenvek+1
+	sta mainlst+1
+	jsr warning	; display warning
+	bcs scr02		; left by "No", leave module
+
+	jsr checkcols	; where is which module? (for re-display) ### 1.01
+	jsr setdata
+	ldx #<(turnlst)
+	ldy #>(turnlst)
+scr0	jsr gd_screen
+	jsr lolite
+	ldx #11
+	jsr lolite2
+	lda warnflag
+	bne scr01
+	jsr warn
+scr01	jsr gd_eloop	; wait for events
+
+scr02	pla 		; restore module management flag
+	sta gd_modswitch
+	jsr initreu
+	lda #$c0
+	sta rm_werte+1
+	sec		; finished
+	rts
+
+sk12	jmp noreu
+
+; ----------------------------------- Init Activity Display
+
+initad	ldy #60		; create bright bar
+	lda #0
+adl0	sta $0100+3,y
+	dey
+	bpl adl0
+	sty $0100
+	sty $0100+1
+	sty $0100+2
+
+adl1	lda #15		; light gray
+	sta $d029
+	sta $d029+1
+	lda $d01d		; expand x
+	ora #12
+	sta $d01d
+
+	lda spritehi	; sprites 2 & 3 beyond 255
+	ora #12
+	sta spritehi
+	lda #8		; x position: 33 & 36
+	sta $d004
+	lda #32
+	sta $d004+2
+	lda #144		; y position: 18
+	sta $d005
+	sta $d005+2
+
+	lda #4		; sprite 2 & 3 at area 4 ($0100)
+	sta $07f8+2
+	sta $07f8+3
+
+	lda $d015		; activate sprites
+	ora #12
+	sta $d015
+	lda #5		; set progression counter
+	sta adcnt
+	rts
+; ----------------------------------- 
+
+clearad	lda $d015		; display mouse pointer only
+	and #$f3
+	sta $d015
+	lda spritehi
+	and #$f3
+	sta spritehi
+	sec
+	rts
+
+; --------------------------------------- Warning
+
+warning	lda warnflag	; warn-requester disabled?
+	bne wn1		; yes, leave
+	
+	lda #0		; set result flag
+	sta exflag
+	ldx #<(warnlst)	; display requester
+	ldy #>(warnlst)
+	jsr gd_screen
+	ldx #7
+	jsr lolite2
+	jsr gd_eloop	; wait for events
+	jsr rp5
+	lda exflag	; result
+	beq wn0
+wn1	clc
+	!by $24
+wn0 	sec
+	rts
+
+; --------------------------------------- Warning anyway
+
+evanyway	inc exflag	; enable warning
+	sec 
+	rts
+
+; --------------------------------------- Turn the Clip
+
+evexec	jsr setstart	; Start address of Clip
+	jsr setbr		; width of Clip
+	lda #25		; and its height
+	sta hoehe
+	lda #25
+	sta breite
+	sta gr_redisp
+	jsr initad
+	jsr setreu
+	jsr tobuf		; write clip to buffer
+
+	lda emptyflag	; erase 4Bit?
+	bne ex3
+	ldy #0		; yes
+	sty sc_texttab
+	ldx #$40
+	stx sc_texttab+1
+	ldx #125
+ex4	sta (sc_texttab),y
+	iny
+	bne ex4
+	inc sc_texttab+1
+	dex
+	bne ex4
+
+ex3	jsr adl1
+	lda dirflag	; direction to turn to?
+	beq ex0
+	jsr backl24	; left
+	beq ex1
+
+ex0	jsr lookup	; right
+	jsr backr24
+
+ex1	jmp clearad	; finished, clip turned
+
+; --------------------------------------- Input of new Clip values
+
+evinpsp	ldx #1		; Flag for SPALTE (column)
+	stx inmerk
+	ldx #10		; Init Special Input 
+	stx sc_iflag
+ar1	lda ziff,x
+	sta sy_global,x
+	dex
+	bpl ar1
+	lda #<(sy_global)
+	sta ls_vekta8
+	lda #>(sy_global)
+	sta ls_vekta8+1
+	jsr gd_xinput	; Input
+
+	lda #>(ls_nambuf)	; evaluate Init
+	sta ls_vekta8+1
+	lda #<(ls_nambuf)
+	sta ls_vekta8
+	ldy #2
+	sta ls_nambuf,y
+	ldy #$ff
+	sta $14
+	sta $14+1
+
+; --------------------------------------- 
+
+getword	iny		; convert to digits
+	lda (ls_vekta8),y
+	cmp #32
+	beq getword
+	cmp #$3a
+	bcs gw0
+	sec
+	sbc #$30
+	sec
+	sbc #$d0
+	bcs gw0
+	sbc #$2f
+	sta $07
+	lda $14+1
+	sta ls_temp
+	cmp #$19
+	bcs gw0
+	lda $14
+	asl
+	rol ls_temp
+	asl
+	rol ls_temp
+	adc $14
+	sta $14
+	lda ls_temp
+	adc $14+1
+	sta $14+1
+	asl $14
+	rol $14+1
+	lda $14
+	adc $07
+	sta $14
+	bcc getword
+	inc $14+1
+	bne getword
+
+gw0	lda inmerk	; Limit check: Zeile+Höhe, Spalte+Breite
+	tax
+	eor #3
+	tay
+	txa
+	beq gw1		; Zeile? (y=3 for Hoehe)
+	cpx #1		; Spalte? (y=2 for Breite)
+	beq gw1
+
+	lda $14		; Breite/Hoehe: get value
+	beq gw2		; when zero: no change
+	bne gw4
+
+gw1	lda lclpzl,y	; get associated value
+gw3	clc		; add input value
+	adc $14
+	sta $14+1	; save
+	sec
+	lda max-2,y	; compare to Maximum 
+	sbc $14+1
+	bcc gw2		; ok?
+	lda $14		; yes, set new value
+	sta lclpzl,x
+
+gw2	lda #0		; finish
+	sta sc_iflag
+	jsr setdata
+	lda #<(topgad)
+	sta sc_screentab
+	lda #>(topgad)
+	jmp adj3
+
+gw4	lda lclpzl,y	; Breite: y=1 / Höhe: y=0
+	pha
+	tya		; turn value again
+	eor #3
+	tay
+	pla
+	jmp gw3		; and countercheck
+
+; --------------------------------------- Set direction
+
+evdir	ldx dirflag	; 0: right / 1: left
+	beq ed0
+	ldx #$ff
+ed0	inx
+	stx dirflag
+	bne ed1
+	ldy #1
+	!by $2c
+ed1	ldy #3
+	ldx #1
+ed2	lda direction,y
+	sta dirtxt,x
+	dey
+	dex
+	bpl ed2
+	jsr gettab
+ed3	ldy #6
+	jmp gd_xtxout1
+
+; ----------------------------------------- Erase 4Bit 
+
+evempty	lda emptyflag
+	beq em0
+	ldx #$ff
+em0	inx
+	stx emptyflag
+	bne em1
+	ldy #2
+	!by $2c
+em1	ldy #5
+	ldx #2
+em2	lda yesno,y
+	sta emptytxt,x
+	dey
+	dex
+	bpl em2
+	lda #<(emptygad)
+	sta sc_screentab
+	lda #>(emptygad)
+adj3	jsr gettab2
+	ldy #6
+	jmp gd_xtxout1
+
+; ----------------------------------------- disable Warnscreen 
+
+warn	ldx warnflag
+	beq ew0
+	ldx #$ff
+ew0	inx
+	stx warnflag
+	rts
+
+; ----------------------------------------- Hilite off
+
+lolite	ldx #3
+lolite2	ldy #3
+scr1	lda carea,x
+	sta sc_zl,y
+	dex
+	dey
+	bpl scr1
+	ldx #2
+	jmp gd_fcol
+
+; ----------------------------------------- Output Text
+
+gettab	lda #<(dirgad)
+	sta sc_screentab
+	lda #>(dirgad)
+gettab2	sta sc_screentab+1
+	lda #0
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #3
+	bne gt0
+	stx sc_ho
+	jsr gd_trim
+	jmp gd_initmove
+
+; --------------------------------------- Set data values
+
+setdata	lda lclpzl+1	; and column (x)
+	jsr gd_xcnvdez
+	sta toptxt+1
+	cpx #$30
+	bne sd1
+ 	ldx #32
+sd1	stx toptxt
+	rts
+
+; --------------------------------------- Init REU values
+
+setreu	jsr initreu
+	ldx #1		; read/write 1 byte
+	stx rm_werte+5
+	lda #gbyte	; set source address
+	sta rm_werte
+	lda ls_ramdrive	; compute Temp address
+	and #15
+	tax
+	lda reubanks,x	; bank of Temp
+	sta rm_werte+4
+	lda #$83		; offset ($8300)
+	sta rm_werte+3	; (= buf+1)
+	rts
+
+; ---------------------------------------- Init rm_werte
+
+initreu	ldx #6
+	lda #0		; RM_WERTE: 
+sl0	sta rm_werte,x	; gbyte, $00, $00, $83, 7, 1, 0
+	dex
+	bpl sl0
+	rts
+
+; ---------------------------------------- Start address of Clip
+
+setstart	lda #$40		; 4Bit from $4000
+	sta sc_texttab+1
+	ldy #0
+	sty sc_texttab
+scp1	lda lclpzl+1	; plus column * 32
+	beq scp5
+	sta clpsp
+scp6	clc
+	lda sc_texttab
+	adc #$20
+	sta sc_texttab
+	bcc scp7
+	inc sc_texttab+1
+scp7	dec clpsp
+	bne scp6
+scp5	rts
+
+; ---------------------------------------- compute width of 4bit Clip
+
+compclip	sty ls_vekta8+1	; Hibyte to zero
+	clc		; Lobyte times 32
+	lda #25
+mal32	sta ls_vekta8
+	asl ls_vekta8
+	rol ls_vekta8+1
+	asl ls_vekta8
+	rol ls_vekta8+1
+	asl ls_vekta8
+	rol ls_vekta8+1
+	asl ls_vekta8
+	rol ls_vekta8+1
+	asl ls_vekta8
+	rol ls_vekta8+1
+	rts
+
+; ---------------------------------------- compute width of clip
+
+setbr	sty ls_vekta8+1	; Hibyte to zero
+	clc		; Lobyte times 8
+	lda #25
+mal8	sta ls_vekta8
+	asl ls_vekta8
+	rol ls_vekta8+1
+	asl ls_vekta8
+	rol ls_vekta8+1
+	asl ls_vekta8
+	rol ls_vekta8+1
+	rts
+
+; --------------------------------------- create Lookup Table for mirroring
+
+lookup	ldx #0
+	txa
+lu1	sta lutable,x
+	inx
+	bne lu1
+lu0	txa
+	lsr
+	ror lutable,x
+	lsr
+	ror lutable,x
+	lsr
+	ror lutable,x
+	lsr
+	ror lutable,x
+	ora lutable,x
+	sta lutable,x
+ 	inx
+	bne lu0
+	rts
+
+; --------------------------------------- buffer data in REU
+
+tobuf	ldy #0
+	sty lire
+	sty nibble
+	sty gbyte
+	ldx #4
+	stx tilecnt
+	
+tr01	lda #0
+	jsr writereu	; erase Buffer ($8300-$d2ff)
+	jsr incbuf
+	lda buf
+	and #1
+	bne tr010
+	dec adcnt		; display activity counter
+	bne tr010
+	lda #255
+	sta adcnt		; reset counter if down
+	inc $d005		; then advance bar
+	inc $d005+2
+tr010	lda buf+1
+	cmp #$d3		; 20000 bytes (plus)
+	bne tr01
+	lda #$83		; Buffer to $8300 again
+	sta buf+1
+	lda sc_texttab	; save Start address 
+	sta dst
+	lda sc_texttab+1
+	sta dst+1
+	jsr adl1
+
+tr4	lda hoehe		; counter for vertical tiles
+	sta hcnt
+
+tr3	ldx #8		; counter for 1 tile
+	bit lire
+	bmi tr02
+	jsr first		; left Pixels
+	beq tr03
+tr02	jsr second	; right Pixels
+
+tr03	clc		; point to next below
+	lda sc_texttab
+	adc #$e0
+	sta sc_texttab
+	lda sc_texttab+1
+	adc #4
+	sta sc_texttab+1
+	dec hcnt		; reached height?
+	bne tr3
+
+tr05	lda lire		; yes, choose right nibble
+	eor #$80
+	sta lire
+	bmi tr6
+
+	inc dst		; when left: new Start address
+	bne tr5
+	inc dst+1
+
+tr5	dec tilecnt	; counter for horizontal tiles
+	bne tr6
+	ldx #4
+	stx tilecnt
+	clc		; down, next tile
+	lda dst
+	adc #28
+	sta dst
+	bne tr6
+	inc dst+1
+
+tr6	dec adcnt		; display activity 
+	bne tr60
+	lda #5
+	sta adcnt		; reset counter if down
+	inc $d005		; then advance bar
+	inc $d005+2
+
+tr60	lda dst		; set Start address
+	sta sc_texttab
+	lda dst+1
+	sta sc_texttab+1
+	jsr cou6		; count width
+	bne tr4		; finished?
+	rts 		; yes
+
+; --------------------------------------- Inc Buffer pointer
+
+incbuf	inc buf
+	bne ib0
+	inc buf+1
+ib0	rts
+
+; --------------------------------------- Write to REU
+
+writereu	sta gbyte
+	sty merky
+	stx merkx
+	lda #$90		; stash
+	jsr gd_reu
+	ldy merky
+	ldx merkx
+	rts
+
+; --------------------------------------- Read from REU
+
+readreu	sty merky
+	stx merkx
+	lda #$91		; fetch
+	jsr gd_reu
+	ldy merky
+	ldx merkx
+	lda gbyte
+	rts
+
+; --------------------------------------- Dec Destination
+
+decdst	lda dst
+	bne dd0
+	dec dst+1
+dd0	dec dst
+	rts
+
+; --------------------------------------- get first column
+
+first	lda (sc_texttab),y
+	and #$f0		; left
+	bit nibble
+	bpl tr11
+	lsr
+	lsr
+	lsr
+	lsr
+tr11	pha
+	jsr readreu
+	pla
+	ora gbyte		; write to Buffer 
+	jsr writereu
+	clc		; point to next pixel below
+	lda sc_texttab
+	adc #4
+	sta sc_texttab
+	bcc tr2
+	inc sc_texttab+1
+tr2	lda nibble	; target byte finished?
+	eor #$80
+	sta nibble
+	bne tr22
+	sta gbyte
+	jsr incbuf	; yes, continue counting
+tr22	dex		; 1 tile finished?
+	bne first
+	rts
+
+; --------------------------------------- get second column
+
+second	lda (sc_texttab),y
+	and #$0f		; right
+	bit nibble
+	bmi tr110
+	asl
+	asl
+	asl
+	asl
+tr110	pha
+	jsr readreu
+	pla
+	ora gbyte		; write to Buffer 
+	jsr writereu
+	clc		; point to Pixel below
+	lda sc_texttab
+	adc #4
+	sta sc_texttab
+	bcc tr200
+	inc sc_texttab+1
+tr200	lda nibble	; target byte finished?
+	eor #$80
+	sta nibble
+	bne tr220
+	sta gbyte
+	jsr incbuf	; yes, continue counting
+tr220	dex		; 1 tile finished?
+	bne second
+	rts
+
+; --------------------------------------- Back to 4Bit left
+
+backl24	lda #$40		; Start 4Bit at $4000
+	sta sc_texttab+1
+	sta dst+1
+	lda #$83		; Start Buffer at $8304
+	sta buf+1
+	lda #4
+	sta buf
+	ldy #0
+	sty sc_texttab
+	sty dst
+
+	clc		; width*height*32+BUF: BUF end
+	tya
+	sta ls_vekta8+1
+	ldy hoehe
+bc6	adc breite
+	bcc bc60
+	clc
+	inc ls_vekta8+1
+bc60	dey
+	bne bc6
+	sta ls_vekta8
+	jsr mal32
+	clc
+	lda buf
+	adc ls_vekta8
+	sta buf
+	lda buf+1
+	adc ls_vekta8+1
+	sta buf+1
+
+	sty ls_vekta8+1	; height*32+DST: target right border
+	ldx hoehe
+	dex
+	txa
+	jsr mal32
+	clc
+	lda sc_texttab
+	adc ls_vekta8
+	sta sc_texttab
+	sta dst
+	lda sc_texttab+1
+	adc ls_vekta8+1
+	sta sc_texttab+1
+	sta dst+1
+
+bc4	lda hoehe		; height is now width
+	sta hcnt
+	sty ls_vekta8+1
+	jsr mal8		; width times 8 as counter
+
+bc3	ldx ls_vekta8	; move one tile line
+bc1	ldy #0
+	sec		; source minus 8
+	lda buf
+	sbc #8
+	sta buf
+	bcs bc0
+	dec buf+1
+bc0	jsr readreu	; move 4 Bytes 
+	jsr incbuf
+	sta (dst),y
+	iny
+	cpy #4
+	bne bc0
+
+	dec hcnt		; at left border?
+	bne bc01
+	lda hoehe		; yes, start over right hand
+	sta hcnt
+	clc		; target plus 4
+	lda sc_texttab
+	adc #4
+	sta dst
+	sta sc_texttab
+	lda sc_texttab+1
+	adc #0
+	sta dst+1
+	sta sc_texttab+1
+	bne bc5
+
+bc01	sec		; no, move left
+	lda dst
+	sbc #32
+	sta dst
+	bcs bc5
+	dec dst+1
+
+bc5	dec adcnt		; display activity 
+	bne s6
+	lda #201		; reset counter if down
+	sta adcnt
+	inc $d005		; then advance bar
+	inc $d005+2
+
+s6	dex		; 32 Bytes per tile
+	bne bc1
+
+	clc		; next line then
+	lda sc_texttab
+	adc #$e0
+	sta sc_texttab
+	sta dst
+	lda sc_texttab+1
+	adc #4
+	sta dst+1
+	sta sc_texttab+1
+
+	dec breite	; as many times as height
+	bne bc3
+	rts
+
+; --------------------------------------- Back to 4Bit right
+
+backr24	lda #$40		; Start 4Bit $4000
+	sta sc_texttab+1
+	sta dst+1
+	lda #$83		; Start Buffer $8300
+	sta buf+1
+	ldy #0
+	sty sc_texttab
+	sty buf
+	sty dst
+
+	sty ls_vekta8+1	; (height-1)*32+DST+3: target right border
+	ldx hoehe
+	dex
+	txa
+	jsr mal32
+	clc
+	lda ls_vekta8
+	adc #3
+	sta ls_vekta8
+	bcc rc40
+	inc ls_vekta8+1 
+rc40	clc
+	lda sc_texttab
+	adc ls_vekta8
+	sta sc_texttab
+	sta dst
+	lda sc_texttab+1
+	adc ls_vekta8+1
+	sta sc_texttab+1
+	sta dst+1
+
+rc4	lda hoehe		; height is now width
+	sta hcnt
+	sty ls_vekta8+1
+	jsr mal8		; width times 8 as counter
+
+rc3	ldx ls_vekta8	; move one tile line
+	stx cntbr
+
+rc1	ldx #4
+	stx cntx
+rc0	jsr readreu	; move 4 Bytes 
+	tax
+	lda lutable,x
+	sta (dst),y
+	jsr incbuf
+	jsr decdst
+	dec cntx
+	bne rc0
+
+	dec hcnt		; at left border?
+	bne rc01
+	lda hoehe		; yes, start over right hand
+	sta hcnt
+	clc		; target plus 4
+	lda sc_texttab
+	adc #4
+	sta dst
+	sta sc_texttab
+	lda sc_texttab+1
+	adc #0
+	sta dst+1
+	sta sc_texttab+1
+	bne rc5
+
+rc01	sec		; no, move left
+	lda dst
+	sbc #28
+	sta dst
+	bcs rc5
+	dec dst+1
+
+rc5	dec adcnt		; display activity counter
+	bne s7
+	lda #201		; reset counter if down
+	sta adcnt
+	inc $d005		; then advance bar
+	inc $d005+2
+
+s7	dec cntbr		; 32 Bytes per tile
+	bne rc1
+
+	clc		; next line then
+	lda sc_texttab
+	adc #$e0
+	sta sc_texttab
+	sta dst
+	lda sc_texttab+1
+	adc #4
+	sta dst+1
+	sta sc_texttab+1
+
+	dec breite	; as many times as height
+	bne rc3
+	rts
+
+; --------------------------------------- Display Graphics Screen
+
+; ------------------------------------------------ Check Color Rams
+; ### 1.01 ab hier ---
+
+checkcols	sei 		; GoDot off
+	ldx #$00
+	stx pport
+
+	ldy #$03		; set lobyte of...
+	sty slot
+
+	lda #$f0		; ...Slot4, check for types of module there
+	sta slot+1	; (may be cram when input is active)
+	jsr sethicol	; (otherwise unchanged)
+
+	lda #$c0		; ...Slot1 and check
+	sta slot+1
+	jsr sethicol
+
+	lda #$d0		; ...Slot2 and check
+	sta slot+1
+	jsr sethicol
+
+	lda #$e0		; ...Slot3 and check
+	sta slot+1
+	jsr sethicol
+
+	lda #$36		; GoDot on again
+	sta pport
+	cli 
+	rts 
+
+; ------------------------------------------------ 
+
+sethicol	lda (slot,x)	; get type of module (at $c003): $20, $40, $80
+	tay 
+	and #$40		; is saver there? (contains vram1)
+	beq +		; no, next type
+
+	jsr c147		; yes, set color buffer 
+	sta v1buf
+	bne ++
+
++	tya 		; loader? ($80, contains cram)
+	bpl +		; no, next type
+
+	jsr c147		; yes, set accordingly
+	sta cbuf
+	bne ++
+
++	jsr c147		; so, it's a modifier (contains vram2)
+	sta v2buf
+
+++	rts 
+
+c147 	lda slot+1	; get hibyte...
+	ora #$0e		; ...and OR %00001110 to it (ie $ce)
+	rts 		; thus: get correct hi address of color buffers
+
+; ### 1.01 bis hier ---
+; ------------------------------------------------ 
+
+redis	jsr setcolors
+	lda gr_cmode
+	beq rp4
+	lda #$18
+	sta $d016
+rp4	lda #$1b
+	sta $d018
+	lda #$3b
+	sta $d011
+	lda gr_redisp
+	bne rp3
+rp1	lda sc_keyprs
+	ora sc_stop
+	beq rp1
+
+rp2	jsr getcolors
+	jsr tmode
+rp5	lda sc_maincolor
+	sta $d021
+	ldx mainlst
+	ldy mainlst+1
+	jsr gd_screen
+	ldx turnlstbk
+	ldy turnlstbk+1
+	jsr gd_screen
+	jsr lolite
+	ldx #11
+	jsr lolite2
+rp3	clc
+	rts
+
+tmode	ldx #$13
+	lda #$1b
+	stx $d018
+	sta $d011
+	lda #$08
+	sta $d016
+	rts
+
+; ------------------------------------------
+
+setcveks:	sei
+	lda #$35
+	sta pport
+	lda cbuf 		; color ram ### 1.01 
+	ldx #$d8
+	bne scv0
+	
+; ------------------------------------------ 
+
+setbveks	lda v1buf 	; vram1 ### 1.01 
+	ldx #4
+	dec pport
+scv0:	stx $b3
+	ldy #0
+	sty sc_merk
+	sty $b2
+	dey
+
+; ------------------------------------------ 
+
+setlast:	sty gr_bkcol
+	ldy #<(cstart)
+	sty $20
+	sta $21
+	lda #<(500)
+	sta $a8
+	lda #>(500)
+	sta $a9
+	ldy #0
+	rts
+
+; ------------------------------------------ 
+
+count:	inc $20
+	bne cou5
+	inc $21
+cou5:	inc $b2
+	bne cou6
+	inc $b3
+cou6:	lda $a8
+	bne cou7
+	dec $a9
+cou7:	dec $a8
+	lda $a8
+	ora $a9
+	rts
+
+; ------------------------------------------ 
+
+getcolors:
+	jsr setcveks
+stco:	lda ($b2),y
+	sta sc_merk
+	inc $b2
+	bne stc0
+	inc $b3
+stc0:	lda ($b2),y
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	lda sc_merk
+	sta ($20),y
+	jsr count
+	bne stco
+	jsr setbveks
+stc1:	lda ($b2),y
+	sta ($20),y
+	jsr count
+	bne stc1
+	ldy gr_bkcol
+	bpl scv1
+	ldy #0
+	lda v2buf 	; vram2 ### 1.01 
+	jsr setlast
+	beq stc1
+scv1:	lda #$36
+	sta pport
+	cli
+	lda $d021
+	and #15
+	sta gr_bkcol
+	rts
+
+; ------------------------------------------ 
+
+setcolors:
+	lda gr_bkcol
+	sta $d021
+	pha
+	jsr setcveks
+stc2:	sty sc_merk
+	lda ($20),y
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	sta ($b2),y
+	inc $b2
+	bne stc3
+	inc $b3
+stc3:	lda sc_merk
+	sta ($b2),y
+	jsr count
+	bne stc2
+	jsr setbveks
+stc4:	lda ($20),y
+	sta ($b2),y
+	jsr count
+	bne stc4
+	ldy gr_bkcol
+	bpl scv1
+	pla
+	tay
+	lda v2buf 	; vram2 ### 1.01 
+	jsr setlast
+	beq stc4
+
+; ------------------------------------------ 
+
+redisplay:
+	lda gr_redisp	; save auto render
+	pha
+	ldx #1		; fake it
+	stx gr_redisp
+	dex
+	stx sc_stop	; init STOP key
+	jsr redis		; redisplay
+	pla
+	sta gr_redisp	; auto render back
+	rts
+
+; --------------------------------------- Show Clip
+
+showclip	lda sc_screenvek
+	pha
+	lda sc_screenvek+1
+	pha
+	ldx #0		; empty keyboard buffer 
+	stx sy_tbuffer
+	jsr redisplay	; Graphics on
+	lda #0		; set Clip data
+	sta sc_zl
+	lda lclpzl+1
+	sta sc_sp
+	lda #0		; Blinkflag off
+	sta toggle
+sh0	jsr invertcl	; invert area
+	ldx #250	; wait
+	jsr gd_dl2
+	lda toggle	; toggle Blinkflag 
+	eor #1
+	sta toggle
+	lda $dc00		; Joystick?
+	and #16
+	beq sh1		; yes, finish
+	lda sy_tbuffer	; key?
+	beq sh0		; no, continue
+
+sh1	lda toggle	; Blink Phase is ON?
+	and #1
+	beq sh0		; no, wait
+	jsr invertcl	; then OFF
+	jsr rp2		; restore Screen 
+	pla
+	tay
+	sta sc_screenvek+1
+	pla
+	tax
+	sta sc_screenvek
+	jsr gd_screen
+	jsr lolite
+	ldx #11
+	jsr lolite2
+	clc
+	rts
+
+; --------------------------------------- invert Clip 
+
+invertcl	ldx #0		; Screenflag to Text mode
+	stx sc_loop
+	jsr gd_initmove	; compute Address
+inv0	ldy #0		; reached Clip width?
+inv1	cpy #25
+	beq inv2	; yes
+	lda sc_vekt20+1	; otherwise: invert
+	pha
+	lda (sc_vekt20),y
+	eor #$ff
+	sta (sc_vekt20),y
+	lda sc_vekt20+1	; Colorram too
+	clc
+	adc #$d4
+	sta sc_vekt20+1
+	lda (sc_vekt20),y
+	eor #$ff
+	sta (sc_vekt20),y
+	pla
+	sta sc_vekt20+1
+	iny
+	bne inv1
+inv2	inx		; reached Clip height?
+	cpx #25
+	beq inv3	; yes
+	jsr gd_plus40	; no, next line
+	bne inv0
+inv3	rts
+
+; ----------------------------------------------------- 
+
+noreu 	ldx #<(warnreulst)
+	ldy #>(warnreulst)
+	jmp gd_xmloop
+
+; --------------------------------------- Variables
+
+exflag	!by 0
+dirflag	!by 1
+adjflag	!by 0
+warnflag	!by 0
+emptyflag	!by 0
+direction	!by 94,94,91,91
+ziff	!pet " 0123456789"
+max 	!by 40,25
+inmerk	!by 0
+yesno	!scr "yes no"
+height	!scr "Height"
+oldexgad	!by 15,10,6,3,$c7
+	!wo evexec
+	!scr "Exec@"
+mainlst	!wo 0
+turnlstbk	!wo turnlst
+lclpzl 	!by 0,0,25,25
+clpzl	!by 0
+clpsp	!by 0
+lire 	!by 0
+nibble	!by 0
+carea	!by 12,11,12,3,10,15,7,1,10,11,12,1
+reubanks	!by 0,0,0,0,3,7,0,0,1,0
+
+; --------------------------------------- Screenlist Warning
+
+warnlst	!by 0
+	!by 4,10,18,15,$91,0,0
+	!scr "TurnScreen@"
+
+	!by 16,10,8,3,$c7
+	!wo evanyway
+	!scr "Anyway@"
+
+	!by 16,18,10,3,$cd
+	!wo wn0
+	!scr "No,leave@"
+
+	!by $c0,6,11,14
+	!scr "Executing this@"
+	!by $c0,7,12,11
+	!scr "module will@"
+	!by $c0,9,14,7
+	!scr "destroy@"
+	!by $c0,11,10,16
+	!scr "your image data!@"
+	!by $c0,13,14,8
+	!scr "Proceed?@"
+	!by $80
+
+; --------------------------------------- Screenlist Warn REU
+
+warnreulst
+	!by 0
+	!by 8,9,21,9,$81,0,0
+	!scr "MESSAGE@"
+	!by 14,23,7,3,$cd,<(wn0),>(wn0)
+	!scr "Leave@"
+	!by $c0,10,10,16
+	!scr "No REU detected.@"
+	!by $c0,12,9,19
+	!scr "MOD won't operate.@"
+	!by $80
+
+; --------------------------------------- Screenlist TurnScreen
+
+turnlst	!by 0
+	!by 7,10,18,11,$91,0,0
+	!scr "TurnScreen@"
+
+topgad	!by 9,24,4,3,$cf
+	!wo evinpsp
+toptxt	!scr " 0@"
+
+dirgad	!by 11,24,4,3,$ce
+	!wo evdir
+dirtxt	!by 91,91,0
+
+emptygad	!by 13,23,5,3,$ce
+	!wo evempty
+emptytxt	!scr "yes@"
+
+execgad	!by 15,10,6,3,$c7
+	!wo evexec
+	!scr "Exec@"
+
+showgad	!by 15,16,6,3,$cc
+	!wo showclip
+	!scr "Show"
+
+sublst	!by 0
+	!by 15,22,6,3,$ce
+	!wo wn0
+	!scr "Exit@"
+
+	!by $c0,9,11,11
+	!scr "From Column@"
+	!by $c0,11,11,7
+	!scr "Turn to@"
+	!by $c0,13,11,10
+	!scr "Empty 4Bit@"
+
+	!by $80
+
+modend 	!eof
