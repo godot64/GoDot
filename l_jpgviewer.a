@@ -1,0 +1,969 @@
+
+	!src "..\godotlib.lib"
+	*= $c000
+
+; ------------------------------------------------------------ 
+;
+; ldr.JPGViewer
+; Loader to show JPG images on a C64,
+; incorporating the famous JPZ viewer by Steve Judd and Adrian Gonzales
+; REU *desperately* needed
+;
+;   0.94, 25.09.03: first release
+;   0.95, 91.11.03: 
+;   1.00, 04.08.04: IFLI review added
+;   1.01, 05.08.04: bugfix (bad output after STOP)
+;
+; ------------------------------------------------------------ 
+
+
+; --------------------------------------- Equates
+
+	wordlo		= $07
+	int		= $14
+	status		= $90
+	jfallback		= sy_numbers+36	; $0124
+	jpzdialog		= $124e
+	into		= $1417
+	swap4096		= $1714
+	ibuff		= sy_global
+	stdirq		= $ea31
+	patchlen		= patch5-patch2
+
+; --------------------------------------- Header
+
+header	jmp start
+	!by $80
+	!by 4			; 4 = own requester
+	!by 1			; dirty
+	!wo  modend
+	!wo  0
+	!pet "JPG as IFLI view"
+	!pet "1.01"
+	!pet "05.08.04"
+	!pet "Judd/Gonzales/AD"
+
+; --------------------------------------- File Selection
+
+evselect	
+	lda ls_ramdrive
+	and #15
+	cmp #9
+	beq noreu
+	cmp #7
+	beq noreu
+	cmp #4
+	bcc noreu
+
+	lda #0		; set REU record
+	sta moduse+3
+	sta moduse+4
+	lda #3
+	sta moduse+2
+	lda gd_modswitch
+	sta storems
+	ldx #1		; Filerequester
+	jsr gd_xload
+	
+	ldx #1		; determine whether "Cancel" was clicked
+	lda sc_merk	; row of click
+	cmp #17		; is where the Cancel button is?
+	bne es1
+	dex		; yes, flag to 0
+es1	lda sc_merk+1	; column of click
+	cmp #25		; greater than 25?
+	bcs es0
+	inx		; yes, flag remains 0
+es0	stx used		; flag may be 0 (Cancel), 1, or 2
+
+	lda storems
+	sta gd_modswitch
+	bne evexit
+
+noreu	
+	ldx #<noreulst	; no REU attached, ERROR:
+	ldy #>noreulst
+	bne st0
+toolow	
+	ldx #<toolowlst
+	ldy #>toolowlst
+	bne st0
+nojpz	
+	ldx #<nojpzlst
+	ldy #>nojpzlst
+
+st0	jsr gd_screen
+	lda #11
+	sta sc_chgcol
+	ldx #0
+st1	lda grayink1,x
+	sta sc_zl,x
+	inx
+	cpx #4
+	bne st1
+	jsr gd_fcol
+	jsr gd_spron
+	jsr gd_eloop	; wait for clicks
+	jsr cancel
+
+; --------------------------------------- Event: Exit
+
+evexit	
+	jsr gd_spron
+	sec
+	rts
+	
+cancel	
+	lda #$ff
+	sta used
+	sec
+	rts
+	
+; --------------------------------------- Distribution
+
+requ	
+	inc used		; flag to 0
+	ldx #<viewerlst	; leads to evselect, evviewjpg and evexit
+	ldy #>viewerlst
+	jsr gd_screen
+	jsr gd_eloop
+
+; --------------------------------------- JPG Viewer Main
+
+start	
+	ldx used
+	bmi requ		; if flag negative: first start
+	beq cancel	; if equal: no file selected
+
+; --------------------------------------- 1.) Input Image Offsets
+
+evindents	
+	lda ls_drive	; save image drive
+	sta drive
+	ldx #0		; save image name
+con0	lda ls_nambuf,x
+	sta imgname,x
+	inx
+	cpx ls_flen
+	bne con0
+	lda ls_flen	; save length of filename
+	sta flen
+	lda #3
+	sta ls_flen	; ###---v1.01
+	lda #0
+	sta used		; (used = 0)
+	sta indents
+	sta indents+1
+
+	jsr jpzl		; set jmp to $01b0
+	jsr reqindents	; requester
+	jsr gd_eloop
+con1	sec		; ### v1.00: label
+	rts
+
+; --------------------------------------- View IFLI again
+
+evviewjpg	
+	jsr checkjpz
+	tya
+	beq con1
+	jsr jpzv		; set jmp to $01b7
+	lda ls_drive
+	sta drive
+	lda #$93		; CLR/Home
+	jsr bsout
+	cpy #$4c		; JPZ installed?
+	beq jview		; yes, get it and view
+	
+instnow	
+	lda #$60		; no, patch RTS to label "view"
+	sta view
+	jsr savec64	; install jpz and init it
+	lda #$4c		; unpatch JMP to lable "view"
+	sta view
+	lda found		; successfully installed? ###------ v1.00
+	bne backpack	; yes, display
+	jmp jfallback	; switch back GoDot if not 
+
+setbpack	
+	ldx #13
+jv1	lda backpack,x
+	sta $01b0,x
+	dex
+	bpl jv1
+	rts		; ###----- v1.00
+
+backpack	
+	sta reucom	; $01b0		Patch 3
+	nop
+	jmp $1080
+	sta reucom	; $01b7
+	nop
+	jmp $10f7
+	
+jview	jmp getjpz
+jnoreu	jmp noreu
+jtoolow	jmp toolow
+
+; --------------------------------------- 2.) Save C64
+
+savec64	
+	jsr resetwerte
+
+	jsr reuinfo	; get byte 3 from REU (bank, in .y)
+	jsr resetwerte
+
+	jsr setbpack	; ###----- v1.00
+
+	lda ls_ramdrive	; which RAM?
+	and #15
+	ldx #6
+	cmp #8		; 1700
+	beq jtoolow	; too small
+	cmp #4		; 1764
+	bne st2
+	cpy #2		; MODs in bank 2?
+	bcs jtoolow	; too small
+	ldx #2
+	bne st7
+st2	cmp #5		; 1750
+	bne jnoreu
+	cpy #6		; MODs in bank 6?
+	bcs jtoolow	; too small
+st7	stx bank
+	stx bank2
+	stx basic+2
+	stx getname+4
+
+	lda #$93		; CLR/Home
+	jsr bsout
+	jsr checkjpz
+	cpy #$4c		; JMP? yes, jpz is installed
+	beq jview
+	jsr dosave	; save the machine to REU
+	
+; --------------------------------------- 3.) Install JPZ Viewer
+
+continue	
+	jsr gd_sproff
+
+	ldx #0		; search for JPZ on disk 8-11
+	stx storex
+skip1	lda ls_units,x
+	and #15
+	beq skip0
+	sta found
+	tax		; OPEN 2,dr,2,"jpz*" for input
+	lda #2
+	tay
+	jsr filpar
+	lda #4
+	ldx #<jpzname
+	ldy #>jpzname
+	jsr filnam
+	jsr copen
+	ldx #2
+	jsr chkin
+	jsr basin		; get one byte to check
+	lda status
+	beq instjpz	; drive in FOUND if found
+	jsr closefile
+	
+skip0	inc storex	; 0 if not found
+	ldx storex
+	cpx #4
+	bne skip1
+	lda #0
+	sta found
+
+instjpz	
+	lda found
+	bne loadfile
+	jsr closefile	; message
+	jmp nojpz
+	
+loadfile	
+	ldx #0		; all black
+	stx $d020
+	stx $d021
+	jsr basin
+	lda #0
+	sta status
+
+	lda #$93		; CLR/Home
+	jsr bsout
+	sei
+	inc 1
+	lda #<stdirq
+	ldx #>stdirq
+	sta $0314
+	stx $0315
+	cli
+	lda #1
+	sta prog+1
+	lda #8
+	sta prog+2
+	
+writejpz	
+	jsr basin		; write JPZ to BASIC
+prog	sta $0801		; (prog: self modifying)
+	lda status
+	bne eof
+	inc prog+1
+	bne writejpz
+	inc prog+2
+	bne writejpz
+
+eof	lda #2
+	jsr close
+	jsr clrch		; ### v1.00
+	
+; --------------------------------------- 4.) View JPG
+
+viewjpg	
+	lda #$60		; RTS to start of viewer
+	sta $08f0
+	jsr $080d		; init viewer, then
+
+	ldx #0		; patch it, part 1
+pt0	lda patch1,x
+pt4	sta jpzdialog,x	; $124e, 76 bytes
+	inx
+	cpx #77
+	bne pt0
+	
+pt2	clc		; part 2
+	txa		; compute start address
+	adc pt4+1
+	sta pt5+1
+	ldx pt4+2
+	bcc pt6
+	inx 
+pt6	stx pt5+2
+	ldx #0		; patch it
+pt3	lda patch2,x
+pt5	sta jpzdialog,x
+	sta sy_numbers,x
+	inx
+	cpx #patchlen
+	bne pt3
+
+	ldx #78		; patch 3
+pt7	lda patch3,x
+	sta $1070,x
+	dex
+	bpl pt7
+	lda #$19
+	sta $1059
+
+	ldx #40		; patch 4
+pt70	lda patch4,x
+	sta $1388,x
+	dex
+	bpl pt70
+	lda #$60
+	sta $2884
+	lda #$40		; patch $ffd2 to RTS
+	sta $10e3
+	sta $13f4
+	sta $13fe
+
+	ldx #65		; patch 5
+pt71	lda patch5,x
+	sta $10f7,x
+	dex
+	bpl pt71
+
+	lda #$4c		; set "JMP jfallback" ($0124)
+	sta $10e9
+	lda #<jfallback
+	sta $10ea
+	lda #>jfallback
+	sta $10eb
+	lda #$76
+	sta $10c6		; force $36 for $01
+
+view	jmp $1000		; finally start viewer
+	
+; --------------------------------------- Patch Area 1 ($124e) is 230 bytes wide
+
+patch1	lda indents	; write image indents to viewer
+	sta $164e
+	lda indents+1
+	sta $164d
+	ldy #0		; write image name to viewer
+pt1	lda imgname,y
+	sta ls_nambuf,y
+	iny
+	cpy flen
+	bne pt1
+	lda #$2c		; add ",r"
+	sta ls_nambuf,y
+	iny
+	lda #$52
+	sta ls_nambuf,y
+	TYA		; open 2,drive,2,"image,r"
+	LDX #$00
+	LDY #$02
+	jsr filnam
+	lda #2
+	tay
+	ldx drive
+	jsr filpar
+	jsr copen
+	bcs jerr		; error?
+	lda status
+	bne jerr
+	ldx #2
+	jsr chkin
+	bcc noerr
+jerr	jsr $132c		; yes, close file
+	sec
+noerr	rts		; (76 bytes)
+
+; --------------------------------------- Fallback to GoDot (at $0100)
+
+patch2	!by 0,0,0,0	; to C64 $0000, from REU $0000
+bank2	!by 6		; in bank x (default = bank 6)
+	!by 0,$d0		; up to $d000 
+			; [7]
+swap64	ldx #$90		; to $9000 in C64
+	stx sy_numbers+1
+	jmp swap4096	; [8]
+
+slots	!by $d0,$e0,$f0
+	!by 0		; [4]
+
+swapreu	ldx #6
+fb0	lda sy_numbers,x
+	sta reubase+2,x
+	dex
+	bpl fb0
+fb2	lda #$92		; (fb2: self modifying)
+	sta reucom
+	rts		; [17]
+
+fallback	
+	sei		; jump in here ($0124)
+	ldx #$fe		; init stack
+	txs
+	lda #18		; activate character set
+	sta $d018
+	lda #$d0
+	sta sy_numbers+6
+
+	lda #$60		; RTS
+	sta sy_numbers+30
+	jsr sy_numbers+19	; swap $0000 - $cfff
+	lda #$a9		; LDA
+	sta sy_numbers+30
+	lda #$92
+	sta reucom
+
+	lda #$10		; swap 4k-wise
+	sta sy_numbers+6	; [18]
+
+	lda #$ea		; patch gd_swap4k (NOP)
+	sta $1740
+	ldx #2
+	stx sy_numbers+18
+fb1	ldx sy_numbers+18	; swap slots 2 - 4
+	lda sy_numbers+15,x	; slots
+	sta sy_numbers+3
+	pha
+	jsr sy_numbers+7	; swap64
+	jsr sy_numbers+19	; swapreu
+	pla
+	jsr sy_numbers+7	; swap64
+	dec sy_numbers+18
+	bpl fb1
+	lda #$ff		; init next start of viewer
+	sta used
+	jsr resetwerte	; reset REU records
+
+	jsr gd_spron	; mouse pointer on
+	lda #$58		; unpatch gd_swap4k (CLI)
+	sta sy_numbers+127	; unpatch next command (CLI)
+	sta $1740
+	cli
+	lda sc_maincolor	; set screen color
+	sta $d020
+	sta $d021
+	lda #8		; fix lower case characters
+	jsr bsout
+	jmp into		; finally start GoDot
+			; [31; tot 137]
+
+patch5	lda #$60		; [at $10f7] RTS
+	sta $13ae
+	jsr $1389		; swap color mem
+	sei		; yes, graphics on
+	lda #$38
+	sta $d011
+	lda #8
+	sta $d018
+	lda #216
+	sta $d016
+	lda $dd00
+	and #$fc
+	ora #2
+	sta $dd00
+	jsr $27e9		; display IFLI
+	jsr $1389		; swap color mem back
+	lda #$4c		; JMP
+	sta $13ae
+	lda #$1b		; reset VIC
+	sta $d011
+	lda #8
+	sta $d016
+	lda $dd00
+	ora #3
+	sta $dd00
+	jmp jfallback	; switch back GoDot
+			; [66]
+
+; ---------------------------------------
+; --------------------------------------- Subroutines
+; ---------------------------------------
+
+stashc64	
+	sta command	; DMA command in .a:
+	ldx #6		; $90 = stash
+st4	lda allover,x	; $91 = fetch
+	sta rm_werte,x	; $92 = swap
+	dex
+	bpl st4
+	lda command
+st90	jmp gd_reu
+
+reuinfo	ldx #6
+st3	lda moduse,x
+	sta rm_werte,x
+	dex
+	bpl st3
+	lda #$91		; fetch 1 byte
+	jsr gd_reu
+	ldy sc_merk	; put to .y
+	rts
+
+checkjpz	
+	lda #0		; byte an $1000 in REU: $00 (leere REU),
+	sta moduse+2	;                       $4c (jpz da)
+	lda #$10		; 		    $7d (godot da)
+	sta moduse+3
+	lda bank
+	sta moduse+4
+	jsr reuinfo
+	lda #3
+	sta moduse+2
+	lda #0
+	sta moduse+3
+	sta moduse+4
+	rts
+	
+jpzl	lda #$01		; JMP to $01b0
+	ldx #$b0
+	bne gpz0
+jpzv	lda #$01		; JMP to $01b7 - (redisplay) ### v1.00
+	ldx #$b7
+gpz0	sta bpack+2
+	stx bpack+1
+	rts
+
+; --------------------------------------- Write C64 to REU
+
+dosave	ldx #0		; fallback routines to RAM
+pt30	lda patch2,x
+	sta sy_numbers,x
+	inx
+	cpx #patchlen
+	bne pt30
+
+	lda #$90
+	jsr stashc64	; half the Machine
+	ldx #2
+	stx storex
+	sei
+	lda #$ea		; NOP to SWAP4K
+	sta $1740
+	lda #$10		; stash 4K (from $9000)
+	sta allover+6
+
+st6	lda #$30		; rest of the machine
+	sta 1
+	lda ramreu,x
+	tax
+	stx allover+3
+	lda #$90		; swap slots 2,4,3 with $9000
+	sta allover+1
+	jsr swap4096
+	lda #$36
+	sta 1
+	lda #$90
+	jsr stashc64	; stash to REU
+	lda #$90		; swap back in C64
+	ldx allover+3
+	jsr swap4096
+	dec storex
+	ldx storex	; 3 x 4096 Bytes
+	bpl st6
+
+st8	lda storems
+	sta gd_modswitch
+	inc storex
+	jsr resetwerte
+	lda #$58		; write CLI back to SWAP4K
+	sta $1740
+	cli
+	rts
+
+; --------------------------------------- Write REU to C64
+
+getjpz	ldx #2
+	stx storex
+	sei
+	lda #$ea		; NOP to SWAP4K (statt CLI)
+	sta $1740
+	lda #$10		; stash 4K (from $9000)
+	sta allover+6
+
+st9	lda #$30
+	sta 1
+	lda ramreu,x
+	tax
+	stx allover+3
+	lda #$90		; swap slots 2,4,3 with $9000 (nicht slot 1)
+	sta allover+1
+	jsr swap4096
+	lda #$36
+	sta 1
+	lda #$92
+	jsr stashc64	; swap from REU
+	lda #$90		; swap back in C64
+	ldx allover+3
+	jsr swap4096
+	dec storex
+	ldx storex
+	bpl st9
+
+	jsr st8		; restore godot
+	jsr resetwerte
+	jsr gd_sproff
+	ldx #0		; restore fallback
+pt31	lda patch2,x
+	sta sy_numbers,x
+	inx
+	cpx #patchlen
+	bne pt31
+	
+	ldx #6		; swap the whole machine
+pt32	lda allover,x
+	sta reubase+2,x
+	dex
+	bpl pt32
+	inx
+	stx $d020
+	stx $d021
+	sei
+	lda #$92		; SWAP
+bpack	jmp $01b0		; continue there (at backpack)
+
+; --------------------------------------- Init REU access
+
+resetwerte	
+	ldx #0
+	txa
+st5	sta allover,x
+	sta patch2,x
+	sta rm_werte,x
+	inx
+	cpx #7
+	bne st5
+	lda basic+2	; actual bank
+	sta allover+4
+	sta patch2+4
+	lda #$c0		; care for a dev.REU bug
+	sta rm_werte+1
+	lda #$d0
+	sta allover+6
+	sta patch2+6
+	rts
+
+; --------------------------------------- Requester to input Indents
+
+reqindents	
+	ldx #<indentslst
+	ldy #>indentslst
+	jmp gd_screen
+
+; --------------------------------------- Close file
+
+closefile	
+	lda #2
+	jsr close
+	jsr clrch		; ### v1.00
+	jmp gd_xmess
+
+; --------------------------------------- Set parameters for Input 
+
+setinput
+	ldx #10		; input restricted to 11 valid chars
+	stx sc_iflag
+ar1	lda ziff,x	; which are 0..9 and Space
+	sta ibuff,x	; create table
+	dex
+	bpl ar1
+	lda #<(ibuff)	; set address for table of valid chars
+	sta ls_vekta8
+	lda #>(ibuff)
+	sta ls_vekta8+1
+	rts
+	
+; ------------------------------------------------ Event: Input
+
+evinpleft	
+	ldx #0		; left indent
+	!by $2c
+evinptop	
+	ldx #1		; top indent
+	stx inmerk	; store as type
+	jsr setinput
+	jsr gd_xinput	; perform input (part of saver)
+	lda #>(ls_nambuf)	; get result
+	sta ls_vekta8+1
+	lda #<(ls_nambuf)
+	sta ls_vekta8
+
+	ldy #3		; delimit result buffer (.a=0)
+	sta ls_nambuf,y
+	ldy #$ff		; init integer value
+	sta int
+	sta int+1
+getword	iny		; convert digits to integers
+	lda (ls_vekta8),y
+	cmp #32
+	beq getword
+	cmp #$3a
+	bcs gw0
+	sec
+	sbc #$30
+	sec
+	sbc #$d0
+	bcs gw0
+	sbc #$2f
+	sta wordlo
+	lda int+1
+	sta ls_temp
+	cmp #$19
+	bcs gw0
+	lda int
+	asl
+	rol ls_temp
+	asl
+	rol ls_temp
+	adc int
+	sta int
+	lda ls_temp
+	adc int+1
+	sta int+1
+	asl int
+	rol int+1
+	lda int
+	adc wordlo
+	sta int
+	bcc getword
+	inc int+1
+	bne getword
+            
+; ------------------------------------------------ Check for valid values
+
+gw0	ldx inmerk
+	lda int+1
+	beq gw1
+	jsr reqindents
+	beq gw2
+
+gw1	lda int
+	sta indents,x
+gw2	lda #0
+	sta sc_iflag
+	clc
+	rts
+
+; --------------------------------------- patch 3 (at $1070)
+
+patch3	jmp $1389		; jump to patch 4	LOAD Image
+	lda #1
+	!by $2c
+	lda #2
+	jsr $132c		; close files
+	jmp $10c5		; to end sequence
+	!by 0,0		; dummy
+
+	lda #<ls_nambuf+19	; drive
+	sta $127f
+	lda #>ls_nambuf
+	sta $1280
+	lda #$68		; dialog patch
+	sta $1037
+	cli
+	ldx #6		; get filename from REU
+pt34	lda $10b7,x	; [lda getname,x]
+	sta reubase+2,x
+	dex
+	bpl pt34
+	lda #$91
+	sta reucom
+	lda ls_nambuf+20
+	sta $164e
+	lda ls_nambuf+21
+	sta $164d
+	lda #0
+	sta $1372
+	ldy ls_nambuf+18
+
+	jmp $1000		; jpz starten, Bild laden
+
+getname	!by <ls_nambuf,>ls_nambuf,<imgname,>imgname,6,22,0
+						; [79]
+; --------------------------------------- patch 4 (at $1388)
+
+patch4	rts		; for safety
+
+	ldy #0
+	sty $b0
+	sty $b2
+	lda #$d8		; color mem
+	sta $b1
+	lda #$04		; save at $0400 (screen)
+	sta $b3
+pt40	lda ($b0),y	; swap color ram with $0400
+	tax
+	lda ($b2),y
+	sta ($b0),y
+	txa
+	sta ($b2),y
+	iny
+	bne pt40
+	inc $b1
+	inc $b3
+	lda $b3
+	cmp #8
+	bne pt40
+	jmp $10c5		; leave JPZ [41]
+
+; --------------------------------------- Screenlists
+
+noreulst	
+	!by 0
+	!by 06,11,18,11,$91,0,0	; No REU
+	!scr "ERROR!@"
+	!by 14,22,07,03,$cd
+	!wo  evexit
+	!scr "Leave@"
+	!by $c0,8,11,15
+	!scr "No REU attached@"
+	!by $c0,9,11,15
+	!scr "to your system!@"
+	!by $c0,11,11,14
+	!scr "You can't view@"
+	!by $c0,12,11,14
+	!scr " JPGs w/o REU.@"
+	!by $80
+
+toolowlst
+	!by 0
+	!by 06,11,18,11,$91,0,0	; Not enough RAM
+	!scr "ERROR!@"
+	!by 14,22,07,03,$cd
+	!wo  evexit
+	!scr "Leave@"
+	!by $c0,8,11,14
+	!scr "Not enough RAM@"
+	!by $c0,9,11,14
+	!scr "to run module!@"
+	!by $c0,11,11,15
+	!scr "Leaving viewer.@"
+	!by $80
+
+nojpzlst	
+	!by 0
+	!by 06,11,18,11,$91,0,0	; No JPZ
+	!scr "ERROR!@"
+	!by 14,22,07,03,$cd
+	!wo  evexit
+	!scr "Leave@"
+	!by $c0,8,11,14
+	!scr "JPZ viewer not@"
+	!by $c0,9,11,14
+	!scr "found on disk!@"
+	!by $c0,11,11,15
+	!scr "Unable to view.@"
+	!by $80
+
+indentslst	
+	!by 0
+	!by 06,11,17,10,$91,0,0	; Input indents
+	!scr "Indent Image@"
+	!by 9,23,5,3,$cf
+	!wo  evinpleft
+leftval	!scr "  0@"
+	!by 11,23,5,3,$ce
+	!wo  evinptop
+topval	!scr "  0@"
+	!by 13,11,10,3,$c7
+	!wo  savec64
+	!scr "Continue@"
+	!by 13,21,7,3,$ce
+	!wo  evexit
+	!scr "Leave@"
+	!by $c0,9,12,5
+	!scr "Left:@"
+	!by $c0,11,12,5
+	!scr "Top :@"
+	!by $80
+
+viewerlst	
+	!by 0
+	!by 06,11,17,10,$91,0,0	; mod requester
+	!scr "JPG Viewer@"
+	!by 9,11,17,3,$ca
+	!wo  evselect
+	!scr "Load a JPG@"
+	!by 11,11,17,3,$cb
+	!wo  evviewjpg
+	!scr "View Img in Mem@"
+	!by 13,11,17,3,$cb
+	!wo  evexit
+	!scr "Leave@"
+	!by $80
+
+; --------------------------------------- Data
+grayink1	!by 9,12,15,5
+used	!by $ff
+ziff	!pet " 1234567890"
+jpzname	!pet "jpz*"
+imgname	!pet "0123456789abcdef"	; dummy name
+padding	!by $ad,$ad
+flen	!by 16
+drive	!by 0
+indents	!by 0,0
+storex	!by 0
+storems	!by 0
+found	!by 0
+ramreu	!by $e0,$f0,$d0		; order (last first)
+inmerk	!by 0
+basic	!by 1,8,6			; basicstart in bank x (default = 6)
+command	!by $90			; stash (by default)
+
+moduse	!by sc_merk,0,3,0		; to $b0, byte 3
+	!by 0			; in Bank 0
+	!by 1,0			; 1 Byte
+
+allover	!by 0,0,0,0		; from 0 in C64 to 0 in REU
+bank	!by 6			; in Bank x (default is 1750 = 6)
+	!by 0,$d0			; 53 KB / 4 KB / 53 KB
+
+
+modend	!eof
+
