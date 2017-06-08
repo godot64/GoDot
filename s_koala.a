@@ -1,0 +1,545 @@
+
+!src "..\godotlib.lib"
+*= $c000
+
+; -------------------------------------------------- 
+;
+; svr.Koala
+; Saver for Multicolor Mode 320x200 Images
+; The images have first to be rendered,
+; svr.Koala uses the *rendered* image data to save
+; *not* the 4Bit data
+;
+; 1.01: 07.02.98, added compress routines
+; 1.02: 14.06.01, bug: "Cancel Save" didn't work, fixed
+;
+; -------------------------------------------------- 
+
+; ----------------------------------------- Equates
+
+	gbyte		= $30
+	cnt		= $31
+	adcnt		= $3e 
+
+	offx		= ls_adrmisc
+	offy		= offx+1
+
+	colors		= $c82f
+	vid1		= colors
+	vid2		= $ca23
+	colram		= $cc17
+	back		= $cfff
+
+; ----------------------------------------- 
+
+header	jmp start
+	!by $40
+	!by 0
+	!by 1
+	!wo modend
+	!wo 0
+	!pet "Koala Multicolor"
+	!pet "1.02"
+	!pet "14.06.01"
+	!pet "A.Dettke        "
+
+; ----------------------------------------- Main
+
+start	ldx gr_nr
+	dex
+	bne st0
+	jmp initinp
+
+; ----------------------------------------- Saver Koala
+
+st0	jsr setmode	; set (compress or standard) mode
+	lda used		; was cancelled?
+	cmp #3
+	bne st11
+	jsr canc		; yes, leave
+	bcs st12
+
+st11	jsr gd_sproff
+	sta cnt		; .a=0
+	lda gd_modswitch
+	pha
+	lda ls_flen	; no filename?
+	beq st1		; yes, leave
+
+	ldx mode
+	bmi st4
+	clc		; contruct correct koala file name
+	adc #5
+	cmp #16
+	bcc st3
+	lda #15
+	bne st3
+st4	clc
+	adc #2
+	cmp #17
+	bcc st3
+	lda #16
+st3	sta wflen
+
+	lda #1		; init save pic
+	sta adcnt
+	lda #50
+	sta cntwert
+	jsr getpic	; gather data
+
+	jsr wopen
+	bne st2
+	jsr getname
+	ldx #12
+	jsr ckout
+	jsr gd_clrms
+	ldx #0
+	jsr tcopy
+
+	jsr write		; save pic
+
+st2	jsr clrch
+	lda #12
+	jsr close
+	jsr err9
+	bne st1
+	jsr setname	; set image information if successful
+
+st1	pla
+	sta gd_modswitch
+st12	jsr gd_spron
+
+	sec
+	rts
+
+; --------------------------- 
+; --------------------------- Input Routines
+
+!src "..\input.inc"
+
+; --------------------------- 
+; --------------------------- 
+
+pw	!pet "w,p,"
+drinit	!pet "i0"
+wflen	!by 0
+
+koala	!by $81,80,73,67,32	; "?PIC "
+	!fill 16,32 	; name
+
+; ----------------------------------------- 
+
+wopen	jsr chkmode	; Compressed Koala? (doesn't return if yes)
+
+; ----------------------------------------- 
+
+	ldy #5
+wo2	lda ls_nambuf-5,y	; combine own filename with Koala name intro
+	sta koala,y
+	iny
+	cpy wflen
+	bne wo2
+	cpy #16
+	bcs wo3
+	lda #32		; fill up to 15 chars if necessary
+wo4	sta koala,y
+	iny
+	cpy #16
+	bne wo4
+wo3	ldy #14
+	sty wflen
+	inc wflen
+wo5	lda koala,y
+	sta ls_nambuf,y
+	dey
+	bpl wo5
+
+wo6	jsr inull		; init disk
+	bne err8
+	ldy wflen
+	ldx #3
+wo1	lda pw,x
+	sta ls_nambuf,y	; add ",p,w" to filename
+	iny
+	dex
+	bpl wo1
+	sty wflen
+	lda #12		; open 12,dr,12,"name,p,w"
+	tay
+	ldx ls_drive
+	jsr filpar
+	lda wflen
+	ldx #<(ls_nambuf)
+	ldy #>(ls_nambuf)
+	jsr filnam
+	jsr copen
+	jmp err9
+
+; ----------------------------------------- 
+
+inull	ldx #<(drinit)
+	ldy #>(drinit)
+	lda #2
+	jsr gd_sendcom
+err9	jsr gd_xmess
+	lda ls_err2
+	and #15
+err8	sec
+	rts
+
+; ----------------------------------------- Message Handling
+
+messout	ldx #<(message)
+	ldy #>(message)
+	jmp gd_xtxout2
+
+tcopy	ldy #0
+tc0	lda txt,x
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+
+action	dec adcnt
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	cpy #22		; #1.03: catch Gauge Overflow
+	bne act0
+	jsr clrmess
+act0	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts
+
+clrmess	ldx #23
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0
+	ldx #7
+	sty offy
+	stx offx
+	rts
+
+filltab	!by 160,93,103,127,126,124,105,109
+
+txt	!scr " Bitmap@"
+	!scr " Colors@"
+
+message	!fill 8,32
+mess	!fill 24,32
+	!by 0
+
+; ----------------------------------------- Image Information Handler
+
+getname	ldx #0
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+setname	lda #0
+	ldx #<(ls_picname)
+	ldy #>(ls_picname)
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!fill 16,32
+	!by 0
+
+; ----------------------------------------- Requester management
+
+setmode	ldx used		; first call?
+	bmi requ		; then: requester
+	rts
+
+; ----------------------------------------- Display Requester
+
+requ	inc used
+	ldx #<(koalalst)
+	ldy #>(koalalst)
+	jmp gd_xmloop
+
+; ----------------------------------------- Event: Leave saver
+
+cn2	lda #3
+	!by $2c
+canc	lda #$ff
+	sta used
+	sec
+	rts
+
+; ----------------------------------------- Event: Set Compressed
+
+evcomp	inc used
+
+; ----------------------------------------- Event: Set Standard
+
+evnocomp	inc used
+	ldx used
+	dex
+	beq ec01
+	ldx #$80
+ec01	stx mode
+	sec
+	rts
+
+; ----------------------------------------- Screenlist
+
+koalalst	!by 0
+	!by 4,11,18,16,$81,0,0
+	!scr "  Save Koala  @"
+	!by 9,11,18,3,$ca,<(evnocomp),>(evnocomp)
+	!scr " Standard @"
+	!by 12,11,18,3,$ca,<(evcomp),>(evcomp)
+	!scr "Compressed@"
+	!by 15,11,18,3,$ca,<(cn2),>(cn2)
+	!scr "Cancel Save@"
+	!by $c0,6,14,11
+	!scr "Select Mode@"
+	!by $80
+
+; ----------------------------------------- 
+
+used	!by $ff
+mode	!by 0
+cntwert	!by 50
+
+; ----------------------------------------- Gather Image Colors
+
+getpic	lda #$0b		; gather 2001 bytes at $c82f:
+	sta sc_texttab
+	lda #<(vid1)
+	ldx #>(vid1)
+	ldy #$ce		; Videoram pt 1 from $ce0b
+	jsr move
+	lda #$0b
+	sta sc_texttab
+	lda #<(vid2)
+	ldx #>(vid2)
+	ldy #$ee		; pt 2 from $ee0b
+	jsr move
+	lda #$0b
+	sta sc_texttab
+	lda #<(colram)
+	ldx #>(colram)
+	ldy #$de		; colorram from $de0b
+	jsr movec
+	lda gr_bkcol	; and background color
+	and #15
+	sta back
+	rts
+
+; ----------------------------------------- Move Video RAM data
+
+move	sty sc_texttab+1
+	sta sc_vekt20
+	stx sc_vekt20+1
+	lda #<(500)
+	ldx #>(500)
+	sta ls_vekta8
+	stx ls_vekta8+1
+	sei
+	lda #$30
+	sta 1
+	ldy #0
+mv0	lda (sc_texttab),y
+	sta (sc_vekt20),y
+	jsr count
+	bne mv0
+	lda #$36
+	sta 1
+	cli
+	rts
+
+; ----------------------------------------- Move Color RAM data
+
+movec	sty sc_texttab+1
+	sta sc_vekt20
+	stx sc_vekt20+1
+	lda #<(500)		; color ram is compacted to 500 bytes
+	ldx #>(500)
+	sta ls_vekta8
+	stx ls_vekta8+1
+	sei
+	lda #$30
+	sta 1
+	ldy #0
+mv1	sty sc_merk
+	lda (sc_texttab),y		; make 1000 bytes
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	sta (sc_vekt20),y
+	inc sc_vekt20
+	bne mv2
+	inc sc_vekt20+1
+mv2	lda sc_merk
+	sta (sc_vekt20),y
+	jsr count
+	bne mv1
+	lda #$36
+	sta 1
+	cli
+	rts
+
+; ----------------------------------------- Counters
+
+count	inc sc_vekt20
+	bne cou5
+	inc sc_vekt20+1
+cou5	inc sc_texttab
+	bne cou6
+	inc sc_texttab+1
+cou6	lda ls_vekta8
+	bne cou7
+	dec ls_vekta8+1
+cou7	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	rts
+
+; ----------------------------------------- Write Image
+
+write	lda #0		; Start address $6000
+	jsr bsout
+	lda #$60
+	jsr bsout		; 8000 bytes bitmap
+	lda #<(8000)
+	ldx #>(8000)
+	sta ls_vekta8
+	stx ls_vekta8+1
+	lda #<($2000)
+	ldx #>($2000)
+	sta sc_texttab
+	stx sc_texttab+1
+wr0	ldy #0
+	lda (sc_texttab),y
+	jsr pack		; packed, if wanted
+	jsr action	; activity
+	jsr cou5		; count
+	bne wr0
+
+	ldx #8
+	jsr tcopy
+	lda #12
+	sta cntwert
+	lda #<(2001)	; 2001 bytes colors
+	ldx #>(2001)
+	sta ls_vekta8
+	stx ls_vekta8+1
+	lda #<(colors)
+	ldx #>(colors)
+	sta sc_texttab
+	stx sc_texttab+1
+wr1	ldy #0
+	lda (sc_texttab),y
+	jsr pack		; packed, if wanted
+	jsr action	; activity
+	jsr cou5		; count
+	bne wr1
+
+	lda #<(vid1)	; recontruction of video ram 1 area
+	sta sc_texttab
+	lda #$0b
+	ldx #$ce
+	ldy #>(vid1)
+	jsr move
+
+	jsr canc		; requester management
+	lda mode		; compressed?
+	beq wl3		; no, finished
+
+	lda gbyte		; yes, flush data
+	eor #$ff
+
+; ----------------------------------------- Compress
+
+pack	bit mode
+	bmi wl4
+	jmp bsout
+
+wl4	cmp gbyte
+	beq incr
+p255	pha
+	lda cnt
+	beq wl1
+	cmp #$ff
+	beq wl0
+	cmp #4
+	bcs wl0
+	lda gbyte
+	cmp #$fe
+	bne wl2
+wl0	lda #$fe		; $fe, byte, counter
+	jsr bsout
+	lda gbyte
+	jsr bsout
+	lda cnt
+	jsr bsout
+	lda #0
+	sta cnt
+	beq wl1
+wl2	lda gbyte
+	jsr bsout
+	dec cnt
+	bne wl2
+wl1	pla
+	sta gbyte
+incr	inc cnt
+	lda cnt
+	cmp #$ff
+	bne wl3
+	lda gbyte
+	jsr p255
+	dec cnt
+wl3	rts
+
+; ----------------------------------------- Which Mode?
+
+chkmode	lda mode		; compressed?
+	beq wl3		; no, leave
+
+	ldy wflen
+	dey
+cm00	lda ls_nambuf,y
+	sta ls_nambuf+2,y
+	dey
+	bpl cm00
+	lda #$47		; add "GG" to filename
+	sta ls_nambuf
+	sta ls_nambuf+1
+	pla		; don't return
+	pla
+	jmp wo6		; but open file from here
+
+; ----------------------------------------- 
+
+modend	!eof
