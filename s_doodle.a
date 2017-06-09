@@ -1,0 +1,469 @@
+
+!src "..\godotlib.lib"
+*= $c000
+
+; ----------------------------------------------------- 
+;
+; svr.Doodle
+;     Saver für farbige Hires-Bilder
+;
+; 1.01: 07.02.98, compress routines added
+; 1.02: 14.06.01, bug: "Cancel Save" didn't work, fixed
+;
+; ----------------------------------------------------- 
+
+	gbyte		= $30
+	cnt		= $31
+	adcnt		= $3e 
+
+	offx		= ls_adrmisc
+	offy		= offx+1
+
+	colors		= $c82f
+	vid1		= colors
+	vid2		= $ca23
+
+; ----------------------------------------------------- 
+
+header	jmp start
+	!by $40
+	!by 0
+	!by 1
+	!wo modend
+	!wo 0
+	!pet "Doodle Hires    "
+	!pet "1.02"
+	!pet "14.06.01"
+	!pet "A.Dettke        "
+
+; ----------------------------------------------------- Main
+
+start	ldx gr_nr		; Funktionsnummer testen
+	dex
+	bne st0		; Null, dann "Speichern"
+	jmp initinp	; eins, dann "Input"
+
+; ----------------------------------------- Save Doodle
+
+st0	jsr setmode	; set (compress or standard) mode
+	lda used		; was cancelled?
+	cmp #3
+	bne st11
+	jsr canc		; yes, leave
+	bcs st12
+
+st11	jsr gd_sproff
+	sta cnt		; .a=0
+	lda gd_modswitch
+	pha
+	lda ls_flen	; no filename?
+	beq st1		; yes, leave
+
+	clc		; zwei Zeichen länger
+	adc #2
+	cmp #17
+	bcc st3
+	lda #16
+st3	sta wflen
+	ldx mode		; Standard?
+	beq st30
+	lda #$4a		; nein, dann "jj" (Compressed)
+	bne st31
+st30	lda #$44		; ja, dann "dd"
+st31	sta doodle	; ...als Kennung
+	sta doodle+1
+
+	lda #1		; init
+	sta adcnt
+	lda #7
+	sta cntwert
+	jsr getpic	; Farben zusammenstellen
+
+	jsr wopen		; Datei öffnen
+	bne st2
+	jsr getname	; Namen merken
+	ldx #12
+	jsr ckout
+	jsr gd_clrms
+	ldx #8		
+	jsr tcopy
+
+	jsr write		; Datei speichern
+
+st2	jsr clrch		
+	lda #12
+	jsr close		; wieder schließen
+	jsr err9
+	bne st1
+	jsr setname	; bei Erfolg: Image Information
+st1	pla
+	sta gd_modswitch
+st12	jsr gd_spron
+	sec		; fertig
+	rts
+
+; ----------------------------------------------------- 
+; --------------------------- 
+; --------------------------- Input Routines
+
+!src "..\input.inc"
+
+; --------------------------- 
+; --------------------------- 
+; ----------------------------------------------------- 
+
+pw	!pet "w,p,"
+drinit	!pet "i0"
+wflen	!by 0
+doodle	!pet "dd"
+	!fill 16,32
+
+; ----------------------------------------------------- Filename
+
+wopen	ldy #2
+wo2	lda ls_nambuf-2,y	; "dd" vor den Namen setzen
+	sta doodle,y
+	iny
+	cpy wflen
+	bne wo2
+	cpy #16
+	bcs wo3
+	lda #32		; mit Space auffüllen
+wo4	sta doodle,y
+	iny
+	cpy #16
+	bne wo4
+wo3	ldy wflen		; Namen in Puffer übertragen
+	dey
+wo5	lda doodle,y
+	sta ls_nambuf,y
+	dey
+	bpl wo5
+
+wo6	jsr inull		; Initialize
+	bne err8
+	ldy wflen		; ",p,w" anhängen
+	ldx #3
+wo1	lda pw,x
+	sta ls_nambuf,y
+	iny
+	dex
+	bpl wo1
+	sty wflen
+	lda #12		; OPEN 12,drive,12,"name,p,w"
+	tay
+	ldx ls_drive
+	jsr filpar
+	lda wflen
+	ldx #<ls_nambuf
+	ldy #>ls_nambuf
+	jsr filnam
+	jsr copen
+	jmp err9
+
+inull	ldx #<drinit	; disk init
+	ldy #>drinit
+	lda #2
+	jsr gd_sendcom
+err9	jsr gd_xmess
+	lda ls_err2
+	and #15
+err8 	sec
+	rts
+
+; ----------------------------------------- Message Handler
+
+messout	ldx #<message	; Textausgabe
+	ldy #>message
+	jmp gd_xtxout2
+
+tcopy	ldy #0		; Text zur Ausgabe puffern
+tc0 	lda txt,x		; Offset in X!
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+
+action 	dec adcnt		; Activity, nur bei 0
+	bne ld4
+	lda cntwert	; dann: Reload des Zählers
+	sta adcnt
+	ldy offy		; Offset auf Balkenende
+	cpy #22		; Ende erreicht?
+	bne act0
+	jsr clrmess	; ja, re-Init
+act0	ldx offx		; Dicke des Balkenendstücks
+	lda filltab,x
+	sta mess,y
+	jsr messout	; Balken ausgeben
+	dec offx		; Endstück nächstes Mal dicker
+	bpl ld4		; bis gefüllt
+	inc offy		; dann Balken selbst verlängern
+	lda #7		; Endstück wieder dünn
+	sta offx
+ld4 	rts
+
+clrmess	ldx #23		; Puffer für Balken löschen
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0		; Balkenlänge 0 
+	ldx #7		; Dicke am Ende 0
+	sty offy
+	stx offx
+	rts
+
+filltab	!by 160,93,103,127,126,124,105,109
+
+cntwert	!by 50
+
+txt	!scr " Bitmap@"
+	!scr " Colors@"
+
+message	!fill 8,32
+mess	!fill 24,32
+	!by 0
+
+; ----------------------------------------- Image Information Handler
+
+getname	ldx #0		; aktuellen Filenamen sichern
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+setname	lda #0		; Namen in Image Info eintragen
+	ldx #<ls_picname
+	ldy #>ls_picname
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!fill 16,32
+	!by 0
+
+; ----------------------------------------- 
+
+setmode	ldx used
+	bmi requ
+	rts
+
+; ----------------------------------------- Requester management
+
+requ	inc used
+	ldx #<(doodlelst)
+	ldy #>(doodlelst)
+	jmp gd_xmloop
+
+; ----------------------------------------- Leave saver
+
+cn2 	lda #3
+	!by $2c
+canc 	lda #$ff
+	sta used
+	sec
+	rts
+
+; ----------------------------------------- Event: Compressed
+
+evcomp	inc used
+
+; ----------------------------------------- Event: Standard
+
+evnocomp	inc used
+	ldx used
+	dex
+	beq ec01
+	ldx #$80
+ec01	stx mode
+	sec
+	rts
+
+; ----------------------------------------- Screenlist
+
+doodlelst	!by 0
+	!by 4,11,18,16,$81,0,0
+	!scr " Save Doodle@"
+	!by 9,11,18,3,$ca,<(evnocomp),>(evnocomp)
+	!scr "Standard@"
+	!by 12,11,18,3,$ca,<(evcomp),>(evcomp)
+	!scr "Compressed@"
+	!by 15,11,18,3,$ca,<(cn2),>(cn2)
+	!scr "Cancel Save@"
+	!by $c0,6,14,11
+	!scr "Select Mode@"
+	!by $80
+
+; ----------------------------------------- 
+
+used	!by $ff
+mode	!by 0
+
+; ----------------------------------------- 
+
+getpic	lda #$0b
+	sta sc_texttab
+	lda #<(vid1)
+	ldx #>(vid1)
+	ldy #$ce
+	jsr move
+	lda #$0b
+	sta sc_texttab
+	lda #<(vid2)
+	ldx #>(vid2)
+	ldy #$ee
+	jsr move
+	rts
+
+; ----------------------------------------- 
+
+move	sty sc_texttab+1
+	sta sc_vekt20
+	stx sc_vekt20+1
+	lda #<(500)
+	ldx #>(500)
+	sta ls_vekta8
+	stx ls_vekta8+1
+	sei
+	lda #$30
+	sta 1
+	ldy #0
+mv0	lda (sc_texttab),y
+	sta (sc_vekt20),y
+	jsr count
+	bne mv0
+	lda #$36
+	sta 1
+	cli
+	rts
+
+; ----------------------------------------- 
+
+count	inc sc_vekt20
+	bne cou5
+	inc sc_vekt20+1
+cou5	inc sc_texttab
+	bne cou6
+	inc sc_texttab+1
+cou6	lda ls_vekta8
+	bne cou7
+	dec ls_vekta8+1
+cou7	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	rts
+
+; ----------------------------------------- 
+
+write	lda #0		; Startadresse $5c00
+	jsr bsout
+	lda #$5c
+	jsr bsout
+
+	lda #<(1024)	; Farben 1024 Bytes
+	ldx #>(1024)
+	sta ls_vekta8
+	stx ls_vekta8+1
+	lda #<(colors)
+	ldx #>(colors)
+	sta sc_texttab
+	stx sc_texttab+1
+wr0	ldy #0
+	lda (sc_texttab),y
+	jsr pack
+	jsr action
+	jsr cou5
+	bne wr0
+
+	ldx #0
+	jsr tcopy
+	lda #52
+	sta cntwert
+
+	lda #<(8192)	; Bitmap 8192 Bytes
+	ldx #>(8192)
+	sta ls_vekta8
+	stx ls_vekta8+1
+	lda #<($2000)
+	ldx #>($2000)
+	sta sc_texttab
+	stx sc_texttab+1
+wr1	ldy #0
+	lda (sc_texttab),y
+	jsr pack
+	jsr action
+	jsr cou5
+	bne wr1
+
+	lda #<(vid1)	; Farben für GoDot rekonstruieren
+	sta sc_texttab
+	lda #$0b
+	ldx #$ce
+	ldy #>(vid1)
+	jsr move
+
+	jsr canc
+	lda mode
+	beq wl3
+
+	lda gbyte		; flush (when compressed)
+	eor #$ff
+
+; ----------------------------------------- Packen 
+
+pack	bit mode
+	bmi wl4
+	jmp bsout
+
+wl4	cmp gbyte
+	beq incr
+p255	pha
+	lda cnt
+	beq wl1
+	cmp #$ff
+	beq wl0
+	cmp #4
+	bcs wl0
+	lda gbyte
+	cmp #$fe		; $fe, byte, counter
+	bne wl2
+wl0	lda #$fe
+	jsr bsout
+	lda gbyte
+	jsr bsout
+	lda cnt
+	jsr bsout
+	lda #0
+	sta cnt
+	beq wl1
+wl2	lda gbyte
+	jsr bsout
+	dec cnt
+	bne wl2
+wl1	pla
+	sta gbyte
+incr	inc cnt
+	lda cnt
+	cmp #$ff
+	bne wl3
+	lda gbyte
+	jsr p255
+	dec cnt
+wl3	rts
+
+; ----------------------------------------- 
+
+modend 	!eof
