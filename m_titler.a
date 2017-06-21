@@ -12,6 +12,7 @@
 ;
 ;    1.00, 23.01.17, first release
 ;    1.01, 17.05.17, preview in hires (better positioning)
+;    1.02, 21.06.17, bug: last two bytes didn't load, fixed
 ;
 ; ------------------------------------------------------------ 
 
@@ -34,7 +35,7 @@
 
 	status		= $90
 	packbyte		= $ad		; Konstante
-	fntbuf		= $cd98
+	fntbuf		= $cd96		; ### 1.02: statt $cd98
 	fntwidth		= fntbuf+4
 	fntheight		= fntbuf+5
 	fntbaseln		= fntbuf+6
@@ -85,8 +86,8 @@
 	!wo modend
 	!wo 0
 	!pet "GoDot Titler    "
-	!pet "1.01"
-	!pet "17.05.17"
+	!pet "1.02"
+	!pet "21.06.17"
 	!pet "A.Dettke        "
 ;
 ; ----------------------------------------- Main
@@ -721,11 +722,11 @@ error	lda border
 
 readfnt	jsr gd_xopen
 	ldy #0
-rf0	jsr onebyte	; 114 Bytes einlesen
+rf0	jsr onebyte	; 114 Bytes einlesen ### 1.02: 116 Bytes!
 	bne ferror
 	sta (sc_vekt20),y
 	iny
-	cpy #113
+	cpy #115		; ### 1.02: wrong counter target (113)
 	bne rf0
 	jsr gd_xclose
 
