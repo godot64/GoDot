@@ -1,0 +1,259 @@
+
+; ------------------------------------------------ 
+;
+; GoDot Modifier SysColors
+; module to change GoDot's GUI colors
+;
+; 1.04: 29.09.95, public release
+; 1.05: 26.06.17, completely re-coded (by A.Dettke) for conformity
+;
+; ------------------------------------------------     
+
+	!src "..\godotlib.lib"
+	*=$c000
+
+; ------------------------------------------------ Equates
+
+	nshadow	= $30	; new shadow
+	nlite 	= $31	; new lite
+	nnorm	= $32	; new normal
+	nhilite	= $33	; new hilite
+	nmain	= $34	; new main
+
+	border	= $d020
+	backgr	= $d021
+
+
+; ------------------------------------------------  Header   
+
+	jmp start
+
+	!by $20
+	!by $00 
+	!by 1 
+	!wo modend
+	!wo $00
+	!pet "ChangeTextcolors"
+	!pet "1.05"
+	!pet "26.06.17"
+	!pet "M.Burggraf      "
+
+; ------------------------------------------------ Main    
+
+start	ldx #<sclst	; display screenlist
+	ldy #>sclst
+	jsr gd_screen
+
+	jsr svdefault	; store default
+	jsr showall
+	jsr storedata	; store data
+	jmp gd_eloop
+
+; ------------------------------------------------ Store Data
+
+svdefault	lda sc_light	; get Default
+	sta nlite
+	sta defdata
+	lda sc_shadow
+	sta nshadow
+	sta defdata+1
+	lda sc_hilite
+	sta nhilite
+	sta defdata+2
+	lda sc_normtext
+	sta nnorm
+	sta defdata+3
+	lda sc_maincolor
+	sta nmain
+	sta defdata+4
+	rts
+
+; ------------------------------------------------ Event: Default
+
+evdefault	lda default+4
+	sta sc_maincolor
+	sta nmain
+	ldx #3
+-	lda default,x
+	sta sc_shadow,x
+	sta nshadow,x
+	dex
+	bpl -
+	jmp showall
+
+; ------------------------------------------------ Show Current
+
+showall	lda nlite		; lite
+	ldx #7
+	jsr so2
+	lda nshadow	; shadow
+	ldx #9
+	jsr so2
+	lda nnorm		; norm
+	ldx #11
+	jsr so2
+	lda nhilite	; hilite
+	ldx #13
+	jsr so2
+	lda nmain		; main
+	ldx #15
+so2	ldy #25
+	jmp showcol	; show all these
+
+; ------------------------------------------------ Event: INC Colors
+
+clite	ldx nlite		; inc lite 
+	jsr incit
+	sta nlite		; show
+	ldx #7		; Zeile
+	jmp cshow
+
+cshadow	ldx nshadow	; inc shadow
+	jsr incit
+	sta nshadow
+	ldx #9
+	jmp cshow
+
+cnorm	ldx nnorm		; inc norm
+	jsr incit
+	sta nnorm
+	ldx #11
+	jmp cshow
+
+chilite	ldx nhilite	; inc hilite
+	jsr incit
+	sta nhilite
+	ldx #13
+	jmp cshow
+
+cmain	ldx nmain		; inc main
+	jsr incit
+	sta nmain
+	ldx #15
+cshow	ldy #25
+	jmp showcol
+
+incit	inx 
+	cpx #16
+	bne +
+	ldx #0
++	txa 
+	rts
+
+; ------------------------------------------------ Get Data
+
+storedata	ldx #3		; store
+-	lda sc_shadow,x
+	sta nshadow,x
+	sta defdata,x
+	dex 
+	bpl -
+	lda sc_maincolor
+	sta nmain
+	sta defdata+4
+	clc
+	rts 
+
+; ------------------------------------------------ show
+
+showcol	sta sc_chgcol	; Farbe
+	stx sc_zl		; Zeile
+	sty sc_sp		; Spalte
+	ldx #2
+	stx sc_br		; Breite: 2
+	dex 
+	stx sc_ho		; Höhe: 1
+	ldx #4
+	jmp gd_fcol	; .c=0
+
+; ------------------------------------------------ Event: Accept
+
+evaccept	lda nlite		; lite
+	ldx nshadow	; shadow
+	ldy nhilite	; hilite
+	sta sc_light	; neu setzen
+	stx sc_shadow
+	sty sc_hilite
+	lda nnorm	
+	ldx nmain	
+	sta sc_normtext
+	stx sc_maincolor
+	stx border	; screen
+	stx backgr
+	sec 
+	rts 
+
+; ------------------------------------------------ Event: Cancel
+
+evcancel	lda defdata+4
+	sta sc_maincolor
+	sta nmain
+	ldx #3
+-	lda defdata,x
+	sta sc_shadow,x
+	sta nshadow,x
+	dex
+	bpl -
+	sec
+	rts
+
+; ------------------------------------------------ Screenlist
+
+sclst
+
+	!by $00 
+
+	!by $03,$0c,$10,$13,$91
+	!wo $00 
+	!scr "SysColors@"
+
+	!by $13,$0c,$08,$03,$c7
+	!wo evaccept
+	!scr "Accept@"
+
+	!by $13,$14,$08,$03,$cd
+	!wo evcancel
+	!scr "Cancel@"
+
+	!by $06,$18,$04,$03,$cf
+	!wo clite 
+	!by $a0,$a0,$00 
+
+	!by $08,$18,$04,$03,$ce
+	!wo cshadow 
+	!by $a0,$a0,$00 
+
+	!by $0a,$18,$04,$03,$ce
+	!wo cnorm
+	!by $a0,$a0,$00 
+
+	!by $0c,$18,$04,$03,$ce
+	!wo chilite
+	!by $a0,$a0,$00 
+
+	!by $0e,$18,$04,$03,$ce
+	!wo cmain
+	!by $a0,$a0,$00 
+
+	!by $10,$13,$09,$03,$cf
+	!wo evdefault
+	!scr "Default@"
+
+	!by $c0,$06,$0c,$05 
+	!scr "Light@"
+	!by $c0,$08,$0c,$06 
+	!scr "Shadow@"
+	!by $c0,$0a,$0c,$0b 
+	!scr "Normal Text@"
+	!by $c0,$0c,$0c,$06 
+	!scr "HiLite@"
+	!by $c0,$0e,$0c,$0a 
+	!scr "Main Color@"
+	!by $80 
+
+; ------------------------------------------------ Tables
+
+defdata 	!by $00,$00,$00,$00,$00
+default	!by $00,$0f,$0b,$01,$0c
+
+modend	!eof
