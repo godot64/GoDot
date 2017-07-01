@@ -6,6 +6,7 @@
 ;
 ; 1.04: 29.09.95, public release
 ; 1.05: 26.06.17, completely re-coded (by A.Dettke) for conformity
+; 1.06: 01.07.17, added cosmetics (unhilite)
 ;
 ; ------------------------------------------------     
 
@@ -34,8 +35,8 @@
 	!wo modend
 	!wo $00
 	!pet "ChangeTextcolors"
-	!pet "1.05"
-	!pet "26.06.17"
+	!pet "1.06"
+	!pet "01.07.17"
 	!pet "M.Burggraf      "
 
 ; ------------------------------------------------ Main    
@@ -45,6 +46,7 @@ start	ldx #<sclst	; display screenlist
 	jsr gd_screen
 
 	jsr svdefault	; store default
+	jsr unhilite	; 		### 1.06
 	jsr showall
 	jsr storedata	; store data
 	jmp gd_eloop
@@ -154,17 +156,35 @@ storedata	ldx #3		; store
 	clc
 	rts 
 
+; ------------------------------------------------ UnHilite
+
+unhilite	ldx #11		; Breite		### 1.06 ab hier
+	stx sc_br
+	ldx #9		; Höhe
+	stx sc_ho
+	lda nnorm		; Farbe: Normal Text
+	ldx #7		; Zeile
+	ldy #13		; Spalte
+	bne encolor	; einfärben
+
 ; ------------------------------------------------ show
 
-showcol	sta sc_chgcol	; Farbe
-	stx sc_zl		; Zeile
-	sty sc_sp		; Spalte
+showcol	pha		; Farbe retten
+	txa		; Zeile retten
+	pha
 	ldx #2
 	stx sc_br		; Breite: 2
 	dex 
 	stx sc_ho		; Höhe: 1
+	pla
+	tax
+	pla
+
+encolor	sta sc_chgcol	; Farbe
+	stx sc_zl		; Zeile
+	sty sc_sp		; Spalte
 	ldx #4
-	jmp gd_fcol	; .c=0
+	jmp gd_fcol	; .c=0		### 1.06 bis hier
 
 ; ------------------------------------------------ Event: Accept
 
