@@ -1,0 +1,722 @@
+
+	!src "..\godotlib.lib"
+	*= $c000
+
+; ------------------------------------------------------------ 
+;
+; mod..REUTool
+; tool to get information about the status of your REU content,
+;   especially about UNDO and TEMP.
+;   Main scope of REUTool is to install modules at runtime.
+;
+;    1.01, 08.04.01, Bugfix
+;    1.02, 09.04.01, REUSIZE gets set automatically
+;    1.03, 02.07.17, added: delete entries from REU directory
+;
+; ------------------------------------------------------------ 
+
+; ----------------------------------------- Equates
+
+	info		= $30	; /$31,$32
+	tentry		= $33
+	nextentry		= $34
+	oflo		= $35
+	ofhi		= $36
+	rmbk		= $37	; don't use $38!
+	entry		= $3a	; /$3b (is dev.REU vector!)
+	
+
+	status		= $90
+	swappfox		= $1714
+	func3		= $186f	; !! self modifying the kernel !!
+
+	mtarget		= $9000
+	mal19		= $bd8c	; part of dev.REU
+	back		= $befd	; part of dev.REU
+	modul		= $c000
+	kapaz		= $cde7	; !! self modifying dev.REU !!
+	sprite		= $d015
+
+
+; ----------------------------------------------- Header
+
+	jmp start
+	!by $20
+	!by $00,$01
+	!wo (modend)
+	!by $00,$00
+	!pet "Tool for REUs   "
+	!pet "1.03"
+	!pet "02.07.17"
+	!pet "A.Dettke        "
+
+; ----------------------------------------------- Main 
+
+start	ldx sc_screenvek	; rette Main-Screenlist
+	ldy sc_screenvek+1
+	stx list
+	sty list+1
+	jsr makech	; erzeuge Kringel-Char
+	jsr ramcheck	; welche RAMs sind angeschlossen?
+	jsr newsize	; ermittele REU-Größe
+	lda rm_nextram
+	sta nextentry
+	jsr reustat	; berechne verfügbaren Space
+	jsr setram	; Anzeige des RAM-Typen vorbereiten
+
+	ldx #<(reulst)	; Requester ausgeben
+	ldy #>(reulst)
+	jsr gd_screen
+	ldx sc_screenvek	; und sich dies merken
+	ldy sc_screenvek+1
+	stx last
+	sty last+1
+	jsr gd_eloop	; warten
+
+; ----------------------------------------------- Event: Cancel 
+
+evcan	sec		; Modul verlassen
+	rts
+
+; ----------------------------------------------- Check Temp/Undo status
+
+stats	lda rm_ramundo	; welche gibt's und wie viele?
+	pha
+	and #1
+	beq st1
+	ldx #2
+	!by $2c
+st1	ldx #5
+	ldy #2
+st2	lda yesno,x
+	sta un4tx,y
+	dex
+	dey
+	bpl st2
+	pla
+	and #2
+	beq st3
+	ldx #2
+	!by $2c
+st3	ldx #5
+	ldy #2
+st4	lda yesno,x
+	sta unrtx,y
+	dex
+	dey
+	bpl st4
+	lda rm_tmpsaved
+	beq st5
+	cmp #3
+	bne st6
+	lda #2
+	!by $2c
+st6	lda #1
+st5	ora #$30
+	sta numttx+1
+	rts
+
+; ----------------------------------------------- 
+
+setram	ldx ramflag	; get RAM type value (0-11)
+	inx
+	lda ramind,x	; write text to gadget
+	tax
+sr0	ldy #3
+sr1	lda mega,x	; Anzeigetexte für Größe
+	sta megatx,y
+	dex
+	dey
+	bpl sr1
+	rts
+
+; ----------------------------------------------- Kringel
+
+makech	ldx #7
+mc0	lda char,x
+	sta sc_undochar,x
+	dex
+	bpl mc0
+ok	clc
+	rts
+
+; ----------------------------------------------- Check for REU
+
+isreu	ldx ramflag	; Ergebnis des RAM-Check holen
+	bmi ok2		; kein REU? dann aussteigen
+	cpx #3		; mindestens 128 K?
+	bcs ok1
+ok2	pla		; nein, aussteigen
+	pla
+ok1	rts
+
+; ----------------------------------------------- Event: Install module to REU
+
+evinst	jsr isreu		; Check RAM, kehrt bei fail nicht zurück
+	jsr chgdrv	; care for bootdrive
+	ldx #<(mtarget)	; save $9000 to REU
+	ldy #>(mtarget)
+	stx ls_adrmisc
+	sty ls_adrmisc+1
+	lda #0
+	sta ls_flen
+	jsr swap90
+
+	lda gd_modswitch
+	pha
+	lda #$f7		; patch vector to function ForceOff
+	sta func3+1
+	lda #$18
+	sta func3+2
+	jsr lddir		; open file requester
+	jsr gd_eloop	; wait for events
+	lda #<(rm_ramvec)	; then unpatch vector
+	sta func3+1
+	lda #>(rm_ramvec)
+	sta func3+2
+
+	lda ls_flen	; any file selected now?
+	sta rm_rlen
+	beq ei0		; no, leave
+	jsr gd_testram	; yes, REU active?
+	beq fail		; no, leave
+	jsr readfile	; yes, get file...
+	jsr setfile	; ...and transfer to REU
+ei0	pla
+	sta gd_modswitch
+
+	jsr swap90	; restore $9000
+	jsr reustat	; recalculate status values
+	jsr chgdrv	; care for system drive
+
+	ldx list		; create main screen
+	ldy list+1
+	jsr gd_screen
+show	ldx last		; then overlay REUTool Requester
+	ldy last+1
+	jsr gd_screen
+	clc
+	rts
+
+; ----------------------------------------------- Fehler
+
+fail	ldx #0
+	ldy #0
+fl0	lda err1,x
+	sta message,y
+	inx
+	iny
+	cpy #32
+	bne fl0
+	jsr gd_clrms
+	ldx #<(message)
+	ldy #>(message)
+	jsr gd_xtxout2
+	jmp ei0
+
+; ----------------------------------------------- GoDot: Load Misc
+
+lddir	lda #<(chootype)
+	pha
+	lda #>(chootype)
+	pha
+	lda #8
+	jmp gd_xloadm
+
+; ----------------------------------------------- Load File
+
+readfile	lda #0		; load file to $9000
+	sta success
+	sta sprite	; Maus aus
+	jsr gd_xopen
+	jsr onebyte
+	bne lderr
+	jsr onebyte
+	bne lderr
+ld7	lda status
+	sta success
+	bne lderr
+	jsr basin
+	sta (sc_vekt20),y
+	iny
+	bne ld7
+	inc sc_vekt20+1
+	bne ld7
+lderr	jsr gd_xclose
+	jsr gd_xmess
+	lda #3		; Maus wieder an
+	sta sprite
+	sec
+	rts
+
+; ----------------------------------------------- 
+
+setfile	lda success	; transfer file to REU: status?
+	beq nofile	; no file, so leave
+	and #$40		; no EOF, leave
+	beq nofile
+	lda mtarget+3	; recognize module type
+	pha
+	ldx #40		; install swap routine to global area...
+sf0	lda msf,x
+	sta sy_global,x
+	dex
+	bpl sf0
+	jmp sy_global	; ...and execute
+
+msf	lda #>(mtarget)	; Swap routine: swap $9000 and $c000
+	ldx #>(modul)
+	jsr swappfox
+	jsr gd_swapd	; swap $c000 and reu device
+	pla		; get module type
+	tay
+	ldx #6		; execute function #6: Install to REU
+	jsr rm_ramvec
+	lda #>(mtarget)	; swap $c000 and $9000
+	ldx #>(modul)
+	jsr swappfox
+nofile	sec		; transfer complete
+	rts
+
+; ----------------------------------------------- 
+
+chgdrv	ldx ls_bootdrive
+	lda ls_sysdrive
+	sta ls_bootdrive
+	stx ls_sysdrive
+	rts
+
+; ----------------------------------------------- 
+
+onebyte	jsr basin
+	ldy #0
+	ldx status
+	rts
+
+; ----------------------------------------------- Swap 
+
+swap90	ldx #6		; Swapwerte retten
+sw0	lda rm_swapw,x
+	sta swold,x
+	lda sw90,x
+	sta rm_swapw,x
+	dex
+	bpl sw0
+	jsr gd_swapd	; ausführen (4096 Bytes nach Swapfile)
+	ldx #6		; Swapwerte rekonstruieren
+sw1	lda swold,x
+	sta rm_swapw,x
+	dex
+	bpl sw1
+	rts
+
+; ----------------------------------------------- Byte to Hexdigits
+
+mhex	tay		; Eingang: .a
+	and #15
+	tax
+	lda hex,x
+	pha
+	tya
+	lsr
+	lsr
+	lsr
+	lsr
+	tax
+	lda hex,x
+	tay		; zurück in .a und .y
+	pla
+	rts
+
+; ----------------------------------------------- 
+
+gstat	jsr gd_swapd	; get offsets for next mod entry
+	lda modul+1
+	sta oflo		; low
+	lda modul+2
+	sta ofhi		; high
+	lda modul+3
+	sta rmbk		; bank
+	jmp gd_swapd
+
+; ----------------------------------------------- Calculate AVAIL
+
+reustat	ldx #32		; transfer routine to GLOBAL (1st pt)
+rs1	lda gstat,x
+	sta sy_global,x
+	dex
+	bpl rs1
+	jsr sy_global	; execute 
+
+	lda rmbk		; bank of next entry
+	jsr gd_xcnvdez
+	sta banktx+2	; publish
+	lda #32
+	cpx #$30
+	beq rs2
+	txa
+rs2	sta banktx+1
+	lda oflo		; offset
+	jsr mhex
+	sta offstx+3	; publish
+	tya
+	sta offstx+2
+	lda ofhi
+	jsr mhex
+	sta offstx+1
+	tya
+	sta offstx
+
+	ldx #64		; transfer routine to GLOBAL (2nd pt)
+rs3	lda rs4,x
+	sta sy_global,x
+	dex
+	bpl rs3
+	jmp sy_global	; execute
+
+rs4	jsr gd_swapd
+	lda #0
+	tay
+	ldx #7		; execute function #7: Avail
+	jsr rm_ramvec
+	jsr gd_swapd
+	lda back		; publish values
+	jsr mhex
+	sta availtx+5
+	tya
+	sta availtx+4
+	lda back+1
+	jsr mhex
+	sta availtx+3
+	tya
+	sta availtx+2
+	lda back+2
+	jsr mhex
+	sta availtx+1
+	tya
+	sta availtx
+	rts
+
+; ----------------------------------------------- Check for more RAM
+
+newsize	jsr isreu		; Check RAM, kehrt bei fail nicht zurück
+tr3	inx		; .x contains RAMFLAG (max value on start: 5 for 512KB)
+	lda banks,x	; check if more RAM available: next bank
+	sta werte0+4
+	ldy #$91		; FETCH 2nd byte from next bank to MERK
+	jsr setreu0
+	lda #0		; FETCH 2nd byte from bank 0 to MERK+1
+	sta werte0+4
+	inc werte0
+	jsr setreu0
+	dec werte0
+	ldx ramflag	; get current size
+	lda sc_merk	; same byte values?
+	sec
+	sbc sc_merk+1
+	beq tr5		; yes, no more RAM: finished
+	inc ramflag	; more RAM, increase flag
+tr4	ldx ramflag	; check for limits
+	cpx #12		; reached?
+	bcc tr3
+	dex
+	dec ramflag	; yes, set 11 as value (eq more than 4MB)
+tr5	stx rm_reusize	; set value
+	jsr setsize		
+	rts
+
+; ----------------------------------------------- Set REU Record
+
+setreu0	ldx #8
+tr6	lda werte0,x
+	sta reubase+2,x
+	dex
+	bpl tr6
+	sty reucom
+	rts
+
+; ----------------------------------------------- publish size of RAM
+
+setsize	jsr isreu		; Check RAM, kehrt bei fail nicht zurück
+	ldx ramflag	; get RAM size value
+	lda banks,x	; get # of banks available
+	pha
+	ldx #32		; transfer routine to Global...
+ss0	lda ss1,x
+	sta sy_global,x
+	dex
+	bpl ss0
+	jmp sy_global	; ...and execute...
+
+ss1	jsr gd_swapd	; ...here: switch dev.REU on
+	lda ls_ramdrive	; type of RAM?
+	and #15
+	sta sc_merk	; times 3
+	asl
+	clc
+	adc sc_merk
+	tax		; as an index into capacity table
+	pla		; write # of banks
+	sta kapaz,x	; into table
+	jmp gd_swapd	; switch off dev.REU
+
+; ----------------------------------------------- Event: Choose what to Delete
+
+evchdel	ldx delwhat	; $ff = last
+	inx		; $00 = all
+	beq +
+	ldx #$ff
++	stx delwhat
+	bmi +
+	ldy #7
+	!by $2c
++	ldy #3
+	ldx #3
+-	lda delete,y
+	sta deltx,x
+	dex
+	dey
+	bpl -
+	ldy #4
+	jmp evc3
+
+; ----------------------------------------------- Event: Delete 
+
+evdelete	ldx delwhat
+	beq +
+	jsr dellast	; delete last entry
+	inx
+	beq ++
++	jsr delall	; delete all entries
+++	ldx nextentry
+	stx rm_nextram	; adjust device system 
+	jsr reustat	; recalculate
+	jmp show		; and display
+
+; ----------------------------------------------- Delete All
+
+delall	jsr setnext	; nächsten Eintrag anpeilen
+	ldx #5		; bis zum fünften löschen
+	bne del0
+
+; ----------------------------------------------- Delete Last
+
+dellast	jsr setnext	; nächsten Eintrag anpeilen
+del0	stx tentry	; und setzen
+	cpx #5		; letztmöglicher Eintrag erreicht?
+	bcs rd6
+	inc nextentry	; ja, anpassen
+	rts
+
+setnext	ldx rm_nextram	; lowest possible entry?
+	cpx #5
+	bne +
+	pla		; yes, leave
+	pla
+	rts
++	dex		; no, process delete
+	stx nextentry	; next entry to delete
+	rts
+
+rd6	ldx #64		; sonst: transfer routine to Global...
+rd2	lda rest0,x
+	sta sy_global,x
+	dex
+	bpl rd2
+	jmp sy_global	; ...and execute...
+
+rest0	jsr gd_swapd	; ...from here: switch dev.REU on
+	ldx #10		; function #10: FirstInit
+	jsr rm_ramvec
+
+rd1	ldx #0
+rd5	lda nextentry	; calculate dir-position of next entry
+	jsr mal19
+	ldy #2
+rd4	lda (entry),y	; get entry info
+	sta info,y
+	dey
+	bpl rd4
+	ldy #18
+	lda #$c0		; delete entry completely
+rd7	sta (entry),y
+	dey
+	bpl rd7
+	lda info		; set corrected info to RM.Handler
+	and #15
+	sta modul+3
+	lda info+1
+	sta modul+1
+	lda info+2
+	sta modul+2
+
+	dec nextentry	; select next entry before this one
+	lda nextentry
+	cmp tentry	; all deleted?
+	bcs rd1		; no, loop
+	inc nextentry	; adjust for next pass
+	jmp gd_swapd	; yes, switch off dev.REU
+
+; ----------------------------------------------- Check RAM types
+
+ramcheck	jsr stats		; set status of Undo and Temp
+	lda ls_ramdrive	; which RAM?
+	and #15
+	tax
+	lda #0		; default RAM flag value=0
+	cpx #2		; VDC?
+	bne rc00
+	lda rm_vdcflag	; which VDC?
+	bmi rc02
+	lda #0		; eq 16K
+	!by $2c
+rc02	lda #2		; eq 64K
+rc00	cpx #3		; Pagefox?
+	bne rc01
+	lda #1
+rc01	cpx #9		; no extra RAM?
+	bne rc0
+	lda #$ff		; eq 0KB
+rc0	cpx #8		; REU 1700?
+	bne rc1
+	lda #3		; eq 128K
+rc1	cpx #4		; REU 1764?
+	bne rc2
+	lda #4		; eq 256K
+rc2	cpx #5		; REU 1750?
+	bne rc3
+	lda #5		; eq 512K
+rc3	sta ramflag	; no, store to RAM flag
+rc4	rts
+
+; ----------------------------------------------- Event: Choose type of module to install
+
+evchoose	inc chosen
+	ldx chosen
+	lda choind,x
+	cpx #2
+	bne evc1
+	ldx #$ff
+	stx chosen
+evc1	tax
+	ldy #2
+evc2	lda choose,x
+	sta choosetx,y
+	sta chootype,y
+	dex
+	dey
+	bpl evc2
+	ldy #0
+evc3	jsr settab
+	jsr gettab
+	ldy #6
+	jmp gd_xtxout1
+
+; ----------------------------------------------- 
+
+tabigad	!wo choosegad,ramgad,delgad
+
+settab	lda #<(tabigad)
+	sta sc_texttab
+	lda #>(tabigad)
+	sta sc_texttab+1
+	rts
+
+gettab	lda (sc_texttab),y
+	sta sc_screentab
+	iny
+	lda (sc_texttab),y
+	sta sc_screentab+1
+	lda #0
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #3
+	bne gt0
+	stx sc_ho
+	jsr gd_trim
+	jmp gd_initmove
+
+; ----------------------------------------------- 
+
+char	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
+choose	!scr "LDRSVRMOD"
+delete	!scr "last all"
+
+mega	!scr " 0K "		; 0 no RAM
+	!scr " 16K"		; 1 VDC 1
+	!scr " 32K"		; 2 Pagefox
+	!scr " 64K"		; 3 VDC 2
+	!scr "128K"		; 4 REU 1700
+	!scr "256K"		; 5 REU 1764
+	!scr "512K"		; 6 REU 1700
+	!scr " 1M "		; 7
+	!scr "1,5M"		; 8
+	!scr " 2M "		; 9
+	!scr " 4M "		; 10
+	!scr " >4M"		; 11
+
+yesno	!by 25,5,19,32,14,15
+chootype	!by 76,68,82,46,42,0
+banks	!by 0,0,0,2,4,8,16,24,32,64,128
+chosen	!by 0
+delwhat	!by $ff
+choind	!by 2,5,8
+ramflag	!by $ff
+ramind	!by 3,7,11,15,19,23,27,31,35,39,43,47
+list	!wo 0
+last	!wo 0
+success	!by 0
+sw90	!by $00,$90,$1c,$b2,$00,$00,$10	; ### jetzt: 4096 Bytes
+swold	!by 0,0,0,0,0,0,0
+hex	!pet "0123456789abcdef"
+
+werte0	!by $b0,0,1,0,0,1,0,$1f,0
+;	     c64 ,REU  ,bytes
+
+err1	!scr "       Can't clone Files.       "
+message	!fill 32,32
+	!by 0
+
+; ----------------------------------------------- 
+
+reulst	!by 0
+	!by 1,11,18,23,$81,0,0
+	!scr "REU Tool@"
+	!by 3,12,16,12,$b0,0,0
+	!scr "Status@"
+	!by 15,12,9,3,$c0,<evdelete,>evdelete
+	!scr "Delete!@"
+delgad	!by 15,21,7,3,$c0,<evchdel,>evchdel,223
+deltx	!scr"last@"
+	!by 18,12,9,3,$c0,<(evinst),>(evinst)
+	!scr "Install@"
+choosegad	!by 18,21,7,3,$c0,<(evchoose),>(evchoose),223,32
+choosetx	!scr "LDR@"
+ramgad	!by 21,12,7,3,$8c,0,0,61
+megatx	!scr " 0K @"
+	!by 21,19,9,3,$cc,<(evcan),>(evcan)
+	!scr " Leave@"
+	!by $c0,5,12,14
+	!scr "Bank  :    "
+banktx	!scr "  0@"
+	!by $c0,6,12,14
+	!scr "Offset:  $"
+offstx	!scr "0000@"
+	!by $c0,7,12,14
+	!scr "Avail :$"
+availtx	!scr "000000@"
+	!by $c0,9,12,14
+	!scr "Undo 4Bit :"
+un4tx	!scr " no@"
+	!by $c0,10,12,14
+	!scr "Undo Rend :"
+unrtx	!scr " no@"
+	!by $c0,12,12,14
+	!scr "# of Temps: "
+numttx	!scr " 0@"
+	!by $80
+
+; ----------------------------------------------- 
+
+modend	!eof
