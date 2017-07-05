@@ -1,0 +1,314 @@
+
+!src "..\godotlib.lib"
+*	= $c000
+
+; ------------------------------------------------------------ 
+;
+; mod..ClipInfo
+;
+;    1.00, 02.02.01, first release
+;    1.01, 04.07.17, added big clip awareness
+;
+; ------------------------------------------------------------ 
+
+; ----------------------------------------- Equates
+
+	pport		= $01
+	my		= $30
+	status		= $90
+	fi1		= $111b
+	flength		= $bd20
+	filename		= $bd25
+	type		= $bd37
+	blockbuf		= $be00
+
+; --------------------------------------------- Header
+
+header	jmp start
+	!by $20
+	!by 0
+	!by 1
+	!wo modend
+	!wo 0
+	!pet "Clip Information"
+	!pet "1.01"
+	!pet "04.07.17"
+	!pet "A.Dettke        "
+
+; --------------------------------------------- Requester
+
+select	lda gd_modswitch
+	pha
+	inc used
+	ldx #0
+	stx ls_flen
+	inx
+	jsr gd_xload	; Filerequester ausgeben
+	pla
+	sta gd_modswitch
+	lda #$ff
+	sta used
+nofile	jsr sprite
+	sec
+	rts
+
+; --------------------------------------------- 
+
+start	lda #$ff		; Offset in die Ausgabezeile
+	sta offset
+stt0	lda used
+	bmi select
+
+; --------------------------------------------- Read Data
+
+rdentry	ldx #0
+	stx warn		; .x=0
+	ldy #15		; Namen puffern
+sel5	lda ls_nambuf,y
+	sta dollar+2,y
+	dey
+	bpl sel5
+	lda #0		; Blockpuffer löschen
+sel6	sta blockbuf,y
+	dey
+	bne sel6
+	sta blockbuf
+
+	lda ls_nambuf	; Koalaname?
+	cmp #$c1
+	bne stt1
+	ldx #4		; ja, dann Namen für die Anzeige korrigieren
+sel7	dex
+	beq sel8
+	lda pic,x
+	cmp ls_nambuf,x
+	beq sel7
+sel8	txa
+	bne stt1
+	lda #$81
+	sta dollar+2
+	sta ls_nambuf
+	lda #15
+	sta ls_temp
+	sta ls_flen
+
+stt1	ldx ls_temp
+	stx lmerk
+	cpx #16
+	beq stt2
+	lda #$2a		; Stern anhängen, wenn kürzer als 16
+	sta dollar+2,x
+	sta ls_nambuf,x
+	inc ls_temp
+
+stt2	jsr fileread	; ersten Fileblock puffern
+	beq stt3
+	dec warn		; Fehlerflag vorbereiten
+	lda cntr		; Lesefehler?
+	beq filerr	; ja, "Could not get Information"
+
+stt3	lda ls_flen	; Direintrag puffern
+	clc
+	adc #2
+	ldx #<(dollar)
+	ldy #>(dollar)
+	jsr $ffbd
+	lda #12
+	ldx ls_drive
+	ldy #0
+	jsr $ffba
+	lda #0
+	tax
+	ldy #$bd		; nach $bd00
+	sei
+	jsr $ffd5
+	cli
+
+	ldy #31		; Ausgabepuffer löschen
+	lda #32
+fr1	sta message,y
+	dey
+	bpl fr1
+
+	jsr checkfile	; Filetyp feststellen
+
+	jsr gd_clrms	; Gadget löschen
+	jsr messout	; Meldung ausgeben
+sprite	jsr gd_spron	; Mauszeiger an
+	clc		; im Requester bleiben
+	rts
+
+; --------------------------------------------- 
+
+filerr	jsr gd_clrms	; "Could not get Information"
+	ldx #<(ferr)
+	lda #>(ferr)
+	jsr set
+	jsr messout
+	jmp sprite
+
+; --------------------------------------------- 
+
+fileread	jsr gd_xopen	; einen Block nach $be00 puffern
+	lda #0
+	tay
+	sta sc_vekt20
+	sta cntr
+	lda #>(blockbuf)
+	sta sc_vekt20+1
+fr0	jsr onebyte
+	bne err
+	sta (sc_vekt20),y
+	iny
+	inc cntr
+	bne fr0
+err	php
+	jsr gd_xclose
+	plp
+	rts
+
+; --------------------------------------------- 
+
+messout	ldx #<(message)	; Ergebnis anzeigen
+	ldy #>(message)
+	jmp gd_xtxout2
+
+; --------------------------------------------- 
+
+onebyte	jsr basin		; ein Byte einlesen
+	ldx $90
+	rts
+
+; --------------------------------------------- 
+
+dollar	!pet "$:"
+	!fill 16,32
+cntr	!by 0
+used	!by $ff
+warn	!by 0
+offset	!by 0
+lmerk	!by 0
+ftype	!by 0
+
+; --------------------------------------------- 
+
+message	!fill 32,32
+	!by 0
+
+; --------------------------------------------- 
+
+god0	!pet "god0"
+pic	!pet ".pic"
+
+; --------------------------------------------- 
+
+checkfile	ldx #$ff		; Kennung vergleichen
+g1	inx
+	lda blockbuf,x	; "GOD"
+	cmp god0,x
+	beq g1
+	sta ftype
+	cmp #$31		; "0" oder "1"?
+	beq g21
+g2	cpx #4		; oder keins?
+	bne soth
+	ldx #<(godot)	; 0: GoDot Image
+	lda #>(godot)
+nd3	bne set
+g21	jsr laenge
+	ldx #<(cgodot)	; 1: GoDot Clip
+	lda #>(cgodot)
+	bne set
+soth	ldx #<(nogod)	; sonst: kein GoDotbild
+	lda #>(nogod)
+
+; --------------------------------------------- 
+
+set	stx ls_vekta8	; Info in Ausgabepuffer eintragen
+	sta ls_vekta8+1
+	ldy #$ff
+	ldx offset
+set0	iny
+	inx
+	cpx #32
+	beq set1
+	lda (ls_vekta8),y
+	sta message,x
+	bne set0
+set1	dex
+	stx offset
+	rts
+
+; --------------------------------------------- Clipparameter holen
+
+laenge	ldy #3
+	jsr getpars	; Zeile
+	sta y+1
+	jsr space
+	stx y
+	jsr getpars	; Spalte
+	sta x+1
+	jsr space
+	stx x
+
+	jsr getpars2	; Breite
+-	lda sy_numbers,y
+	sta wid,x
+	dex
+	dey
+	bpl -
+
+	ldy my
+	jsr getpars2	; Höhe
+	ldy #0
+-	lda sy_numbers,y
+	beq +
+	sta hgt,y
+	iny
+	bne -
++	rts
+
+getpars	iny
+	lda blockbuf,y
+	jmp gd_xcnvdez
+
+getpars2	iny
+	sty my
+	lda blockbuf,y
+	tax
+	lda #0
+	sta $62
+	stx $63
+	inc pport
+	ldx #$90
+	sec
+	jsr $bc49
+	jsr $bddf
+	dec pport
+	ldy #6
+-	dey
+	lda sy_numbers,y
+	bne -
+	dey
+	ldx #2
+	rts
+	
+space	cpx #$30
+	bne rl0
+	ldx #$20
+rl0	rts
+
+; --------------------------------------------- 
+
+cgodot	!scr "  GoDot Clip: "
+wid	!scr "   x"			; offset 15
+hgt	!scr "    at "			; offset 19
+y	!scr "  ,"			; offset 26
+x	!scr "    @"			; offset 29
+godot	!scr "  GoDot Standard: 40x25 at 0,0  @"
+nogod	!scr "       Not a GoDot Image.       @"
+ferr	!scr "   Could not get Information.   @"
+
+; --------------------------------------------- 
+
+modend	!eof
