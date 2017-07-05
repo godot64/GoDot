@@ -11,6 +11,7 @@
 ; 1.05, 20.03.02: removed Dirty flag,
 ;                 changed captions of clip windows
 ; 1.06, 05.10.05: bugfix: wrong colors when executed from ram
+; 1.07, 05.07.17: bugfix: activity bar exceeding lower limit on clrclp outside
 ;
 ; ------------------------------------------------ 
 
@@ -79,8 +80,8 @@
 	!wo modend
 	!wo 0
 	!pet "ClipWorks       "
-	!pet "1.05"
-	!pet "20.03.02"
+	!pet "1.07"
+	!pet "05.07.17"
 	!pet "A. Dettke       "
 
 ; ------------------------------------------------ Main
@@ -1444,9 +1445,8 @@ adl0	sta spr255+3,y
 	lda #146
 	sta y2
 	sta y2+2
-	lda #$ff
-	sta sprptr+2
-	sta sprptr+3
+	sty sprptr+2
+	sty sprptr+3
 	lda spren
 	ora #12
 	sta spren
@@ -1667,7 +1667,7 @@ ml2	dec cnt
 	ora cnt+1
 	beq ml3
 	jsr adinc
-z1	 lda col
+z1	lda col
 	sta (data),y
 	inc data
 	bne ml1
@@ -1730,7 +1730,9 @@ ml4	clc		; compute height
 	sta data+1
 	stx data
 	jsr zero1
-ml5	lda sc_clipsp	; get indent, clip from left border?
+ml5	lda sc_merk
+	sta vert
+	lda sc_clipsp	; get indent, clip from left border?
 	beq ml6		; yes
 	jsr mal32		; no, clear
 	jsr initclr
