@@ -1,0 +1,155 @@
+
+	!src "..\godotlib.lib"
+	*= $c000
+
+; --------------------------------------
+;
+;    mod.applymap
+;
+; 0.99, 31.10.91: first release
+; 1.00, 13.11.92: added activity bar
+; 1.01, 07.07.17: added check on changed balancing
+;
+; -------------------------------------- 
+
+
+; -------------------------------------- Equates
+
+	buf		= $30
+	adcnt		= $31
+	data		= $32	; /$33
+
+	y2		= $d005
+;
+; -------------------------------------- Header
+
+	jmp start
+	!by $20
+	!by $00,$00
+	!wo modend
+	!wo $00
+	!pet "Apply Map       "
+	!pet "1.01"
+	!pet "07.07.17"
+	!pet "W.Kling         "
+;
+; -------------------------------------- Main
+
+start	lda gr_ctr	; contrast changed?
+	cmp #16
+	bne +		; yes, apply
+	lda gr_brt	; brightness changed?
+	cmp #16
+	beq ++		; no, leave
+
++	jsr initad	; activity bar on
+	lda #$00		; work from $4000...
+	ldy #$40
+	sta data
+	sty data+1
+
+	ldy #0		; pagewise
+aloop	lda (data),y	; get byte (double pixel)
+	pha
+	and #15		; split (1st: right pixel)
+	tax
+	lda gr_btab,x	; apply balancing
+	sta buf
+	pla
+	lsr 		; (2nd: left pixel)
+	lsr 
+	lsr 
+	lsr 
+	tax 
+	lda gr_btab,x	; apply balancing
+	asl 		; shift back
+	asl 
+	asl 
+	asl 
+	ora buf		; combine the two new values
+	sta (data),y	; and write back new double pixel
+	iny
+	bne aloop
+	jsr adinc		; activity
+	inc data+1	; next page
+	lda data+1
+	cmp #$bd		; ...up to $bd00
+	bne aloop
+
+	jsr resetbal	; reset balancing
+
+	jmp clearad	; activity bar off
+
+; -------------------------------------- End Sequence
+
+clearad	lda $d015		; sprites aus
+	and #$f3
+	sta $d015
+	lda $d010
+	and #$f3
+	sta $d010
+	lda #$ff		; redisp setzen
+	sta gr_redisp
+++	clc 		; fertig
+	rts 
+
+; -------------------------------------- Activity Handler
+
+adinc	dec adcnt
+	bne +
+	lda #3
+	sta adcnt
+	inc y2
+	inc y2+2
++	rts
+
+; -------------------------------------- sprite-activity initialisieren
+
+initad 	ldy #60		; 60 (plus 3) Bytes
+	lda #$00		; Sprite-Block 255 löschen
+- 	sta $3fc3,y
+	dey 
+	bpl -
+	sty $3fc0		; dünner Strich oben
+	sty $3fc1
+	sty $3fc2
+	lda #$0f		; Farbe weiß
+	sta $d029
+	sta $d02a
+	lda $d01d		; doppelt breit
+	ora #$0c
+	sta $d01d
+	lda $d010		; Position setzen
+	ora #$0c
+	sta $d010
+	lda #$08
+	sta $d004
+	lda #$20
+	sta $d006
+	lda #$92
+	sta $d005
+	sta $d007
+	sty $07fa		; Sprite-Block 255 setzen
+	sty $07fb
+	lda $d015
+	ora #$0c
+	sta $d015
+	lda #3		; Zähler initialisieren
+	sta adcnt
+	rts 
+
+; -------------------------------------- Reset Balancing
+
+resetbal	ldy #15
+-	tya
+	sta gr_btab,y
+	dey
+	bpl -
+	lda #16
+	sta gr_ctr
+	sta gr_brt
+	rts
+
+; -------------------------------------- 
+
+modend	!eof
