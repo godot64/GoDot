@@ -1,0 +1,210 @@
+
+	!src "..\godotlib.lib"
+	*= $c000
+
+; --------------------------------------
+;
+; mod.Average
+;
+; gray:   0.99, 10.11.92, first release
+;         1.00, 05.09.04, bugfix in algorithm
+; color:  0.99, 13.11.92, first release
+; both:   1.01, 06.07.17, combined modifier gray & color
+; 
+; -------------------------------------- 
+
+
+; -------------------------------------- Equates
+
+	adcnt		= $34
+	src		= $35	; /$36
+	buf		= $39
+	spr255		= $3fc0
+	y2		= $d005
+	spren		= $d015
+
+; -------------------------------------- Header
+
+	JMP start
+
+	!by $20
+	!by 0
+	!by 0
+	!wo modend
+	!wo 0
+	!pet "Average values  "
+	!pet "1.01"
+	!pet "06.07.17"
+	!pet "W.Kling/AD      "
+addtx	!pet "Gray:Nib+Nib/2  "
+	!pet "Col:Nib+Nib->tab"
+	!by 0
+
+; -------------------------------------- Main
+
+start	ldx #<(avlst)
+	ldy #>(avlst)
+	jmp gd_xmloop
+
+; -------------------------------------- Event: Gray
+
+evgray	JSR initad	; init activity bar
+	LDA #$00		; from $4000...
+	LDY #$40
+	STA src
+	STY src+1
+
+	LDY #$00		; pagewise
+st0	LDA (src),Y	; get byte (double nibble)
+	PHA
+	AND #$0F
+	STA buf
+	PLA
+	LSR
+	LSR
+	LSR
+	LSR
+	clc
+	ADC buf		; add nibbles
+	LSR		; and halve
+	TAX
+	LDA dnibs,X	; get according gray
+	STA (src),Y	; and set
+	INY
+	BNE st0
+
+	jsr increm
+	BNE st0
+	JMP clearad	; end activity
+	
+; -------------------------------------- Event: Color
+
+evcolor	JSR initad	; init activity bar
+	LDA #$00		; from $4000...
+	LDY #$40
+	STA src
+	STY src+1
+
+	LDY #$00		; pagewise
+st1	LDA (src),Y	; get byte (double nibble)
+	TAX
+	LDA coltab,X	; get according new value
+	STA (src),Y	; sand set
+	INY
+	BNE st1
+
+	jsr increm
+	BNE st1
+	jmp clearad
+	
+; -------------------------------------- 
+
+increm	JSR adinc		; activity
+	INC src+1		; next page
+	LDA src+1
+	CMP #$BD
+	rts
+
+; -------------------------------------- Activity Handler: Move Bar
+
+adinc	DEC adcnt
+	BNE st2
+	LDA #$03
+	STA adcnt
+	INC y2
+	INC y2+2
+st2	RTS
+
+; -------------------------------------- Clear Bar
+
+clearad	LDA spren
+	AND #$f3
+	STA spren
+	LDA spritehi
+	AND #$F3
+	STA spritehi
+	LDA #$01
+	STA gr_redisp
+
+; -------------------------------------- Event: Cancel
+
+evcan	sec
+	rts
+
+; -------------------------------------- Init Bar
+
+initad	LDY #$3C
+	LDA #$00
+adl0	STA spr255+3,Y
+	DEY
+	BPL adl0
+	STY spr255
+	STY spr255+1
+	STY spr255+2
+	LDA #$0F
+	STA $D029
+	STA $D02A
+	LDA $D01D
+	ORA #$0C
+	STA $D01D
+	LDA spritehi
+	ORA #$0C
+	STA spritehi
+	LDA #$08
+	STA $D004
+	LDA #$20
+	STA $D006
+	
+	LDA #$92
+	STA y2
+	STA $D007
+	sty $07FA
+	sty $07FB
+	LDA spren
+	ORA #$0C
+	STA spren
+	LDA #$03
+	STA adcnt
+	RTS
+
+; -------------------------------------- Requester
+
+avlst	!by 0
+	!by 6,12,17,13,$81,0,0
+	!scr "Average@"
+sdith	!by 10,12,17,3,$ca,<evgray,>evgray
+dithtx	!scr "Gray Values@"
+smode	!by 13,12,17,3,$ca,<evcolor,>evcolor
+modetx	!scr "Color Values@"
+	!by 16,12,17,3,$c9,<evcan,>evcan
+	!scr "Cancel@"
+	!by $c0,8,12,15
+	!scr "Apply Pixels as@"
+	!by $80
+
+; -------------------------------------- 
+
+dnibs	!by $00, $11, $22, $33, $44, $55, $66, $77 
+	!by $88, $99, $aa, $bb, $cc, $dd, $ee, $ff   
+
+coltab	!by $00, $00, $00, $00, $22, $33, $22, $33, $33, $33, $33, $33, $33, $33, $33, $77
+	!by $00, $11, $33, $11, $33, $11, $33, $33, $88, $55, $33, $77, $88, $77, $77, $88
+	!by $00, $22, $22, $22, $44, $33, $22, $33, $77, $66, $33, $77, $77, $66, $aa, $77
+	!by $00, $11, $22, $33, $22, $33, $22, $33, $77, $77, $33, $77, $77, $77, $aa, $77
+	!by $22, $55, $44, $22, $44, $44, $44, $33, $55, $66, $33, $77, $77, $66, $33, $99
+	!by $33, $11, $44, $33, $44, $55, $44, $55, $88, $55, $77, $77, $88, $99, $33, $99
+	!by $22, $22, $22, $22, $44, $44, $66, $66, $77, $99, $66, $99, $77, $99, $aa, $99
+	!by $33, $33, $33, $33, $33, $55, $66, $77, $88, $99, $77, $77, $bb, $bb, $ee, $bb
+	!by $33, $88, $55, $77, $55, $88, $77, $88, $88, $99, $77, $88, $cc, $bb, $bb, $bb
+	!by $33, $55, $66, $77, $66, $55, $99, $99, $99, $99, $77, $bb, $bb, $99, $bb, $bb
+	!by $33, $11, $aa, $33, $22, $11, $66, $77, $88, $bb, $aa, $ee, $ee, $ee, $aa, $bb
+	!by $33, $77, $77, $77, $77, $77, $99, $77, $88, $bb, $ee, $bb, $bb, $dd, $bb, $ff
+	!by $33, $88, $ee, $77, $77, $88, $ee, $bb, $cc, $bb, $ee, $bb, $cc, $bb, $ee, $ff
+	!by $33, $77, $66, $77, $66, $99, $99, $bb, $bb, $99, $ee, $dd, $bb, $dd, $ee, $ff
+	!by $33, $11, $aa, $aa, $22, $55, $aa, $ee, $cc, $bb, $aa, $bb, $ee, $ee, $ee, $bb
+	!by $77, $88, $77, $77, $99, $99, $99, $bb, $bb, $bb, $bb, $ff, $ff, $ff, $bb, $ff
+
+; -------------------------------------- 
+
+modend	!eof 
+
