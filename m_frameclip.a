@@ -1,0 +1,537 @@
+	!src "..\godotlib.lib"
+	*= $c000
+
+; ------------------------------------------------     
+;
+; mod.FrameClip
+; Modul zum Umrahmen von Clips oder ganzen Bildern
+;
+;   1.01, 08.11.93, neu: Color Chooser
+;   1.03, 03.11.05, neu: dick/dünn und Ganzbild
+;
+; ------------------------------------------------ 
+
+
+; ------------------------------------------------ Equates
+
+	adcnt	= $30
+	inrowo	= $31
+	inrowu	= $32
+	lrpix	= $33
+	color	= $34
+	dst	= $37	; /$38
+	linenr	= $39
+	blcnt	= $3a
+	fbcol	= $3b
+	fbwid	= $3c
+	fbrowo	= $3d
+	fbrowu	= $3e
+
+	lbuf	= $c400
+	y2	= $d005
+
+; ------------------------------------------------ Header
+
+	jmp start
+	!by $20
+	!by $00
+	!by $00
+	!wo modend 
+	!wo 0
+	!pet "Frame the Clip  "
+	!pet "1.03"
+	!pet "03.11.05"
+	!pet "W.Kling/A.Dettke"
+
+; ------------------------------------------------ Event: Execute
+
+evexec	jsr initad
+	lda mode		; Full oder Clip?
+	beq +		; bei 0: Full
+	lda sc_lastclpzl
+	asl
+	asl
+	asl
++	tax 
+	stx fbrowo	; Startzeile oben
+	inx 
+	stx inrowo	; Zeile innen
+
+	lda mode		; Full oder Clip?
+	bne +		; bei 1: Clip
+	lda #25
+	bne ++
++	lda sc_lastclpho
+	clc 
+	adc sc_lastclpzl
+++	asl
+	asl
+	asl
+	tax 
+	dex 
+	stx fbrowu	; Endzeile unten
+	dex 
+	stx inrowu	; Endzeile innen
+
+	lda mode		; Full oder Clip?
+	beq +		; bei 0: Full
+	lda sc_lastclpsp
+	asl
+	asl
++	sta fbcol		; Startspalte
+
+	lda mode		; Full oder Clip?
+	bne +		; bei 1: Clip
+	lda #40
+	bne ++
++	lda sc_lastclpbr
+	clc 
+	adc sc_lastclpsp
+++	asl
+	asl
+	tax 
+	dex 
+	stx fbwid		; Breite
+
+; ------------------------------------------------ 
+
+	lda #0		; aktuelle Zeile
+	sta linenr
+
+loop0	lda linenr
+	cmp fbrowo	; oben erreicht?
+	bcc +		; nein, überspringen
+	cmp fbrowu	; unten erreicht?
+	beq ++
+	bcc ++
++	jmp adinc		; nein, überspringen
+
+++	pha 		; sonst: frame it
+	lsr		; 4Bit-Adresse berechnen
+	lsr
+	lsr
+	tax 
+	pla 
+	and #7
+	asl
+	asl
+	sta dst
+	lda fbhigh,x
+	sta dst+1
+
+	ldx #0		; 40 Kacheln
+	lda #40
+	sta blcnt
+--	ldy #0
+-	lda (dst),y
+	sta lbuf,x
+	inx 
+	iny 
+	cpy #4
+	bne -
+	lda dst
+	clc 
+	adc #32
+	sta dst
+	bcc +
+	inc dst+1
++	dec blcnt
+	bne --
+
+	lda gr_picked
+	and #15
+	tax 
+	lda cdnib,x
+	sta color
+	ldx howisit	; thick or thin
+	bne +		; bei 1: thick
+	jsr $c1a9		; sonst: thin
+	jmp ++
+
++	ldx fbcol
+	ldy fbwid
+	sta lbuf,x
+	sta lbuf,y
+
+++	ldx linenr
+	cpx fbrowo
+	beq ++
+	ldy howisit
+	beq +
+	cpx inrowo
+	beq ++
+
++	cpx fbrowu
+	beq ++
+	ldy howisit
+	beq +
+	cpx inrowu
+	beq ++
++	jmp +++
+
+++	ldx fbwid
+	lda color
+-	sta lbuf,x
+	dex 
+	cpx fbcol
+	bne -
+	sta lbuf,x
+
++++	lda linenr
+	pha 
+	lsr
+	lsr
+	lsr
+	tax 
+	pla 
+	and #7
+	asl
+	asl
+	sta dst
+	lda fbhigh,x
+	sta dst+1
+
+	ldx #0
+	lda #40
+	sta blcnt
+--	ldy #0
+-	lda lbuf,x
+	inx 
+	sta (dst),y
+	iny 
+	cpy #4
+	bne -
+	lda dst
+	clc 
+	adc #32
+	sta dst
+	bcc +
+	inc dst+1
++	dec blcnt
+	bne --
+
+adinc	inc linenr
+	ldx adcnt		; activity
+	dex 
+	bne +
+	inc y2
+	inc y2+2
+	ldx #5
++	stx adcnt
+	lda linenr
+	cmp #200
+	beq clearad
+	jmp loop0
+
+; ------------------------------------------------ 
+
+fbhigh	!by $40,$45,$4a,$4f,$54
+	!by $59,$5e,$63,$68,$6d
+	!by $72,$77,$7c,$81,$86
+	!by $8b,$90,$95,$9a,$9f
+	!by $a4,$a9,$ae,$b3,$b8
+
+cdnib	!by $00,$ff,$44,$cc,$55,$aa,$11,$dd
+	!by $66,$22,$99,$33,$77,$ee,$88,$bb 
+
+; ------------------------------------------------ 
+
+clearad	lda #$ff
+	sta gr_redisp
+	lda $d015
+	and #$f3
+	sta $d015
+	lda $d010
+	and #$f3
+	sta $d010
+
+; ------------------------------------------------ Event: Cancel
+
+evcan	sec 
+	rts 
+
+; ------------------------------------------------ Thin
+
+thin	pha 		; save color
+	and #$f0
+	sta lrpix
+	ldx fbcol
+	lda lbuf,x
+	and #$0f
+	ora lrpix
+	sta lbuf,x
+	pla 		; bring back color
+	and #$0f
+	sta lrpix
+	ldy fbwid
+	lda lbuf,y
+	and #$f0
+	ora lrpix
+	sta lbuf,y
+	rts 
+
+; ------------------------------------------------ Event: Choose Mode
+
+evchmode	ldx mode
+	beq +
+	ldx #$ff
++	inx 
+	stx mode
+	bne +
+	ldy #5
+	bne ++
++	ldy #11
+++	ldx #5
+-	lda area,y
+	sta areatx,x
+	dey 
+	dex 
+	bpl -
+	ldy #0
+	beq +++
+
+; ------------------------------------------------ Event: Choose Thickness
+
+evhow	ldx howisit
+	beq +
+	ldx #$ff
++	inx 
+	stx howisit
+	bne +
+	ldy #5
+	bne ++
++	ldy #11
+++	ldx #5
+-	lda how,y
+	sta howtx,x
+	dey 
+	dex 
+	bpl -
+	ldy #2
++++ 	jsr settext
+	ldy #6
+	jmp gd_xtxout1
+
+; ------------------------------------------------ Text Handler
+
+gettext	!wo areagad
+	!wo howgad 
+
+; ------------------------------------------------ 
+
+settext	lda #<gettext
+	sta sc_texttab
+	lda #>gettext
+	sta sc_texttab+1
+	lda (sc_texttab),y
+	sta sc_screentab
+	iny 
+	lda (sc_texttab),y
+	sta sc_screentab+1
+	lda #0
+	tax 
+	tay 
+-	jsr gd_setpos
+	cpx #4
+	bne -
+	jsr gd_trim
+	jmp gd_initmove
+
+; ------------------------------------------------ initad
+
+initad 	ldy #$3c
+	lda #$00
+-	sta $3fc3,y
+	dey 
+	bpl -
+	sty $3fc0
+	sty $3fc1
+	sty $3fc2
+	lda #15
+	sta $d029
+	sta $d02a
+	lda $d01d
+	ora #$0c
+	sta $d01d
+	lda $d010
+	ora #$0c
+	sta $d010
+	lda #8
+	sta $d004
+	lda #32
+	sta $d006
+	lda #$92
+	sta y2
+	sta y2+2
+	sty $07fa
+	sty $07fb
+	lda $d015
+	ora #$0c
+	sta $d015
+	lda #5
+	sta adcnt
+	rts 
+
+; ------------------------------------------------ Kringel
+
+makech	ldx #7
+-	lda char,x
+	sta sc_undochar,x
+	dex 
+	bpl -
+	rts 
+
+; ------------------------------------------------ 
+
+char	!by $00,$5c,$62,$72,$02,$02,$3c,$00
+
+area	!by $df
+	!scr "Full "
+	!by $df
+	!scr "Clip "
+
+mode	!by 0
+
+how	!by $df 
+	!scr "Thin "
+	!by $df 
+	!scr "Thick"
+
+howisit	!by 1
+
+; ------------------------------------------------ Screenlist
+
+fclst	!by $00 
+	!by 13,14,16,11,$91,0,0
+	!scr "FrameClip@"
+palgad	!by 15,15,6,6,$40,<evgetcol,>evgetcol
+areagad	!by 15,21,8,3,$c0,<evchmode,>evchmode
+areatx	!by $df
+	!scr "Full @"
+howgad	!by 18,21,8,3,$c0,<evhow,>evhow
+howtx	!by $df
+	!scr "Thick@"
+	!by 21,15,6,3,$cc,<evexec,>evexec
+	!scr "Exec@"
+	!by 21,21,8,3,$cc,<evcan,>evcan
+	!scr "Cancel@"
+	!by $80 
+
+; ------------------------------------------------ Main
+
+start	jsr makech	; Kringel
+
+	ldx #<fclst	; Screenlist ausgeben
+	ldy #>fclst
+	jsr gd_screen
+	sta sc_loop
+
+	ldx palgad	; init chooser
+	inx 
+	stx palzl
+	stx sc_zl
+	ldx palgad+1
+	inx 
+	stx palsp
+	stx sc_sp
+	ldx #4
+	stx sc_br
+	stx sc_ho
+	jsr gd_esm3
+	lda gr_picked
+	and #15
+	tax 
+	jsr makepal
+
+	jmp gd_eloop
+
+; ------------------------------------------------ Makepal
+
+makepal	lda gr_picked
+	and #15
+	sta plast
+	lda palsp
+	sta sc_sp
+	pha 
+	ldx #1
+	stx sc_br
+	stx sc_ho
+	dex 
+	stx cnty
+	stx hold
+mp1	stx cntx
+	ldy hold
+	lda gr_basepal,y
+	sta sc_chgcol
+	ldx #4
+	jsr gd_fcol
+	sec 
+	lda sc_vekt20
+	sbc #40
+	sta sc_vekt20
+	lda sc_vekt20+1
+	sbc #$d4
+	sta sc_vekt20+1
+	ldy sc_chgcol
+	cpy plast
+	beq mp2
+	lda #160
+	bne mp3
+mp2	lda #171
+mp3 	ldy #0
+	sta (sc_vekt20),y
+	inc sc_sp
+	inc hold
+	ldx cntx
+	inx 
+	cpx #4
+	bne mp1
+	pla 
+	pha 
+	sta sc_sp
+	ldx #0
+	inc sc_zl
+	inc cnty
+	lda cnty
+	cmp #4
+	bne mp1
+	pla 
+	rts 
+
+; ------------------------------------------------ Event: Getcol
+
+evgetcol	sec 
+	lda sc_merk
+	sbc palzl
+	asl
+	asl
+	sta hold
+	sec 
+	lda sc_merk+1
+	sbc palsp
+	clc 
+	adc hold
+	tax 
+	lda gr_basepal,x
+	tax 
+	ora #$80
+	sta gr_picked
+	jsr makepal
+	clc 
+	rts 
+
+; ------------------------------------------------ 
+
+palzl	!by 0
+palsp	!by 0
+hold	!by 0
+plast	!by 0
+cntx	!by 0
+cnty	!by 0
+
+c64pal:	!by $00,$ff,$44,$cc,$55,$aa,$11,$dd
+	!by $66,$22,$99,$33,$77,$ee,$88,$bb
+
+; ------------------------------------------------ 
+
+modend	!eof
