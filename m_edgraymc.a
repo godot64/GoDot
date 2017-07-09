@@ -1,0 +1,350 @@
+	!src "..\godotlib.lib"	; library nicht erforderlich
+	*=$c000
+
+; ------------------------------------------------ 
+;
+; mod.EDgrayMC
+; Modul zum Reduzieren der Farben
+; nach den Error-Distribution-Verfahren
+; als Multicolor-Doppelpixel
+;
+; 0.99, 09.04.94
+; 1.00, 09.07.17, added palette reset
+;
+; re-assembled on 09.07.2017
+;
+; ------------------------------------------------ 
+
+; ------------------------------------------------ Declarations
+
+	adcnt	= $30
+	dst	= $35
+	src	= $37
+	linenr	= $39
+	bcnt	= $3a
+	m2err	= $3b
+	m3err	= $3c
+	perr	= $3d
+	m1err	= $3e
+	derr	= $3f
+	ccol	= $41
+
+	makeqtab	= $17c9
+	numcols	= $1ee9
+	buffer	= $c400
+	cpalette	= $c600
+	y2	= $d005
+
+; ------------------------------------------------ Header
+
+	jmp start
+	!by $20
+	!by $00
+	!by $00
+	!wo modend 
+	!wo 0
+	!pet "reduce ed graymc"
+	!pet "1.00"
+	!pet "09.07.17"
+	!pet "W.Kling         "
+
+; ------------------------------------------------ Main
+
+start	ldx sc_screenvek
+	lda sc_screenvek+1
+	stx screenpos
+	sta screenpos+1
+
+	jsr initad	; prepare activity
+
+	lda #0		; clear buffer
+	tay 
+-	sta buffer,y
+	iny 
+	cpy #160
+	bne -
+	sta linenr	; 200 rasterlines (from 0 to 199)
+
+	jsr makepal
+
+--	jsr getline
+	ldy #0		; apply error distribution
+	sty perr
+-	lda buffer,y
+	clc 
+	adc perr
+	sta derr
+	lda sy_bigbuffer,y
+	asl
+	asl
+	sta m1err
+	bit derr
+	bmi +
+	adc derr
+	sec 
+	ror derr+1
+	jmp ++
+
++	lda derr
+	adc m1err
+	ror derr+1
+
+++	sta m2err		; new color
+	bit derr+1
+	bmi +
+	lda #0
++	cmp #$79
+	bcc +
+	lda #$78
++	lsr		; /8: index into palette
+	lsr
+	lsr
+	tax 
+	lda cpalette,x	; get new color
+	sta sy_bigbuffer,y
+	asl
+	asl
+	asl
+	sta m3err
+	lda m2err
+	sec 
+	sbc m3err
+	clc 
+	bpl +
+	sec 
++	ror
+	sta buffer,y
+	sta perr
+	iny 
+	cpy #160
+	bne -
+	jsr putline	; then transfer it to 4bit 
+
+	inc linenr	; next rasterline
+
+adinc	dec adcnt		; activity
+	bne +
+	inc y2
+	inc y2+2
+	lda #5
+	sta adcnt
+
++	lda linenr	; count rasterlines
+	cmp #200
+	beq resetpal
+	jmp --
+
+resetpal	lda #16
+	sta gr_howmany	; volle Farbanzahl erzeugen
+	jsr gd_xcnvdez	; in Ziffern wandeln
+	ldy #2
+	sta numcols,y	; Einer eintragen
+	txa		; Zehner eintragen, wenn nicht 0
+	and #15
+	bne +
+	ldx #32
++	txa
+	dey
+	sta numcols,y
+	jsr makeqtab	; reset quantisation table
+	dex		; reset colors (.x=16)
+-	lda gr_basepal,x
+	sta gr_palette,x
+	dex
+	bpl -
+
+	lda #$31
+	sta ls_imode
+	lda #$36
+	sta ls_imode+1
+
+	jsr clearad	; then clear activity bar
+	ldx screenpos
+	ldy screenpos+1
+	jsr gd_screen
+	clc
+	rts
+
+; ------------------------------------------------ 
+
+godcols	!by $00,$0f,$04,$0c,$05,$0a,$01,$0d
+	!by $06,$02,$09,$03,$07,$0e,$08,$0b
+
+; ------------------------------------------------ 
+
+getline	lda linenr	; compute 4bit address
+	pha 
+	lsr
+	lsr
+	lsr
+	tax 
+	pla 
+	and #7
+	asl
+	asl
+	sta dst
+	ldy fbhigh,x
+	sty dst+1
+	sta src
+	sty src+1
+
+	ldx #0
+	lda #40		; 40 Kacheln
+	sta bcnt
+--	ldy #0
+-	lda (dst),y	; isolate one rasterline
+	lsr
+	lsr
+	lsr
+	lsr
+	sta sy_bigbuffer,x
+	lda (dst),y
+	and #15
+	clc 
+	adc sy_bigbuffer,x
+	sta sy_bigbuffer,x
+	inx 
+	iny 
+	cpy #4
+	bne -
+
+	lda dst
+	clc 
+	adc #32
+	sta dst
+	bcc +
+	inc dst+1
++	dec bcnt		; bis alle durch
+	bne --
+	rts 
+
+; ------------------------------------------------ 
+
+putline	lda src
+	ldy src+1
+	sta dst
+	sty dst+1
+
+	ldx #0
+	lda #40		; 40 Kacheln
+	sta bcnt
+--	ldy #0
+-	lda sy_bigbuffer,x
+	asl
+	asl
+	asl
+	asl
+	ora sy_bigbuffer,x
+	inx 
+	sta (dst),y
+	iny 
+	cpy #4
+	bne -
+	lda dst
+	clc 
+	adc #32
+	sta dst
+	bcc +
+	inc dst+1
++	dec bcnt		; bis alle durch
+	bne --
+	rts 
+
+; ------------------------------------------------ 
+
+fbhigh	!by $40,$45,$4a,$4f,$54
+	!by $59,$5e,$63,$68,$6d
+	!by $72,$77,$7c,$81,$86
+	!by $8b,$90,$95,$9a,$9f
+	!by $a4,$a9,$ae,$b3,$b8
+
+; ------------------------------------------------ 
+
+screenpos	!wo 0
+
+; ------------------------------------------------ 
+
+clearad	lda #$ff
+	sta gr_redisp
+	lda $d015
+	and #$f3
+	sta $d015
+	lda spritehi
+	and #$f3
+	sta spritehi
+	clc 
+	rts 
+
+; ------------------------------------------------ initad
+
+initad 	ldy #$3c
+	lda #$00
+-	sta $3fc3,y
+	dey 
+	bpl -
+	sty $3fc0
+	sty $3fc1
+	sty $3fc2
+	lda #15
+	sta $d029
+	sta $d02a
+	lda $d01d
+	ora #$0c
+	sta $d01d
+	lda spritehi
+	ora #$0c
+	sta spritehi
+	lda #8
+	sta $d004
+	lda #32
+	sta $d006
+	lda #$92
+	sta y2
+	sta y2+2
+	sty $07fa
+	sty $07fb
+	lda $d015
+	ora #$0c
+	sta $d015
+	lda #5
+	sta adcnt
+	rts 
+
+; ------------------------------------------------ 
+
+makepal	ldy #0
+-	ldx gr_palette,y
+	lda godcols,x
+	sta npalette,y
+	iny 
+	cpy gr_howmany
+	bne -
+	ldy #15
+--	ldx #0
+	lda #16
+	sta ccol
+-	tya 
+	sec 
+	sbc npalette,x
+	beq ++
+	bcs +
+	eor #$ff
+	adc #1
++	cmp ccol
+	bcs +
+++	sta ccol
+	lda npalette,x
+	sta cpalette,y
++	inx 
+	cpx gr_howmany
+	bne -
+	dey 
+	bpl --
+	rts 
+
+npalette	!fill 16,5
+
+; ------------------------------------------------ 
+
+modend	!eof
+
