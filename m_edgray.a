@@ -5,11 +5,14 @@
 ;
 ; mod.EDgray
 ; Modul zum Reduzieren der Farben
-; nach den Error-Distribution-Verfahren
+; nach dem Error-Distribution-Verfahren
 ;
 ; 1.00, 06.04.93
 ; 1.01, 24.09.93
-; 1.02, 09.07.17, added palette reset
+; 1.02, 09.07.17, added palette reset,
+;                 combined Hires and MC,
+;                 added requester
+; 1.03, 10.07.17, combined with EDmono
 ;
 ; re-assembled on 28.05.2017
 ;
@@ -18,6 +21,9 @@
 ; ------------------------------------------------ Declarations
 
 	adcnt	= $30
+	mono1	= $31
+	mono2	= $32
+	ymrk	= $33
 	dst	= $35
 	src	= $37
 	linenr	= $39
@@ -28,11 +34,12 @@
 	m1err	= $3e
 	derr	= $3f
 	count	= $41
+	ccol	= $41
 
 	makeqtab	= $17c9
 	numcols	= $1ee9
-	buffer	= $c400
-	cpalette	= $c600
+	buffer	= $c600
+	cpalette	= $c740
 	y2	= $d005
 
 ; ------------------------------------------------ Header
@@ -44,27 +51,47 @@
 	!wo modend 
 	!wo 0
 	!pet "reduce ed gray  "
-	!pet "1.02"
-	!pet "09.07.17"
+	!pet "1.03"
+	!pet "11.07.17"
 	!pet "W.Kling         "
 
-; ------------------------------------------------ Main
+; -------------------------------------- Main
 
-start	ldx sc_screenvek
-	lda sc_screenvek+1
-	stx screenpos
-	sta screenpos+1
+start	jsr makechar
+	ldx #<(edlst)
+	ldy #>(edlst)
+	jmp gd_xmloop
 
-	jsr initad	; prepare activity
+; ------------------------------------------------ Event: Set Gamma Values
 
-	lda #0		; clear buffer
-	tay 
--	sta buffer,y
-	sta buffer+160,y
-	iny 
-	cpy #160
-	bne -
-	sta linenr	; 200 rasterlines (from 0 to 199)
+evgamma	lda gamma
+	cmp #2
+	bne evg0
+	lda #$ff
+	sta gamma
+evg0	inc gamma
+	ldy gamma
+	ldx goffs,y
+	ldy #3
+-	lda gammavals,x
+	sta gammatx,y
+	dex
+	dey
+	bpl -
+	ldx #<sgamma
+	ldy #>sgamma+1
+	jmp settext
+
+; ------------------------------------------------ Event: Reduce to Monochrome
+
+evmono	ldy #1
+	bne +
+
+; ------------------------------------------------ Event: Reduce Hires
+
+evhires	ldy #0
++	sty mode
+	jsr init
 
 	ldy #15		; prepare palette
 -	ldx gr_qtab,y
@@ -74,8 +101,11 @@ start	ldx sc_screenvek
 	sta cpalette,y
 	dey 
 	bpl -
+	sta mono1
+	lda cpalette+15
+	sta mono2
 
---	jsr getline	; buffer one rasterline
+--	jsr getlineh	; buffer one rasterline
 	lda #<sy_bigbuffer
 	ldx #>sy_bigbuffer
 	sta dst
@@ -96,7 +126,110 @@ start	ldx sc_screenvek
 	adc perr
 	sta derr
 	lda (dst),y
+
+	sty ymrk
+	tax
+	lda mode
+	beq +
+	ldy gamma		; Gamma:
+	beq +		; 1.00
+	dey
+	beq ++		; 0.35
+	lda g180,x	; 1.80
+	jmp hr0
++	txa
 	asl
+	asl
+	asl
+	jmp hr0
+++	lda g035,x
+hr0	ldy ymrk
+	sta m1err
+	
+	bit derr
+	bmi +
+	adc derr
+	sec 
+	ror derr+1
+	jmp ++
+
++	lda derr
+	adc m1err
+	ror derr+1
+
+++	ldx mode
+	beq +
+
+	sta m2err		; monochrome
+	bit derr+1
+	bpl ++
+	cmp #$3c		; Mittelwert
+	bcc ++
+	lda mono2		; weiﬂ
+	!by $2c
+++	lda mono1		; schwarz
+	jmp +++
+
++	sta m2err		; new color
+	bit derr+1
+	bmi +
+	lda #0
++	cmp #$79
+	bcc +
+	lda #$78
++	lsr		; /8: index into palette
+	lsr
+	lsr
+	tax 
+	lda cpalette,x	; get new color
+
++++	sta (dst),y	; and set it
+	asl
+	asl
+	asl
+	sta m3err
+	lda m2err
+	sec 
+	sbc m3err
+	clc 
+	bpl +
+	sec 
++	ror
+	sta (src),y
+	sta perr
+	iny 
+	bne +
+	inc dst+1
+	inc src+1
+
++	lda count		; count 320 bytes
+	bne +
+	dec count+1
++	dec count
+	lda count
+	ora count+1
+	bne +
+
+	jsr putlineh	; then transfer it to 4bit 
+	jsr lloop
+	jmp --
+
++	jmp -
+
+; ------------------------------------------------ Event: Reduce Multicolor
+
+evmcolor	jsr init
+	sty mode		; .y=$ff
+	jsr makepal
+
+--	jsr getlinem
+	ldy #0		; apply error distribution
+	sty perr
+-	lda buffer,y
+	clc 
+	adc perr
+	sta derr
+	lda sy_bigbuffer,y
 	asl
 	asl
 	sta m1err
@@ -123,7 +256,7 @@ start	ldx sc_screenvek
 	lsr
 	tax 
 	lda cpalette,x	; get new color
-	sta (dst),y	; and set it
+	sta sy_bigbuffer,y
 	asl
 	asl
 	asl
@@ -135,61 +268,15 @@ start	ldx sc_screenvek
 	bpl +
 	sec 
 +	ror
-	sta (src),y
+	sta buffer,y
 	sta perr
 	iny 
-	bne +
-	inc dst+1
-	inc src+1
-
-+	lda count		; count 320 bytes
-	bne +
-	dec count+1
-+	dec count
-	lda count
-	ora count+1
+	cpy #160
 	bne -
-	jsr putline	; then transfer it to 4bit 
+	jsr putlinem	; then transfer it to 4bit 
 
-	inc linenr	; next rasterline
-
-adinc	dec adcnt		; activity
-	bne +
-	inc y2
-	inc y2+2
-	lda #5
-	sta adcnt
-
-+	lda linenr	; count rasterlines
-	cmp #200
-	beq resetpal
+	jsr lloop
 	jmp --
-
-resetpal	lda #16
-	sta gr_howmany	; volle Farbanzahl erzeugen
-	jsr gd_xcnvdez	; in Ziffern wandeln
-	ldy #2
-	sta numcols,y	; Einer eintragen
-	txa		; Zehner eintragen, wenn nicht 0
-	and #15
-	bne +
-	ldx #32
-+	txa
-	dey
-	sta numcols,y
-	jsr makeqtab	; reset quantisation table
-	dex		; reset colors (.x=16)
--	lda gr_basepal,x
-	sta gr_palette,x
-	dex
-	bpl -
-
-	jsr clearad	; then clear activity bar
-	ldx screenpos
-	ldy screenpos+1
-	jsr gd_screen
-	clc
-	rts
 
 ; ------------------------------------------------ 
 
@@ -198,7 +285,7 @@ godcols	!by $00,$0f,$04,$0c,$05,$0a,$01,$0d
 
 ; ------------------------------------------------ 
 
-getline	lda linenr	; compute 4bit address
+getlineh	lda linenr	; compute 4bit address
 	pha 
 	lsr
 	lsr
@@ -222,17 +309,17 @@ getline	lda linenr	; compute 4bit address
 --	ldy #0
 -	lda (src),y	; isolate one rasterline
 	pha 
+	lsr		; linkes Pixel
 	lsr
 	lsr
 	lsr
-	lsr
-	sta (dst,x)
+	sta (dst,x)	; ablegen
 	inc dst
 	bne +
 	inc dst+1
-+	pla 
++	pla 		; rechtes Pixel
 	and #15
-	sta (dst,x)
+	sta (dst,x)	; ablegen
 	inc dst
 	bne +
 	inc dst+1
@@ -246,13 +333,13 @@ getline	lda linenr	; compute 4bit address
 	sta src
 	bcc +
 	inc src+1
-+	dec bcnt		; bis alle durch
++	dec bcnt		; bis alle durch (320 Pixel)
 	bne --
 	rts 
 
 ; ------------------------------------------------ 
 
-putline	lda linenr	; compute 4bit address
+putlineh	lda linenr	; compute 4bit address
 	pha 
 	lsr
 	lsr
@@ -303,6 +390,146 @@ putline	lda linenr	; compute 4bit address
 
 ; ------------------------------------------------ 
 
+getlinem	lda linenr	; compute 4bit address
+	pha 
+	lsr
+	lsr
+	lsr
+	tax 
+	pla 
+	and #7
+	asl
+	asl
+	sta dst
+	ldy fbhigh,x
+	sty dst+1
+	sta src
+	sty src+1
+
+	ldx #0
+	lda #40		; 40 Kacheln
+	sta bcnt
+--	ldy #0
+-	lda (dst),y	; isolate one rasterline
+	lsr
+	lsr
+	lsr
+	lsr
+	sta sy_bigbuffer,x
+	lda (dst),y
+	and #15
+	clc 
+	adc sy_bigbuffer,x
+	sta sy_bigbuffer,x
+	inx 
+	iny 
+	cpy #4
+	bne -
+
+	lda dst
+	clc 
+	adc #32
+	sta dst
+	bcc +
+	inc dst+1
++	dec bcnt		; bis alle durch
+	bne --
+	rts 
+
+; ------------------------------------------------ 
+
+putlinem	lda src
+	ldy src+1
+	sta dst
+	sty dst+1
+
+	ldx #0
+	lda #40		; 40 Kacheln
+	sta bcnt
+--	ldy #0
+-	lda sy_bigbuffer,x
+	asl
+	asl
+	asl
+	asl
+	ora sy_bigbuffer,x
+	inx 
+	sta (dst),y
+	iny 
+	cpy #4
+	bne -
+	lda dst
+	clc 
+	adc #32
+	sta dst
+	bcc +
+	inc dst+1
++	dec bcnt		; bis alle durch
+	bne --
+	rts 
+
+; ------------------------------------------------ 
+
+makepal	ldy #0
+-	ldx gr_palette,y
+	lda godcols,x
+	sta npalette,y
+	iny 
+	cpy gr_howmany
+	bne -
+	ldy #15
+--	ldx #0
+	lda #16
+	sta ccol
+-	tya 
+	sec 
+	sbc npalette,x
+	beq ++
+	bcs +
+	eor #$ff
+	adc #1
++	cmp ccol
+	bcs +
+++	sta ccol
+	lda npalette,x
+	sta cpalette,y
++	inx 
+	cpx gr_howmany
+	bne -
+	dey 
+	bpl --
+	rts 
+
+; ------------------------------------------------ Text output
+
+settext	stx sc_screentab
+	sty sc_screentab+1
+	lda #0
+	tax
+	tay
+stt	jsr gd_setpos
+	cpx #3
+	bne stt
+	jsr gd_trim
+	jsr gd_initmove
+	ldy #6
+	jmp gd_xtxout1
+
+; ------------------------------------------------ 
+
+makechar	ldx #7
+-	lda gammach,x
+	sta sc_undochar,x
+	dex
+	bpl -
+	rts
+
+; ------------------------------------------------ 
+
+npalette	!fill 16,5
+
+; ------------------------------------------------ 
+
 fbhigh	!by $40,$45,$4a,$4f,$54
 	!by $59,$5e,$63,$68,$6d
 	!by $72,$77,$7c,$81,$86
@@ -312,6 +539,93 @@ fbhigh	!by $40,$45,$4a,$4f,$54
 ; ------------------------------------------------ 
 
 screenpos	!wo 0
+mode	!by 0
+gammach	!by $00,$0c,$6e,$6d,$38,$7c,$c6,$7c
+gamma	!by 0
+gammavals	!scr "1.000.351.80"
+goffs	!by 3,7,11
+gray	!scr "Gray "
+g035	!by $00,$2f,$3b,$44,$46,$52,$57,$5c
+	!by $60,$64,$68,$6c,$6f,$72,$75,$78
+g180	!by $00,$01,$03,$07,$0b,$11,$17,$1f
+	!by $27,$30,$3a,$45,$51,$5d,$6a,$78 
+
+; -------------------------------------- Requester
+
+edlst	!by 0
+	!by 8,12,17,11,$81,0,0
+	!scr "Reduce Grays@"
+sgamma	!by 12,22,7,3,$cf,<evgamma,>evgamma
+	!by 223
+gammatx	!scr "1.00@"
+	!by 12,12,10,3,$c8,<evmono,>evmono
+	!scr "Mono@"
+shires	!by 14,17,12,3,$cf,<evhires,>evhires
+hirestx	!scr "Hires@"
+smcol	!by 16,17,12,3,$ce,<evmcolor,>evmcolor
+mcoltx	!scr "Multicolor@"
+	!by 18,12,17,3,$cb,<evcan,>evcan
+	!scr "Cancel@"
+	!by $c0,14,13,2
+	!scr "or@"
+	!by $c0,16,13,2
+	!scr "or@"
+	!by $c0,10,13,12
+	!scr "Choose Mode:@"
+	!by $80
+
+; ------------------------------------------------ adinc
+
+lloop	dec adcnt		; activity
+	bne +
+	inc y2
+	inc y2+2
+	lda #5
+	sta adcnt
++	inc linenr	; next rasterline
+	lda linenr	; count rasterlines
+	cmp #200
+	beq resetpal
+	rts
+
+; ------------------------------------------------ Abschluss
+
+resetpal	pla
+	pla
+	lda #16
+	sta gr_howmany	; volle Farbanzahl erzeugen
+	jsr gd_xcnvdez	; in Ziffern wandeln
+	ldy #2
+	sta numcols,y	; Einer eintragen
+	txa		; Zehner eintragen, wenn nicht 0
+	and #15
+	bne +
+	ldx #32
++	txa
+	dey
+	sta numcols,y
+	jsr makeqtab	; reset quantisation table
+	dex		; reset colors (.x=16)
+-	lda gr_basepal,x
+	sta gr_palette,x
+	dex
+	bpl -
+
+	lda mode
+	beq +
+	bpl +
+	lda #$31
+	ldx #$36
+	bne ++
++	lda #$33
+	ldx #$32
+++	sta ls_imode
+	stx ls_imode+1
+	ldx #4
+-	lda gray,x
+	sta ls_idrive,x
+	dex
+	bpl -
 
 ; ------------------------------------------------ 
 
@@ -323,10 +637,22 @@ clearad	lda #$ff
 	lda spritehi
 	and #$f3
 	sta spritehi
-	clc 
-	rts 
 
-; ------------------------------------------------ initad
+; ------------------------------------------------ Event: Cancel
+
+evcan	sec 
+	rts
+
+; ------------------------------------------------ Init
+
+init	lda #0		; clear buffer
+	tay 
+-	sta buffer,y
+	sta buffer+160,y
+	iny 
+	cpy #160
+	bne -
+	sta linenr	; 200 rasterlines (from 0 to 199)
 
 initad 	ldy #$3c
 	lda #$00
