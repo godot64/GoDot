@@ -1,0 +1,671 @@
+	!src "..\godotlib.lib"	; library nicht erforderlich
+	*=$c000
+
+; ------------------------------------------------ 
+;
+; mod.MotionBlurCo
+; Modul zum Verwischen von Farben
+;
+; 0.99, 14.08.93, first release
+; 1.00, 13.07.17, combined two modifiers
+;                 added requester
+;
+; re-assembled on 12.07.2017
+;
+; ------------------------------------------------ 
+
+; ------------------------------------------------ Declarations
+
+	wordlo		= $07
+	int		= $14
+
+	adcnt		= $30
+	ybuf		= $33
+	src		= $35	; /$36
+	dst		= $37	; /$38
+	linenr		= $39
+	bcnt		= $3a
+	cnt		= $3b	; /$3c
+	dist		= $3d
+	dist2		= $3e
+	bbuf		= $3f
+	midbuf		= $40	; /$41
+	max		= $42
+	max0		= $43
+	maxc		= $44
+	maxc0		= $45
+
+	ibuff		= sy_global
+	hist		= sy_global+16
+	coltab		= sy_bigbuffer
+	buffer		= $c600
+	cpalette		= $c740
+	buffer2		= $c800
+	y2		= $d005
+
+; ------------------------------------------------ Header
+
+	jmp start
+	!by $20
+	!by $00
+	!by $00
+	!wo modend 
+	!wo 0
+	!pet "motion blur var "
+	!pet "1.00"
+	!pet "13.07.17"
+	!pet "W.Kling/A.Dettke"
+
+; -------------------------------------- Main
+
+start 	jsr initinput	; Input für Ziffern vorbereiten
+	jsr makechar
+	ldx #<(mblist)	; Requester ausgeben
+	ldy #>(mblist)
+	jsr gd_screen
+	jsr gd_eloop	; Warten auf Ereignisse
+	lda #0		; Input auf normal
+	sta sc_iflag
+	
+; ------------------------------------------------ Event: Cancel
+
+evcan	sec		; Modul verlassen
+	rts
+
+; ------------------------------------------------ Event: MotionBlur
+
+evexec	jsr initad	; 1
+	jsr makec64
+
+	lda amount
+	sta dist
+	ldx dist
+	inx 
+	txa 
+	lsr
+	sta dist2
+
+	lda #<buffer
+	sec 
+	sbc dist2
+	sta midbuf
+	lda #>buffer
+	sbc #0
+	sta midbuf+1
+
+	lda #0
+	sta linenr
+
+bigloop	jsr getline	; 2
+	jsr initmb
+
+	lda mode
+	bne +
+	jsr mbgray
+	beq ++
++	jsr mbcolor	; 3
+
+++	jsr putline	; 4
+
+adinc	dec adcnt		; 5: activity
+	bne +
+	inc y2
+	inc y2+2
+	lda #5
+	sta adcnt
++	inc linenr	; next rasterline
+	lda linenr	; count rasterlines
+	cmp #200
+	beq clearad
+	jmp bigloop
+
+; ------------------------------------------------ 
+
+activity	sta $d020
+	rts
+
+; ------------------------------------------------ 
+
+clearad	ldx mode
+	bne +
+	ldx #4
+-	lda imdtx,x
+	sta ls_idrive,x
+	dex
+	bpl -
++	lda sc_maincolor
+	sta $d020
+	lda #$ff
+	sta gr_redisp
+	lda $d015
+	and #$f3
+	sta $d015
+	lda spritehi
+	and #$f3
+	sta spritehi
+	rts
+
+; ------------------------------------------------ 
+
+getline	lda linenr	; 2: compute 4bit address
+	pha 
+	lsr
+	lsr
+	lsr
+	tax 
+	pla 
+	and #7
+	asl
+	asl
+	sta dst
+	lda fbhigh,x
+	sta dst+1
+	lda #<buffer	; destination for isolated pixels
+	ldx #>buffer
+	sta src
+	stx src+1
+
+	ldx #0
+	lda #40		; 40 Kacheln
+	sta bcnt
+--	ldy #0
+-	lda (dst),y	; isolate one rasterline
+	pha 
+	lsr		; linkes Pixel
+	lsr
+	lsr
+	lsr
+	sta (src,x)	; ablegen
+	inc src
+	bne +
+	inc src+1
++	pla 		; rechtes Pixel
+	and #15
+	sta (src,x)	; ablegen
+	inc src
+	bne +
+	inc src+1
++	iny 
+	cpy #4
+	bne -
+
+	lda dst		; nächste Kachel
+	clc 
+	adc #32
+	sta dst
+	bcc +
+	inc dst+1
++	dec bcnt		; bis alle durch (320 Pixel)
+	bne --
+	rts
+
+; ------------------------------------------------ 
+
+putline	lda linenr	; 4
+	pha 
+	lsr
+	lsr
+	lsr
+	tax 
+	pla 
+	and #7
+	asl
+	asl
+	sta dst
+	lda fbhigh,x
+	sta dst+1
+	lda #<buffer2
+	ldx #>buffer2
+	sta src
+	stx src+1
+
+	ldx #0
+	lda #40		; 40 Kacheln
+	sta bcnt
+--	ldy #0
+-	lda (src,x)	; isolate one rasterline
+	asl
+	asl
+	asl
+	asl
+	inc src
+	bne +
+	inc src+1
++	ora (src,x)
+	inc src
+	bne +
+	inc src+1
++	sta (dst),y
+	iny 
+	cpy #4
+	bne -
+
+	lda dst		; nächste Kachel
+	clc 
+	adc #32
+	sta dst
+	bcc +
+	inc dst+1
++	dec bcnt		; bis alle durch
+	bne --
+	rts
+
+; ------------------------------------------------ 
+
+initmb	lda #$40		; 320 Bytes abzählen
+	ldx #$01
+	sta cnt
+	stx cnt+1
+	lda midbuf 
+	ldx midbuf+1
+	sta src
+	stx src+1
+
+	ldy #0
+	lda buffer
+-	sta (src),y
+	iny 
+	cpy dist2
+	bne -
+
+	ldy #0
+	lda buffer+319
+-	sta buffer+320,y
+	iny 
+	cpy dist2
+	bne -
+
+	lda #<buffer2
+	ldx #>buffer2
+	sta dst
+	stx dst+1
+	rts
+
+; ------------------------------------ Gadget neu beschriften
+
+tabigad	!wo (modegad)
+	!wo (amntgad)
+
+settext	lda #<(tabigad)
+	sta sc_texttab
+	lda #>(tabigad)
+	sta sc_texttab+1
+
+gettext 	lda (sc_texttab),y
+	sta sc_screentab
+	iny
+	lda (sc_texttab),y
+	sta sc_screentab+1
+	lda #0
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #3
+	bne gt0
+	stx sc_ho
+	jsr gd_trim
+	jmp gd_initmove
+
+; ----------------------------------------- Create C64 indexed color table
+
+makec64	ldy #0
+mc64	tya
+	lsr
+	lsr
+	lsr
+	lsr
+	tax
+	lda cols64,x
+	and #$f0
+	sta bbuf
+	tya
+	and #$0f
+	tax
+	lda cols64,x
+	and #$0f
+	ora bbuf
+	sta coltab,y
+	iny
+	bne mc64
+	rts
+
+cols64	!by $00,$66,$99,$bb		; conversion table GoDot<->C64
+	!by $22,$44,$88,$cc
+	!by $ee,$aa,$55,$ff
+	!by $33,$77,$dd,$11
+
+; ------------------------------------------------ 
+
+fbhigh	!by $40,$45,$4a,$4f,$54
+	!by $59,$5e,$63,$68,$6d
+	!by $72,$77,$7c,$81,$86
+	!by $8b,$90,$95,$9a,$9f
+	!by $a4,$a9,$ae,$b3,$b8
+
+; ------------------------------------ Variablen 
+
+amount	!by 8
+ziffern	!pet " 0123456789"
+mode	!by 1
+mdcolor	!by 223
+	!scr "Color@"
+mdgray	!by 223
+imdtx	!scr "Gray @"
+char	!by $00,$5c,$62,$72,$02,$02,$3c,$00
+
+; ------------------------------------------------ Color
+
+mbcolor	ldy #15		; 3: clear histogram
+	lda #0
+--	sta hist,y
+	dey 
+	bpl --
+	sty maxc
+
+	tay 		; create histogram:
+--	lda (src),y	; get buffer
+	tax 
+	inc hist,x	; add histogram values
+	iny 
+	cpy dist		; until distance
+	bne --
+
+	ldy #15
+	lda #0
+	sta max
+--	lda hist,y
+	beq +
+	cmp max
+	bcc +
+	pha
+	sty ybuf
+	lda max
+	sta max0
+	pla
+	sta max
+	ldy maxc
+	sty maxc0
+	ldy ybuf
+	sty maxc
++	dey 
+	bpl --
+	lda maxc
+	iny 
+	sta (dst),y
+
+	lda maxc
+	bit maxc0
+	bmi nomix
+	tax
+	lda max
+	lsr
+	cmp max0
+	txa
+	bcs nomix
+	asl
+	asl
+	asl
+	asl
+	ora maxc0
+	tax
+	lda coltab,x
+nomix	iny
+	sta (dst),y
+
+	jsr activity
+	inc src
+	bne +
+	inc src+1
++	inc dst
+	bne +
+	inc dst+1
++	lda cnt
+	bne +
+	dec cnt+1
++	dec cnt
+	lda cnt
+	ora cnt+1
+	bne mbcolor
+	rts
+
+; ------------------------------------------------ Gray
+
+mbgray	ldy #0
+	tya 
+	tax 
+--	clc 
+	adc (src),y
+	bcc +
+	inx 
++	iny 
+	cpy dist
+	bne --
+
+	ldy #0
+--	sec 
+	sbc dist
+	bcs +
+	dex 
+	bmi ++
++	iny 
+	bne --
+++	tya 
+	ldy #0
+	sta (dst),y
+
+	jsr activity
+	inc src
+	bne +
+	inc src+1
++	inc dst
+	bne +
+	inc dst+1
++	lda cnt
+	bne +
+	dec cnt+1
++	dec cnt
+	lda cnt
+	ora cnt+1
+	bne mbgray
+	rts
+
+; ------------------------------------------------ 
+
+initad 	ldy #60
+	lda #$00
+-	sta $3fc3,y
+	dey 
+	bpl -
+	sty $3fc0
+	sty $3fc1
+	sty $3fc2
+	lda #15		; hellgrau
+	sta $d029
+	sta $d02a
+	lda $d01d
+	ora #$0c
+	sta $d01d
+	lda spritehi
+	ora #$0c
+	sta spritehi
+	lda #8
+	sta $d004
+	lda #32
+	sta $d006
+	lda #$92
+	sta y2
+	sta y2+2
+	sty $07fa
+	sty $07fb
+	lda $d015
+	ora #$0c
+	sta $d015
+	lda #5
+	sta adcnt
+	rts 
+
+; -------------------------------------- Event: Set Render Mode
+
+evmode	lda #<(modetx)	; Textausgabe vorbereiten
+	sta sc_texttab
+	lda #>(modetx)
+	sta sc_texttab+1
+
+	lda mode		; Modus ändern
+	bne scc0
+	lda #1
+	ldx #<(mdcolor)
+	ldy #>(mdcolor)
+	bne scc1
+scc0	lda #0
+	ldx #<(mdgray)
+	ldy #>(mdgray)
+scc1	sta mode
+	jmp gd_xtxtggl	; anzeigen
+
+; ------------------------------------------------ 
+
+makechar	ldx #7
+-	lda char,x
+	sta sc_undochar,x
+	dex
+	bpl -
+	rts
+
+; ------------------------------------ Input mit Ziffern vorbereiten
+
+initinput	ldx #10		; Flag für spezifisches Input setzen
+	stx sc_iflag
+ar1	lda ziffern,x	; zul. Zeichen an die richtige Stelle übertragen
+	sta ibuff,x
+	dex
+	bpl ar1
+	rts
+
+; ------------------------------------ Event: Anzahl Pixel eingeben
+
+evsetamnt	lda #<ibuff	; Zeiger auf zulässige Zeichen für Input
+	sta ls_vekta8
+	lda #>ibuff
+	sta ls_vekta8+1
+	lda gd_modswitch
+	pha
+	jsr gd_xinput	; Input, Ergebnis in $0200 (max 2 Ziffern)
+	pla
+	sta gd_modswitch
+
+	lda #>ls_nambuf	; Zeiger auf Ergebnis setzen
+	sta ls_vekta8+1
+	lda #<ls_nambuf
+	sta ls_vekta8
+	ldy #3		; vorsichtshalber mit $00 abschließen
+	sta ls_nambuf,y
+	ldy #$ff		; Konversionswerte vorbesetzen mit $00
+	sta int
+	sta int+1
+
+getword	iny		; erste Ziffer holen
+	lda (ls_vekta8),y
+	cmp #32		; Space?
+	beq getword	; ja, überlesen
+	cmp #$3a		; Ende der Ziffern?
+	bcs gw0		; ja, Abschluss
+
+	sec		; Wandlung von dezimal nach Word:
+	sbc #$30		; "0" subtrahieren
+	sec		; den Ausgangswert wiederherstellen
+	sbc #$d0
+	bcs gw0		; war keine Ziffer, also Abschluss
+	sbc #$2f		; wieder "0" subtrahieren
+	sta wordlo	; merken
+	lda int+1		; Hi-Byte merken, größer als 64000?
+	sta ls_temp
+	cmp #$19
+	bcs gw0		; ja, beenden
+	lda int		; Wert mal 5
+	asl
+	rol ls_temp
+	asl
+	rol ls_temp
+	adc int
+	sta int
+	lda ls_temp	; Ergebnis mal 2 (insgesamt also mal 10)
+	adc int+1
+	sta int+1
+	asl int
+	rol int+1
+
+	lda int		; Ziffer addieren
+	adc wordlo
+	sta int
+	bcc getword	; nächste Ziffer
+	inc int+1
+	bne getword
+
+gw0	lda int		; Endergebnis
+	bne gw2		; Null?
+	lda #1		; dann auf 1
+gw2	cmp #64		; größer als 64?
+	bcc gw1
+	lda #64		; ja, 64 ist Maximum
+gw1	sta amount	; und merken
+	ldy #2
+	jsr settext
+
+tshow	lda amount
+	jsr gd_xcnvdez	; Byte nach Ziffern wandeln
+	ldy #8		; Offset auf letztes Zeichen im Screenlistrecord
+	sta (sc_screentab),y; Einer eintragen
+	txa		; Zehner ist "0"?
+	and #15
+	bne ss5
+	ldx #32		; ja, dann Space
+ss5	txa
+	dey
+	sta (sc_screentab),y; auch eintragen
+sdi2	ldy #6		; und ausgeben
+	jmp gd_xtxout1
+
+; ------------------------------------ Requesterdefinition 
+
+mblist	!by 0
+	!by 8,12,17,9
+	!by $81
+	!wo 0
+	!scr "MotionBlur@"
+
+amntgad	!by 10,19,4,3
+	!by $e0
+	!wo evsetamnt
+amnt	!pet " 8"
+	!by 0
+
+modegad	!by 12,21,8,3
+	!by $cd
+	!wo evmode
+modetx	!by 223
+	!scr "Color@" 
+
+	!by 14,12,9,3
+	!by $c7
+	!wo evexec
+	!scr "Execute@"
+
+	!by 14,21,8,3
+	!by $ce
+	!wo evcan
+	!scr "Cancel@"
+
+	!by $c0,10,12,6
+	!scr "Spread@"
+	!by $c0,10,22,5
+	!scr "Pixls@"
+	!by $c0,12,12,5
+	!scr "Mode:@"
+	!by $80
+
+; ------------------------------------------------ 
+
+modend	!eof
+
+
