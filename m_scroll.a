@@ -1,0 +1,821 @@
+	!src "..\godotlib.lib"	; library nicht erforderlich
+	*=$c000
+
+; ------------------------------------------------ 
+;
+;     mod.scroll
+;
+; 1.00: 14.07.98, first release
+; 1.01: 14.07.01, vertical operation drastically speeded
+; 1.02: 18.07.01, bugfix: vertical operation didn't apply on values lower 8
+; 1.03: 14.08.01, bugfix: scroll down didn't work
+; 1.04: 08.08.03, bugfix: crash on preview after input when executed from REU
+; 
+; ------------------------------------------------ 
+
+; ------------------------------------------------ Declarations
+
+	wordlo		= $07
+	int		= $14
+
+	vbuf0		= $30
+	vbuf1		= $32
+	rbuf0		= $34
+	rbuf1		= $36
+	src		= $38
+	dst		= $3a
+	linenr		= $3c
+	blcnt		= $3d
+	adcnt		= $3e
+	vamount		= $3f
+	hvek		= $40
+	repeat		= $42
+	h0vek		= $44
+	h1vek		= $46
+
+	sprptr		= $07f8
+	ibuff		= sy_global
+	spr255		= $3fc0
+
+	buf2		= $c600
+	buf0		= $c600		; $ca00
+	buf1		= $c800		; $cc00 up to v1.03
+
+	x2		= $d004
+	y2		= x2+1
+	msbx		= $d010
+	spren		= $d015
+	sprxe		= $d01d
+	sprcol2		= $d029
+
+; ------------------------------------------------ Header
+
+	jmp start
+	!by $20
+	!by $00,$00
+	!wo modend
+	!by $00,$00
+	!pet "scroll 4Bit     "
+	!pet "1.04"
+	!pet "08.08.03"
+	!pet "A.Dettke        "
+
+; ------------------------------------ Hauptschleife 
+
+start 	jsr initinput	; Input für Ziffern vorbereiten
+	ldx #<(scrlist)	; Requester ausgeben
+	ldy #>(scrlist)
+	jsr gd_screen
+	jsr gd_eloop	; Warten auf Ereignisse
+	lda #0		; Input auf normal
+	sta sc_iflag
+	
+evleave	sec		; Modul verlassen
+	rts
+
+
+; ------------------------------------ Scrollen, Hauptroutine waagerecht
+
+evexec	jsr initad	; Activity initialisieren
+	lda direction	; welche Richtung?
+	cmp #2		; senkrecht?
+	bcc ex0
+	jmp vertical	; ja, dort weiter
+
+ex0	lda #$00		; Linien (0-200)
+	sta linenr
+loop00	jsr getladd	; Zeilenadresse ermitteln
+	lda #<(buf0)	; eine Linie holen und "entnibbeln"
+	ldx #>(buf0)
+	sta src
+	stx src+1
+	ldx #0
+	lda #40
+	sta blcnt
+loop0	ldy #0
+loop1	lda (dst),y
+	pha
+	lsr
+	lsr
+	lsr
+	lsr
+	sta (src,x)	; Highnibble isolieren
+	inc src
+	bne skip0
+	inc src+1
+skip0	pla
+	and #$0f
+	sta (src,x)	; Lonibble isolieren
+	inc src
+	bne skip1
+	inc src+1
+skip1	iny		; eine Kachelzeile
+	cpy #4
+	bne loop1
+	lda dst		; nächste Kachel
+	clc
+	adc #32
+	sta dst
+	bcc skip2
+	inc dst+1
+skip2	dec blcnt		; 40 Kacheln durch (320 Pixel)
+	bne loop0
+
+	jsr scroll	; Verschieben der Pixel
+
+; ------------------------------------ Back to 4Bit
+
+	jsr getladd	; Adresse der Linie ermitteln
+	lda #<(buf1)	; zurückschreiben
+	ldx #>(buf1)
+	sta src
+	stx src+1
+	ldx #0
+	lda #40		; 40 Kacheln bearbeiten
+	sta blcnt
+loop2	ldy #0		; wieder zusammennibbeln
+loop3	lda (src,x)
+	asl
+	asl
+	asl
+	asl
+	inc src
+	bne skip3
+	inc src+1
+skip3	ora (src,x)
+	inc src
+	bne skip4
+	inc src+1
+skip4	sta (dst),y	; und ins 4Bit damit
+	iny
+	cpy #4		; eine Kachellinie
+	bne loop3
+	lda dst		; nächste Kachel
+	clc
+	adc #32
+	sta dst
+	bcc skip5
+	inc dst+1
+skip5	dec blcnt		; alle 40 Kacheln durch
+	bne loop2
+
+	jsr action	; Balken bewegen
+	inc linenr	; nächste Linie
+	lda linenr	; bis alle 200 Linien durch
+	cmp #200
+	beq exit
+	jmp loop00
+
+; ------------------------------------ Balken ausschalten
+
+exit	lda spren		; Sprites aus
+	and #243
+	sta spren
+	lda msbx		; auch Hibyte der Adresse
+	and #243
+	sta msbx
+	lda #$ff		; Flag: Bild wurde verändert
+	sta gr_redisp
+	clc
+	rts
+
+; ------------------------------------ Balken bewegen
+
+action	dec adcnt		; Zähler abgelaufen?
+	bne adskip
+	inc y2		; ja, nach unten
+	inc y2+2
+	lda adrun		; Zähler neu setzen
+	sta adcnt
+adskip	rts
+
+; ------------------------------------ Scrollen senkrecht
+
+vertical	lda amount	; (Anzahl Linien) mod 8
+	pha
+	and #7
+	sta vamount
+	lda #1
+	sta adrun
+	ldx direction
+	pla		; plus (Anzahl Linien) div 8
+	lsr
+	lsr
+	lsr
+	sta repeat
+	bne vtc
+	jmp vertrest	; bei Null: keine Blockzeile
+
+vtc	cpx #2
+	bne bdown
+
+brep0	jsr initad
+
+baufw	lda #0		; Blockzeile 0 puffern 
+	sta linenr
+	jsr getladd
+	jsr seth1vek	; Quelle
+	jsr setbvb0
+	lda #<buf2	; Ziel
+	ldy #>buf2
+	jsr sv1
+	jsr move1280	; verschieben
+
+bauf0	jsr seth0vek	; letzte Quelle als Ziel merken
+	clc
+	lda linenr
+	adc #8
+	sta linenr
+	jsr getladd
+	jsr seth1vek	; Quelle
+	jsr setbvb0
+	jsr setbvb1	; Ziel
+	jsr move1280	; verschieben
+
+	jsr action
+	lda linenr
+	cmp #192
+	bne bauf0
+
+	jsr getladd	; Ziel (letzte Blockzeile)
+	jsr seth0vek
+	jsr setbvb1	; setzen
+	lda #<buf2	; Quelle (Puffer)
+	ldy #>buf2
+	jsr sv0
+	jsr move1280	; verschieben
+
+	dec repeat
+	bne brep0
+
+	ldx direction
+	jmp vertrest
+
+bdown	cpx #3		; unzulässiger Wert?
+	bne vertrest	; ja, Sprung
+
+brep1	jsr initad
+
+babw	lda #192
+	sta linenr
+	jsr getladd
+	jsr seth1vek	; Quelle
+	jsr setbvb0
+	lda #<buf2	; Ziel
+	ldy #>buf2
+	jsr sv1
+	jsr move1280	; verschieben
+
+bab0	jsr seth0vek	; letzte Quelle als Ziel merken
+	sec
+	lda linenr
+	sbc #8
+	sta linenr
+	jsr getladd
+	jsr seth1vek	; Quelle
+	jsr setbvb0
+	jsr setbvb1	; Ziel
+	jsr move1280	; verschieben
+
+	jsr action
+	lda linenr
+	bne bab0
+
+	jsr getladd	; Ziel (letzte Blockzeile)
+	jsr seth0vek
+	jsr setbvb1	; setzen
+	lda #<buf2	; Quelle (Puffer)
+	ldy #>buf2
+	jsr sv0
+	jsr move1280	; verschieben
+
+	dec repeat
+	bne brep1
+	ldx direction
+
+vertrest	txa
+	ldx vamount	; Wiederholungszähler setzen
+	beq vtcend
+	stx repeat
+	ldx #5
+	stx adrun
+	cmp #2		; aufwärts?
+	bne down		; nein
+
+rep0	jsr initad	; Balken einschalten
+
+aufwaerts	lda #0		; Zeile 0 retten
+	sta linenr
+	jsr getladd	; Adresse holen (nach dst)
+	jsr seth0vek	; h0vek initialisieren (dst nach h0vek)
+	jsr setvb0	; Zielpuffer setzen ($ca00 nach vbuf0)
+	jsr getline	; puffern (dst nach vbuf0)
+
+aufw0	inc linenr	; ab Zeile 1 verschieben bis 199
+	jsr getladd	; Zeilenadresse holen (nach dst)
+	jsr seth1vek	; Adresse merken (dst nach  h1vek)
+	jsr setvb2	; Pufferadresse setzen ($caa0 nach vbuf0)
+	jsr getline	; Zeile puffern (dst nach vbuf0)
+
+	jsr setvb2	; Puffer wieder auf Anfang ($caa0 nach vbuf0)
+	jsr geth0vek	; Vorige Zeile holen (h0vek nach hvek)
+	jsr putline	; Zeile übertragen (vbuf0 nach hvek)
+	jsr move1to0	; Aktuelle zur vorigen Zeile (h1vek nach h0vek)
+
+	jsr action	; Balken bewegen
+	lda linenr	; alle durch?
+	cmp #199
+	bne aufw0		; nein
+
+	jsr getladd	; Adresse Zeile 199 zurückholen (nach dst)
+	jsr sethvek	; und eintragen (dst nach hvek)
+	jsr setvb0	; Puffer für Zeile 0 setzen ($ca00 nach vbuf0)
+	jsr putline	; Zeile übertragen (vbuf0 nach hvek)
+
+	dec repeat	; nochmal?
+	bne rep0		; ja
+
+vtcend	jmp exit		; fertig, Balken aus
+
+; ------------------------------------ 
+
+down	cmp #3
+	bne vtcend
+
+rep1	jsr initad	; Balken einschalten
+
+abwaerts	lda #199		; Zeile 199 retten
+	sta linenr
+	jsr getladd	; Adresse holen (in dst)
+	jsr seth0vek	; h0vek initialisieren (dst nach h0vek)
+	jsr setvb0	; Zielpuffer setzen ($ca00 nach vbuf0)
+	jsr getline	; puffern (dst nach vbuf0)
+
+abw0	dec linenr	; ab Zeile 198 verschieben bis 0
+	jsr getladd	; Zeilenadresse holen (in dst)
+	jsr seth1vek	; Aktuelle Zeile merken (dst nach  h1vek)
+	jsr setvb2	; Pufferadresse setzen ($caa0 nach vbuf0)
+	jsr getline	; Zeile puffern (dst nach $caa0)
+
+	jsr setvb2	; Puffer wieder auf Anfang ($caa0 nach vbuf0)
+	jsr geth0vek	; Vorige Zeile holen (h0vek nach hvek)
+	jsr putline	; Zeile übertragen (vbuf0 nach hvek)
+	jsr move1to0	; Aktuelle zur vorigen Zeile (h1vek nach h0vek)
+	jsr action	; Balken bewegen
+	lda linenr	; alle durch?
+	bne abw0
+
+	jsr getladd	; Adresse der Zeile 0 wiederholen (nach dst)
+	jsr sethvek	; und eintragen (dst nach hvek)
+	jsr setvb0	; Puffer für Zeile 199 setzen ($ca00 nach vbuf0)
+	jsr putline	; Zeile übertragen (vbuf0 nach hvek)
+
+	dec repeat	; nochmal?
+	bne rep1		; ja
+
+	beq vtcend	; fertig
+
+
+; ------------------------------------ Subroutinen Scroll
+
+; ------------------------------------ Zeile puffern
+
+getline	lda #40		; 40 Kacheln
+	sta blcnt
+	ldx #0
+gl0	ldy #0		; 4 Bytes holen (1 Kachellinie)
+gl1	lda (dst),y
+	sta (vbuf0,x)
+	inc vbuf0
+	bne skp0
+	inc vbuf0+1
+skp0	iny
+	cpy #4
+	bne gl1
+	lda dst		; 32 addieren zur nächsten Kachel
+	clc
+	adc #32
+	sta dst
+	bcc skp1
+	inc dst+1
+skp1	dec blcnt		; alle durch?
+	bne gl0		; nein
+	rts
+
+; ------------------------------------ Zeile zurückschreiben
+
+putline	lda #40		; 40 Kacheln
+	sta blcnt
+	ldx #0
+pl0	ldy #0		; 4 Bytes holen (1 Kachellinie)
+pl1	lda (vbuf0,x)
+	sta (hvek),y
+	inc vbuf0
+	bne skp2
+	inc vbuf0+1
+skp2	iny
+	cpy #4
+	bne pl1
+	lda hvek		; 32 weiter zur nächsten Kachel
+	clc
+	adc #32
+	sta hvek
+	bcc skp3
+	inc hvek+1
+skp3 	dec blcnt		; alle durch?
+	bne pl0		; nein
+	rts
+
+; ------------------------------------ Zeilenadresse berechnen
+
+getladd	lda linenr	; durch 8 (wird Index in Hibyte-Tabelle)
+	pha
+	lsr
+	lsr
+	lsr
+	tax
+	pla		; Lobyte mal 4
+	and #$07
+	asl
+	asl
+	sta dst		; ist 4Bitadresse
+	lda line8,x
+	sta dst+1
+	rts
+
+; ------------------------------------ Event Routines
+
+; ------------------------------------ Anzahl Pixel eingeben
+
+evsetamnt	lda #<ibuff	; Zeiger auf zulässige Zeichen für Input
+	sta ls_vekta8
+	lda #>ibuff
+	sta ls_vekta8+1
+	jsr gd_xinput	; Input, Ergebnis in $0200 (max 2 Ziffern)
+
+	lda #>ls_nambuf	; Zeiger auf Ergebnis setzen
+	sta ls_vekta8+1
+	lda #<ls_nambuf
+	sta ls_vekta8
+	ldy #3		; vorsichtshalber mit $00 abschließen
+	sta ls_nambuf,y
+	ldy #$ff		; Konversionswerte vorbesetzen mit $00
+	sta int
+	sta int+1
+
+getword	iny		; erste Ziffer holen
+	lda (ls_vekta8),y
+	cmp #32		; Space?
+	beq getword	; ja, überlesen
+	cmp #$3a		; Ende der Ziffern?
+	bcs gw0		; ja, Abschluß
+
+	sec		; Wandlung von dezimal nach Word:
+	sbc #$30		; "0" subtrahieren
+	sec		; den Ausgangswert wiederherstellen
+	sbc #$d0
+	bcs gw0		; war keine Ziffer, also Abschluß
+	sbc #$2f		; wieder "0" subtrahieren
+	sta wordlo	; merken
+	lda int+1		; Hi-Byte merken, größer als 64000?
+	sta ls_temp
+	cmp #$19
+	bcs gw0		; ja, beenden
+	lda int		; Wert mal 5
+	asl
+	rol ls_temp
+	asl
+	rol ls_temp
+	adc int
+	sta int
+	lda ls_temp	; Ergebnis mal 2 (insgesamt also mal 10)
+	adc int+1
+	sta int+1
+	asl int
+	rol int+1
+
+	lda int		; Ziffer addieren
+	adc wordlo
+	sta int
+	bcc getword	; nächste Ziffer
+	inc int+1
+	bne getword
+
+gw0	lda int		; Endergebnis
+	bne gw2		; Null?
+	lda #1		; dann auf 1
+gw2	cmp #64		; größer als 64?
+	bcc gw1
+	lda #64		; ja, 64 ist Maximum
+gw1	sta amount	; und merken
+	ldy #2
+	jsr settext
+
+tshow	lda amount
+	jsr gd_xcnvdez	; Byte nach Ziffern wandeln
+	ldy #9		; Offset auf letztes Zeichen im Screenlistrecord
+	sta (sc_screentab),y; Einer eintragen
+	txa		; Zehner ist "0"?
+	and #15
+	bne ss5
+	ldx #32		; ja, dann Space
+ss5	txa
+	dey
+	sta (sc_screentab),y; auch eintragen
+	bne sdi2		; und ausgeben
+
+; ------------------------------------ Richtung eingeben
+
+evsdirctn	lda direction	; Flag holen..
+	cmp #3
+	bne sdi0
+	lda #$ff
+	sta direction
+sdi0	inc direction	; erhöhen (nächste Richtung)
+	ldx direction
+	lda dirchars,x	; Zeichen eintragen
+	sta dirctn
+	ldy #0
+sdi1	jsr settext	; und ausgeben
+sdi2	ldy #6
+	jmp gd_xtxout1
+
+; ------------------------------------ Subroutinen Eventhandling
+
+; ------------------------------------ Gadget neu beschriften
+
+tabigad	!wo (dirgad)
+	!wo (amntgad)
+
+settext	lda #<(tabigad)
+	sta sc_texttab
+	lda #>(tabigad)
+	sta sc_texttab+1
+
+gettext 	lda (sc_texttab),y
+	sta sc_screentab
+	iny
+	lda (sc_texttab),y
+	sta sc_screentab+1
+	lda #0
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #3
+	bne gt0
+	stx sc_ho
+	jsr gd_trim
+	jmp gd_initmove
+
+; ------------------------------------ Variablen 
+
+amount	!by 8
+direction	!by 0		; 0=rechts, 1=links, 2=up, 3=down
+dirchars	!by 94,91,30,31
+adrun	!by 5
+ziffern	!pet " 0123456789"
+maxziff	!pet " 64"
+hvmerk	!wo 0
+
+line8	!by $40,$45,$4a,$4f,$54
+	!by $59,$5e,$63,$68,$6d
+	!by $72,$77,$7c,$81,$86
+	!by $8b,$90,$95,$9a,$9f
+	!by $a4,$a9,$ae,$b3,$b8
+
+; ------------------------------------ Scrollen waagerecht
+
+scroll	lda direction	; welche Richtung?
+	bne scroll2
+
+; ------------------------------------ nach rechts
+
+rechts	jsr setvb0	; Quellpuffer auf Start
+	lda #<buf1	; Zielpuffer, eingerückt um amount Bytes
+	clc
+	adc amount
+	sta vbuf1
+	ldy #>buf1
+	sty vbuf1+1
+	jsr move512	; verschieben
+
+	dec vbuf0+1	; Quelle minus 256 (zeigt jetzt auf Quelle+256)
+	sec		; Index auf Position ganz rechts setzen
+	lda #<320
+	sbc amount
+	sta vbuf0
+	jsr setvb1	; Zielpuffer auf Start
+	ldx amount	; und amount als Zähler
+
+shift	ldy #0
+shf0	lda (vbuf0),y	; Bytes umlagern
+	sta (vbuf1),y
+	iny
+	dex
+	bne shf0
+	rts
+; ------------------------------------ 
+
+scroll2	cmp #1
+	bne scroll3
+
+; ------------------------------------ nach links
+
+links	jsr setvb1	; Zielpuffer auf Start
+	lda #<buf0	; Quellbuffer um amount Bytes eingerückt
+	clc
+	adc amount
+	sta vbuf0
+	ldy #>buf0
+	sty vbuf0+1
+	jsr move512	; verschieben
+
+	dec vbuf1+1	; Ziel minus 256 (zeigt jetzt auf Ziel+256)
+	sec		; Zielbuffer auf Position ganz rechts
+	lda #<320
+	sbc amount
+	sta vbuf1
+	jsr setvb0	; Quellpuffer auf Start
+	ldx amount	; amount als Zähler und umschichten
+	bne shift
+
+scroll3	rts
+
+; ------------------------------------ Subroutinen Scroll
+
+; ------------------------------------ 5 oder 2 Pages verschieben
+
+move1280	ldx #4		; 5 Blöcke
+	!by $2c
+
+move512	ldx #1		; 2 Blöcke
+	ldy #0
+mv0	lda (vbuf0),y	; verschieben
+	sta (vbuf1),y
+	iny
+	bne mv0
+	inc vbuf0+1
+	inc vbuf1+1
+	dex
+	bpl mv0
+	rts
+
+; ------------------------------------ Quellpuffer setzen 
+
+setbvb0	lda h1vek
+	ldy h1vek+1
+	bne sv0
+
+setvb0	lda #<buf0
+	ldy #>buf0
+sv0	sta vbuf0
+	sty vbuf0+1
+	rts
+
+; ------------------------------------ Zielpuffer setzen 
+
+setbvb1	lda h0vek
+	ldy h0vek+1
+	bne sv1
+
+setvb1	lda #<buf1
+	ldy #>buf1
+sv1	sta vbuf1
+	sty vbuf1+1
+	rts
+
+; ------------------------------------ Verschiebepuffer setzen 
+
+setvb2	lda #<buf0
+	ldy #>buf0
+	clc
+	adc #160
+	sta vbuf0
+	sty vbuf0+1
+	rts
+
+; ------------------------------------ Verschiebevektor setzen
+
+sethvek	lda dst+1
+	sta hvek+1
+	lda dst
+	sta hvek
+	rts
+
+; ------------------------------------ Letzte Zeilenadresse merken
+
+seth0vek	lda dst
+	sta h0vek
+	lda dst+1
+	sta h0vek+1
+	rts
+
+; ------------------------------------ Aktuelle Zeilenadresse merken
+
+seth1vek	lda dst
+	sta h1vek
+	lda dst+1
+	sta h1vek+1
+	rts
+
+; ------------------------------------ Letzte Zeilenadresse holen
+
+geth0vek	lda h0vek+1
+	sta hvek+1
+	lda h0vek
+	sta hvek
+	rts
+
+; ------------------------------------ Aktuelle Zeilenadresse in die letzte schieben
+
+move1to0	lda h1vek+1
+	sta h0vek+1
+	lda h1vek
+	sta h0vek
+	rts
+
+; ------------------------------------ Input mit Ziffern vorbereiten
+
+initinput	ldx #10		; Flag für spezifisches Input setzen
+	stx sc_iflag
+ar1	lda ziffern,x	; zul. Zeichen an die richtige Stelle übertragen
+	sta ibuff,x
+	dex
+	bpl ar1
+	rts
+
+; ------------------------------------ sprite activity display 
+
+initad	ldy #60
+	lda #0
+adl0	sta spr255+3,y
+	dey
+	bpl adl0
+	sty spr255
+	sty spr255+1
+	sty spr255+2
+	lda #15
+	sta sprcol2
+	sta sprcol2+1
+	lda sprxe
+	ora #12
+	sta sprxe
+	lda msbx
+	ora #12
+	sta msbx
+	lda #8
+	sta x2
+	lda #32
+	sta x2+2
+
+	lda #146
+	sta y2
+	sta y2+2
+	lda #$ff
+	sta sprptr+2
+	sta sprptr+3
+	lda spren
+	ora #12
+	sta spren
+	lda adrun
+	sta adcnt
+	rts
+
+; ------------------------------------ Requesterdefinition 
+
+scrlist	!by 0
+	!by 10,11,18,9
+	!by $81
+	!wo 0
+	!scr "Scroll@"
+
+amntgad	!by 12,23,5,3
+	!by $e0
+	!wo evsetamnt
+amnt	!pet "  8"
+	!by 0
+
+dirgad	!by 14,23,5,3
+	!by $e0
+	!wo evsdirctn
+	!by 32
+dirctn	!by 94,32
+	!by 0
+
+	!by 16,12,9,3
+	!by $cc
+	!wo evexec
+	!scr "Execute@"
+
+	!by 16,21,7,3
+	!by $cc
+	!wo evleave
+	!scr "Leave@"
+
+	!by $c0,12,11,11
+	!scr "Set Amount:@"
+	!by $c0,14,11,11
+	!scr "Direction :@"
+	!by $80
+
+modend	!eof
