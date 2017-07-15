@@ -1,6 +1,3 @@
-;.petscii
-;.ob "init_obj,p,w"
-;.ba $2000
 
 ; ------------------------------------------------------------ 
 ;
@@ -19,6 +16,7 @@
 ;   1.34, 23.09.16 ; bugfix in befram und befreuclr
 ;   1.35, 19.10.16 ; bugfix in befreuclr (never noticed it!)
 ;   1.36, 31.05.17 ; changed length of swp.file to 4096 bytes
+;   1.37, 15.07.17 ; accommodation to dev.REU v1.07
 ;
 ; ------------------------------------------------------------ 
 
@@ -31,7 +29,7 @@
 	!word $0814
 	!word 100
 	!byte $9e		; Basic-Line: SYS 2070
-	!pet " 2070 : ad 16"
+	!pet " 2070 : ad 17"
 	!byte 0,0,0
 
 	lda #$35		; transfer 18 blocks of data to $2000...
@@ -80,7 +78,7 @@ b2	sta booter,y
 	scm1		= $148e
 	sm2		= $14e2
 	ld11		= $1825
-	filtype		= $1d29 ; selfmodifying kernel!
+	filtype		= $1d29 	; selfmodifying kernel!
 	ramtype		= $1d8f
 	hirs		= $1db4
 	scrmode		= $1edc
@@ -92,7 +90,8 @@ b2	sta booter,y
 
 	modul		= $c000
 	bootinit		= $c012
-	ram		= $cab0
+	ram		= $ca64
+	ramstart		= $cab0
 	
 	spr0x		= $d000
 	spr0y		= $d001
@@ -207,7 +206,7 @@ mkt0	lda tabs-$40,x
 
 ; --------------------------------------- 
 
-version	!byte $01,$36	; Versionsnummer in SED-Format (1.36)
+version	!byte $01,$37	; Versionsnummer in SED-Format (1.37)
 
 ; --------------------------------------- 
 
@@ -359,7 +358,7 @@ godlst	!byte $93
 	!byte $c0,15,8,20
 	!scr "A. Dettke & W. Kling@"
 	!byte $c0,17,14,9
-	!scr "1991-2016@"
+	!scr "1991-2017@"
 
 	!byte $c0,19,8,20
 	!scr "C64 Image Processing@"
@@ -565,7 +564,7 @@ tr2	txa
 	sta gd_modswitch
 	lda #$4c		; Einsprung aktivieren
 	sta ramvec
-	lda #<(ram)
+	lda #<(ramstart)
 	sta ramvec+1
 
 	lda reubase	; Kapazität feststellen
@@ -747,7 +746,7 @@ mr0	lda rentries,x	; Header in RAM-Directory schreiben
 	cpx rboot
 	bne mr0
 	ldx #10		; dann FirstInit aktivieren
-	jsr ram
+	jsr ramstart
 	jsr gd_swapd	; und Directory ins RAM schreiben
 whx	rts
 
@@ -1078,10 +1077,10 @@ pallo	!byte 1,1,1
 ;
 lastn	!pet "Untitled        "		; ls_lastname ($03dc)
 ;
-swapw	!byte 0,$c0				; RAM-Strukturen ($03ec)
+swapw	!byte 0,$c0			; RAM-Strukturen ($03ec)
 	!byte 0,0,0
 	!byte <(4096),>(4096)
-werte	!byte 0,$c0,0,0,0,0,0			; ($03f3)
+werte	!byte 0,$c0,0,0,0,0,0		; ($03f3)
 
 sysdrive	!byte 0				; ($03fa)
 versionnm	!byte 0,0
@@ -1719,7 +1718,7 @@ rm5	lda modul+3	; save modtype
 	pla
 	tay		; set parameter for func 6 (modtype in .y)
 	ldx #6		; save mod to RAM (function 6)
-	jsr ram
+	jsr ramstart
 	
 rm3	pla		; finished
 	sta ls_vekta8+1
