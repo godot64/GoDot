@@ -1,6 +1,6 @@
 
 	!src "..\godotlib.lib"
-	*= $cab0
+	*= $ca64
 
 ; --------------------------------------
 ;
@@ -14,6 +14,7 @@
 ;   1.05, 28.08.16, bug: Undo 4Bit could fail
 ;	14.05.17, combined sources of section 1 and 2
 ;   1.06, 31.05.17, changed: length of swp.file (to 4096 bytes)
+;   1.07, 15.07.17, added: awareness of svr.Temp (Rucksack an $ca64)
 ; 
 ; -------------------------------------- 
 ;
@@ -60,6 +61,8 @@
 ; 
 ; -------------------------------------- Equates
 
+	pport		= $01
+
 	low		= $30
 	high		= $31
 	zwischen		= $32
@@ -78,12 +81,38 @@
 	back		= $befd
 	dirbuf		= $bf00
 	modul		= $c000
+	stempflg		= $d008
 
 
 ; ----------------------------------------- 
 ; ----------------------------------------- Section 1 of dev.REU
 ; ----------------------------------------- 
 
+; Aufruf aus stmp (Teil von tempr)
+
+ch4stemp	lda #$34
+	sta pport		; Rucksack 1: Check for Saver Temp
+	bit stempflg	; Saver installiert?
+	php
+	lda #$36
+	sta pport
+	plp
+	bvs +		; ja, wenn Bit 7 an
+
+	pla		; nein, Rücksprung nach Label "stmp" verwerfen
+	pla
+	pla		; Rücksprung nach Label "undo" verwerfen
+	pla
+	jsr gd_clrms
+	ldx #<svrmiss	; Meldung ausgeben
+	ldy #>svrmiss
+	jsr gd_xtxout2
+
++	rts		; fertig
+
+svrmiss	!scr "Saver missing.@"
+
+	!fill 31,$ad	; 76-45=31 Bytes Gap (padding)
 
 ; -------------------------------------- Header
 
@@ -93,8 +122,8 @@ ramdev	jmp start
 	!wo modend
 	!wo 0
 	!pet "REU Handler     "
-	!pet "1.06"
-	!pet "31.05.17"
+	!pet "1.07"
+	!pet "15.07.17"
 	!pet "A. Dettke       "
 
 ; -------------------------------------- Main
@@ -288,9 +317,9 @@ un3	bcc rdy2
 
 un2	lda #$91		; $91 = fetch
 	sta rm_combuf
-	ldy rm_ramundo	; 1=4Bit, 2=Rendered
-	lda rm_nextentry
-	cpy #1		; 4Bit?
+	ldy rm_ramundo	; vorhanden : 1=4Bit, 2=Rendered, 3=beide
+	lda rm_nextentry	; selektiert: 1=4Bit, 2=Rendered
+	cmp #1		; 4Bit?				### 1.07
 	bne urend		; nein, Sprung
 	
 ; -------------------------------------- Undo 4Bit
@@ -374,7 +403,7 @@ getit3	lda rm_combuf
 noundo	jsr gd_clrms	; Meldung: "Buffer empty."
 	ldx #<(mess)
 	ldy #>(mess)
-	jmp gd_xtxout2
+	jmp gd_xtxout2	; .c=0
 
 ; -------------------------------------- f9: Undo to REU (sichern)
 
@@ -439,11 +468,13 @@ temp0	tya		; load/save?
 
 ; -------------------------------------- Save Temp
 
-stmp 	lda #<(strut)	; verlegen nach Global
+stmp	jsr ch4stemp	; Check auf svr.Temp (kehrt nicht zurück, wenn _nicht_ da)
+
+ 	lda #<(strut)	; verlegen nach Global
 	ldx #>(strut)
 	sta sc_texttab
 	stx sc_texttab+1
-	ldy #0
+			; ldy #0: entfernt 			### 1.07
 st01 	lda (sc_texttab),y
 	sta sy_global,y
 	iny
@@ -453,7 +484,7 @@ st01 	lda (sc_texttab),y
 ;
 strut	lda gd_modswitch	; Modulherkunft retten
 	pha
-	ldy #$ff		; SAVE erzwingen
+	iny		; SAVE erzwingen, ldy #$ff: entfernt	### 1.07
 	jsr se_save	; durchführen (Saver Temp aufrufen)
 	php		; Ergebnis nach .y retten
 	pla
