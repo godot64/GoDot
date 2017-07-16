@@ -1,0 +1,572 @@
+	!src "..\godotlib.lib"	; library nicht erforderlich
+	*= $c000
+
+; ------------------------------------------------ 
+;
+; svr.Temp
+; Modul zum Speichern von Bildern in ein
+; angeschlossenes RAM (REU, Pagefox, VDC) als "temp00"
+;
+; 0.99, 08.07.93, first release
+; 1.00, 19.12.93, bug im VDC-Treiber: fixed
+;                 present flag (header+8) added on 14.07.17
+; 
+; ------------------------------------------------ 
+
+; ------------------------------------------------ Declarations
+
+	bank		= $30
+	cnt		= $3e
+	entry		= $3a
+	offx		= ls_adrmisc
+	offy		= offx+1
+	mlen		= $fd
+	cpos		= mlen+1
+
+	avail		= $3f60
+	result		= avail-1
+	rdata		= avail-2
+
+	mal19		= $bd8c
+	bswitch		= $de80
+	vdc		= $d600
+	vdcdata		= $d601
+
+; ------------------------------------------------ Header
+
+header	jmp start
+	!by $40
+	!by 0
+	!by 1
+	!wo modend
+	!wo $0040			; svr.Temp present
+	!pet "TEMP for all Ram"
+	!pet "1.00"
+	!pet "19.12.93"
+	!pet "A.Dettke        "
+addtxt	!pet "Offset: $8300 in"
+	!pet "last RAM-Bank   "
+	!by 0
+
+; ------------------------------------------------ Main
+
+start	ldx gr_nr
+	dex
+	bne st0
+	jmp initinp
+
+st0	jsr gd_sproff
+	lda gd_modswitch
+	pha
+	sec
+	lda ls_flen
+	beq st1
+	jsr swerte
+	jsr gd_clrms
+	jsr svtemp
+	jsr swerte
+st1	pla
+	sta gd_modswitch
+st2	php
+	jsr gd_spron
+	plp
+	rts
+
+; --------------------------- 
+; --------------------------- Input Routines
+
+!src "..\input.inc"
+
+; --------------------------- 
+; --------------------------- 
+
+
+; ---------------------------------------- 
+
+messout	ldx #<(message)
+	ldy #>(message)
+	jmp gd_xtxout2
+
+; ---------------------------------------- 
+
+message	!scr "       Temp saved to RAM.       @"
+
+err0	!scr "   No RAM. Can't create TEMP.   "
+err1	!scr "Not enough space on RAM device. "
+err2	!scr "Select 'Save' to overwrite TEMP."
+err3	!scr "    Select Unit RAM to save.    "
+err4	!scr "       Temp saved to RAM.       "
+err5	!scr "    RAM reserved for system.    "
+err6	!scr "  RAM valid. You can save now.  "
+err7	!scr "       Writing to RAM ...       "
+
+; ---------------------------------------- 
+
+er0	jmp faila
+er1	jmp failb
+er3	jmp faild
+er5	jmp failf
+
+; ---------------------------------------- Device Selector
+
+svtemp	lda ls_drive+6	; which ramtype?
+	and #15
+	sta ramtype
+	cmp #9		; no ram?
+	beq er0		; yes, error message ("no ram")
+
+	ldx rm_vdcflag	; save current settings
+	tay
+	lda toggles,y
+	tay
+	sta actram
+	bne stp0
+
+	txa		; VDC attached?
+	and #1
+	beq stp0		; no, skip
+	txa		; yes, VDC 64K?
+er01	bpl er1		; no, err message ("Not enough ram")
+	and #$40		; VDC locked?
+	bne er5		; yes, err message ("ram reserved")
+
+stp0	tya		; REU attached?
+	cmp #2
+	bcs stp1		; yes, continue there
+
+	txa		; no, Pagefox locked?
+	and #$10
+	bne er5		; yes, err message
+stp2	ldy ramtype	; publish ramtype 
+	jsr wtype
+	jsr st2		; pointer on
+	lda #$ff		; init errorhandling
+	sta failtype
+
+	ldx #<(stmplst)	; open requester
+	ldy #>(stmplst)
+	jmp gd_xmloop	; and wait
+
+stp1	lda ls_drive	; REU selected?
+	cmp #12
+	bne er3		; no, err message ("Select unit ram")
+	beq stp2		; yes, open requester
+
+; ---------------------------------------- Publish RAMtype
+
+wtype	lda txoffs,y	; write text to screenlist
+	tay
+	ldx #0
+wt0	lda ttexts,y
+	sta rtype,x
+	iny
+	inx
+	cpx #20
+	bcc wt0
+	rts
+
+; ---------------------------------------- 
+; ---------------------------------------- Event: Save Temp
+; ---------------------------------------- 
+
+sevsavet	jsr iffail	; last action faulty? (no return if yes)
+	ldx actram	; which ram? (continue there)
+	beq jvdc
+	dex
+	beq pfox
+
+; ---------------------------------------- to REU
+
+sreu	ldx ramtype	; set rambank
+	lda typereu,x
+	sta reudata+4
+	lda rm_tmpsaved	; temp already used?
+	tay
+	and #1
+	bne overwr	; yes, ask for overwrite
+
+	jsr avail32k	; check for availability (32000 bytes)
+	beq er01		; not available
+
+	ldx #6		; save: prepare...
+sr0	lda reudata,x
+	sta rm_werte,x
+	dex
+	bpl sr0
+	lda #1		; set used flag
+	jsr tmpup
+	lda #$90		; ...and commit
+	jsr gd_reu
+	jmp faile		; message
+
+; ---------------------------------------- 
+
+pfox	jmp spfox
+jvdc	jmp svdc
+
+; ---------------------------------------- Ask for Overwrite Temp
+
+overwr	jsr failc		; message ("Select 'save' ...")
+	lda sc_screenvek	; save current screenlist
+	pha
+	lda sc_screenvek+1
+	sta txflag
+	pha
+	ldx #<(overlst)	; open new screenlist
+	ldy #>(overlst)
+	jsr gd_screen
+	jsr gd_eloop	; wait...
+	pla		; restore old screenlist
+	tay
+	sta sc_screenvek+1
+	pla
+	tax
+	sta sc_screenvek
+	jsr gd_screen
+	lda txflag	; result: successful?
+	beq ow0		; yes, message ("Temp saved...")
+	jsr gd_clrms	: no, clear message bar
+ow0	clc
+	rts
+
+; ---------------------------------------- Overwrite Temp
+
+sevowr	sty tmpmk
+	lda #0
+	sta rm_tmpsaved	; clear temp flag
+	sta txflag
+	jsr sevsavet	; save
+	lda tmpmk
+	jsr tmpup		; update temp flag
+	sec
+	rts
+
+; ---------------------------------------- Reject not valid commands
+
+iffail	ldx failtype	; error number
+	inx		; is #$ff?
+	beq ok		; yes, no error
+
+	dex		; messages?
+	cpx #64
+	beq ok
+	cpx #96
+	beq ok
+	cpx #192
+	beq ok
+	cpx #128
+	beq ok
+	cpx #224
+	beq ok		; yes, no errors
+
+	pla		; otherwise: break current routine
+	pla
+	jmp fail		; error message and finish
+
+ok	lda #$ff		; init error number
+	sta failtype
+	rts
+
+; ---------------------------------------- Save to Pagefox
+
+spfox	lda rm_tmpsaved	; temp in use?
+	tay
+	and #1
+over3	bne overwr	; yes, ask to overwrite
+
+	jsr failh
+	ldy #0		; pointer off
+	sty $d015
+	ldx #8		; first 16K pagefox bank (of two)
+	stx bank
+	lda #$40		; source ($4000)
+	sta sc_vekt20+1
+	sty sc_vekt20
+	lda #$80		; destination ($8000)
+	sta sc_texttab+1
+	sty sc_texttab
+	sei		; enter Pagefox ram
+	lda #$34
+	sta 1
+pw5	lda (sc_vekt20),y	; copy to ram
+	tax
+	lda (sc_texttab),y	; save source
+	pha
+	inc 1
+	lda bank		; switch on Pagefox
+	sta bswitch
+	txa
+	sta (sc_texttab),y	; write to pagefox
+	lda #$ff		; switch off pagefox
+	sta bswitch
+	dec 1
+	pla		; restore source
+	sta (sc_texttab),y
+	inc sc_texttab	; proceed
+	bne pw2
+	inc sc_texttab+1
+pw2	inc sc_vekt20
+	bne pw0
+	inc sc_vekt20+1
+pw0	lda sc_texttab+1	; bank finished?
+	cmp #$c0
+	bne pw5
+	lda bank		; second bank finished?
+	cmp #10
+	beq pw3
+	lda #10		; no, set value for second bank
+	sta bank
+	lda #$80		; and reset destination address
+	sta sc_texttab+1
+	bne pw5
+
+pw3	lda #$36		; all finished
+	sta 1
+	lda #3		; pointer on
+	sta $d015
+	lda #1		; set temp flag
+	jsr tmpup
+	cli
+	jmp faile		; message
+
+; ---------------------------------------- Save to VDC
+
+svdc	lda rm_tmpsaved	; temp in use?
+	tay
+	and #2
+	bne over3
+
+	jsr failh
+	lda #$40
+	ldy #0		; pointer off
+	sty $d015
+	sta sc_vekt20+1
+	sty sc_vekt20
+	sei		; init VDC registers ### 1.00
+	ldx #$12
+	lda #$83
+	jsr setvdc
+	jsr clrlo
+	lda #$7d		; set counter
+	sta ls_vekta8+1
+	sty ls_vekta8
+	ldx #31
+wv5	lda (sc_vekt20),y	; copy to ram
+	jsr setvdc
+	inc sc_vekt20
+	bne wv0
+	inc sc_vekt20+1
+wv0	lda ls_vekta8	; count bytes
+	bne wv1
+	dec ls_vekta8+1
+wv1	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	bne wv5
+
+	cli		; finished	### 1.00
+	lda #2		; set temp flag
+	jsr tmpup
+	lda #3		; pointer on
+	sta $d015
+	jmp faile		; message
+
+; ---------------------------------------- 
+
+clrlo	inx
+	lda #0
+setvdc	stx vdc
+tv5	bit vdc
+	bpl tv5
+	sta vdcdata
+	rts
+
+; ---------------------------------------- save REU values
+
+swerte	php
+	ldx #6
+sw0	lda rm_werte,x
+	pha
+	lda awerte,x
+	tay
+	pla
+	sta awerte,x
+	tya
+	sta rm_werte,x
+	dex
+	bpl sw0
+	plp
+	rts
+
+; ---------------------------------------- Update Temp flag
+
+tmpup	ora rm_tmpsaved
+	sta rm_tmpsaved
+	rts
+
+; ---------------------------------------- Select RAMs other than REU
+
+sevtogg	ldy actram	; we have 5 types (0-4)
+	iny
+	cpy #5
+	bcc tg0
+	ldy #0		; start over at 0 (after #4)
+tg0	sty actram
+	lda rams,y	; publish names
+	sta ramset
+	tay
+	jsr wtype
+	jsr gettab
+	ldy #6
+	jsr gd_xtxout1
+
+	lda ramset	; messages
+	tay
+	ldx rm_vdcflag
+	cmp #3
+	beq tg1
+	bcs tg2
+	txa
+	and #1
+	beq tg3
+	txa
+	bpl tgeb
+	and #$40
+	bne tgef
+	beq tg4
+tg1	txa
+	and #$10
+	bne tgef
+tg3	tya
+tg2	cmp ramtype
+	bne tgea
+tg4	jmp failg
+tgea	jmp faila
+tgeb	jmp failb
+tgef	jmp failf
+
+; ---------------------------------------- 
+
+gettab	lda #<(toggle)
+	sta sc_screentab
+	lda #>(toggle)
+	sta sc_screentab+1
+	lda #0
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #3
+	bne gt0
+	stx sc_ho
+	jsr gd_trim
+	jmp gd_initmove
+
+; ---------------------------------------- 
+
+avail32k	ldx #0
+ak0	lda a32k,x	; umlagern
+	sta avail,x
+	inx
+	cmp #$60		; bis RTS
+	bne ak0
+	jmp avail
+
+a32k	lda reudata+4	; noch 32000 Bytes frei?
+	sta rdata
+	jsr gd_getback
+	ldy #$7d
+	lda #0
+	ldx #7
+	jsr rm_ramvec
+	sta result
+	ldx #0
+	lda #4
+	jsr mal19
+	ldy #0
+	lda rdata
+	sta (entry),y
+	jsr gd_getback
+	lda result
+	rts
+
+; ---------------------------------------- 
+
+faila	ldx #0
+	!by $2c
+failb	ldx #32
+	!by $2c
+failc	ldx #64
+	!by $2c
+faild	ldx #96
+	!by $2c
+faile	ldx #128
+	!by $2c
+failf	ldx #160
+	!by $2c
+failg	ldx #192
+	!by $2c
+failh	ldx #224
+fail	ldy #0
+	stx failtype
+fl0	lda err0,x
+	sta message,y
+	inx
+	iny
+	cpy #32
+	bne fl0
+	jsr gd_clrms
+	jmp messout
+
+; ------------------------------------------------ Event: Cancel
+
+sevleave	sec
+	rts
+
+; ------------------------------------------------ 
+
+reudata	!by 0,$40,0,$83,7,0,$7d
+awerte	!by 0,$40,0,$83,7,0,$7d
+toggles	!by $ff,$ff,0, 1, 2, 3,$ff,$ff, 4
+txoffs	!by $ff,$ff,0,20,40,60,$ff,$ff,80
+rams	!by 2,3,4,5,8
+typereu	!by 0,0,0,0,3,7,0,0,1,0
+ttexts	!pet "       vdc 64       "
+	!pet "      Pagefox       "
+	!pet "      reu 1764      "
+	!pet "      reu 1750      "
+	!pet "      reu 1700      "
+txflag	!by 0
+failtype	!by $ff
+ramtype	!by 0
+ramset	!by 0
+actram	!by 0
+tmpmk	!by 0
+
+; ------------------------------------------------ 
+
+stmplst	!by 0
+	!by 3,8,22,15,$81,0,0
+	!scr "Save Temp@"
+toggle	!by 8,8,22,3,$ca,<(sevtogg),>(sevtogg)
+rtype	!fill 20,32
+	!by 0
+	!by 11,8,22,3,$ca,<(sevsavet),>(sevsavet)
+	!scr "Save@"
+	!by 14,8,22,3,$ca,<(sevleave),>(sevleave)
+	!scr "Leave@"
+	!by $c0,5,8,20
+	!scr " Select Destination @"
+	!by $80
+
+; ------------------------------------------------ 
+
+overlst	!by 0
+	!by 11,8,22,3,$ca,<(sevowr),>(sevowr)
+	!scr "Save@"
+	!by 14,8,22,3,$ca,<(sevleave),>(sevleave)
+	!scr "Cancel@"
+	!by $80
+
+; ------------------------------------------------ 
+
+modend	!eof
