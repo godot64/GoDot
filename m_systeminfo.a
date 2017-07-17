@@ -7,17 +7,17 @@
 ; Modul zur Anzeige der GoDot-Systeminformationen
 ;
 ; 1.04, 25.08.95
+; 1.05, 16.07.17, re-coded by AD
+;                 bug fixes and shorter code
 ;
 ; Modul von Martin Burggraf
-; Es hält sich leider nicht an die GoDot-Programmierrichtlinien
-; und enthält einige (leichtere, aber auch schwerwiegende) Fehler
-; (gekennzeichnet mit !!!!!!)
 ;
 ; ------------------------------------------------ Declarations
 
 	pport		= $01
-	src		= $02		; diese Adresse ist unter GoDot *nicht* frei
-	dst		= $04		; dito
+	src		= $30
+	dst		= $32
+	ymrk		= $34
 	filetype		= $1d29
 	vupmem		= $f01a
 	dupmem		= $f01e
@@ -27,34 +27,26 @@
 	jmp start
 	!by $20
 	!by $00
-	!by $01
+	!by $00
 	!wo modend
 	!wo $00 
 	!pet "SystemInfo      "
-	!pet "1.04"
-	!pet "25.08.95"
-	!pet "M.Burggraf      "
+	!pet "1.05"
+	!pet "16.07.17"
+	!pet "M.Burggraf/AD   "
 
 ; ------------------------------------------------ Main
 
-start	jsr setcmdf	; gather infos
+start	jsr setsysfvs	; gather infos
 	jsr setdrinfo
 	jsr setwdrives
-
-	ldx sc_normtext	; exchange Hilite and Normtext
-	ldy sc_hilite	; (gute Idee!)
-	stx sc_hilite
-	sty sc_normtext
+	jsr toggle	; xchange textcolors
 
 	ldx #<silist	; show requester
 	ldy #>silist
 	jsr gd_screen
 
-	ldx sc_hilite	; re-exchange
-	ldy sc_normtext
-	sty sc_hilite
-	stx sc_normtext
-
+	jsr toggle	; re-xchange textcolors
 	jsr gd_eloop	; wait
 
 ; ------------------------------------------------ Event: Leave
@@ -64,28 +56,37 @@ evcan	sec
 
 ; ------------------------------------------------ System File versions
 
-setsysfvs	sei 
+setsysfvs	ldx #8		; retrieve ">" significations from filerequester
+-	lda cmdflags-8,x	; (flags for CMD drives and SuperCPU)
+	tay 
+	lda filetype,y	; get flag
+	pha 
+	lda cmdsigns-8,x	; get offset
+	tay 
+	pla 
+	sta vupdtx+2,y	; set flag
+	inx 
+	cpx #13
+	bne -
+
+	sei 
 	lda pport		; switch to RAM only
 	pha 
-	lda #$00
+	lda #$34
 	sta pport
 
-	ldx #4
--	dex 
-	lda vupmem,x	; upmem (version)
+	ldx #3
+-	lda vupmem,x	; upmem (version)
 	sta vuptx,x
-	bne -		; !!!!!!
-			; (endet erst, wenn im .a ein $00 auftaucht!
-			; Schreibt daher unkontrolliert in die Execution Area,
-			; zum Glück *hinter* das Modul, daher wird der Fehler
-			; nicht sichtbar! Es könnte aber auch zu einer
-			; Endlosschleife führen.)
-	ldx #8
--	dex 
-	lda dupmem,x	; (date)
+	dex 
+	bpl -
+
+	ldx #7
+-	lda dupmem,x	; upmem (date)
 	sta vupdtx,x
-	bne -		; !!!!!!
-			; (siehe oben)
+	dex 
+	bpl -
+
 	pla 
 	sta pport
 	cli 
@@ -94,10 +95,11 @@ setsysfvs	sei
 	jsr gd_xcnvdez
 	sta vboottx
 	lda sy_versioninit+1
+	pha
 	and #$0f
 	jsr gd_xcnvdez
 	sta vboottx+3
-	lda sy_versioninit+1
+	pla
 	lsr
 	lsr
 	lsr
@@ -108,10 +110,11 @@ setsysfvs	sei
 	jsr gd_xcnvdez
 	sta vkerntx
 	lda sy_version+1
+	pha
 	and #$0f
 	jsr gd_xcnvdez
 	sta vkerntx+3
-	lda sy_version+1
+	pla
 	lsr
 	lsr
 	lsr
@@ -123,220 +126,42 @@ setsysfvs	sei
 ; ------------------------------------------------ Workdrives
 
 setwdrives
-	lda ls_sysdrive
-	jsr gd_xcnvdez
-	jsr replace0
+	lda ls_sysdrive	; sys
+	jsr getdigits
 	stx sysdrtx
 	sta sysdrtx+1
-	lda ls_bootdrive
-	jsr gd_xcnvdez
-	jsr replace0
+	lda ls_bootdrive	; boot
+	jsr getdigits
 	stx bootdrtx
 	sta bootdrtx+1
-	lda ls_loadfrom
-	jsr gd_xcnvdez
-	jsr replace0
+	lda ls_loadfrom	; from
+	jsr getdigits
 	stx fromdrtx
 	sta fromdrtx+1
-	lda ls_saveto
-	jsr gd_xcnvdez
-	jsr replace0
+	lda ls_saveto	; to
+	jsr getdigits
 	stx todrtx
 	sta todrtx+1
 	rts 
 
 ; ------------------------------------------------ Driveinfos
 
-setdrinfo	lda ls_units	; U8
-	tax 
-	and #$0f
+setdrinfo	ldy #$ff
+	sty ymrk
+
+-	jsr getdrinfo	; U8 bis U11
 	beq +
-
-	txa 		; typ		; dieser Vorgang ist viermal gleich!
-	lsr
-	lsr
-	lsr
-	lsr
-	cmp #$00		; 1570?
-	beq dr80
-	cmp #$01		; 1571?
-	beq dr81
-	cmp #$02		; cmd?
-	beq dr82
-	cmp #$04		; 1541?
-	beq dr83
-	cmp #$08		; 1581?
-	beq dr84
-
-+	ldx #<nonetx	; none
-	ldy #>nonetx
-	jmp dr5
-dr83	ldx #<dr41tx	; 1541
-	ldy #>dr41tx
-	jmp dr5
-dr84	ldx #<dr81tx	; 1581
-	ldy #>dr81tx
-	jmp dr5
-dr80	ldx #<dr70tx	; 1570
-	ldy #>dr70tx
-	jmp dr5
-dr81	ldx #<dr71tx	; 1571
-	ldy #>dr71tx
-	jmp dr5
-dr82	ldx #<drcmdtx	; cmd
-	ldy #>drcmdtx
-
-dr5	stx src
-	sty src+1
-	ldx #<dr8tx
-	ldy #>dr8tx
-	stx dst
-	sty dst+1
+	ldy ymrk
+	lda txtablo,y
+	ldx txtabhi,y
+	sta dst
+	stx dst+1
 	jsr transfer
++	ldy ymrk
+	cpy #3
+	bne -
 
-	lda ls_units+1	; U9
-	tax 
-	and #$0f
-	beq +
-
-	txa 
-	lsr
-	lsr
-	lsr
-	lsr
-	cmp #$00
-	beq dr90
-	cmp #$01
-	beq dr91
-	cmp #$02
-	beq dr92
-	cmp #$04
-	beq dr93
-	cmp #$08
-	beq dr94
-
-+	ldx #<nonetx	; none
-	ldy #>nonetx
-	jmp dr6
-dr93	ldx #<dr41tx	; 1541
-	ldy #>dr41tx
-	jmp dr6
-dr94	ldx #<dr81tx	; 1581
-	ldy #>dr81tx
-	jmp dr6
-dr90	ldx #<dr70tx	; 1570
-	ldy #>dr70tx
-	jmp dr6
-dr91	ldx #<dr71tx	; 1571
-	ldy #>dr71tx
-	jmp dr6
-dr92	ldx #<drcmdtx	; cmd
-	ldy #>drcmdtx
-
-
-dr6	stx src
-	sty src+1
-	ldx #<dr9tx
-	ldy #>dr9tx
-	stx dst
-	sty dst+1
-	jsr transfer
-
-	lda ls_units+2	; U10
-	tax 
-	and #$0f
-	beq +
-
-	txa 
-	lsr
-	lsr
-	lsr
-	lsr
-	cmp #$00
-	beq dra0
-	cmp #$01
-	beq dra1
-	cmp #$02
-	beq dra2
-	cmp #$04
-	beq dra3
-	cmp #$08
-	beq dra4
-
-+	ldx #<nonetx	; none
-	ldy #>nonetx
-	jmp dr7
-dra3	ldx #<dr41tx	; 1541
-	ldy #>dr41tx
-	jmp dr7
-dra4	ldx #<dr81tx	; 1581
-	ldy #>dr81tx
-	jmp dr7
-dra0	ldx #<dr70tx	; 1570
-	ldy #>dr70tx
-	jmp dr7
-dra1	ldx #<dr71tx	; 1571
-	ldy #>dr71tx
-	jmp dr7
-dra2	ldx #<drcmdtx	; cmd
-	ldy #>drcmdtx
-
-dr7	stx src
-	sty src+1
-	ldx #<dratx
-	ldy #>dratx
-	stx dst
-	sty dst+1
-	jsr transfer
-
-	lda ls_units+3	; U11
-	tax 
-	and #$0f
-	beq +
-
-	txa 
-	lsr
-	lsr
-	lsr
-	lsr
-	cmp #$00
-	beq drb0
-	cmp #$01
-	beq drb1
-	cmp #$02
-	beq drb2
-	cmp #$04
-	beq drb3
-	cmp #$08
-	beq drb4
-
-+	ldx #<nonetx	; none
-	ldy #>nonetx
-	jmp dr8
-drb3	ldx #<dr41tx	; 1541
-	ldy #>dr41tx
-	jmp dr8
-drb4	ldx #<dr81tx	; 1581
-	ldy #>dr81tx
-	jmp dr8
-drb0	ldx #<dr70tx	; 1570
-	ldy #>dr70tx
-	jmp dr8
-drb1	ldx #<dr71tx	; 1571
-	ldy #>dr71tx
-	jmp dr8
-drb2	ldx #<drcmdtx	; cmd
-	ldy #>drcmdtx
-
-dr8	stx src
-	sty src+1
-	ldx #<drbtx
-	ldy #>drbtx
-	stx dst
-	sty dst+1
-	jsr transfer
-
-	lda ls_ramdrive	; U12
+getrminfo	lda ls_ramdrive	; U12
 	and #$0f
 	tax 
 	cpx #$02
@@ -366,8 +191,8 @@ drc2	ldx #<reu64tx
 drc3	ldx #<reu50tx
 	ldy #>reu50tx
 	jmp dr9
-drc4	ldx #<reu50tx	; 		Diese Adresse ist doppelt, dafür fehlt "reu00tx"
-	ldy #>reu50tx
+drc4	ldx #<reu00tx
+	ldy #>reu00tx
 
 dr9	stx src
 	sty src+1
@@ -376,17 +201,25 @@ dr9	stx src
 	stx dst
 	sty dst+1
 
-transfer 	ldy #5		; transfer info
--	dey 
-	lda (src),y
+transfer 	ldy #4		; transfer info
+-	lda (src),y
 	sta (dst),y
-	cpy #0		; 		"BPL -" wäre kürzer
-	bne -
+	dey 
+	bpl -
 	rts 
+
+; ------------------------------------------------ 
+
+toggle	ldx sc_normtext	; exchange Hilite and Normtext
+	ldy sc_hilite	; (gute Idee!)
+	stx sc_hilite
+	sty sc_normtext
+	rts
 
 ; ------------------------------------------------ ReplaceZero
 
-replace0	cpx #$30
+getdigits	jsr gd_xcnvdez	; .a=Einer
+	cpx #$30		; .x=Zehner
 	bne +
 	ldx #$20
 +	rts 
@@ -394,25 +227,30 @@ replace0	cpx #$30
 ; ------------------------------------------------ Screenlist
 
 silist	!by $00
-	!by $01,$09,$16,$16,$81,$00,$00 
+	!by $01,$09,$16,$16,$81
+	!wo 0
 	!scr "System Information@"
-	!by $03,$15,$06,$05,$20,$00,$00 
-	!by $08,$13,$0a,$03,$20,$00,$00 
-	!by $0e,$0a,$0b,$07,$20,$00,$00
-	!by $0e,$1a,$04,$06,$20,$00,$00 
-	!by $14,$18,$07,$03,$cd
+	!by $04,$18,$06,$05,$20 
+	!wo 0
+	!by $09,$14,$0a,$03,$20
+	!wo 0
+	!by $0e,$0a,$0b,$07,$20
+	!wo 0
+	!by $0e,$1a,$04,$06,$20
+	!wo 0
+	!by $14,$17,$07,$03,$cc
 	!wo evcan
 	!scr "Leave@"
 
-	!by $c0,$03,$0a,$08 
+	!by $c0,$04,$0a,$08 
 	!scr "Bootfile@"
-	!by $c0,$04,$0a,$06
+	!by $c0,$05,$0a,$06
 	!scr "Kernel@"
-	!by $c0,$05,$0a,$05
+	!by $c0,$06,$0a,$05
 	!scr "Upmem@"
-	!by $c0,$08,$0a,$04 
+	!by $c0,$09,$0a,$04 
 	!scr "Date@"
-	!by $c0,$0b,$0a,$0b 
+	!by $c0,$0c,$0a,$0b 
 	!scr "Driveinfos:@"
 	!by $c0,$0e,$15,$03 
 	!scr "Sys@"
@@ -422,13 +260,13 @@ silist	!by $00
 	!scr "Load@"
 	!by $c0,$11,$15,$04 
 	!scr "Save@"
-	!by $c0,$03,$15,$04 
+	!by $c0,$04,$18,$04 
 vboottx	!scr " .  @"
-	!by $c0,$04,$15,$04 
+	!by $c0,$05,$18,$04 
 vkerntx	!scr " .  @"
-	!by $c0,$05,$15,$04 
+	!by $c0,$06,$18,$04 
 vuptx	!scr " .  @"
-	!by $c0,$08,$13,$08 
+	!by $c0,$09,$14,$08 
 vupdtx	!scr "  .  .  @"
 	!by $c0,$0e,$0a,$09 
 	!scr "  8:"
@@ -445,7 +283,7 @@ drbtx	!scr "     @"
 	!by $c0,$12,$0a,$09
 	!scr "RAM:"
 ramtx	!scr "     @"
-	!by $c0,$0e,$1a,src
+	!by $c0,$0e,$1a,$02
 sysdrtx	!scr "  @"
 	!by $c0,$0f,$1a,$02 
 bootdrtx	!scr "  @"
@@ -462,31 +300,64 @@ dr70tx	!scr " 1570"
 dr71tx	!scr " 1571"
 dr81tx	!scr " 1581"
 drcmdtx	!scr " CMD "
-nonetx	!scr "*none"
+nonetx	!scr " C64 "
 vdctx	!scr " VDC "
-pfoxtx	!scr " pfox"
+pfoxtx	!scr " PFox"
 reu64tx	!scr " 1764"
 reu50tx	!scr " 1750"
 reu00tx	!scr " 1700"
 
-cmdflags	!by $22,$29,$31,$39	; $42=SuperCPU
-cmdsigns	!by $0e,$1c,$2a,$38 
+txtablo	!by <dr8tx,<dr9tx,<dratx,<drbtx
+txtabhi	!by >dr8tx,>dr9tx,>dratx,>drbtx
 
-; ------------------------------------------------ Get CMD Flags
+cmdflags	!by $22,$29,$31,$39,$42
+cmdsigns	!by $0e,$1c,$2a,$38,$46 
 
-setcmdf	ldx #8		; retrieve ">" significations from filerequester
--	lda cmdflags-8,x	; (flags for CMD drive)
-	tay 
-	lda filetype,y	; get flag
-	pha 
-	lda cmdsigns-8,x	; get offset
-	tay 
-	pla 
-	sta vupdtx+2,y	; set flag
-	inx 
-	cpx #12
-	bne -
-	jmp setsysfvs
+; ------------------------------------------------ 
+
+getdrinfo	ldy ymrk
+	iny
+
+	lda ls_units,y	; U8 bis U11
+	sty ymrk
+	tax 
+	and #$0f
+	beq +
+
+	txa 		; typ		; dieser Vorgang ist viermal gleich!
+	lsr
+	lsr
+	lsr
+	lsr
+	cmp #$00		; 1570?
+	beq dr80
+	cmp #$01		; 1571?
+	beq dr81
+	cmp #$02		; cmd?
+	beq dr82
+	cmp #$04		; 1541?
+	beq dr83
+	cmp #$08		; 1581?
+	beq dr84
+
+dr83	ldx #<dr41tx	; 1541
+	ldy #>dr41tx
+	jmp dr5
+dr84	ldx #<dr81tx	; 1581
+	ldy #>dr81tx
+	jmp dr5
+dr80	ldx #<dr70tx	; 1570
+	ldy #>dr70tx
+	jmp dr5
+dr81	ldx #<dr71tx	; 1571
+	ldy #>dr71tx
+	jmp dr5
+dr82	ldx #<drcmdtx	; cmd
+	ldy #>drcmdtx
+
+dr5	stx src
+	sty src+1
++	rts
 
 ; ------------------------------------------------ 
 
