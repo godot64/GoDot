@@ -1,0 +1,310 @@
+	!src "..\godotlib.lib"	; library nicht erforderlich
+	*= $c000
+
+; ------------------------------------------------ 
+;
+; mod.Smooth
+;
+;     modifier to combine mod.AverageColor and mod.VSmoothCol
+;
+;   1.00: 26.08.04, first release
+; 
+; ------------------------------------------------ 
+
+
+; ------------------------------------------------ Declarations
+
+
+	adcnt		= $34
+	src		= $35	; /$36
+	dst		= $37	; /$38
+	cnt320		= $39	; /$3a
+	lastnib		= $3f
+	cntwert		= $40
+	mask		= $41
+
+	spr255		= $3fc0
+	wkbuf		= $bd00
+	smbuf		= $cc00
+	y2		= $d005
+	spren		= $d015
+
+; -------------------------------------- Header
+
+	jmp start
+	!by $20
+	!by 0
+	!by 0
+	!wo modend
+	!by 0
+	!by 0
+	!pet "320x200c>160x100"
+	!pet "1.00"
+	!pet "26.08.04"
+	!pet "W.Kling/A.Dettke"
+
+; -------------------------------------- Main
+
+start	jsr vsmooth
+	jsr hsmooth
+	lda #$ff
+	sta gr_redisp
+	clc
+	rts
+
+; -------------------------------------- Vertical
+
+vsmooth	lda #8		; adcnt
+	sta cntwert
+	jsr initad	; initad
+
+	ldy #0		; clear smooth buffer
+	tya
+sm0	sta smbuf,y
+	iny
+	bne sm0
+
+	sty cnt320	; column counter to 0
+	sty cnt320+1
+	
+vloop	lda cnt320+1	; which pixel column?
+	lsr
+	sta src+1
+	lda cnt320	; even/odd?
+	ror
+	bcs sm1
+	ldx #$0f		; right
+	!by $2c
+sm1	ldx #$f0		; left
+	stx mask
+
+	tax		; compute the definite...
+	and #$03
+	sta src
+	txa
+	and #$fc
+	asl
+	rol src+1
+	asl
+	rol src+1
+	asl
+	rol src+1
+	ora src
+	sta src
+	lda src+1
+	ora #$40		; ...4bit address
+	sta src+1
+	
+	ldx #0		; index into workbuffer
+bloop	ldy #0		; count to 8
+tloop	lda (src),y	; get 1 rasterline (downwards)
+	bit mask
+	bvs sm2
+	lsr
+	lsr
+	lsr
+	lsr
+sm2	and #$0f
+	sta wkbuf,x
+	inx
+	iny		; (plus 4)
+	iny
+	iny
+	iny
+	cpy #32
+	bcc tloop
+	
+	lda src+1		; next blockline (+ $500)
+	clc
+	adc #$05
+	sta src+1
+	cmp #$bd		; all through?
+	bcc bloop
+
+	ldy #0		; now smooth...
+	sty lastnib
+sm3	lda wkbuf,y
+	tax
+	asl
+	asl
+	asl
+	asl
+	ora lastnib
+	stx lastnib
+	tax
+	lda coltab,x
+	and #$0f
+	sta smbuf,y
+	iny
+	cpy #200		; 200 bytes untereinander?
+	bne sm3
+	
+	lda cnt320+1	; reget column
+	lsr
+	sta dst+1
+	lda cnt320
+	ror
+	bcs sm4
+	ldx #$0f
+	!by $2c
+sm4	ldx #$f0
+	stx mask
+	tax
+	and #$03
+	sta dst
+	txa
+	and #$fc
+	asl
+	rol dst+1
+	asl
+	rol dst+1
+	asl
+	rol dst+1
+	ora dst
+	sta dst
+	lda dst+1
+	ora #$40		; compute 4bit address
+	sta dst+1
+	
+	ldx #0		; write back smoothed values
+bloop1	ldy #0
+tloop1	lda smbuf,x
+	bit mask
+	bvs sm5
+	asl
+	asl
+	asl
+	asl
+sm5	sta lastnib
+	lda (dst),y
+	and mask
+	ora lastnib
+	sta (dst),y
+	inx
+	iny
+	iny
+	iny
+	iny
+	cpy #32		; 1 tile?
+	bcc tloop1	; no, loop
+	
+	lda dst+1		; next blockline
+	clc
+	adc #$05
+	sta dst+1
+	cmp #$bd		; all through?
+	bcc bloop1	; no, loop
+
+	inc cnt320	; count  to 320 ($0140)
+	bne sm6
+	inc cnt320+1
+sm6	lda cnt320	; reached 320 (last column)?
+	cmp #$40		; no, activity
+	bne sm7
+	lda cnt320+1	; else, finished
+	bne finish
+	
+sm7	jsr adinc
+	jmp vloop
+finish	rts
+
+; -------------------------------------- Horizontal
+
+hsmooth	lda #3
+	sta cntwert
+	jsr initad
+	lda #$00		; set start of 4bit
+	ldy #$40
+	sta src
+	sty src+1
+	
+	ldy #0		; pagewise
+st0	lda (src),y	; make double nibs
+	tax
+	lda coltab,x
+	sta (src),y
+	iny
+	bne st0
+	
+	jsr adinc		; activity
+	inc src+1		; next page
+	lda src+1
+	cmp #$bd		; end of 4bit?
+	bne st0		; no, loop
+
+; -------------------------------------- Activity: Exit
+
+clearad	lda spren
+	and #$f3
+	sta spren
+	lda spritehi
+	and #$f3
+	sta spritehi
+	rts
+
+; -------------------------------------- Activity: Init
+
+initad	ldy #60
+	lda #$00
+adl0	sta spr255+3,y
+	dey
+	bpl adl0
+	sty spr255
+	sty spr255+1
+	sty spr255+2
+	lda #$0f
+	sta $d029
+	sta $d02a
+	lda $d01d
+	ora #$0c
+	sta $d01d
+	lda spritehi
+	ora #$0c
+	sta spritehi
+	lda #$08
+	sta $d004
+	lda #$20
+	sta $d006
+
+	lda #$92
+	sta y2
+	sta y2+2
+	sty $07fa
+	sty $07fb
+	lda spren
+	ora #$0c
+	sta spren
+	rts
+
+; -------------------------------------- Activity: Count
+
+adinc	dec adcnt
+	bne adskp
+	inc y2
+	inc y2+2
+	lda cntwert
+	sta adcnt
+adskp	rts
+
+; -------------------------------------- Table
+
+coltab	!by $00,$00,$00,$00,$22,$33,$22,$33,$33,$33,$33,$33,$33,$33,$33,$77
+	!by $00,$11,$33,$11,$33,$11,$33,$33,$88,$55,$33,$77,$88,$77,$77,$88
+	!by $00,$22,$22,$22,$44,$33,$22,$33,$77,$66,$33,$77,$77,$66,$aa,$77
+	!by $00,$11,$22,$33,$22,$33,$22,$33,$77,$77,$33,$77,$77,$77,$aa,$77
+	!by $22,$55,$44,$22,$44,$44,$44,$33,$55,$66,$33,$77,$77,$66,$33,$99
+	!by $33,$11,$44,$33,$44,$55,$44,$55,$88,$55,$77,$77,$88,$99,$33,$99
+	!by $22,$22,$22,$22,$44,$44,$66,$66,$77,$99,$66,$99,$77,$99,$aa,$99
+	!by $33,$33,$33,$33,$33,$55,$66,$77,$88,$99,$77,$77,$bb,$bb,$ee,$bb
+	!by $33,$88,$55,$77,$55,$88,$77,$88,$88,$99,$77,$88,$cc,$bb,$bb,$bb
+	!by $33,$55,$66,$77,$66,$55,$99,$99,$99,$99,$77,$bb,$bb,$99,$bb,$bb
+	!by $33,$11,$aa,$33,$22,$11,$66,$77,$88,$bb,$aa,$ee,$ee,$ee,$aa,$bb
+	!by $33,$77,$77,$77,$77,$77,$99,$77,$88,$bb,$ee,$bb,$bb,$dd,$bb,$ff
+	!by $33,$88,$ee,$77,$77,$88,$ee,$bb,$cc,$bb,$ee,$bb,$cc,$bb,$ee,$ff
+	!by $33,$77,$66,$77,$66,$99,$99,$bb,$bb,$99,$ee,$dd,$bb,$dd,$ee,$ff
+	!by $33,$11,$aa,$aa,$22,$55,$aa,$ee,$cc,$bb,$aa,$bb,$ee,$ee,$ee,$bb
+	!by $77,$88,$77,$77,$99,$99,$99,$bb,$bb,$bb,$bb,$ff,$ff,$ff,$bb,$ff
+
+; --------------------------------------
+
+modend	!eof
