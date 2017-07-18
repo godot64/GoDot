@@ -12,6 +12,7 @@
 ;                 changed captions of clip windows
 ; 1.06, 05.10.05: bugfix: wrong colors when executed from ram
 ; 1.07, 05.07.17: bugfix: activity bar exceeding lower limit on clrclp outside
+; 1.08, 18.07.17: added Preview
 ;
 ; ------------------------------------------------ 
 
@@ -806,6 +807,8 @@ hoehe	!by 6,23,4,3,$e0,<(sevvinp),>(sevvinp)
 	!scr "Accept@"
 	!by 21,12,16,3,$d9,<(sevclcan),>(sevclcan)
 	!scr "Cancel@"
+	!by 11,29,11,7,$4d		; 4Bit-Preview		 ### 1.08
+	!wo ev_prviu
 	!by $c0,3,12,3
 	!scr "Row@"
 	!by $c0,3,19,3
