@@ -20,6 +20,7 @@
 ;    1.13, 11.06.03, crash on Big Clips fixed
 ;    1.14, 05.08.03, suddenly didn't load Clips to Full anymore
 ;    1.15, 25.11.16, no Image Info on Compose anymore
+;    1.16, 18.07.17, added Preview
 ;
 ; ------------------------------------------------------------ 
 
@@ -56,8 +57,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "native 4Bit ldr "
-	!pet "1.15"
-	!pet "25.11.16"
+	!pet "1.16"
+	!pet "18.07.17"
 	!pet "A.Dettke/W.Kling"
 ; ----------------------------------------- Leave Module
 cancel	lda #$ff
@@ -544,6 +545,8 @@ cliptxt	!scr " to Full @"
 	!scr "Compose@"
 	!by 19,11,18,3,$c9,<(cn2),>(cn2)
 	!scr "Cancel Load@"
+	!by 11,29,11,7,$4d			; ### 1.16
+	!wo ev_prviu
 	!by $c0,5,16,6
 	!scr "Select@"
 	!by $c0,7,12,7
@@ -567,6 +570,8 @@ rate	!by 15,22,7,3,$cf,<(sevmrate),>(sevmrate),32
 ratetx	!scr "50% @"
 	!by 19,11,18,3,$c9,<(cn3),>(cn3)
 	!scr "Cancel Load@"
+	!by 11,29,11,7,$4d			; ### 1.16
+	!wo ev_prviu
 	!by $c0,6,15,7
 	!scr "Load as@"
 	!by $80
