@@ -1,0 +1,389 @@
+
+	!src "..\godotlib.lib"
+	*= $c000
+
+; ------------------------------------------------ 
+;
+; mod.ColorCount
+;
+; System module to count colors depending on graphics mode
+; (True Hires, Multicolor, and IFLI)
+;
+; 1.00, 06.08.94, first release
+; 1.01,           added counting of 8bit colors
+; 1.02, 13.11.94, bugfix: restore requester after executed from REU
+; 1.03, 16.10.05, removed: "new" colors
+;                 added: "GoDot" colors
+;                 changed: "found" to "IFLI" and "C64" to "Multi"
+; 1.04, 17.10.05, bugfix: flickering output
+; 1.05, 18.07.17: added Preview
+;
+; ------------------------------------------------ 
+
+; ------------------------------------------------ Equations
+
+	adcnt		= $30
+	iflic		= $31
+	godc		= $32
+	cntnat		= $33
+	gads		= $34
+	src		= $35
+	colmk		= $37
+	
+	sprptr		= $07f8
+	spr255		= $3fc0
+	hist		= $ca00
+	hist1		= hist+256
+
+	x2		= $d004
+	y2		= x2+1
+	msbx		= $d010
+	spren		= $d015
+	sprxe		= $d01d
+	sprcol2		= $d029
+
+; ------------------------------------------------ Header
+
+	jmp start
+	!by $20
+	!by $00,$00
+	!wo (modend)
+	!by $00,$00
+	!pet "How Many Colors?"
+	!pet "1.05"
+	!pet "18.07.17"
+	!pet "W.Kling/A.Dettke"
+
+; ------------------------------------------------ Main
+
+start	lda gd_modswitch
+	pha 
+	lda sc_screenvek	; save position of requester
+	pha 
+	lda sc_screenvek+1
+	pha 
+	jsr clrnums
+	ldx #<(cntlst)	; display requester
+	ldy #>(cntlst)
+	jsr gd_screen
+	jsr histo		; histograms
+	jsr histo2
+	jsr displcols	; show results
+	jsr gd_eloop	; wait
+	pla 
+	sta sc_screenvek+1	; restore old requester
+	pla 
+	sta sc_screenvek
+	pla 
+	sta gd_modswitch
+canc	sec 
+	rts 
+
+; ------------------------------------------------ Histograms
+
+histhead	lda #3
+	jsr initad
+	lda #<$4000
+	ldx #>$4000
+	sta src
+	stx src+1
+	rts
+
+; ------------------------------------------------ GoDot True Hires
+
+histo2	jsr histhead
+	lda #0
+	tax
+hl3	sta hist,x	; clear
+	sta hist1,x
+	inx
+	cpx #16
+	bne hl3
+
+	ldy #0
+hl4	lda (src),y
+	pha
+	and #15
+	tax
+	inc hist,x	; count true hires colors
+	bne hl7
+	inc hist1,x
+hl7	pla
+	lsr
+	lsr
+	lsr
+	lsr
+	tax
+	inc hist,x
+	bne hl8
+	inc hist1,x
+hl8	iny
+	bne hl4
+
+	jsr adinc
+	inc src+1
+	lda src+1
+	cmp #$bd
+	bne hl4
+
+	ldx #0
+	ldy #0
+hl6	lda hist,x	; how many different? (in .y=godc)
+	ora hist1,x
+	beq hl5
+	iny
+hl5	inx
+	cpx #16
+	bne hl6
+	sty godc
+	jmp clearad
+
+; ------------------------------------------------ IFLI
+
+histo	jsr histhead
+	lda #0
+	tax
+hl0	sta hist,x	; clear
+	sta hist1,x
+	inx 
+	bne hl0
+
+	ldy #0		; count IFLI colors
+hl1	lda (src),y
+	tax
+	lda inctable,x	; out of 136 colors
+	tax
+	inc hist,x
+	bne sk1
+	inc hist1,x
+sk1	iny 
+	bne hl1
+
+	jsr adinc
+	inc src+1
+	lda src+1
+	cmp #$bd
+	bne hl1
+
+; ------------------------------------------------ Multi
+
+	ldx #0
+	ldy #0
+	sty cntnat	; counts native colors
+
+hl2	lda hist,y
+	ora hist1,y
+	beq sk2
+	inx 		; count all colors
+	tya 
+	and #15		; upper nibble equal to lower?
+	sta colmk
+	tya 
+	lsr 
+	lsr 
+	lsr 
+	lsr 
+	eor colmk
+	bne sk2
+	inc cntnat	; yes, count (multicolor value)
+
+sk2	iny 
+	bne hl2
+	stx iflic		; .x is IFLI colors	
+	jmp clearad
+
+; ------------------------------------------------ 
+
+initad	sta adcnt
+	ldy #60
+	lda #0
+adl0	sta spr255+3,y
+	dey 
+	bpl adl0
+	lda #$ff
+	sta spr255
+	sta spr255+1
+	sta spr255+2
+	lda #15
+	sta sprcol2
+	sta sprcol2+1
+	lda sprxe
+	ora #12
+	sta sprxe
+	lda msbx
+	ora #12
+	sta msbx
+	lda #8
+	sta x2
+	lda #32
+	sta x2+2
+	lda #146
+	sta y2
+	sta y2+2
+	sty sprptr+2
+	sty sprptr+3
+	lda spren
+	ora #12
+	sta spren
+	rts 
+
+; ------------------------------------------------ 
+
+adinc	dec adcnt
+	bne ais
+	lda #3
+	sta adcnt
+	inc y2
+	inc y2+2
+ais	rts 
+
+; ------------------------------------------------ 
+
+clearad	lda spren
+	and #243
+	sta spren
+	lda msbx
+	and #243
+	sta msbx
+	clc 
+	rts 
+
+; ------------------------------------------------ 
+
+displcols	ldx iflic
+	lda #$80		; which of the counter values?
+	sta gads
+	jsr makenums	; create IFLI
+
+	ldx godc
+	lsr gads
+	jsr makenums	; create GoDot
+
+	ldx cntnat
+	lsr gads
+	jmp makenums	; create Multi
+
+; ------------------------------------------------ 
+
+clrnums	ldy #2
+	lda #32
+gt7	sta nums,y
+	sta iflicols,y
+	sta godcols,y
+	dey 
+	bpl gt7
+	rts 
+
+; ------------------------------------------------ 
+
+makenums	ldy #4
+	lda #32
+gt9	sta sy_numbers,y
+	dey 
+	bpl gt9
+	lda #0
+	sta $62
+	stx $63
+	inc 1
+	ldx #$90
+	sec 
+	jsr $bc49
+	jsr $bddf
+	dec 1
+
+setnums	ldx #$ff
+gt2	inx 
+	lda sy_numbers,x
+	bne gt2
+	ldy #3
+gt3	dey 
+	dex 
+	bmi settext
+	lda sy_numbers,x
+	bit gads
+	bmi gt4
+	bvs gt5
+	sta nums,y
+	bpl gt3
+gt5	sta godcols,y
+	bvs gt3
+gt4	sta iflicols,y
+	bmi gt3
+
+; ------------------------------------------------ 
+
+settext	bit gads
+	bmi gt6
+	bvs gt8
+	ldy #2
+	!by $2c
+gt8	ldy #0
+	!by $2c
+gt6	ldy #4
+	lda #<tabigad
+	sta sc_texttab
+	lda #>tabigad
+	sta sc_texttab+1
+	lda (sc_texttab),y
+	sta sc_screentab
+	iny 
+	lda (sc_texttab),y
+	sta sc_screentab+1
+	lda #0
+	tax 
+	tay 
+gt0	jsr gd_setpos
+	cpx #3
+	bne gt0
+	jsr gd_trim
+	jsr gd_initmove
+	ldy #6
+	jmp gd_xtxout1
+
+; ------------------------------------------------ 
+
+tabigad	!wo allgad,newgad,gad
+
+inctable	!by $00,$01,$02,$03,$04,$05,$06,$07,$08,$09,$0a,$0b,$0c,$0d,$0e,$0f 
+	!by $01,$11,$12,$13,$14,$15,$16,$17,$18,$19,$1a,$1b,$1c,$1d,$1e,$1f 
+	!by $02,$12,$22,$23,$24,$25,$26,$27,$28,$29,$2a,$2b,$2c,$2d,$2e,$2f 
+	!by $03,$13,$23,$33,$34,$35,$36,$37,$38,$39,$3a,$3b,$3c,$3d,$3e,$3f 
+	!by $04,$14,$24,$34,$44,$45,$46,$47,$48,$49,$4a,$4b,$4c,$4d,$4e,$4f 
+	!by $05,$15,$25,$35,$45,$55,$56,$57,$58,$59,$5a,$5b,$5c,$5d,$5e,$5f 
+	!by $06,$16,$26,$36,$46,$56,$66,$67,$68,$69,$6a,$6b,$6c,$6d,$6e,$6f 
+	!by $07,$17,$27,$37,$47,$57,$67,$77,$78,$79,$7a,$7b,$7c,$7d,$7e,$7f 
+	!by $08,$18,$28,$38,$48,$58,$68,$78,$88,$89,$8a,$8b,$8c,$8d,$8e,$8f 
+	!by $09,$19,$29,$39,$49,$59,$69,$79,$89,$99,$9a,$9b,$9c,$9d,$9e,$9f 
+	!by $0a,$1a,$2a,$3a,$4a,$5a,$6a,$7a,$8a,$9a,$aa,$ab,$ac,$ad,$ae,$af 
+	!by $0b,$1b,$2b,$3b,$4b,$5b,$6b,$7b,$8b,$9b,$ab,$bb,$bc,$bd,$be,$bf 
+	!by $0c,$1c,$2c,$3c,$4c,$5c,$6c,$7c,$8c,$9c,$ac,$bc,$cc,$cd,$ce,$cf 
+	!by $0d,$1d,$2d,$3d,$4d,$5d,$6d,$7d,$8d,$9d,$ad,$bd,$cd,$dd,$de,$df 
+	!by $0e,$1e,$2e,$3e,$4e,$5e,$6e,$7e,$8e,$9e,$ae,$be,$ce,$de,$ee,$ef 
+	!by $0f,$1f,$2f,$3f,$4f,$5f,$6f,$7f,$8f,$9f,$af,$bf,$cf,$df,$ef,$ff
+
+; ------------------------------------------------ 
+
+cntlst	!by 0
+	!by 11,16,11,11,$91,0,0
+	!scr "Col Count@"
+allgad	!by 13,22,5,3,$8f,0,0
+godcols	!scr "   @"
+newgad	!by 15,22,5,3,$8e,0,0
+nums	!scr "   @"
+gad	!by 17,22,5,3,$8e,0,0
+iflicols	!scr "   @"
+	!by 19,16,11,3,$cb,<(canc),>(canc)
+	!scr "  Leave  @"
+	!by 11,29,11,7,$4d		; 4Bit-Preview		 ### 1.05
+	!wo ev_prviu
+	!by $c0,13,16,5
+	!scr "GoDot@"
+	!by $c0,15,16,5
+	!scr "Multi@"
+	!by $c0,17,16,4
+	!scr "IFLI@"
+	!by $80
+
+; ------------------------------------------------ 
+
+modend	!eof
