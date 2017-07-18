@@ -13,6 +13,7 @@
 ;    1.00, 23.01.17, first release
 ;    1.01, 17.05.17, preview in hires (better positioning)
 ;    1.02, 21.06.17, bug: last two bytes didn't load, fixed
+;    1.03: 18.07.17, added 4Bit-Preview
 ;
 ; ------------------------------------------------------------ 
 
@@ -86,8 +87,8 @@
 	!wo modend
 	!wo 0
 	!pet "GoDot Titler    "
-	!pet "1.02"
-	!pet "21.06.17"
+	!pet "1.03"
+	!pet "18.07.17"
 	!pet "A.Dettke        "
 ;
 ; ----------------------------------------- Main
@@ -1465,6 +1466,9 @@ palgad	!by 18,10,06,06,$47
 	!by 21,19,09,03,$cd
 	!wo canc
 	!scr " Leave @"
+
+	!by 11,29,11,7,$4d		; 4Bit-Preview		 ### 1.03
+	!wo ev_prviu
 
 	!by $c0			; additional texting
 chars2	!by 07,10,16
