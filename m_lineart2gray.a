@@ -10,6 +10,7 @@
 ;  16 (Standard-Grayscale)
 ;
 ;  1.00, 29.05.17: first release
+;  1.01, 18.07.17: added Preview
 ;
 ; ------------------------------------------------ 
 
@@ -59,15 +60,21 @@
 	!wo modend
 	!wo 0		; reserved
 	!pet "Convert BW2Gray "
-	!pet "1.00"
-	!pet "28.05.17"
+	!pet "1.01"
+	!pet "18.07.17"
 	!pet "A.Dettke        "
 
 ; ------------------------------------------------ Main
 
-start	ldx #<(graylst)
+start	lda gd_modswitch
+	pha
+	ldx #<(graylst)
 	ldy #>(graylst)
-	jmp gd_xmloop
+	jsr gd_xmloop
+	pla
+	sta gd_modswitch
+	sec
+	rts
 
 ; ------------------------------------------------ Apply Blur
 
@@ -606,6 +613,8 @@ dithtx	!scr "Ordered@"
 	!scr "Cancel@"
 	!by 14,12,7,3,$c7,<(sevapply),>(sevapply)
 	!scr "Apply@"
+	!by 11,29,11,7,$4d		; 4Bit-Preview		 ### 1.01
+	!wo ev_prviu
 	!by $c0,7,14,9
 	!scr "Grayscale@"
 	!by $c0,12,12,4
