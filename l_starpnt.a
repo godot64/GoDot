@@ -1,0 +1,561 @@
+
+!src "..\godotlib.lib"
+*= $c000
+
+; ------------------------------------------------------------ 
+;
+; ldr.StarPntr.128
+; Lädt Bilder des Programms Starpainter (64/128) und
+; resamplet sie zu Hires oder Multicolor
+;
+; 0.99, 02.06.92, first release
+;
+; ------------------------------------------------------------ 
+
+; ----------------------------------------- Equates
+
+	dst		= $30
+	dst0		= $32
+	bcnt1		= $34
+	gbyte		= $35
+	bbuf		= $36
+	adcnt		= $37
+	buf16		= $38
+	lcnt8		= $3a
+	lcnt		= $3b
+	bcnt		= $3c
+	resmode		= $3d
+	offy		= ls_adrmisc
+
+	buf		= sy_bigbuffer
+	b0		= buf
+	b1		= b0+80
+
+	z01		= $c500
+	z02		= z01+80
+	z03		= z02+80
+	z04		= z03+80
+	z05		= z04+80
+	z06		= z05+80
+	z07		= z06+80
+	z08		= z07+80
+	z09		= z08+80
+	z10		= z09+80
+	z11		= z10+80
+	z12		= z11+80
+	z13		= z12+80
+	z14		= z13+80
+	z15		= z14+80
+	z16		= z15+80
+
+; ----------------------------------------- Header
+
+header	jmp start
+	!by $80
+	!by 4
+	!by 0
+	!wo modend
+	!wo 0
+	!pet "StPntr128.Resmpl"
+	!pet "0.99"
+	!pet "02.06.92"
+	!pet "W.Kling/A.Dettke"
+
+; ----------------------------------------- Main
+
+start	ldx used
+	bmi requ
+	beq cancel
+	cpx #3
+	bcs cancel
+
+	dec used
+	jsr getname
+	jsr gd_xopen
+	jsr gd_clrms
+
+	ldx #6
+dl0	lda stpt,x
+	sta message,x
+	dex 
+	bpl dl0
+
+	lda #32
+	ldx #24
+dl	sta mess,x
+	dex 
+	bpl dl
+
+	lda #200
+	sta adcnt
+	lda #0
+	sta offy
+	jsr initstp
+	jsr initbuf
+
+	ldx used
+	beq dl2
+	jsr setlo
+	bne dl3
+dl2	jsr sethi
+
+dl3	jsr getplane
+	jsr setinfo
+	jsr cancel
+
+err	jsr gd_xclose
+	lda #$03
+	sta $d015
+	jsr gd_xmess
+	bcc cn2
+
+; ----------------------------------------- 
+
+cancel	lda #$ff
+	sta used
+cn2	sec 
+	rts 
+
+; ----------------------------------------- 
+
+requ	inc used
+	ldx #<(stplst)
+	ldy #>(stplst)
+	jsr gd_xmloop
+	jmp start
+
+; ----------------------------------------- 
+
+logrey	inc used
+higrey	inc used
+	ldx #1
+	jsr gd_xload
+	lda #3
+	sta used
+	sec 
+	rts 
+
+; ----------------------------------------- 
+
+adinc	ldy offy
+	dec adcnt
+	lda adcnt
+	and #7
+	bne adskip
+	lda filltab
+	sta mess,y
+	inc offy
+	bne messout
+adskip	tax 
+	lda filltab,x
+	sta mess,y
+
+; ----------------------------------------- 
+
+messout	ldx #<(message)
+	ldy #>(message)
+	jmp gd_xtxout2
+
+filltab	!by 160,93,103,127,126,124,105,109
+
+stpt	!scr " StPtr "
+message	!scr " StPtr "
+mess	!fill 25,32
+	!by 0
+
+; ----------------------------------------- 
+
+err1	!scr "ERROR: Not a valid StPtr Format.@"
+
+; ----------------------------------------- 
+
+hbytes	!by 0
+lbytes	!by 0
+vbytes	!by 0
+
+; ----------------------------------------- 
+
+initstp	lda #32
+	sta hbytes
+	lda #21
+	sta vbytes
+	jsr basin
+	beq nogr0
+	cmp #$51
+	bpl faila
+	sta hbytes
+nogr0	jsr basin
+	beq faila
+	cmp #$b5
+	beq nogr2
+	cmp #$5a
+	bpl faila
+	cmp #50
+	bpl nogr1
+	!by $2c
+nogr1	lda #50
+	sta vbytes
+nogr2	lsr vbytes
+	lda hbytes
+	lsr 
+	adc #0
+	asl 
+	sta lbytes
+	rts 
+
+; ----------------------------------------- 
+
+hbytes2	!by 0
+
+; ----------------------------------------- 
+
+initbuf	ldy hbytes
+	lda #0
+	sta buf,y
+	tya 
+	clc 
+	adc #80
+	tay 
+	lda #0
+	sta buf,y
+	sty hbytes2
+	rts 
+
+; ----------------------------------------- 
+
+faila	ldx #0
+	ldy #0
+fl0	lda err1,x
+	sta message,y
+	inx 
+	iny 
+	cpy #32
+	bne fl0
+	jsr err
+	jsr gd_clrms
+	jsr messout
+	clc 
+	jmp fail3
+
+; ----------------------------------------- 
+
+getplane	lda #<($4000)
+	ldx #>($4000)
+	sta dst0
+	sta dst
+	stx dst0+1
+	stx dst+1
+	lda vbytes
+	sta lcnt8
+lnloop8	jsr fillbuf
+	lda #8
+	sta lcnt
+lnloop	jsr adinc
+	jsr readline
+	ldx #0
+zloop	lda #2
+	sta bcnt1
+byloop	lda #2
+	sta bcnt
+btloop	jsr makebyte
+	ldy #0
+	sta (dst),y
+	inc dst
+	bne s3
+	inc dst+1
+s3	dec bcnt
+	bne btloop
+	inx 
+	dec bcnt1
+	bne byloop
+	lda dst
+	clc 
+	adc #28
+	sta dst
+	bcc s4
+	inc dst+1
+s4	cpx lbytes
+	bne zloop
+	lda dst0
+	clc 
+	adc #4
+	sta dst0
+	sta dst
+	bcc s5
+	inc dst0+1
+s5	lda dst0+1
+	sta dst+1
+	dec lcnt
+	bne lnloop
+	lda dst0
+	clc 
+	adc #<(1248)
+	sta dst0
+	sta dst
+	lda dst0+1
+	adc #>(1248)
+	sta dst0+1
+	sta dst+1
+	dec lcnt8
+	bne lnloop8
+	rts 
+
+; ----------------------------------------- 
+
+readline	ldy #0
+rll	lda (buf16),y
+	sta buf,y
+	iny 
+	cpy hbytes
+	bne rll
+	ldy #80
+rll2	lda (buf16),y
+	sta buf,y
+	iny 
+	cpy hbytes2
+	bne rll2
+	lda buf16
+	clc 
+	adc #160
+	sta buf16
+	bcc rls
+	inc buf16+1
+rls	rts 
+
+; ----------------------------------------- 
+
+fail2	pla 
+	pla 
+fail3	pla 
+	pla 
+	inc used
+	rts 
+
+; ----------------------------------------- 
+
+fillbuf	ldy #0
+spbl1	jsr basin
+	sta z01,y
+	jsr basin
+	sta z02,y
+	jsr basin
+	sta z03,y
+	jsr basin
+	sta z04,y
+	jsr basin
+	sta z05,y
+	jsr basin
+	sta z06,y
+	jsr basin
+	sta z07,y
+	jsr basin
+	sta z08,y
+	iny 
+	cpy hbytes
+	bne spbl1
+	ldy #0
+spbl2	jsr basin
+	sta z09,y
+	jsr basin
+	sta z10,y
+	jsr basin
+	sta z11,y
+	jsr basin
+	sta z12,y
+	jsr basin
+	sta z13,y
+	jsr basin
+	sta z14,y
+	jsr basin
+	sta z15,y
+	jsr basin
+	sta z16,y
+	iny 
+	cpy hbytes
+	bne spbl2
+	lda #<(z01)
+	ldy #>(z01)
+	sta buf16
+	sty buf16+1
+	rts 
+
+; ----------------------------------------- 
+
+makebyte	jmp (resmode)
+
+; ----------------------------------------- 
+
+reshi	asl b0,x
+	rol 
+	asl b0,x
+	rol 
+	asl b1,x
+	rol 
+	asl b1,x
+	rol 
+	and #$0f
+	tay 
+	lda px,y
+	sta bbuf
+	asl b0,x
+	rol 
+	asl b0,x
+	rol 
+	asl b1,x
+	rol 
+	asl b1,x
+	rol 
+	and #$0f
+	tay 
+	lda px,y
+	and #$f0
+	ora bbuf
+	rts 
+
+; ----------------------------------------- 
+
+px	!by $ff,$bb,$bb,$77,$bb,$77,$77,$33
+	!by $bb,$77,$77,$33,$77,$33,$33,$00
+
+dpx	!by $ff,$dd,$bb,$99,$77,$66,$44,$22,$00
+
+; ----------------------------------------- 
+
+reslo	lda #0
+	sta bbuf
+	ldy #4
+bbloop	asl b0,x
+	bcc bb0
+	inc bbuf
+bb0	asl b1,x
+	bcc bb1
+	inc bbuf
+bb1	dey 
+	bne bbloop
+	ldy bbuf
+	lda dpx,y
+	rts 
+
+; ----------------------------------------- 
+
+setlo	lda #<(reslo)
+	sta resmode
+	lda #>(reslo)
+	sta resmode+1
+	ldy #0
+sll	lda mtext,y
+	sta rsmode,y
+	iny 
+	cpy #7
+	bne sll
+	tya 
+	rts 
+
+; ----------------------------------------- 
+
+sethi	lda #<(reshi)
+	sta resmode
+	lda #>(reshi)
+	sta resmode+1
+	ldy #0
+shl	lda htext,y
+	sta rsmode,y
+	iny 
+	cpy #7
+	bne shl
+	rts 
+
+; ----------------------------------------- 
+
+used	!by $ff
+
+; ----------------------------------------- 
+
+stplst	!by 0
+	!by 4,11,18,16,$81,0,0
+	!scr " StarPainter128 @"
+	!by 9,11,18,3,$ca,<(higrey),>(higrey)
+	!scr "Hires@"
+	!by 12,11,18,3,$ca,<(logrey),>(logrey)
+	!scr "Multi@"
+	!by 15,11,18,3,$ca,<(cn2),>(cn2)
+	!scr "Cancel@"
+	!by $c0,6,14,11
+	!scr "Resample to@"
+	!by $80
+
+; ----------------------------------------- 
+
+getname	ldx #0
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx 
+	cpx #16
+	bcc si0
+si1	rts 
+
+getdatac	ldx #4
+	!by $2c
+getdatag	ldx #9
+	ldy #4
+sinfo0	lda dtextc,x
+	sta datatype,y
+	dex 
+	dey 
+	bpl sinfo0
+	rts 
+
+setinfo	jsr getdatac
+	jsr setname
+	jsr setloader
+	jsr setmode
+	jmp setdata
+
+setname	lda #0
+	ldx #<(ls_picname)
+	ldy #>(ls_picname)
+	bne si3
+setloader	lda #17
+	ldx #<(ls_iloader)
+	ldy #>(ls_iloader)
+	bne si3
+setmode	lda #25
+	ldx #<(ls_imode)
+	ldy #>(ls_imode)
+	bne si3
+setdata	lda #33
+	ldx #<(ls_idrive)
+	ldy #>(ls_idrive)
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax 
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx 
+	iny 
+	bne si4
+si5	rts 
+
+; ----------------------------------------- 
+
+nbuf	!fill 16,32
+	!by 0
+	!scr "StrPntr@"
+rsmode	!fill 7,32
+	!by 0
+datatype	!scr "Color@"
+htext	!scr "320x200"
+mtext	!scr "160x200"
+dtextc	!scr "Color"
+dtextg	!scr "Grey "
+
+; ----------------------------------------- 
+
+modend	!eof
+
+; ----------------------------------------- 
+
+
