@@ -9,23 +9,30 @@
 ; resamplet sie zu Hires oder Multicolor
 ;
 ; 0.99, 02.06.92, first release
+; 1.00, 24.07.17, bugfixes:
+;                 Hires sampling: Pixel vertauscht
+;                 File-Ende nicht erkannt
 ;
 ; ------------------------------------------------------------ 
 
 ; ----------------------------------------- Equates
 
-	dst		= $30
-	dst0		= $32
+	dst		= $30	; /$31
+	dst0		= $32	; /$33
 	bcnt1		= $34
 	gbyte		= $35
 	bbuf		= $36
 	adcnt		= $37
-	buf16		= $38
+	buf16		= $38	; /$39
 	lcnt8		= $3a
 	lcnt		= $3b
 	bcnt		= $3c
-	resmode		= $3d
+	resmode		= $3d	; /$3e
+	xmrk		= $3f
+	rlines		= $40	; /$41
+
 	offy		= ls_adrmisc
+	offx		= offy+1
 
 	buf		= sy_bigbuffer
 	b0		= buf
@@ -57,109 +64,139 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "StPntr128.Resmpl"
-	!pet "0.99"
+	!pet "1.00"
 	!pet "02.06.92"
 	!pet "W.Kling/A.Dettke"
 
 ; ----------------------------------------- Main
 
-start	ldx used
+start	ldx used		; Requester-Management
 	bmi requ
 	beq cancel
 	cpx #3
 	bcs cancel
 
-	dec used
-	jsr getname
-	jsr gd_xopen
-	jsr gd_clrms
+; ----------------------------------------- Process
+; (After selecting File from File Requester
+;  and clicking "Load")
 
-	ldx #6
-dl0	lda stpt,x
-	sta message,x
-	dex 
-	bpl dl0
+	dec used		; used to 0 or 1 (besser zu handhaben)
+	jsr getname	; Filenamen speichern
+	jsr gd_xopen	; Datei öffnen
+	jsr gd_clrms	; Statuszeile ansteuern
 
-	lda #32
-	ldx #24
-dl	sta mess,x
-	dex 
-	bpl dl
+	ldx #0		; Message ausgeben, Gauge vorbereiten
+	jsr tcopy
+	iny
+	sty adcnt
+	lda #13
+	sta cntwert
 
-	lda #200
-	sta adcnt
-	lda #0
-	sta offy
-	jsr initstp
-	jsr initbuf
+	jsr initstp	; Lader initialisieren
+	jsr initbuf	; Puffer vorbereiten
 
-	ldx used
-	beq dl2
-	jsr setlo
-	bne dl3
-dl2	jsr sethi
+dl3	jsr getplane	; Bild einlesen und resamplen
 
-dl3	jsr getplane
-	jsr setinfo
-	jsr cancel
+	ldx used		; Hires oder Multi?
+	bne dl2
+	jsr setmodeh	; Image Info entsprechend setzen
+	bmi +
+dl2	jsr setmodem
++	jsr setinfo
 
-err	jsr gd_xclose
-	lda #$03
-	sta $d015
-	jsr gd_xmess
+; ----------------------------------------- Abschluss bei Fehler
+
+err	jsr gd_xclose	; Datei schließen
+	jsr gd_spron	; Mauszeiger an
+	jsr gd_xmess	; Floppymeldung
 	bcc cn2
 
-; ----------------------------------------- 
+; ----------------------------------------- Abschluss
 
-cancel	lda #$ff
+cancel	lda #$ff		; Requester-Management
 	sta used
-cn2	sec 
+cn2	sec 		; Leave Modifier
 	rts 
 
-; ----------------------------------------- 
+; ----------------------------------------- Ausgabe des Requesters
 
-requ	inc used
+requ	inc used		; used=0
 	ldx #<(stplst)
 	ldy #>(stplst)
 	jsr gd_xmloop
 	jmp start
 
-; ----------------------------------------- 
+; ----------------------------------------- Event: Resample to Multi
 
-logrey	inc used
-higrey	inc used
+logrey	inc used		; used=2
+	ldx #<(reslo)
+	lda #>(reslo)
+	bne +
+
+; ----------------------------------------- Event: Resample to Grey
+
+higrey	ldx #<(reshi)
+	lda #>(reshi)
++	stx resmode
+	sta resmode+1
+	inc used		; used=1
 	ldx #1
-	jsr gd_xload
-	lda #3
+	jsr gd_xload	; File-Requester, Wait
+	lda #3		; used=3 (Abbruch-Kriterium)
 	sta used
 	sec 
 	rts 
 
-; ----------------------------------------- 
+; ----------------------------------- Gauge Bar Activity
 
-adinc	ldy offy
-	dec adcnt
-	lda adcnt
-	and #7
-	bne adskip
-	lda filltab
-	sta mess,y
-	inc offy
-	bne messout
-adskip	tax 
+adinc 	dec adcnt
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	cpy #22
+	bne act0
+	jsr clrmess
+act0	ldx offx
 	lda filltab,x
 	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4 	rts
 
-; ----------------------------------------- 
+; ----------------------------------------- Message Handling
 
-messout	ldx #<(message)
+messout	ldx #<(message)	; ausgeben
 	ldy #>(message)
 	jmp gd_xtxout2
 
+tcopy	ldy #0		; anwählen (Offset in .x)
+tc0	lda stpt,x
+	beq clrmess
+	sta message,y
+	inx 
+	iny 
+	bne tc0
+
+clrmess	ldx #24		; Message initialisieren
+	lda #32
+cl0	sta mess,x
+	dex 
+	bpl cl0
+	ldy #0
+	ldx #7
+	sty offy
+	stx offx
+	rts 
+
 filltab	!by 160,93,103,127,126,124,105,109
 
-stpt	!scr " StPtr "
-message	!scr " StPtr "
+stpt	!scr " StPtr @"
+message	!fill 7,32
 mess	!fill 25,32
 	!by 0
 
@@ -167,116 +204,158 @@ mess	!fill 25,32
 
 err1	!scr "ERROR: Not a valid StPtr Format.@"
 
-; ----------------------------------------- 
+; ----------------------------------------- Variablen und Tabellen
 
 hbytes	!by 0
+hbytes2	!by 0
 lbytes	!by 0
 vbytes	!by 0
+used	!by $ff
+cntwert	!by 200
 
-; ----------------------------------------- 
+px	!by $ff,$bb,$bb,$77,$bb,$77,$77,$33
+	!by $bb,$77,$77,$33,$77,$33,$33,$00
 
-initstp	lda #32
-	sta hbytes
+dpx	!by $ff,$dd,$bb,$99,$77,$66,$44,$22,$00
+
+; ----------------------------------------- Lader initialisieren
+
+setc64	ldx #40		; Standard-Screen
+	lda #25
+setdims	stx hbytes
+	sta vbytes
+	rts
+
+initstp	ldx #32		; Voreinstellen auf 32x21 (256x168 Pixel)
 	lda #21
-	sta vbytes
-	jsr basin
-	beq nogr0
-	cmp #$51
-	bpl faila
-	sta hbytes
-nogr0	jsr basin
-	beq faila
-	cmp #$b5
-	beq nogr2
-	cmp #$5a
-	bpl faila
-	cmp #50
-	bpl nogr1
+	jsr setdims
+	lda #0
+	sta rlines+1
+
+	jsr basin		; 1. Byte: Breite?
+	bne +
+	jsr setc64	; nein, sondern Startadresse lo ($00)
+	bne nogr0
+
++	cmp #81		; Breite größer als 80?
+	bcs faila		; dann Formatfehler
+	sta hbytes	; sonst: Breite setzen
+
+nogr0	jsr basin		; 2. Byte: Höhe
+	beq faila		; $00? dann Formatfehler
+
+	cmp #$e0		; StP-Bitmap?
+	bne +
+-	jsr setc64
+	bne nogr2 
++	cmp #$20		; Standard-Bitmap?
+	beq - 		; ja, setzen
+	cmp #$b5		; StP File?
+	bcc nogr2		; ja
 	!by $2c
-nogr1	lda #50
+nogr1	lda #50		; sonst Höhe setzen (begrenzt auf 50)
 	sta vbytes
-nogr2	lsr vbytes
-	lda hbytes
+nogr2	sta rlines	; mal 4 (Rasterzeilen, halbe Höhe)
+	asl rlines
+	rol rlines+1
+	asl rlines
+	rol rlines+1
+
+	lda hbytes	; Breite+1
 	lsr 
 	adc #0
 	asl 
-	sta lbytes
+	sta lbytes	; merken
 	rts 
 
-; ----------------------------------------- 
+; ----------------------------------------- Puffer
 
-hbytes2	!by 0
-
-; ----------------------------------------- 
-
-initbuf	ldy hbytes
+initbuf	ldy hbytes	; Breite als Offset
 	lda #0
-	sta buf,y
+	sta buf,y		; $00 in Puffer
 	tya 
 	clc 
-	adc #80
+	adc #80		; 80 addieren
 	tay 
 	lda #0
-	sta buf,y
-	sty hbytes2
+	sta buf,y		; dort ebenfalls $00
+	sty hbytes2	; Offset2 merken
 	rts 
 
-; ----------------------------------------- 
+; ----------------------------------------- Fehler in den Daten
 
 faila	ldx #0
 	ldy #0
-fl0	lda err1,x
+fl0	lda err1,x	; Datei nicht StarPainter
 	sta message,y
 	inx 
 	iny 
 	cpy #32
 	bne fl0
-	jsr err
-	jsr gd_clrms
+
+	inc used		; used auf Ausgangswert zurück
+	jsr err		; Datei schließen
+	jsr gd_clrms	; Fehlermeldung ausgeben
 	jsr messout
-	clc 
-	jmp fail3
 
-; ----------------------------------------- 
+	pla 		; zurück in den File-Requester
+	pla 
+	rts 
 
-getplane	lda #<($4000)
+; ----------------------------------------- Resample Image
+
+getplane	lda #<($4000)	; Startadresse $4000
 	ldx #>($4000)
 	sta dst0
 	sta dst
 	stx dst0+1
 	stx dst+1
-	lda vbytes
-	sta lcnt8
-lnloop8	jsr fillbuf
+
+lnloop8	jsr fillbuf	; Puffer mit Daten aus Bild füllen
+
 	lda #8
 	sta lcnt
-lnloop	jsr adinc
-	jsr readline
+lnloop	jsr readline	; Daten umlagern
+
 	ldx #0
 zloop	lda #2
 	sta bcnt1
 byloop	lda #2
 	sta bcnt
-btloop	jsr makebyte
-	ldy #0
+btloop	jsr makebyte	; Resamplen
+	ldy #0		; Ergebnis in 4Bit ablegen
 	sta (dst),y
-	inc dst
+	inc dst		; vorrücken
 	bne s3
 	inc dst+1
-s3	dec bcnt
+s3	dec bcnt		; zweimal
 	bne btloop
-	inx 
-	dec bcnt1
-	bne byloop
-	lda dst
+	inx 		; dann Pufferindex erhöhen
+	dec bcnt1		; auch zweimal
+	bne byloop	; sind 4 Bytes (eine 4Bit-Kachelzeile)
+
+	stx xmrk
+	jsr adinc		; activity
+	ldx xmrk
+
+	lda dst		; nächste Kachel
 	clc 
 	adc #28
 	sta dst
 	bcc s4
 	inc dst+1
-s4	cpx lbytes
-	bne zloop
-	lda dst0
+s4	cpx lbytes	; Breite erreicht?
+	bne zloop		; nein, Loop
+
+	lda rlines	; alle Rasterzeilen durch?
+	bne +
+	dec rlines+1
++	dec rlines
+	lda rlines
+	ora rlines+1
+	beq finished	; ja, Ende
+	
+	lda dst0		; nächste Rasterzeile
 	clc 
 	adc #4
 	sta dst0
@@ -285,9 +364,10 @@ s4	cpx lbytes
 	inc dst0+1
 s5	lda dst0+1
 	sta dst+1
-	dec lcnt
+	dec lcnt		; 8 Rasterzeilen (eine Kachelzeile)
 	bne lnloop
-	lda dst0
+
+	lda dst0		; dann neue Kachelzeile ansteuern
 	clc 
 	adc #<(1248)
 	sta dst0
@@ -296,25 +376,28 @@ s5	lda dst0+1
 	adc #>(1248)
 	sta dst0+1
 	sta dst+1
-	dec lcnt8
-	bne lnloop8
-	rts 
+	cmp #>buf		; (Sicherheitsabfrage)
+	bcs finished
+	jmp lnloop8	; Loop
+finished	rts 
 
 ; ----------------------------------------- 
 
-readline	ldy #0
+readline	ldy #0		; in Arbeitspuffer umlagern
 rll	lda (buf16),y
 	sta buf,y
 	iny 
 	cpy hbytes
 	bne rll
-	ldy #80
+
+	ldy #80		; zweite Hälfte
 rll2	lda (buf16),y
 	sta buf,y
 	iny 
 	cpy hbytes2
 	bne rll2
-	lda buf16
+
+	lda buf16		; Zeiger hinter den Puffer setzen
 	clc 
 	adc #160
 	sta buf16
@@ -324,18 +407,9 @@ rls	rts
 
 ; ----------------------------------------- 
 
-fail2	pla 
-	pla 
-fail3	pla 
-	pla 
-	inc used
-	rts 
-
-; ----------------------------------------- 
-
-fillbuf	ldy #0
-spbl1	jsr basin
-	sta z01,y
+fillbuf	ldy #0		; Kachel 1 holen
+spbl1	jsr basin		; 8 Bytes holen
+	sta z01,y		; und verteilen
 	jsr basin
 	sta z02,y
 	jsr basin
@@ -351,10 +425,11 @@ spbl1	jsr basin
 	jsr basin
 	sta z08,y
 	iny 
-	cpy hbytes
+	cpy hbytes	; bis Breite erreicht
 	bne spbl1
-	ldy #0
-spbl2	jsr basin
+
+	ldy #0		; Kachel 2 holen
+spbl2	jsr basin		; wieder 8 Bytes verteilen
 	sta z09,y
 	jsr basin
 	sta z10,y
@@ -373,19 +448,20 @@ spbl2	jsr basin
 	iny 
 	cpy hbytes
 	bne spbl2
-	lda #<(z01)
+
+	lda #<(z01)	; Zeiger auf Puffer setzen
 	ldy #>(z01)
 	sta buf16
 	sty buf16+1
-	rts 
+	rts
 
 ; ----------------------------------------- 
 
 makebyte	jmp (resmode)
 
-; ----------------------------------------- 
+; ----------------------------------------- Resample to Hires
 
-reshi	asl b0,x
+reshi	asl b0,x		; Index basteln
 	rol 
 	asl b0,x
 	rol 
@@ -395,31 +471,25 @@ reshi	asl b0,x
 	rol 
 	and #$0f
 	tay 
-	lda px,y
-	sta bbuf
-	asl b0,x
-	rol 
-	asl b0,x
-	rol 
-	asl b1,x
-	rol 
-	asl b1,x
-	rol 
-	and #$0f
-	tay 
-	lda px,y
+	lda px,y		; neuen Grauwert abholen
 	and #$f0
-	ora bbuf
+	sta bbuf		; merken
+	asl b0,x		; noch mal
+	rol 
+	asl b0,x
+	rol 
+	asl b1,x
+	rol 
+	asl b1,x
+	rol 
+	and #$0f
+	tay 
+	lda px,y
+	and #$0f		; beide Werte verknüpfen
+	ora bbuf		; und zurückliefern
 	rts 
 
-; ----------------------------------------- 
-
-px	!by $ff,$bb,$bb,$77,$bb,$77,$77,$33
-	!by $bb,$77,$77,$33,$77,$33,$33,$00
-
-dpx	!by $ff,$dd,$bb,$99,$77,$66,$44,$22,$00
-
-; ----------------------------------------- 
+; ----------------------------------------- Resample to Multi
 
 reslo	lda #0
 	sta bbuf
@@ -435,39 +505,6 @@ bb1	dey
 	ldy bbuf
 	lda dpx,y
 	rts 
-
-; ----------------------------------------- 
-
-setlo	lda #<(reslo)
-	sta resmode
-	lda #>(reslo)
-	sta resmode+1
-	ldy #0
-sll	lda mtext,y
-	sta rsmode,y
-	iny 
-	cpy #7
-	bne sll
-	tya 
-	rts 
-
-; ----------------------------------------- 
-
-sethi	lda #<(reshi)
-	sta resmode
-	lda #>(reshi)
-	sta resmode+1
-	ldy #0
-shl	lda htext,y
-	sta rsmode,y
-	iny 
-	cpy #7
-	bne shl
-	rts 
-
-; ----------------------------------------- 
-
-used	!by $ff
 
 ; ----------------------------------------- 
 
@@ -494,6 +531,17 @@ si0	lda ls_lastname,x
 	cpx #16
 	bcc si0
 si1	rts 
+
+setmodeh	ldx #6
+	!by $2c
+setmodem	ldx #13
+	ldy #6
+-	lda htext,x
+	sta rsmode,y
+	dex
+	dey
+	bpl -
+	rts
 
 getdatac	ldx #4
 	!by $2c
