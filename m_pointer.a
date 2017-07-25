@@ -1,0 +1,136 @@
+
+*= $c000
+!src "..\godotlib.lib"
+
+; ------------------------------------------------------------ 
+;
+; ldr..NewPointer
+; Modul zum Installieren eines alternativen Mauszeigers
+;
+; 1.00, 13.06.92, first release
+;
+; ------------------------------------------------------------ 
+
+; ----------------------------------------- Equates
+
+	status		= $90
+
+; ----------------------------------------- Header
+
+header	jmp start
+	!by $80
+	!by 4
+	!by 0
+	!wo modend
+	!wo 0
+	!pet "Pointer         "
+	!pet "1.00"
+	!pet "13.06.92"
+	!pet "A. Dettke       "
+
+; ----------------------------------------- Main
+
+start	ldx #<(sc_pointer)	; Zeiger auf Directory-Filter setzen ("ptr.*")
+	ldy #>(sc_pointer)
+	stx ls_adrmisc
+	sty ls_adrmisc+1
+	lda gd_modswitch	; Modul-Management
+	pha 
+	lda ls_flen	; aktuelle Filenamenslänge retten (nicht erforderlich)
+	pha 
+	lda #0		; und mit 0 vorbesetzen (für Rückmeldung)
+	sta ls_flen
+	sta xoff		; Hotspot vorbesetzen
+	sta yoff
+	jsr lddir		; gefiltertes Directory anzeigen (Filerequester)
+	jsr gd_eloop	; warten auf Mausklick (Load oder Cancel)
+
+	lda ls_flen	; kein File ausgewählt?
+	beq lp0		; dann Abschluss
+
+	jsr readptr	; sonst: Mauszeiger einlesen
+
+	lda xoff		; Hotspot x größer als 15?
+	cmp #16
+	bcs pt0
+	sec 
+	lda #24		; dann von 24 abziehen (linker Rand)
+	sbc xoff
+	sta sy_soffx
+pt0	lda yoff		; Hotspot y größer als 15?
+	cmp #16
+	bcs lp0
+	sec 
+	lda #50		; dann von 50 abziehen (oberer Rand)
+	sbc yoff		; (damit bleibt der Hotspot im sichtbaren Screen)
+	sta sy_soffy
+
+lp0	pla 		; aufräumen
+	sta ls_flen
+	pla 
+	sta gd_modswitch
+	ldx sc_scvek2	; Main-Screenlist ansteuern
+	stx sc_screenvek
+	ldx sc_scvek2+1
+	stx sc_screenvek+1
+	sec 		; Modul verlassen
+	rts 
+
+; ----------------------------------------- Load mit Dateifilter
+
+lddir	lda #<(ptr)	; Zeiger auf Filter
+	pha 
+	lda #>(ptr)
+	pha 
+	lda #8		; Flag für "nur Directory zeigen"
+	jmp gd_xloadm	; und ausführen
+
+; ----------------------------------------- Mauszeiger einlesen
+
+readptr	jsr gd_xopen	; Datei öffnen
+	jsr onebyte	; Startadresse überlesen
+	bne lderr
+	jsr onebyte
+	bne lderr
+ld6	lda status	; Lesefehler?
+	bne lderr		; dann Abbruch
+
+	jsr basin		; 63 Bytes einlesen
+	sta (sc_vekt20),y	; und in den Mauszeiger übertragen
+	iny 
+	cpy #63
+	bne ld6
+	jsr onebyte	; Hotspot x lesen
+	bne lderr
+	sta xoff
+	jsr onebyte	; Hotspot y lesen
+; ---     bne lderr		; Abfrage entfernt, da beim letzten Byte der Status !0 ist
+	sta yoff
+
+lderr	jsr gd_xclose	; Datei schließen
+	lda #$03		; Mauszeiger an
+	sta $d015
+	sec 
+	rts 
+
+; ----------------------------------------- Byteweise lesen
+
+onebyte	jsr basin
+	ldy #0
+	ldx status
+	rts 
+
+; ----------------------------------------- Filter
+
+ptr	!pet "ptr.*"
+	!by 0
+xoff	!by 0
+yoff	!by 0
+
+; ----------------------------------------- 
+
+modend	!eof
+
+; ----------------------------------------- 
+
+
