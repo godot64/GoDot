@@ -4,16 +4,19 @@
 
 ; ------------------------------------------------------------ 
 ;
-; ldr..NewPointer
+; mod..NewPointer
 ; Modul zum Installieren eines alternativen Mauszeigers
 ;
 ; 1.00, 13.06.92, first release
+; 1.01, 25.07.17, Modul sicherer gemacht
 ;
 ; ------------------------------------------------------------ 
 
 ; ----------------------------------------- Equates
 
+	ok		= $30
 	status		= $90
+	buffer		= $c600
 
 ; ----------------------------------------- Header
 
@@ -23,25 +26,26 @@ header	jmp start
 	!by 0
 	!wo modend
 	!wo 0
-	!pet "Pointer         "
-	!pet "1.00"
-	!pet "13.06.92"
+	!pet "Mouse Pointer   "
+	!pet "1.01"
+	!pet "25.07.17"
 	!pet "A. Dettke       "
 
 ; ----------------------------------------- Main
 
-start	ldx #<(sc_pointer)	; Zeiger auf Directory-Filter setzen ("ptr.*")
-	ldy #>(sc_pointer)
-	stx ls_adrmisc
+start	jsr chgdrv	; Sysdrive auf Bootdrive umlenken
+	ldx #<(buffer)	; Zeiger auf Directory-Filter setzen ("ptr.*")
+	ldy #>(buffer)
+	stx ls_adrmisc	; (wird bei Klick auf LOAD nach sc_vekt20 geschrieben)
 	sty ls_adrmisc+1
+	sty ok		; Success-Flag
 	lda gd_modswitch	; Modul-Management
-	pha 
-	lda ls_flen	; aktuelle Filenamenslänge retten (nicht erforderlich)
 	pha 
 	lda #0		; und mit 0 vorbesetzen (für Rückmeldung)
 	sta ls_flen
 	sta xoff		; Hotspot vorbesetzen
 	sta yoff
+
 	jsr lddir		; gefiltertes Directory anzeigen (Filerequester)
 	jsr gd_eloop	; warten auf Mausklick (Load oder Cancel)
 
@@ -49,6 +53,14 @@ start	ldx #<(sc_pointer)	; Zeiger auf Directory-Filter setzen ("ptr.*")
 	beq lp0		; dann Abschluss
 
 	jsr readptr	; sonst: Mauszeiger einlesen
+	lda ok		; geklappt?
+	bne lp0		; nein, Abbruch
+
+	ldy #62		; erfolgreich, neuen Mauszeiger installieren
+-	lda buffer,y
+	sta sc_pointer,y
+	dey
+	bpl -
 
 	lda xoff		; Hotspot x größer als 15?
 	cmp #16
@@ -65,10 +77,10 @@ pt0	lda yoff		; Hotspot y größer als 15?
 	sbc yoff		; (damit bleibt der Hotspot im sichtbaren Screen)
 	sta sy_soffy
 
-lp0	pla 		; aufräumen
-	sta ls_flen
-	pla 
+lp0	jsr gd_spron	; Mauszeiger an
+	pla 		; aufräumen
 	sta gd_modswitch
+	jsr chgdrv	; Sysdrive zurück
 	ldx sc_scvek2	; Main-Screenlist ansteuern
 	stx sc_screenvek
 	ldx sc_scvek2+1
@@ -88,37 +100,47 @@ lddir	lda #<(ptr)	; Zeiger auf Filter
 ; ----------------------------------------- Mauszeiger einlesen
 
 readptr	jsr gd_xopen	; Datei öffnen
-	jsr onebyte	; Startadresse überlesen
+	jsr onebyte	; Startadresse überlesen ($4733="g3")
 	bne lderr
 	jsr onebyte
 	bne lderr
-ld6	lda status	; Lesefehler?
-	bne lderr		; dann Abbruch
 
-	jsr basin		; 63 Bytes einlesen
-	sta (sc_vekt20),y	; und in den Mauszeiger übertragen
+	ldy #0
+ld6	jsr basin		; 63 Bytes einlesen
+	ldx status	; Lesefehler?
+	bne lderr		; dann Abbruch
+	sta (sc_vekt20),y	; und in den Puffer übertragen
 	iny 
 	cpy #63
 	bne ld6
+
 	jsr onebyte	; Hotspot x lesen
 	bne lderr
 	sta xoff
 	jsr onebyte	; Hotspot y lesen
-; ---     bne lderr		; Abfrage entfernt, da beim letzten Byte der Status !0 ist
-	sta yoff
+	tay
+	txa
+	and #$bf		; EOF ausschließen
+	tax
+	bne lderr
+	sty yoff
+	stx ok		; successful
 
-lderr	jsr gd_xclose	; Datei schließen
-	lda #$03		; Mauszeiger an
-	sta $d015
-	sec 
-	rts 
+lderr	jmp gd_xclose	; Datei schließen
 
 ; ----------------------------------------- Byteweise lesen
 
 onebyte	jsr basin
-	ldy #0
 	ldx status
 	rts 
+
+; ----------------------------------------- Change Sysdrive
+
+chgdrv	lda ls_sysdrive	; prevents hanging system
+	ldx ls_bootdrive
+	sta ls_bootdrive
+	stx ls_sysdrive
+	rts
 
 ; ----------------------------------------- Filter
 
