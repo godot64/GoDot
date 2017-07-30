@@ -1,0 +1,846 @@
+
+; ---------------------------
+;
+;    ldr.MiniPaint
+;    Lader für VC20-MiniPaint-Bilder
+;    liefert Hires 160x192
+;
+;    1.00: 30.07.17, first release
+;
+; ---------------------------
+
+!src "..\godotlib.lib"
+*=$c000
+
+; --------------------------- Equates
+
+	sprite		= $d015
+
+	paper		= $30
+	ink		= $31
+	multicol		= $32
+	byte		= $33
+	index		= $34
+	cnt		= $35
+	src		= $36	; /$37
+	dest		= $38	; /$39
+	dest0		= $3a	; /$3b
+	blcnt		= $3c
+	lncnt		= $3d
+	tcnt		= $3e
+	ymrk		= $3f	; 0..159
+	xmrk		= $40
+	vcolors		= $41
+	adcnt		= $42
+	gbyte		= $43
+	vr		= $44	; /$45
+	cr		= $46	; /$47
+	vv		= $48	; /$49
+
+	cntmerk		= $aa
+	offx		= $b2
+	offy		= offx+1
+
+	formbuf		= $6000
+	bmbuf		= $9000
+	backgr		= bmbuf-1
+	mcolor1		= bmbuf-2
+	mcolor2		= backgr
+	robuf		= $a000
+	vrbuf		= $c600
+	lastrow		= vrbuf+(24*40)
+	crbuf		= vrbuf+$0400
+	col0		= vrbuf+$0800
+
+
+; --------------------------- Header
+
+	jmp start
+	!by $80
+	!by $00,$00
+	!by <(modend),>(modend)
+	!by $00,$00
+	!pet "VIC20 MiniPaint "
+	!pet "1.00"
+	!pet "30.07.17"
+	!pet "A.Dettke        "
+
+; --------------------------- 
+
+jerror	jmp error
+
+; --------------------------- Main
+
+start	lda #24		; Gauge-Zähler setzen
+	sta cntwert
+	sta adcnt
+	jsr getname	; Filenamen merken
+
+stt2	jsr gd_xopen	; File öffnen
+	jsr gd_clrms	; Gauge vorbereiten
+
+	ldx #18		; Text anwählen ("Bitmap")
+	jsr tcopy
+
+read1	lda #$11		; $0f11 nach ls_vekta8 (Zähler=3857; Header und Bitmap)
+	sta ls_vekta8
+	lda #$0f
+	sta ls_vekta8+1
+	lda #<(bmbuf-17)	; $8fef nach sc_texttab (Zielbereich; Bitmap ab $9000)
+	sta sc_texttab
+	lda #>(bmbuf-17)
+	sta sc_texttab+1
+
+	jsr rloop		; read 3857 Bytes (Header und Bitmap)
+	bne jerror	; bei Fehler: Ende
+
+; --------------------------- 
+
+	lda backgr	; Hintergrundfarbe isolieren
+	lsr
+	lsr
+	lsr
+	lsr
+	sta paper
+	sta col0		; Bitmuster %00
+	lda mcolor1	; Auxiliary (=Ink)
+	and #$f0
+	ora paper		; plus Hintergrundfarbe ergibt Farben für Videoram (vcolors)
+	sta vcolors
+	lsr
+	lsr
+	lsr
+	lsr
+	sta ink		; und Ink
+	sta col0+3	; Bitmuster %11
+	lda mcolor2	; Bordercolor
+	and #7
+	sta multicol
+	sta col0+1	; Bitmuster %01
+
+; --------------------------- 
+
+	lda #1
+	sta cntwert
+	sta adcnt
+	ldx #0		; nächsten Text anwählen ("Colors")
+	jsr tcopy
+
+read2	lda #0		; neuen Zähler ($78=120)
+	sta ls_vekta8+1
+	sta sc_texttab
+	lda #$78
+	sta ls_vekta8
+	lda #>(vrbuf)	; neues Ziel ($c600) für Colorram
+	sta sc_texttab+1
+
+	jsr rloop		; read 120 Bytes
+	bne jerror	; bei Fehler Ende
+
+	jsr gd_xclose	; File schließen
+
+; --------------------------- 
+
+	jsr reorg		; umschichten auf 160x200
+	jsr prepcols	; prepare for color conversion
+	jsr enform	; auf 320x200 verbreitern
+	jsr stretch	; auf 320x200 strecken
+	jsr convert	; in 4Bit wandeln
+
+; --------------------------- 
+
+sk11	ldx #18		; Text resetten ("Bitmap")
+	jsr tcopy
+
+sk10	jsr gd_xmess
+	jsr setinfo
+	jsr gd_spron
+	sec		; fertig, Modul verlassen
+	rts
+
+; --------------------------- Error-Handling
+
+error	jsr gd_xclose
+	jsr sk11
+	clc
+	rts
+
+; ---------------------------
+
+rloop	jsr basin		; 1 Byte einlesen
+	sta (sc_texttab),y	; merken
+	lda status	; Statusbyte:
+	and #$bf		; was anderes als EOF?
+	bne rl3		; ja, skip den Rest
+
+	jsr action	; Activity
+	ldy #0		; Y wieder auf 0
+	inc sc_texttab	; Zeiger weiterstellen
+	bne rl1
+	inc sc_texttab+1
+rl1	lda ls_vekta8	; Zähler herunterzählen
+	bne rl2
+	dec ls_vekta8+1
+rl2	dec ls_vekta8
+	lda ls_vekta8	; bis auf 0
+	ora ls_vekta8+1
+	bne rloop
+rl3	rts
+
+; ---------------------------
+
+reorg	lda #24
+	sta cntwert
+	sta adcnt
+	ldx #27		; nächsten Text anwählen ("Move")
+	jsr tcopy
+
+	lda #>robuf	; Ziel bei Re-org ($a000)
+	sta dest+1
+	sta dest0+1
+	lda #>bmbuf	; Quelle: Bitmap ($9000)
+	sta src+1
+	lda #0
+	sta dest
+	sta dest0
+	sta src
+	tay		; Index in Quelle (linear)
+	tax		; .x ist *immer* 0
+
+	lda #20		; 20 Spalten
+	sta blcnt
+
+---	lda #24		; 24 Blockzeilen
+	sta lncnt
+--	lda #8		; 8 Bytes umschichten
+	sta cnt
+-	lda (src),y	; .y läuft linear bis $afff
+	sta (dest,x)
+	sty ymrk
+	jsr action
+	ldy ymrk
+	inc dest		; dest zählt 8 weiter und addiert dann 152
+	bne +
+	inc dest+1
++	iny
+	bne +
+	inc src+1
++	dec cnt		; zählen (8 Mal)
+	bne -
+
+	clc		; dann nächste Kachel darunter
+	lda dest
+	adc #152		; (an die 21. Kachel, 160 weiter)
+	sta dest
+	bcc +
+	inc dest+1
++	dec lncnt		; zählen (24 Mal)
+	bne --
+
+	clc		; nächste Quelldatenspalte
+	lda dest0		; Ziel: 1 Spalte neben Anfang (8 weiter)
+	adc #8
+	sta dest0
+	sta dest
+	bcc +
+	inc dest0+1
++	lda dest0+1
+	sta dest+1
+	dec blcnt		; zählen (20 Mal)
+	bne ---		; und von vorn
+
+	rts
+
+; ---------------------------
+
+enform	lda #25
+	sta cntwert
+	sta adcnt
+	ldx #36		; nächsten Text anwählen ("Re-Org")
+	jsr tcopy
+
+	ldx #32		; erase buffer at $6000
+	lda #>formbuf
+	ldy #0
+	sty dest
+	sta dest+1
+	tya
+dei0	sta (dest),y
+	iny
+	bne dei0
+	inc dest+1
+	dex 
+	bne dei0
+
+	lda #>formbuf
+	sta dest+1
+	sta dest0+1
+	lda #>robuf
+	sta src+1
+	sty dest		; .y=0
+	sty dest0
+	sty src
+
+lp6	lda #25		; 24 blocklines
+	sta blcnt
+
+lp3	ldx #160		; 1 Blockline (20 Kacheln)
+lp0	lda (src),y
+	sta (dest),y
+	sty ymrk
+	stx xmrk
+	jsr action
+	ldx xmrk
+	ldy ymrk
+	inc src
+	bne lp4
+	inc src+1
+lp4	inc dest
+	bne lp1
+	inc dest+1
+lp1	dex
+	bne lp0
+
+	clc		; next Blockline below
+	lda dest
+	adc #160
+	sta dest
+	bcc lp2
+	inc dest+1
+lp2	dec blcnt
+	bne lp3
+
+transfer	lda #>robuf	; write back bitmap
+	sta dest+1
+	lda #>formbuf
+	sta src+1
+	sty dest		; .y=0
+	sty src
+
+	ldx #32
+lp7	lda (src),y
+	sta (dest),y
+	iny
+	bne lp7
+	inc dest+1
+	inc src+1
+	dex 
+	bne lp7
+	rts
+
+; ---------------------------
+
+stretch	lda #24
+	sta cntwert
+	sta adcnt
+	ldx #45		; nächsten Text anwählen ("Stretch")
+	jsr tcopy
+
+	lda #>robuf	; Quelle
+	sta src+1
+	lda #>formbuf	; Ziel
+	sta dest+1
+	ldy #0
+	sty src
+	sty dest
+
+	lda #0		; 25 Blockzeilen
+	sta blcnt
+---	ldx #0
+	stx tcnt		; Kachelzähler auf 0
+--	lda #8		; Blockzeilen zu je 8 Rasterlinien
+	sta lncnt
+
+-	stx index		; Zähler in Quelle (bis 160)
+	cpx #160
+	beq ++
+
+	sty ymrk
+	stx xmrk
+	jsr action
+	ldx xmrk
+	ldy ymrk
+
+	lda (src),y	; Quellbyte holen
+
+	asl		; daraus 2 Bits...
+	rol byte
+	asl
+	rol byte
+	pha
+	jsr double1	; ...zu einem Nibble (oben)
+	sta gbyte
+	pla		; die nächsten 2 Bits...
+	asl
+	rol byte
+	asl
+	rol byte
+	pha
+	jsr double2	; ...zum zweiten Nibble (unten)
+	jsr setbyte1
+
+	pla
+	asl		; die dritten 2 Bits...
+	rol byte
+	asl
+	rol byte
+	pha
+	jsr double1	; ...zu Nibble 3
+	sta gbyte
+	pla
+	asl		; die letzten 2 Bits...
+	rol byte
+	asl
+	rol byte
+	jsr double2	; ...zu Nibble 4
+	jsr setbyte2
+
+	inc src		; Quelle erhöhen
+	bne +
+	inc src+1
++	ldx index
+	inx		; bis 160 zählen
+	dec lncnt		; Kachellinien abzählen
+	bne -
+
+	inc tcnt		; dann Kachel zählen
+	inc tcnt		; (doppelt)
+	clc
+	lda dest
+	adc #8
+	sta dest
+	bcc --
+	inc dest+1
+	bne --
+
+++	clc		; neue Blockzeile
+	lda src
+	adc #160
+	sta src
+	bcc +
+	inc src+1
++	inc blcnt
+	lda blcnt
+	cmp #25
+	bne ---
+	jmp transfer	; fertig
+
+double1	jsr getbyte	; Bits...
+	beq +
+	lda strbits2,x	; ...verdoppeln
+	rts
++	lda strbitsh2,x
+	rts
+
+double2	jsr getbyte	; Bits...
+	beq +
+	lda strbits1,x	; ...verdoppeln
+	rts
++	lda strbitsh1,x
+	rts
+
+setbyte2	ldy #8
+	jsr setbyte1
+	ldy #0
+	inc dest
+	bne +
+	inc dest+1
++	rts
+
+setbyte1	ora gbyte
+	sta (dest),y	; Byte im Ziel speichern
+	rts	
+
+getbyte	lda byte		; Hires oder Multi?
+	and #3
+	tax
+	lda blcnt		; welche Blockzeile?
+	asl
+	tay
+	lda croff,y	; Offset holen
+	sta cr
+	iny
+	lda croff,y
+	sta cr+1
+	ldy tcnt		; Offset in die Zeile setzen
+	lda (cr),y	; Farbbyte holen
+	ldy #0
+	and #8		; Bit 3 testen (0=Hires)
+	rts
+
+; ---------------------------
+
+prepcols	lda #7
+	sta cntwert
+	sta adcnt
+	ldx #54		; nächsten Text anwählen ("Prepare")
+	jsr tcopy
+
+	lda #>vrbuf	; video buffer at $c600 (ink)
+	sta src+1
+	lda #>crbuf	; transfer to colorram buffer at $ca00
+	sta dest+1
+	sta dest0+1
+	ldy #0
+	sty src
+	sty dest
+	sty dest0
+
+	ldx #0
+pc0	lda (src),y	; get color byte
+	sty ymrk
+	ldy #0
+	pha		; store ink to colorram buffer
+
+	and #15		; left 
+	sta (dest),y
+
+	inc dest
+	bne +
+	inc dest+1
++	sta (dest),y	; double it
+	inc dest
+	bne +
+	inc dest+1
++	pla
+
+	lsr		; right
+	lsr
+	lsr
+	lsr
+	sta (dest),y
+
+	inc dest
+	bne +
+	inc dest+1
++	sta (dest),y	; double it
+	inc dest
+	bne +
+	inc dest+1
+
++	ldy ymrk
+	iny
+	cpy #10
+	bne pc0
+
+	ldy #0		; Zeile kopieren
+-	lda (dest0),y
+	sta (dest),y
+	iny
+	cpy #40
+	bne -
+
+	clc		; auf nächste Doppelzeile setzen
+	lda dest0
+	adc #80
+	sta dest0
+	sta dest
+	bcc +
+	inc dest0+1
++	lda dest0+1
+	sta dest+1
+
+	jsr plus10
+	ldy #0
+	inx
+	cpx #12		; 12 Doppelzeilen
+	bne pc0
+
+	ldx #4		; then fill video buffer with paper color
+	lda #>vrbuf
+	sta dest+1
+	sty dest
+	lda paper
+-	sta (dest),y
+	iny
+	bne -
+	inc dest+1
+	dex
+	bne -
+
+	ldx #39		; letzte Zeile: Rahmenfarbe
+	lda multicol
+-	sta lastrow,x
+	sta lastrow+$400,x
+	dex
+	bpl -
+	
+	rts
+
+plus10	clc		; 10 weiter in der Quelle
+	lda src
+	adc #10
+	sta src
+	bcc +
+	inc src+1
++	rts
+
+; --------------------------- Messages
+
+messout   ldx #<(message)
+	ldy #>(message)
+	jmp gd_xtxout2
+
+tcopy	ldy #0
+tc0	lda txt,x
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+
+action	dec adcnt
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	cpy #22
+	bcc act0
+	jsr clrmess
+act0	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts
+
+clrmess   ldx #20
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0
+	ldx #7
+	sty offy
+	stx offx
+	rts
+
+; --------------------------- Convert to 4Bit
+
+convert	lda #50
+	sta cntwert
+	sta adcnt
+	ldx #9		; nächster Text ("Convert")
+	jsr tcopy
+
+	lda #<(8000)	; Zähler für 8000 Bytes
+	sta ls_vekta8
+	lda #>(8000)
+	sta ls_vekta8+1
+	lda #0		; initialisieren der Arbeitspuffer
+	tay
+	sta vr
+	sta cr
+	sta sc_texttab
+	sta vv
+	lda #>robuf	; Quelldaten in $a000
+	sta cr+1
+	lda #>sy_4bit	; Ziel in $4000
+	sta sc_texttab+1
+	lda #>(vrbuf)	; Videoram in $c600
+	sta vr+1
+	lda #>(crbuf)	; Colorram in $ca00
+	sta vv+1
+
+hloop1	ldx #8		; 8 Mal (eine Kachel)
+	stx cntmerk
+
+hilp	lda (cr),y	; hol Bitmap-Byte
+	sta byte
+	jsr action
+	ldy #0
+
+	lda (vv),y
+	and #8
+	bne +
+	jsr hires
+	beq ++
++	jsr multi
+
+++	inc cr		; Quelle erhöhen
+	bne hl6
+	inc cr+1
+
+hl6	lda ls_vekta8	; Bytes zählen
+	bne hl7
+	dec ls_vekta8+1
+hl7	dec ls_vekta8
+
+	dec cntmerk	; eine Kachel durch
+	bne hilp
+
+	inc vr		; Farbram erhöhen
+	bne hl8
+	inc vr+1
+hl8	inc vv		; Colorram erhöhen
+	bne hl9
+	inc vv+1
+hl9	lda ls_vekta8	; Ende?
+	ora ls_vekta8+1
+	bne hloop1
+	rts
+
+; --------------------------- Modus: Hires
+
+hires	ldy #0		; wandeln nach 4Bit
+	ldx #4
+hl2	asl byte		; linkes Hires-Bit isolieren
+	bcc hl3
+	lda (vv),y
+	!by $2c
+hl3	lda (vr),y
+	and #$0f
+	tay
+	lda dnib,y	; Farbe zuweisen (hi)
+	and #$f0
+	sta gbyte
+	ldy #0
+	asl byte		; rechtes Hires-Bit isolieren
+	bcc hl4
+	lda (vv),y
+	!by $2c
+hl4	lda (vr),y
+	and #$0f
+	tay
+	lda dnib,y	; Farbe zuweisen (lo)
+	and #$0f
+	ora gbyte
+	ldy #0
+	sta (sc_texttab),y	; in 4Bit speichern
+	inc sc_texttab	; nächstes 4Bit-Byte
+	bne lh5
+	inc sc_texttab+1
+lh5	dex		; eine Kachelzeile durch (4mal = 8 Bit)
+	bne hl2
+	rts
+
+; --------------------------- Modus: Multi
+
+multi	ldy #0
+	ldx #4
+bloop	lda #0
+	asl byte		; 2 Bits holen (1 Byte in 4Bit)
+	rol
+	asl byte
+	rol
+	pha
+	lda (vv),y	; Colorram isolieren
+	and #$07
+	sta col0+2
+	pla
+	tay		; Bitmuster als Index in Farben
+	lda col0,y	; Farben holen
+	tay
+	lda dnib,y	; als Doppelnibble
+	ldy #0
+	sta (sc_texttab),y	; ins 4Bit speichern
+	inc sc_texttab 
+	bne sk
+	inc sc_texttab+1
+sk	dex 		; 4mal (= 8 Bits)
+	bne bloop
+	rts
+
+; ---------------------------
+
+filltab   !by 160,93,103,127,126,124,105,109
+
+cntwert   !by 50
+
+txt	!scr " Colors @"	; 0
+	!scr " Convert@"	; 9
+	!scr " Bitmap @"	; 18
+	!scr " Move   @"	; 27
+	!scr " Re-Org @"	; 36
+	!scr " Stretch@"	; 45
+	!scr " Prepare@"	; 54
+
+message   !scr " Bitmap    "
+mess	!fill 21,32
+	!by 0
+
+dnib	!by $00,$ff,$44,$cc,$55,$aa,$11,$dd
+	!by $22,$66,$99,$bb,$bb,$ee,$88,$bb
+
+croff	!wo $ca00,$ca28,$ca50,$ca78,$caa0,$cac8,$caf0,$cb18
+	!wo $cb40,$cb68,$cb90,$cbb8,$cbe0,$cc08,$cc30,$cc58
+	!wo $cc80,$cca8,$ccd0,$ccf8,$cd20,$cd48,$cd70,$cd98
+	!wo $cdc0,$cde8
+
+strbits1	!by $00,$05,$0a,$0f
+strbits2	!by $00,$50,$a0,$f0
+strbitsh1	!by $00,$03,$0c,$0f
+strbitsh2	!by $00,$30,$c0,$f0
+
+; ---------------------------
+
+getname   ldx #0
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+getdatac  ldx #4
+	!by $2c
+getdatag  ldx #9
+	ldy #4
+sinfo0	lda dtextc,x
+	sta datatype,y
+	dex
+	dey
+	bpl sinfo0
+	rts
+
+setinfo   jsr getdatac
+	jsr setname
+	jsr setloader
+	jsr setmode
+	jmp setdata
+
+setname   lda #0
+	ldx #<(ls_picname)
+	ldy #>(ls_picname)
+	bne si3
+setloader lda #17
+	ldx #<(ls_iloader)
+	ldy #>(ls_iloader)
+	bne si3
+setmode   lda #25
+	ldx #<(ls_imode)
+	ldy #>(ls_imode)
+	bne si3
+setdata   lda #33
+	ldx #<(ls_idrive)
+	ldy #>(ls_idrive)
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!fill 16,32
+	!by 0
+	!scr "VIC20MP@"
+	!scr "160x192@"
+datatype  !scr "Color@"
+htext	!scr "160x192"
+mtext	!scr "160x200"
+dtextc	!scr "Color"
+dtextg	!scr "Grey "
+
+; ---------------------------
+
+modend	!eof
