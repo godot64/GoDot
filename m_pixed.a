@@ -20,6 +20,7 @@
 ;   1.29, 28.01.17: changed mouse register due to change in system driver
 ;   1.30. 29.01.17: added Hold Mouse Position on Move Commands
 ;   1.31, 29.05.17: added ability to preview graphics correctly, also when executed from RAM
+;   1.32, 31.07.17: added display of screen position (column/row of topleft edge)
 ;
 ; ------------------------------------------------------------ 
 
@@ -31,7 +32,7 @@
 	spi 		= $32
 	zli 		= $33
 	cnt 		= $34
-	screenpnt 	= $35
+	screenpnt 	= $35	; /$36
 	col 		= $37
 	storespx 		= $39
 	storespy 		= $3a
@@ -39,6 +40,10 @@
 	mkx 		= $3c
 	mky 		= $3d
 	vpos 		= $3e
+	vertical		= $3f	; ### v1.32 (saves space)
+	horizont		= $40	; ### 
+	oldv		= $41	; ###
+	oldh		= $42	; ### bis hier
 	slot		= $45
 	v1buf		= $47
 	v2buf		= $48
@@ -72,8 +77,8 @@
 	!wo (modend)
 	!wo 0
 	!pet "Edit 4bit pixels"
-	!pet "1.31"
-	!pet "29.05.17"
+	!pet "1.32"
+	!pet "31.07.17"
 	!pet "AD/ H.McMenamin "
 
 ; ------------------------------------------ Main
@@ -85,7 +90,7 @@ start:	jsr makech	; define new character
 	jsr checkcols	; where is which module? (for re-display)
 	ldx #<(pixlst)	; build requesters
 	ldy #>(pixlst)
-	jsr gd_screen	; returns with .A = 0
+	jsr gd_screen	; returns with .a=0
 	jsr messoff	; hide Edit Mode message
 	lda #0
 	sta vertical
@@ -123,7 +128,7 @@ initchooser:
 	stx sc_br
 	stx sc_ho
 	jsr gd_esm3	; invert area
-restpal: 	lda gr_picked	; last used color to X
+restpal: 	lda gr_picked	; last used color to .x
 	and #15
 	tax
 	jmp initpal	; initialize chooser colors
@@ -237,7 +242,7 @@ storesv:	!wo 0
 c64pal:	!by $00,$ff,$44,$cc,$55,$aa,$11,$dd
 	!by $66,$22,$99,$33,$77,$ee,$88,$bb
 
-bestcolor:
+bestcolor:		; when background color is:
 	!by 12,15,5,1 	; black
 	!by 11,12,11,5 	; white
 	!by 0,10,15,7	; red
@@ -387,10 +392,6 @@ char:	!by $7e,$ff,$ff,$ff,$ff,$ff,$ff,$7e
 tab:	!by 0,8,16,24		; horizontal tab positions
 tabspr:	!by 0,64,128,192
 cols:	!by 0,0,0,0,0
-vertical:	!by 0
-horizont:	!by 0
-oldv:	!by 0
-oldh:	!by 0
 grclr:	!by 1
 
 grstore:	!by $00,$00,$00,$00,$00,$00,$00,$00
@@ -469,7 +470,7 @@ edx3:	lda sc_keyprs	; FIRE/RETURN/STOP?
 	tax
 	and #5
 	beq ed0
-	jmp keymove		; keyboard if CTRL or Shift pressed
+	jmp keymove	; keyboard if CTRL or Shift pressed
 ; ------------------------------------------ 
 edit:	lda sc_stop	; if STOP: exit from edit
 	beq ed1		; no STOP
@@ -620,7 +621,7 @@ pe6:	cpx #41		; "p" key
 	jmp ed0		; back to edit loop
 ; ------------------------------------------ 
 pete:	pha
-	jsr holdmpos	; v1.30: store mouse position
+	jsr holdmpos	; ### v1.30: store mouse position
 	pla
 	cpx #60		; left mouse button?
 	beq shifted
@@ -683,7 +684,7 @@ km9:	cpx #2		; CRSR left
 km2:	cpx #7		; CRSR up
 	bne km3
 	jsr up
-km1:	jsr fetchmpos	; v1.30: restore mouse position
+km1:	jsr fetchmpos	; ### v1.30: restore mouse position
 	jsr home		; display section
 km6:	lda vertical
 	pha
@@ -750,7 +751,9 @@ display:	jsr fill		; fill with new character
 	ldx #0 		; black border
 	stx $d020
 home:	jsr setstart	; compute address in 4Bit
-dp00:	ldx screenpnt	; get address
+
+dp00:	jsr showxy
+	ldx screenpnt	; get address
 	stx sc_texttab 	; store to work vector
 	ldy #1		; width/height: 1
 	sty sc_br
@@ -998,6 +1001,45 @@ left:	ldx horizont
 	sta screenpnt+1
 	rts
 
+; ------------------------------------------ Display Screen Position
+; ### v1.32 ---
+
+showxy:	lda horizont
+	jsr gd_xcnvdez
+	sta coltx+1
+	sta coltx2+1
+	cpx #$30
+	bne +
+	ldx #$20
++	stx coltx
+	stx coltx2
+	ldx #<colgad
+	ldy #>colgad
+	jsr shownums
+	lda vertical
+	jsr gd_xcnvdez
+	sta rowtx+1
+	sta rowtx2+1
+	cpx #$30
+	bne +
+	ldx #$20
++	stx rowtx
+	stx rowtx2
+	ldx #<rowgad
+	ldy #>rowgad
+shownums	stx sc_screentab
+	sty sc_screentab+1
+	lda #0
+	tax
+	tay
+-	jsr gd_setpos
+	cpx #3
+	bne -
+	jsr gd_initmove
+	ldy #2
+	jmp gd_xtxout1
+
+; ### bis hier ---
 ; ------------------------------------------ Display graphics event
 
 evdisplay:
@@ -1007,6 +1049,7 @@ evdisplay:
 
 ; ------------------------------------------------ Check Color Rams
 ; ### 1.31 ab hier ---
+
 checkcols	sei 		; GoDot off
 	ldx #$00
 	stx pport
@@ -1061,7 +1104,8 @@ sethicol	lda (slot,x)	; get type of module (at $c003): $20, $40, $80
 c147 	lda slot+1	; get hibyte...
 	ora #$0e		; ...and OR %00001110 to it (ie $ce)
 	rts 		; thus: get correct hi address of color buffers
-: ### 1.31 bis hier ---
+
+; ### 1.31 bis hier ---
 ; ------------------------------------------ 
 
 dp13:	sty sc_stop	; re-init stop flag
@@ -1201,6 +1245,7 @@ setcveks:	sei
 	bne scv0
 	
 ; ------------------------------------------ 
+
 setbveks	lda v1buf 	; vram1 ### 1.31 
 	ldx #4
 	dec pport
@@ -1209,7 +1254,9 @@ scv0:	stx $b3
 	sty sc_merk
 	sty $b2
 	dey
+
 ; ------------------------------------------ 
+
 setlast:	sty gr_bkcol
 	ldy #<(cstart)
 	sty $20
@@ -1220,7 +1267,9 @@ setlast:	sty gr_bkcol
 	sta $a9
 	ldy #0
 	rts
+
 ; ------------------------------------------ 
+
 count:	inc $20
 	bne cou5
 	inc $21
@@ -1234,7 +1283,9 @@ cou7:	dec $a8
 	lda $a8
 	ora $a9
 	rts
+
 ; ------------------------------------------ 
+
 getcolors:
 	jsr setcveks
 stco:	lda ($b2),y
@@ -1273,7 +1324,9 @@ scv1:	lda #$36
 	and #15
 	sta gr_bkcol
 	rts
+
 ; ------------------------------------------ 
+
 setcolors:
 	lda gr_bkcol
 	sta $d021
@@ -1309,7 +1362,9 @@ stc4:	lda ($20),y
 	lda v2buf 	; vram2 ### 1.31 
 	jsr setlast
 	beq stc4
+
 ; ------------------------------------------ 
+
 redisplay:
 	lda gr_redisp
 	pha
@@ -1326,7 +1381,7 @@ redisplay:
 
 ; ----------------------------------------- Event Wipe Screen
 
-evwipe	jsr holdmpos	; v1.30: store mouse position
+evwipe	jsr holdmpos	; ### v1.30: store mouse position
 	lda #50
 	sta vpos
 	lda #0
@@ -1336,7 +1391,7 @@ ew1	ldx #0		; 4 columns
 ew0	lda tabspr,x	; get x-position
 	sta spritex
 	lda vpos		; get vpos
-	sta spritey-2	; v1.29
+	sta spritey-2	; ### v1.29
 	stx mkx
 	sty mky
 	jsr gd_position
@@ -1354,19 +1409,19 @@ ew0	lda tabspr,x	; get x-position
 	bne ew1
 	iny
 	sty gr_redisp
-	jsr fetchmpos	; v1.30: restore mouse position
+	jsr fetchmpos	; ### v1.30: restore mouse position
 	jmp dp00
 
 holdmpos	lda spritex	; save current position
 	sta storespx
-	lda spritey-2	; v1.29
+	lda spritey-2	; ### v1.29
 	sta storespy
 	lda spritehi
 	sta storesph
 	rts
 
 fetchmpos	lda storespy	; restore current position
-	sta spritey-2	; v1.29
+	sta spritey-2	; ### v1.29
 	lda storespx
 	sta spritex
 	lda storesph
@@ -1488,10 +1543,12 @@ editgad:	!by 19,33,6,3
 	!wo cancel
 	!scr "Exit@"
 
-	!by $c0,0,33,5
-	!scr "Pixel@"
+	!by $c0,0,33,4
+	!scr "X:"
+coltx	!scr " 0@"
 	!by $c0,1,33,4
-	!scr "Edit@"
+	!scr "Y:"
+rowtx	!scr " 0@"
 	
 	!by $c0,4,33,4
 	!by 91
@@ -1512,6 +1569,11 @@ editgad:	!by 19,33,6,3
 	!by $c0,23,255,26	; Message: Edit Mode
 	!scr "STOP exits from Edit Mode.@"
 	!by $80
+
+colgad	!by 1,36,2
+coltx2	!scr " 0@"
+rowgad	!by 2,36,2
+rowtx2	!scr " 0@"
 
 ; ------------------------------------------ 
 
