@@ -1,0 +1,542 @@
+
+!src "..\godotlib.lib"
+*= $c000
+
+; ----------------------------------------- 
+;
+; svr.PGM
+; Saver for Portable Graymap Images
+; for use with VC20 MiniPaint pictures
+;
+; 1.00: 01.08.17, first release
+; 1.01: 02.08.17, added UI for 3 different save modes
+;
+; ----------------------------------------- 
+
+; ---------------------------------------- Equates
+
+	src		= $30	; /$31
+	src0		= $32	; /$33
+	maxw		= $34
+	maxh		= $35
+	bcnt		= $36
+	lcnt		= $37
+	vcnt		= $38
+	offy		= $3b
+	offx		= $3c
+	adcnt		= $3d
+
+; ---------------------------------------- Header
+
+header	jmp start
+	!by $40
+	!by 0
+	!by 1
+	!wo modend
+	!wo 0
+	!pet "Portable GrayMap"
+ver	!pet "1.01"
+	!pet "02.08.17"
+	!pet "A.Dettke        "
+
+; ----------------------------------------- Main
+
+start	ldx gr_nr		; Input?
+	dex 
+	bne st0
+	jmp initinp	; yes
+
+; ----------------------------------------- Save VBM
+
+st0	jsr makechr	; Kringel
+	jsr requester	; display requester
+	lda used		; cancelled?
+	cmp #3
+	bcs st12
+
+	jsr gd_sproff	; Maus aus
+	lda gd_modswitch
+	pha 
+	lda ls_flen	; Filename vorhanden?
+	beq st1		; nein, Ende
+
+	sta wflen
+	jsr addpgm	; Namen erweitern
+	lda #1
+	sta adcnt
+	jsr wopen
+	bne st2
+	jsr getname
+	ldx #12
+	jsr ckout
+	jsr gd_clrms
+	ldx #0
+	jsr tcopy
+
+	jsr save
+
+st2	jsr clrch		; Abschluss
+	lda #12
+	jsr close
+	jsr err9
+	bne st1
+	jsr setname
+
+st1	pla 
+	sta gd_modswitch
+st12	jsr cancelled
+	jsr gd_spron	; mouse on
+	sec		; Leave-Flag
+	rts		; fertig
+
+; --------------------------- 
+; --------------------------- Input Routines
+
+!src "..\input.inc"
+
+; --------------------------- 
+; --------------------------- 
+
+; ----------------------------------------- Open File
+
+pgmtx	!pet "mgp."
+pgmtxs	!scr "mgp."
+pw	!pet "w,p,"
+drinit	!pet "i0"
+wflen	!by 0
+
+wopen	jsr inull
+	bne err8
+	ldy wflen
+	ldx #3		; add ",p,w"
+wo1	lda pw,x
+	sta ls_nambuf,y
+	iny 
+	dex 
+	bpl wo1
+	sty wflen
+	lda #12
+	tay 
+	ldx ls_drive
+	jsr filpar
+	lda wflen
+	ldx #<(ls_nambuf)
+	ldy #>(ls_nambuf)
+	jsr filnam
+	jsr copen
+	jmp err9
+
+inull	ldx #<(drinit)
+	ldy #>(drinit)
+	lda #2
+	jsr gd_sendcom
+err9	jsr gd_xmess
+	lda ls_err2
+	and #15
+err8	sec 
+	rts 
+
+; ----------------------------------------- Message Handler
+
+messout	ldx #<(message)
+	ldy #>(message)
+	jmp gd_xtxout2
+
+tcopy	ldy #0
+tc0	lda txt,x
+	beq clrmess
+	sta message,y
+	inx 
+	iny 
+	bne tc0
+
+action	dec adcnt
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	cpy #22
+	bne act0
+	jsr clrmess
+act0	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts 
+
+clrmess	ldx #25
+	lda #32
+cl0	sta mess,x
+	dex 
+	bpl cl0
+	ldy #0
+	ldx #7
+	sty offy
+	stx offx
+	rts 
+
+filltab	!by 160,93,103,127,126,124,105,109
+
+cntwert	!by 12
+
+txt	!scr " PGM  @"
+
+message	!fill 6,32
+mess	!fill 26,32
+	!by 0
+
+; ----------------------------------------- Namen verlängern
+
+addpgm	pha		; Länge merken
+	tay
+	dey
+	ldx #0
+ag4	lda ls_nambuf,y	; endet auf ".GIF"?
+	cmp pgmtx,x
+	bne ag2		; nein
+	dey
+	inx
+	cpx #4
+	bcc ag4
+	pla		; ja, fertig
+	rts
+	
+ag2	pla
+	tay		; Name länger als 12 Zeichen?
+	cpy #13
+	bcs ag0		; ja, behandeln
+;
+ag5	ldx #3		; nein, ".gif" anhängen
+ag1	lda pgmtx,x
+ag3	sta ls_nambuf,y
+	lda pgmtxs,x	; auch für Image Info
+	sta ls_lastname,y
+	iny
+	dex
+	bpl ag1
+	sty wflen		; neue Länge merken, fertig
+	sty ls_flen
+	rts
+;
+ag0	dey		; auf 12 verkürzen
+	cpy #12
+	bne ag0
+	beq ag5		; unbed. Sprung
+;
+; ----------------------------------------- Image Information Handler
+
+getname	ldx #0
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx 
+	cpx #16
+	bcc si0
+si1	rts 
+
+setname	lda #0
+	ldx #<(ls_picname)
+	ldy #>(ls_picname)
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax 
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx 
+	iny 
+	bne si4
+si5	rts 
+
+nbuf	!fill 16,32
+	!by 0
+
+; ----------------------------------------- Startup requester
+
+requ 	inc used		; set used to 0: requester was displayed
+	ldx #<(spgmlst)	; open requester
+	ldy #>(spgmlst)
+	jsr gd_xmloop	; wait for clicks
+			; after leaving: check USED status
+
+; ----------------------------------------- Requester management
+
+requester	ldx used		; used is negative? (first start?)
+	bmi requ		; yes, open requester
+	rts		; otherwise: leave module (let .c be unharmed!)
+
+; ----------------------------------------- Leave saver
+
+cn2 	lda #3		; set used to: all things done
+	!by $2c
+cancelled	lda #$ff		; preset for next module call
+	sta used
+	sec		; leave module (.c is set)
+	rts
+
+; ------------------------------------ Text Output Handler
+
+tabigad	!by <modegad,>modegad
+
+settext	lda #<tabigad
+	sta ls_vekta8
+	lda #>tabigad
+	sta ls_vekta8+1
+
+	lda (ls_vekta8),y
+	sta sc_screentab
+	iny
+	lda (ls_vekta8),y
+	sta sc_screentab+1
+	lda #0
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #3
+	bne gt0
+	stx sc_ho
+	jsr gd_trim
+	jmp gd_initmove
+
+; ----------------------------------------- Screenlist
+
+spgmlst	!by 0
+	!by 7,8,16,11,$81,0,0
+	!scr "Save PGM@"
+modegad	!by 11,8,16,3,$ca,<evmode,>evmode
+	!by 223,32
+modetx	!scr "Full Screen @"
+	!by 13,18,6,3,$ce,<evsave,>evsave
+	!scr "Save@"
+	!by 15,17,7,3,$ce,<cn2,>cn2
+	!scr "Leave@"
+	!by $c0,9,8,14
+	!scr "Image Data is:@"
+	!by $c0,13,8,9
+	!scr "If ready:@"
+	!by $c0,15,13,2
+	!scr "or@"
+	!by $80
+
+; ----------------------------------------- VBM Header
+
+head	!tx "P5"
+	!by $0a
+	!tx "# GoDot PGM Saver v"
+version	!tx "1.00"
+	!by $0a
+wid	!tx "080 "	; changes betw: 080, 160 & 320
+hgt	!tx "192"		; changes betw: 192 & 200
+	!by $0a
+	!tx "255"
+	!by $0a
+
+; ------------------------------------ Event: Choose Mode
+
+evmode	lda mode
+	bmi ea0
+	beq ea0
+	lda #$fe
+	sta mode
+ea0	inc mode
+	beq ea1
+	bmi ea3
+	ldx #11		; $01 = MiniPaint 80
+	!by $2c
+ea3	ldx #35		; $ff = Full Screen
+	!by $2c
+ea1	ldx #23		; $00 = MiniPaint160
+	ldy #11
+ea2	lda modetxts,x
+	sta modetx,y
+	dex
+	dey
+	bpl ea2
+
+	ldy #0
+dpi2	jsr settext
+	ldy #6
+	jmp gd_xtxout1	; .c=0
+
+; ----------------------------------------- Event: Save Image
+
+evsave	inc used		; used=1
+	sec
+	rts
+	
+; ----------------------------------------- Event: Save Image
+
+save	lda mode
+	bmi write320
+	beq write160
+
+write080	ldx #2
+-	lda width1,x
+	sta wid,x
+	lda height1,x
+	sta hgt,x
+	dex
+	bpl-
+	ldy #10		; Breite:  80 Pixel
+	lda #24		; Höhe  : 192 Pixel
+	bne +
+
+write160	ldx #2
+-	lda width2,x
+	sta wid,x
+	lda height1,x
+	sta hgt,x
+	dex
+	bpl-
+	ldy #20		; Breite: 160 Pixel
+	lda #24		; Höhe  : 192 Pixel
+	bne +
+
+write320	ldx #2
+-	lda width3,x
+	sta wid,x
+	lda height3,x
+	sta hgt,x
+	dex
+	bpl-
+	ldy #40		; Breite: 320 Pixel
+	lda #25		; Höhe  : 200 Pixel
+
++	sty maxw
+	sta maxh
+
+	ldy #3
+-	lda ver,y
+	sta version,y
+	dey
+	bpl -
+
+	iny		; .y=0
+vv0	lda head,y
+	jsr store
+	iny 
+	cpy #(evmode-head)	; (#15 bei 160)
+	bne vv0
+
+pgmloop	lda #<(sy_4bit)
+	ldx #>(sy_4bit)
+	sta src0
+	sta src
+	stx src0+1
+	stx src+1
+
+	lda maxh		; 24 Blockzeilen
+	sta vcnt
+
+lnloop8	lda #8		; 8 Rasterlinien pro Blockzeile
+	sta lcnt
+
+blloop	lda maxw		; 1 Rasterlinie über die ganze Breite
+	sta bcnt
+
+lnloop	jsr action	; Activity
+
+	ldy #0
+byloop	lda (src),y	; linkes Pixel
+	pha 
+	lsr
+	lsr
+	lsr
+	lsr
+	tax
+	lda dnib,x
+	jsr store		; speichern
+	pla 
+	and #$0f		; rechtes Pixel (16fach verstärkt)
+	tax
+	lda dnib,x
+	jsr store		; speichern
+s3	iny
+	cpy #4
+	bne byloop
+
+	clc 		; nächste Kachel
+	lda src
+	adc #32
+	sta src
+	bcc s4
+	inc src+1
+s4	dec bcnt		; zählen
+	bne lnloop	; nein, weiter
+
+	dec lcnt		; 8 Rasterlinien?
+	beq s5
+
+	clc
+	lda src0		; sonst: nächste Rasterlinie
+	adc #4
+	sta src0
+	sta src
+	bcc +
+	inc src0+1
++	lda src0+1
+	sta src+1
+	bne blloop
+
+s5	lda src0		; nächste Blockzeile
+	clc 
+	adc #<(1252)
+	sta src0
+	sta src
+	lda src0+1
+	adc #>(1252)
+	sta src0+1
+	sta src+1
+
+	dec vcnt		; bis 24 durch (192 Pixel Höhe)
+	bne lnloop8
+
+done	clc
+	rts 
+
+; ----------------------------------------- Pixel speichern
+
+store	jsr bsout
+	ldx status
+	beq +
+	pla
+	pla
+	jmp st2
+
++	rts 
+
+; --------------------------- Kringel definieren
+
+makechr	ldx #7
+mk0	lda chschr,x
+	sta sc_undochar,x
+	dex
+	bpl mk0
+	rts
+
+; ----------------------------------------- Data
+
+modetxts	!scr "MiniPaint80 " 	; 11
+	!scr "MiniPaint160" 	; 23
+	!scr "Full Screen "		; 35
+width1	!scr "080"
+width2	!scr "160"
+width3	!scr "320"
+height1	!scr "192"
+height3	!scr "200"
+
+chschr	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
+mode	!by $ff
+used	!by $ff
+dnib	!by $00,$11,$22,$33,$44,$55,$66,$77
+	!by $88,$99,$aa,$bb,$cc,$dd,$ee,$ff
+
+; ----------------------------------------- Ende
+
+modend	!eof
