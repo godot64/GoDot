@@ -10,6 +10,7 @@
 ;
 ; 1.00: 01.08.17, first release
 ; 1.01: 02.08.17, added UI for 3 different save modes
+; 1.02: 03.08.17, changed header handling on width 80
 ;
 ; ----------------------------------------- 
 
@@ -22,6 +23,7 @@
 	bcnt		= $36
 	lcnt		= $37
 	vcnt		= $38
+	headlen		= $39
 	offy		= $3b
 	offx		= $3c
 	adcnt		= $3d
@@ -35,8 +37,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "Portable GrayMap"
-ver	!pet "1.01"
-	!pet "02.08.17"
+ver	!pet "1.02"
+	!pet "03.08.17"
 	!pet "A.Dettke        "
 
 ; ----------------------------------------- Main
@@ -49,6 +51,8 @@ start	ldx gr_nr		; Input?
 ; ----------------------------------------- Save VBM
 
 st0	jsr makechr	; Kringel
+	lda #39
+	sta headlen
 	jsr requester	; display requester
 	lda used		; cancelled?
 	cmp #3
@@ -107,6 +111,12 @@ wflen	!by 0
 
 wopen	jsr inull
 	bne err8
+	lda mode
+	bmi +
+	lda #$53		; "s"
+	!by $2c
++	lda #$50		; "p"
+	sta pw+2
 	ldy wflen
 	ldx #3		; add ",p,w"
 wo1	lda pw,x
@@ -331,12 +341,17 @@ head	!tx "P5"
 	!tx "# GoDot PGM Saver v"
 version	!tx "1.00"
 	!by $0a
-wid	!tx "080 "	; changes betw: 080, 160 & 320
-hgt	!tx "192"		; changes betw: 192 & 200
+wid	!tx "320 "
+hgt	!tx "200"		; changes betw: 192 & 200
 	!by $0a
 	!tx "255"
 	!by $0a
 
+headend	!tx "80 192"
+	!by $0a
+	!tx "255"
+	!by $0a
+	
 ; ------------------------------------ Event: Choose Mode
 
 evmode	lda mode
@@ -359,6 +374,22 @@ ea2	lda modetxts,x
 	dey
 	bpl ea2
 
+	ldy #10
+	lda mode		; bei 80: Header verkürzen
+	beq ea4
+	bmi ea4
+-	lda headend,y
+	sta wid,y
+	dey
+	bpl -
+	lda #38
+	bne +
+ea4	lda headend,y	; sonst: 1 Byte länger
+	sta wid+1,y
+	dey
+	bpl ea4
+	lda #39
++	sta headlen
 	ldy #0
 dpi2	jsr settext
 	ldy #6
@@ -380,7 +411,7 @@ write080	ldx #2
 -	lda width1,x
 	sta wid,x
 	lda height1,x
-	sta hgt,x
+	sta wid+3,x
 	dex
 	bpl-
 	ldy #10		; Breite:  80 Pixel
@@ -421,7 +452,7 @@ write320	ldx #2
 vv0	lda head,y
 	jsr store
 	iny 
-	cpy #(evmode-head)	; (#15 bei 160)
+	cpy headlen
 	bne vv0
 
 pgmloop	lda #<(sy_4bit)
@@ -431,7 +462,7 @@ pgmloop	lda #<(sy_4bit)
 	stx src0+1
 	stx src+1
 
-	lda maxh		; 24 Blockzeilen
+	lda maxh		; 24/25 Blockzeilen
 	sta vcnt
 
 lnloop8	lda #8		; 8 Rasterlinien pro Blockzeile
@@ -494,7 +525,7 @@ s5	lda src0		; nächste Blockzeile
 	sta src0+1
 	sta src+1
 
-	dec vcnt		; bis 24 durch (192 Pixel Höhe)
+	dec vcnt		; bis 24/25 durch (192/200 Pixel Höhe)
 	bne lnloop8
 
 done	clc
@@ -525,7 +556,7 @@ mk0	lda chschr,x
 modetxts	!scr "MiniPaint80 " 	; 11
 	!scr "MiniPaint160" 	; 23
 	!scr "Full Screen "		; 35
-width1	!scr "080"
+width1	!scr "80 "
 width2	!scr "160"
 width3	!scr "320"
 height1	!scr "192"
