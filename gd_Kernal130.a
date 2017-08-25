@@ -4,7 +4,7 @@
 
 ; -------------------------------------------------- 
 ;
-; 23.01.17: current version 1.30
+; 25.08.17: current version 1.31
 ;
 ; 24.04.97, Kernel Version 1.27
 ;
@@ -13,6 +13,7 @@
 ; 22.11.16, code tranformed to ACME
 ;           mouse in x-upper space bug finally fixed
 ; 23.01.17, hotspot of mouse now on *white* part of mouse
+; 25.08.17, variable number of entries in directory window
 ;
 ; -------------------------------------------------- 
 
@@ -607,7 +608,7 @@ most	lda #0
 ; -------------------------------------------------- Version Number
 
 gd_version
-	!by $01,$30	; version number, SED-mode
+	!by $01,$31	; version number, SED-mode
 
 ; -------------------------------------------------- 
 ; -------------------------------------------------- Entry to GoDot, Main Loop
@@ -1869,7 +1870,7 @@ mdr3	lda dirbuf,x	; name to text buffer
 
 mdr7	inc ls_found
 	lda ls_lines	; window filled?
-	cmp #16
+	cmp ls_dlines	; ### 1.31
 	beq mdr6		; yes, finished
 
 mdr2	lda #$20		; next entry
@@ -1893,7 +1894,7 @@ mdr4	lda dirbuf+1	; next block
 	sta ls_track
 	sta ftrack,y
 	lda ls_lines	; window full?
-	cmp #16
+	cmp ls_dlines	; ### 1.31
 mdr5	rts
 ;
 mdr9	jmp gd_makedir
