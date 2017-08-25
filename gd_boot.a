@@ -17,6 +17,7 @@
 ;   1.35, 19.10.16 ; bugfix in befreuclr (never noticed it!)
 ;   1.36, 31.05.17 ; changed length of swp.file to 4096 bytes
 ;   1.37, 15.07.17 ; accommodation to dev.REU v1.07
+;   1.38, 25.08.17 ; max # of entries in dir window now variable
 ;
 ; ------------------------------------------------------------ 
 
@@ -162,6 +163,7 @@ m01	ldx mousey
 	ldx #$10		; preset Balancing values
 	stx gr_ctr
 	stx gr_brt
+	stx ls_dlines	; and max # of dir window entries
 	dex		; preset Palettes
 m1	lda paldef,x
 	sta gr_palette,x
@@ -206,7 +208,7 @@ mkt0	lda tabs-$40,x
 
 ; --------------------------------------- 
 
-version	!byte $01,$37	; Versionsnummer in SED-Format (1.37)
+version	!byte $01,$38	; Versionsnummer in SED-Format (1.38)
 
 ; --------------------------------------- 
 
