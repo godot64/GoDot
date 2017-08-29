@@ -7,8 +7,15 @@
 ; mod..FileCopy
 ; Systemmodul zur Arbeit mit Datenträgern 
 ;
+; 1.04, 12.09.92
+; 1.05, 24.10.92
+; 1.06, 24.01.93, Schrittweite bei Copy-Gauge anpassen
+; 1.08, 26.08.94, Sysdrive RAM abfangen
+; 1.09, 30.03.95, CMD-Anpassungen
+; 1.11, 29.10.95, Bugfix in Scroll Routine
 ; 1.12, 19.11.95, converted to ACME on 11.08.17
 ;                 changed some minor things
+; 1.13, 29.08.17, changed: getting empty DIR (VICE would crash old way to do it)
 ;
 ; ------------------------------------------------ 
 
@@ -57,11 +64,11 @@
 	!wo modend
 	!wo 0
 	!pet "FileCopy        "
-	!pet "1.12"
-	!pet "19.11.95"
+	!pet "1.13"
+	!pet "29.08.17"
 	!pet "A.Dettke        "
 
-; ------------------------------------------------ Main
+; ----------------------------------------- Main
 
 start	lda #0		; schwarzer Rahmen
 	sta rahmen
@@ -73,7 +80,7 @@ start	lda #0		; schwarzer Rahmen
 	stx afiles
 	ldx ls_drive
 	stx adrive	; aktueller Drive: 12? (RAM)
-	cpx #12
+	cpx #12		; ### 1.08
 	bne st01
 	ldx ls_bootdrive	; dann: Bootdrive
 st01	sta ls_flen
@@ -313,14 +320,14 @@ err	pla 		; leave last routine
 
 ; ------------------------------------------------ LOAD Directory Header
 
-getdirin	lda #2		; 2 Zeichen ("$:")
+getdirin	lda #3		; 2 Zeichen ("$: ") ### 1.13
 
 ; ------------------------------------------------ LOAD Directory Entry of a File
 
 getfilin	pha 		; .a: Anzahl Zeichen
-	jsr gd_sproff
+	jsr gd_sproff	; ### 1.12
 	pla 
-	ldx #<dollar	; LOAD "$:" (note: *with* colon!)
+	ldx #<dollar	; LOAD "$: " (looks for file " ", won't most likely find it)
 	ldy #>dollar
 	jsr filnam
 	lda #12		; Ch 12
@@ -331,9 +338,9 @@ getfilin	pha 		; .a: Anzahl Zeichen
 	tax 
 	ldy #>dirbuffer	; in den Directory-Puffer
 	sei 
-	jsr load		; laden bis EOF
+	jsr load		; laden bis EOF (Achtung: VICE-Bug!)
 	cli 
-	jmp gd_spron
+	jmp gd_spron	; ### 1.12
 
 ; ------------------------------------------------ Get Diskname and Blocks Free
 
@@ -369,7 +376,7 @@ dirinfo	jsr getdirin	; gewählten Eintrag im Directory laden
 	tya 		; Offset auf Ende von Blocks-Free-String
 	pha 
 
-	ldx #4		; Blocks Free eintragen:
+	ldx #4		; Blocks Free eintragen:	### 1.09
 	ldy #7		; Source
 	lda which		; oder
 	beq di60
@@ -440,7 +447,7 @@ cntbl	sta $62
 	jsr $bc49
 	jsr $bddf
 	dec pport		; BASIC off
-	ldy #6		; search delimiter
+	ldy #6		; search delimiter	### 1.09
 di2	dey 
 	lda sy_numbers,y
 	bne di2
@@ -557,7 +564,7 @@ sel71	dex
 	sta wname,x
 	dey 
 	bpl sel71
-sel81	ldy #10		; Filenamen anzeigen
+sel81	ldy #10		; Dateilänge anzeigen
 	jsr gettab
 	ldy #2
 	jmp gd_xtxout1
@@ -573,7 +580,7 @@ nospace	ldy #14		; Not enough space...
 
 sevdel	ldy ls_flen
 	beq nothing
-nameit	jsr gd_sproff
+nameit	jsr gd_sproff	; Routine wird für Rename mitverwendet
 	iny 
 	iny 
 	tya 
@@ -596,7 +603,7 @@ err3	rts
 
 ; ------------------------------------------------ Open Source
 
-sopen	lda #13
+sopen	lda #13		; 13,drive,13
 	tay 
 	ldx sdrive
 	beq err5
@@ -608,7 +615,7 @@ sopen	lda #13
 
 ; ------------------------------------------------ Open Destination
 
-dopen	lda #12
+dopen	lda #12		; 12,drive,12
 	tay 
 	ldx ddrive
 	beq err5
@@ -767,7 +774,7 @@ sevsupdn	lda sc_merk
 	sta merkzl
 	lda sdrive
 	sta ls_drive
-	jsr shsdrv
+	jsr shsdrv	; ### 1.11
 	lda #1
 
 destud	sta dspalte
@@ -803,7 +810,7 @@ sdw0	dex
 sdw2	dey 
 	bne sdw0
 sdw1	ldy block,x
-sdw11	lda fftrack,x
+sdw11	lda fftrack,x	; ### 1.11
 	sta ls_track
 	stx block
 	ldx #4
@@ -1111,6 +1118,8 @@ chkdrvpar	ldx #192
 	ldx #31
 cdp1	lda block,x
 	sta block+$40,x
+;	lda ftrack,x	; ### 1.11 ???
+;	sta ftrack+$40,x
 	dex 
 	bpl cdp1
 	lda ls_cblocks
@@ -1133,7 +1142,7 @@ sw0	lda block,x
 	sta block,x
 	tya 
 	sta block+$40,x
-	lda fftrack,x
+	lda fftrack,x	; ### 1.11
 	tay 
 	lda fftrack+$40,x
 	sta fftrack,x
@@ -1146,7 +1155,7 @@ sw0	lda block,x
 
 ; ------------------------------------------------ Compute Gauge Counter for Copy
 
-steps	sta $62
+steps	sta $62		; ### 1.06
 	stx $63
 	lsr $62
 	ror $63
