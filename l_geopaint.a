@@ -88,8 +88,8 @@ godheader	jmp start
 	!wo modend
 	!wo 0
 	!tx "geoPaint 1:1 ldr"
-	!tx "1.00"
-	!tx "15.12.03"
+	!tx "1.02"
+	!tx "06.11.17"
 	!tx "A.Dettke        "
 
 ; ----------------------------------- Main
@@ -117,16 +117,17 @@ readhd	inc used
 
 	jsr getname
 	jsr toascii	; convert name to ASCII
-	jsr gd_xopen	; retrieve list of records (1 block)
 
+	jsr gd_xopen	; retrieve list of records (1 block)
 	inc 1
 	jsr getblock
 	dec 1
 	jsr ld5
+
 	ldy #0
-	jsr findgr	; ### 1.02
+	jsr findgr	; ### 1.02, is empty?
 	bne +
-	inc used
+	inc used		; yes, no GeoPaint image
 	inc used
 
 +	jsr checkhght	; get actual height of image
@@ -139,19 +140,19 @@ readhd	inc used
 	jsr gd_xmloop	; no, wait...
 rh2	jmp start
 
-rh0 	jsr gd_screen
+rh0 	jsr gd_screen	; show requester
 	ldx used
 	cpx #2
 	bcs rh4
-	jsr faila
+	jsr faila		; error message
 	jmp rh3
 rh4	jsr failb
-rh3	stx sc_keyprs
+rh3	stx sc_keyprs	; wait for key
 rh1	lda sc_keyprs
 	beq rh1
-	bne rh2
+	bne rh2		; leave
 
-; ----------------------------------- rest von geos1
+; ----------------------------------- read image
 
 sevgeos	ldx #1
 	stx adcnt
@@ -482,7 +483,7 @@ cht1	sty height	; set height (0 = no data)
 findgr	lda blockbuf+1,y
 	ora blockbuf,y
 	rts
-; -----------------------------------
+; ----------------------------------- error
 
 failb	lda #32
 	!by $2c
@@ -501,7 +502,7 @@ fl0	lda err1,x
 	bne fl0
 	jsr gd_clrms
 	  
-; -----------------------------------
+; ----------------------------------- Message Handler
 
 messout	ldx #<(message)
 	ldy #>(message)
@@ -630,7 +631,7 @@ opendch	lda #1
 	sty ls_vekta8+1
 	jmp gd_xopen
 
-; ----------------------------------------- Floppy Messages
+; ----------------------------------------- Floppy Commands
 
 message3	!tx "u1 13 0"
 	!by 0
@@ -724,7 +725,7 @@ cb0	sta (dst),y
 dnib	!by $00,$ff,$44,$cc,$55,$aa,$11,$dd
 	!by $66,$22,$99,$33,$77,$ee,$88,$bb
 ;
-; ----------------------------------- 
+; ----------------------------------- Image Information
 
 getname	ldx #0
 si0	lda ls_lastname,x
@@ -985,7 +986,7 @@ rsbufs 	ldx #0
 	sta vekt44
 	rts
 
-; -----------------------------------
+; ----------------------------------- Set 40x25 Clip
 
 ss7	jmp cont
 sevsclip	lda byte2
