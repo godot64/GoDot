@@ -1,0 +1,368 @@
+
+	*= $c000
+	!src "..\godotlib.lib"
+	!ct pet
+
+; ---------------------------
+;
+;  ldr.amicapaint
+;  loader for amica paint multicolor images
+;
+;    1.00: 03.10.91, first release
+;    1.01: ?
+;    1.02: ?
+;    1.03: ?       , bugfix because of jiffy dos (don't use $a3)
+;    1.04: 27.04.95 
+;    1.05: 04.09.05, added file background color storage
+;
+; ---------------------------
+
+
+; ----------------------------------- equates
+
+            comprfl		= $30
+            counter		= $31
+            adcnt		= $32
+            gbyte		= $33
+            byte		= $34
+            cnt		= byte
+            gmode		= $35
+            vr		= $36
+            cr		= $38
+            vv		= $3a
+
+            status		= $90
+
+            offx		= $b2
+            offy		= offx+1
+
+            vrbuf		= $c600
+            crbuf		= vrbuf+1000
+            col0		= vrbuf+2000
+
+; --------------------------- header
+
+         jmp start
+         !by $80
+         !by $00,$00
+         !by <(modend),>(modend)
+         !by $00,$00
+         !tx "Amica Paint ldr "
+         !tx "1.05"
+         !tx "04.09.05"
+         !tx "W.Kling/A.Dettke"
+
+; --------------------------- main
+
+jerror	jmp error
+
+start	jsr getname	; init counters, flags and vectors
+	lda #50
+	sta cntwert
+	sta adcnt
+	ldx sc_vekt20
+	ldy sc_vekt20+1
+	stx sc_texttab
+	sty sc_texttab+1
+stt2	lda #0
+	sta counter
+	lda #$c2
+	sta comprfl
+
+	jsr gd_xopen	; open file, skip file address bytes
+	jsr onebyte
+	bne jerror
+	jsr onebyte
+	bne jerror
+
+	jsr gd_clrms
+	ldx #18
+	jsr tcopy
+
+	lda #<(8000)	; read bitmap: 
+	sta ls_vekta8	; set counter
+	lda #>(8000)
+	sta ls_vekta8+1
+
+loop	jsr unpack
+je1	bne jerror
+	sta byte
+	jsr action
+
+	ldy #0		; render to 4bit
+	ldx #4
+bloop	lda #0
+	asl byte
+	rol
+	asl byte
+	rol
+	sta (sc_texttab),y
+	inc sc_texttab
+	bne sk
+	inc sc_texttab+1
+sk	dex
+	bne bloop
+
+	lda ls_vekta8	; count bytes
+	bne sk1
+	dec ls_vekta8+1
+sk1	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	beq sk2
+	lda status
+	beq loop
+
+sk2	lda #<(2000)	; read color rams, 2000 bytes
+	sta ls_vekta8
+	lda #>(2000)
+	sta ls_vekta8+1
+	lda #<(vrbuf)
+	sta sc_texttab
+	lda #>(vrbuf)
+	sta sc_texttab+1
+
+	lda #13
+	sta cntwert
+	sta adcnt
+	ldx #0
+	jsr tcopy
+
+loop1	jsr unpack	; store to buffers
+	bne je1
+	sta (sc_texttab),y
+	jsr action
+	ldy #0
+	inc sc_texttab
+	bne sk3
+	inc sc_texttab+1
+sk3	lda ls_vekta8
+	bne sk4
+	dec ls_vekta8+1
+sk4	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	beq sk5
+	lda status
+	beq loop1
+
+sk5	jsr unpack	; background color
+	bne je1
+	and #15
+	sta (sc_texttab),y	; store behind buffer (to col0)
+	sta gr_fbkcol	; store to system 
+
+	jsr gd_xclose	; close file
+
+; ---------------------------
+
+	ldy #0		; render colors to 4bit
+	lda #<(vrbuf)
+	sta vr
+	lda #>(vrbuf)
+	sta vr+1
+	lda #<(crbuf)
+	sta cr
+	lda #>(crbuf)
+	sta cr+1
+	lda #<($4000)
+	sta sc_texttab
+	lda #>($4000)
+	sta sc_texttab+1
+	lda #<(1000)
+	sta ls_vekta8
+	lda #>(1000)
+	sta ls_vekta8+1
+
+	lda #200
+	sta cntwert
+	sta adcnt
+	ldx #9
+	jsr tcopy
+
+loop2	lda (vr),y
+	pha
+	lsr
+	lsr
+	lsr
+	lsr
+	sta col0+1
+	pla
+	and #$0f
+	sta col0+2
+	lda (cr),y
+	and #$0f
+	sta col0+3
+
+	lda #32
+	sta cnt
+bloop1	jsr action
+	ldy #0
+	lda (sc_texttab),y
+	tax
+	lda col0,x
+	tax
+	lda dnib,x
+	sta (sc_texttab),y
+	inc sc_texttab
+	bne sk6
+	inc sc_texttab+1
+sk6	dec cnt
+	bne bloop1
+
+	inc vr
+	bne sk7
+	inc vr+1
+sk7	inc cr
+	bne sk8
+	inc cr+1
+sk8	lda ls_vekta8
+	bne sk9
+	dec ls_vekta8+1
+sk9	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	bne loop2
+
+	ldx #18		; re-init tcopy
+	jsr tcopy
+	jsr setinfo
+
+sk10	jsr gd_xmess
+	jsr gd_spron
+	sec
+	rts
+	
+; --------------------------- service routines
+
+onebyte	jsr basin
+	ldx status
+	rts
+	
+error	jsr gd_xclose
+	jsr sk10
+	clc
+	rts
+
+; --------------------------- decode file data
+
+unpack	lda counter
+	bne getit2
+	inc counter
+	jsr basin
+	cmp comprfl
+	bne getit1
+	jsr basin
+	sta counter
+	jsr basin
+getit1	sta gbyte
+getit2	dec counter
+	lda gbyte
+	ldx status
+	rts
+	
+; --------------------------- messages on screen
+
+messout	ldx #<(message)
+	ldy #>(message)
+	jmp gd_xtxout2
+	
+tcopy	ldy #$00
+tc0	lda txt,x
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+
+action	dec adcnt
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	cpy #22		; catch Gauge Overflow
+	bne act0
+	jsr clrmess
+act0	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts
+	
+clrmess	ldx #20
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0
+	ldx #7
+	sty offy
+	stx offx
+	rts
+	
+filltab	!by $a0,$5d,$67,$7f,$7e,$7c,$69,$6d
+cntwert	!by 50
+txt	!scr " Colors @"
+	!scr " Convert@"
+	!scr " Bitmap @"
+message	!scr " Bitmap    "
+mess	!scr ".....................@"
+
+dnib	!by $00,$ff,$44,$cc,$55,$aa,$11,$dd
+	!by $66,$22,$99,$33,$77,$ee,$88,$bb
+
+; --------------------------- filename handling
+
+getname	ldx #0
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+	
+setinfo	jsr setname
+	jsr setloader
+	jsr setmode
+	jmp setdata
+	
+setname	lda #0
+	ldx #<(ls_picname)
+	ldy #>(ls_picname)
+	bne si3
+setloader	lda #17
+	ldx #<(ls_iloader)
+	ldy #>(ls_iloader)
+	bne si3
+setmode	lda #25
+	ldx #<(ls_imode)
+	ldy #>(ls_imode)
+	bne si3
+setdata	lda #33
+	ldx #<(ls_idrive)
+	ldy #>(ls_idrive)
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #$00
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!fill 16,32
+	!by 0
+ltype	!scr "Amica P@"
+modetx	!scr "160x200@"
+datatype	!scr "Color@"
+
+modend	!eof
