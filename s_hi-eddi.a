@@ -12,8 +12,13 @@
 ; 1.00, 16.01.99, first release
 ; 1.01, 10.11.17, bug: "Leave" saved anyway (fixed)
 ;                 some minor fixes
+; 1.02, 11.11.17, completely removed compression stuff
+;                 no requester anymore
+;                 added: wait for click on error
 ;
 ; ----------------------------------- Equates
+
+	pport	= $01
 
 	gbyte	= $30
 	cnt	= $31
@@ -37,8 +42,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "Hi-Eddi Hires   "
-	!tx "1.01"
-	!tx "10.11.17"
+	!tx "1.02"
+	!tx "11.11.17"
 	!tx "A.Dettke        "
 
 ; ----------------------------------- Main
@@ -48,12 +53,7 @@ start	ldx gr_nr		; Call for Input? (.x=1)
 	bne st0
 	jmp initinp	; yes, go there
 
-st0	jsr setmode
-	cpx #3		; ### 1.01 ab hier --
-	beq st3
-
-	jsr gd_sproff	; ### 1.01 bis hier --
-	sta cnt		; .a=0
+st0	jsr gd_sproff	; ### 1.01 
 	lda gd_modswitch
 	pha
 	lda ls_flen
@@ -71,6 +71,7 @@ st0	jsr setmode
 	jsr getname	; store filename
 	ldx #12
 	jsr ckout
+
 	jsr gd_clrms	; focus on status bar
 	ldx #0
 	jsr tcopy		; Message: "Bitmap"
@@ -82,7 +83,7 @@ st2	jsr clrch		; close file
 	jsr close
 	jsr err9		; Write error?
 	bne st1
-	jsr setname	; yes, don't change name
+	jsr setname	; if yes, don't change name
 
 st1	pla		; leave saver
 	sta gd_modswitch
@@ -130,15 +131,19 @@ inull	ldx #<(drinit)
 	ldy #>(drinit)
 	lda #2
 	jsr gd_sendcom
-err9	jsr gd_xmess
+err9	jsr gd_xmess	; (.x=0) Show Floppy Message
 	lda ls_err2
 	and #15
+	beq err8
+	stx sc_keyprs	; if error:
+-	lda sc_keyprs	; wait for click (so you can read message)
+	beq -
 err8	sec
 	rts
 
 ; ----------------------------------- Message Handler
 
-messout	ldx #<(message)	; output
+messout	ldx #<(message)	; output message
 	ldy #>(message)
 	jmp gd_xtxout2
 
@@ -150,7 +155,7 @@ tc0	lda txt,x
 	iny
 	bne tc0
 
-action	dec adcnt		; gauge
+action	dec adcnt		; show gauge
 	bne ld4
 	lda cntwert
 	sta adcnt
@@ -220,100 +225,6 @@ si5	rts
 nbuf	!fill 16,32	; filename buffer
 	!by 0
 
-; ----------------------------------- Distributor
-
-setmode	ldx used
-	bmi requ
-	cpx #3
-	bcs canc
-	rts
-
-; ----------------------------------- Finish
-
-; ----------------------------------- Event: Leave Saver
-
-cn2	lda #3		; ### 1.01 (correct flag)
-	!by $2c
-
-canc	lda #$ff
-	sta used
-
-	sec
-	rts
-
-; ----------------------------------- Requester
-
-requ	inc used		; now: 0
-	ldx #<(hieddilst)
-	ldy #>(hieddilst)
-	jsr gd_xmloop
-	jmp setmode
-
-; ----------------------------------- Event: Set Compression Mode
-
-evnocomp	inc used
-	ldx used
-	dex
-	beq ec01
-	ldx #$80
-ec01	stx mode
-	sec
-	rts
-
-; ----------------------------------- Screenlist
-
-hieddilst	!by 0
-	!by 4,11,18,16,$81,0,0
-	!scr " Save Hi-Eddi @" 
-	!by 11,11,18,3,$ca,<(evnocomp),>(evnocomp)
-	!scr " Perform Save @"
-	!by 15,11,18,3,$ca,<(cn2),>(cn2)
-	!scr "  Leave Save  @"
-	!by $80
-
-; ----------------------------------- 
-
-used	!by $ff
-mode	!by 0
-
-; ----------------------------------- Concat Colors
-
-getpic	lda #$0b
-	sta sc_texttab
-	lda #<(vid1)
-	ldx #>(vid1)
-	ldy #$ce
-	jsr move
-	lda #$0b
-	sta sc_texttab
-	lda #<(vid2)
-	ldx #>(vid2)
-	ldy #$ee
-	jsr move
-	rts
-
-; ----------------------------------- Move image data
-
-move	sty sc_texttab+1
-	sta sc_vekt20
-	stx sc_vekt20+1
-	lda #<(500)
-	ldx #>(500)
-	sta ls_vekta8
-	stx ls_vekta8+1
-	sei
-	lda #$30
-	sta 1
-	ldy #0
-mv0	lda (sc_texttab),y
-	sta (sc_vekt20),y
-	jsr count
-	bne mv0
-	lda #$36
-	sta 1
-	cli
-	rts
-
 ; ----------------------------------- Counters
 
 count	inc sc_vekt20
@@ -345,9 +256,10 @@ write	lda #0		; Start address $2000
 	ldx #>($2000)
 	sta sc_texttab
 	stx sc_texttab+1
+
 wr1	ldy #0
 	lda (sc_texttab),y
-	jsr pack
+	jsr bsout
 	jsr action
 	jsr cou5
 	bne wr1
@@ -365,69 +277,57 @@ wr1	ldy #0
 	ldx #>(colors)
 	sta sc_texttab
 	stx sc_texttab+1
+
 wr0	ldy #0
 	lda (sc_texttab),y
-	jsr pack
+	jsr bsout
 	jsr action
 	jsr cou5
 	bne wr0
+
+; ----------------------------------- Dissociate Colors (finally)
 
 	lda #<(vid1)	; Restore system color buffer
 	sta sc_texttab
 	lda #$0b
 	ldx #$ce
 	ldy #>(vid1)
+	bne move
+
+; ----------------------------------- Concat Colors
+
+getpic	lda #$0b
+	sta sc_texttab
+	lda #<(vid1)
+	ldx #>(vid1)
+	ldy #$ce
 	jsr move
+	lda #$0b
+	sta sc_texttab
+	lda #<(vid2)
+	ldx #>(vid2)
+	ldy #$ee
 
-	jsr canc
-	lda mode		; compressed?
-	beq wl3		; no, branch
+; ----------------------------------- Move image data
 
-	lda gbyte		; flush chain
-	eor #$ff
-
-; ----------------------------------- Compress
-
-pack	bit mode
-	bmi wl4
-	jmp bsout		; just write if not compressed
-
-wl4	cmp gbyte
-	beq incr
-p255	pha
-	lda cnt
-	beq wl1
-	cmp #$ff
-	beq wl0
-	cmp #4		; at least 4 bytes identical?
-	bcs wl0
-	lda gbyte
-	cmp #$fe
-	bne wl2
-wl0	lda #$fe		; compress: $fe, byte, counter
-	jsr bsout
-	lda gbyte
-	jsr bsout
-	lda cnt
-	jsr bsout
-	lda #0
-	sta cnt
-	beq wl1
-wl2	lda gbyte
-	jsr bsout
-	dec cnt
-	bne wl2
-wl1	pla
-	sta gbyte
-incr	inc cnt
-	lda cnt
-	cmp #$ff
-	bne wl3
-	lda gbyte
-	jsr p255
-	dec cnt
-wl3	rts
-
-; ----------------------------------- 
+move	sty sc_texttab+1
+	sta sc_vekt20
+	stx sc_vekt20+1
+	lda #<(500)
+	ldx #>(500)
+	sta ls_vekta8
+	stx ls_vekta8+1
+	sei
+	lda #$30
+	sta pport
+	ldy #0
+mv0	lda (sc_texttab),y
+	sta (sc_vekt20),y
+	jsr count
+	bne mv0
+	lda #$36
+	sta pport
+	cli
+	rts
 
 modend	!eof
