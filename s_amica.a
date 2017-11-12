@@ -1,0 +1,479 @@
+
+	*= $c000
+	!src "..\godotlib.lib"
+	!ct pet
+
+; ----------------------------------- 
+;
+; svr.AmicaPaint
+;   Saver for Multicolor Images
+;   format created by Oliver Stiller
+;
+; 1.00,         , first release
+; 1.01, 27.04.95, added: make correct filename: "[b]name"
+; 1.02, 12.11.17, added: "[b]" only if necessary
+;
+; ----------------------------------- Equates
+
+	pport	= $01
+
+	gbyte	= $30
+	cnt	= $31
+	adcnt	= $3e
+
+	offy	= $b3
+	offx	= $b2
+
+	colors	= $c82f
+	vid1	= colors
+	vid2	= $ca23
+	colram	= $cc17
+	back	= $cfff
+
+; ----------------------------------- Header
+
+header	jmp start
+	!by $40
+	!by 0
+	!by 1
+	!wo modend
+	!wo 0
+	!tx "Amica Paint MC  "
+	!tx "1.02"
+	!tx "12.11.17"
+	!tx "A.Dettke        "
+
+; ----------------------------------- Select
+
+start	ldx gr_nr		; Call for Input? (.x=1)
+	dex
+	bne st0
+	jmp initinp	; yes, go there
+
+; ----------------------------------- Main
+
+st0	jsr gd_sproff	; mouse off
+	lda gd_modswitch
+	pha
+	lda ls_flen
+	sta sc_merk+1
+	beq st1
+
+	clc 		; add 3 to length of filename (for chars "[b]")
+	adc #3		; and then delimit filename to max 16 chars
+	cmp #16
+	bcc st3
+	lda #16
+st3	sta wflen
+
+	lda #1		; init gauge
+	sta adcnt
+	lda #50
+	sta cntwert
+	jsr getpic	; concat colors
+
+	jsr wopen		; open file (and add "[b]" if necessary)
+	bne st2
+
+	jsr getname
+	ldx #12
+	jsr ckout
+
+	jsr gd_clrms	; focus on status bar
+	ldx #0
+	jsr tcopy		; Message: "Bitmap"
+
+	jsr write		; Write File to Disk
+
+st2	jsr clrch		; close file
+	lda #12
+	jsr close
+	jsr err9
+	bne st1
+	jsr setname
+
+st1	pla 
+	sta gd_modswitch
+	jsr gd_spron	; mouse on
+	sec		; leave
+	rts 
+
+; --------------------------- 
+; --------------------------- Input Routines
+
+!src "..\input.inc"
+
+; --------------------------- 
+; --------------------------- 
+
+; ----------------------------------- Data
+
+pw	!tx "w,p,"
+drinit	!tx "i0"
+wflen	!by 0
+amica	!by $5b,66,$5d	; [b]
+amicab	!by $1b,2,$1d	; in screencode
+
+; ----------------------------------- Open Writefile
+
+wopen	ldx sc_merk+1
+	ldy #3		; is there a filename signature?
+-	dey
+	beq +
+	lda ls_nambuf,y
+	cmp amica,y
+	beq -
+
+	ldy #12		; no, add it
+	ldx #15
+wo2	lda ls_nambuf,y
+	sta ls_nambuf,x
+	lda ls_lastname,y	; also to image info
+	sta ls_lastname,x
+	dex
+	dey
+	bpl wo2
+	ldx wflen
+-	iny
+	lda amica,y
+	sta ls_nambuf,y
+	lda amicab,y
+	sta ls_lastname,y
+	cpy #2
+	bne -
+
++	stx wflen
+	jsr inull		; and then add ",p,w"
+	bne err8
+	ldy wflen
+	ldx #3
+wo1	lda pw,x
+	sta ls_nambuf,y
+	iny 
+	dex 
+	bpl wo1
+	sty wflen
+	lda #12		; open 12,drive,12,"[b]name,p,w"
+	tay 
+	ldx ls_drive
+	jsr filpar
+	lda wflen
+	ldx #<(ls_nambuf)
+	ldy #>(ls_nambuf)
+	jsr filnam
+	jsr copen
+	jmp err9
+
+inull	ldx #<(drinit)
+	ldy #>(drinit)
+	lda #2
+	jsr gd_sendcom
+
+err9	jsr gd_xmess	; (.x=0) Show Floppy Message
+	lda ls_err2
+	and #15
+	beq err8
+	stx sc_keyprs	; if error:
+-	lda sc_keyprs	; wait for click (so you can read message)
+	beq -
+err8	sec 
+	rts 
+
+; ----------------------------------- Message Handler
+
+messout	ldx #<(message)
+	ldy #>(message)
+	jmp gd_xtxout2
+
+tcopy	ldy #0
+tc0	lda txt,x
+	beq clrmess
+	sta message,y
+	inx 
+	iny 
+	bne tc0
+
+action	dec adcnt		; gauge
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	cpy #22		; catch Gauge Overflow
+	bne act0
+	jsr clrmess
+act0	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts 
+
+clrmess	ldx #23		; init gauge
+	lda #32
+cl0	sta mess,x
+	dex 
+	bpl cl0
+	ldy #0
+	ldx #7
+	sty offy
+	stx offx
+	rts 
+
+filltab	!by 160,93,103,127,126,124,105,109
+
+cntwert	!by 50
+
+txt	!scr " Bitmap@"
+	!scr " Colors@"
+
+message	!fill 8,32
+mess	!fill 24,32
+	!by 0
+
+; ----------------------------------- Filename Handler
+
+getname	ldx #0
+si0	lda ls_lastname,x	; retrieve filename
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+
+setname	lda #0
+	ldx #<(ls_picname)	; publish filename to GoDot
+	ldy #>(ls_picname)
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!fill 16,32	; filename buffer
+	!by 0
+
+; ----------------------------------- Concat Colors
+
+getpic	lda #$0b
+	sta sc_texttab	; video ram
+	lda #<(vid1)
+	ldx #>(vid1)
+	ldy #$ce
+	jsr move
+	lda #$0b
+	sta sc_texttab
+	lda #<(vid2)
+	ldx #>(vid2)
+	ldy #$ee
+	jsr move
+
+	lda #$0b
+	sta sc_texttab	; color ram
+	lda #<(colram)
+	ldx #>(colram)
+	ldy #$de
+	jsr movec
+
+	lda gr_bkcol
+	and #15
+	sta back
+	rts 
+
+; ----------------------------------- Move image data
+
+move	sty sc_texttab+1	; video ram colors
+	sta sc_vekt20
+	stx sc_vekt20+1
+	lda #<(500)
+	ldx #>(500)
+	sta ls_vekta8
+	stx ls_vekta8+1
+	sei
+	lda #$30
+	sta pport
+	ldy #0
+mv0	lda (sc_texttab),y
+	sta (sc_vekt20),y
+	jsr count
+	bne mv0
+	lda #$36
+	sta pport
+	cli
+	rts
+
+movec	sty sc_texttab+1	; color ram colors
+	sta sc_vekt20
+	stx sc_vekt20+1
+	lda #<(500)
+	ldx #>(500)
+	sta ls_vekta8
+	stx ls_vekta8+1
+	sei
+	lda #$30
+	sta pport
+	ldy #0
+mv1	sty sc_merk
+	lda (sc_texttab),y	; (must be blown up to 1000 bytes)
+	lsr 
+	rol sc_merk
+	lsr 
+	rol sc_merk
+	lsr 
+	rol sc_merk
+	lsr 
+	rol sc_merk
+	sta (sc_vekt20),y
+	inc sc_vekt20
+	bne mv2
+	inc sc_vekt20+1
+mv2	lda sc_merk
+	sta (sc_vekt20),y
+	jsr count
+	bne mv1
+	lda #$36
+	sta pport
+	cli
+	rts
+
+; ----------------------------------- Counters
+
+count	inc sc_vekt20
+	bne cou5
+	inc sc_vekt20+1
+cou5	inc sc_texttab
+	bne cou6
+	inc sc_texttab+1
+cou6	lda ls_vekta8
+	bne cou7
+	dec ls_vekta8+1
+cou7	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	rts
+
+; ----------------------------------- Write Image to Disk
+
+write	lda #0		; write start address ($4000)
+	jsr bsout
+	lda #$40
+	jsr bsout
+
+	lda #<(8000)	; write bitmap (8000 bytes)
+	ldx #>(8000)
+	sta ls_vekta8
+	stx ls_vekta8+1
+	lda #<($2000)
+	ldx #>($2000)
+	sta sc_texttab
+	stx sc_texttab+1
+	sta gbyte
+	sta cnt
+
+wr0	ldy #0
+	lda (sc_texttab),y
+	jsr pack
+	jsr action
+	jsr cou5
+	bne wr0
+
+	ldx #8
+	jsr tcopy
+	lda #12
+	sta cntwert
+
+	lda #<(2001)	; write colors (2000 bytes plus 1 byte bg color)
+	ldx #>(2001)
+	sta ls_vekta8
+	stx ls_vekta8+1
+	lda #<(colors)
+	ldx #>(colors)
+	sta sc_texttab
+	stx sc_texttab+1
+
+wr1	ldy #0
+	lda (sc_texttab),y
+	jsr pack
+	jsr action
+	jsr cou5
+	bne wr1
+
+	lda gbyte		; flush
+	eor #$ff
+	jsr pack
+
+	lda #<(vid1)	; re-gather video ram colors
+	sta sc_texttab
+	lda #$0b
+	ldx #$ce
+	ldy #>(vid1)
+	jsr move
+
+	ldy #5		; write (empty) color cycling table (256 bytes)
+wr2	lda tail,y
+	jsr bsout
+	dey 
+	bpl wr2
+	sec 		; end of transmission
+	rts 
+
+; ----------------------------------- Compress Data
+
+pack	cmp gbyte		; current byte same as previous one?
+	beq incr		; yes, count
+
+p255	pha 		; no, first occurance?
+	lda cnt
+	beq wl1		; yes, store byte
+	cmp #$ff		; max counter?
+	beq wl0		; yes, output
+	cmp #4		; at least 4 equal bytes?
+	bcs wl0		; yes, output
+	lda gbyte		; is byte indicator itself?
+	cmp #$c2
+	bne wl2		; no, output this byte uncompressed
+
+wl0	lda #$c2		; compressed output: write indicator ($c2)
+	jsr bsout
+	lda cnt		; write counter
+	jsr bsout
+	lda #1
+	sta cnt
+
+wl2	lda gbyte		; write byte (up to 3 times)
+	jsr bsout
+	dec cnt		; counter to 0
+	bne wl2
+
+wl1	pla 		; store byte
+	sta gbyte
+incr	inc cnt		; increment counter
+	lda cnt
+	cmp #$ff		; max?
+	bne wl3		; no, leave compression
+
+	lda gbyte		; yes, output
+	jsr p255		; by recursion
+	dec cnt		; counter to 0
+
+wl3	rts 
+
+; ----------------------------------- Color Rotation Table
+
+tail	!by $00,$c2	; end sequence, r2l
+	!by $00,$00,$ff,$c2	; color cycling table, ordered r2l
+
+; ----------------------------------- 
+
+modend	!eof 
