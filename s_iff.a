@@ -1,0 +1,818 @@
+
+	*= $c000
+	!src "..\godotlib.lib"
+	!ct pet
+
+; ----------------------------------- 
+; svr.IFF
+;   Saves to 16 color Amiga IFF images
+;   4 planes
+;
+; 1.00,           first release
+; 1.01, 
+; 1.02, 06.02.94
+; 1.03, 13.11.17, added automatic ".iff" in name if necessary
+;
+; Mind the ANNO chunk! (l. 488)
+; ----------------------------------- 
+
+; ----------------------------------- Equates
+
+	source		= $30	; /$31
+	dest		= $32	; /$33
+	src		= $36	; /$37
+	src0		= $38	; /$39
+	lcnt8		= $3a
+	lcnt		= $3b
+	bcnt		= $3c
+	routine		= $3d	; /$3e
+	adcnt		= $3f
+
+	status		= $90
+	offx		= ls_adrmisc
+	offy		= offx+1
+
+	cred		= gr_rgb
+	cgrn		= cred+16
+	cblu		= cgrn+16
+
+	packed		= $ca00
+	p0		= $caa0	; planes
+	p1		= p0+40
+	p2		= p1+40
+	p3		= p2+40
+
+	from		= p0
+	to		= packed
+
+; ----------------------------------- Header
+
+header	jmp start
+	!by $40
+	!by 0
+	!by 1
+	!wo modend
+	!wo 0
+	!tx "IFF RLE Saver   "
+	!tx "1.03"
+	!tx "13.11.17"
+	!tx "A.Dettke/W.Kling"
+
+; ----------------------------------- Select
+
+start	ldx gr_nr		; Call for Input? (.x=1)
+	dex
+	bne st0
+	jmp initinp	; yes, go there
+
+; ----------------------------------- Main
+
+st0	ldx used		; first start?
+	bmi requ		; so: requester
+	beq canc
+	cpx #127
+	bcs canc
+
+	lda #$ff		; reset used
+	sta used
+
+startit	jsr gd_sproff	; mouse off
+	lda gd_modswitch
+	pha
+	lda ls_flen
+	beq st1
+
+	sta wflen
+	jsr addiff
+	lda #1
+	sta adcnt
+
+	jsr wopen
+	bne st1
+
+	jsr getname
+	ldx #12
+	jsr ckout
+
+	jsr gd_clrms	; focus on status bar
+	jsr write
+
+	jsr clrch
+	lda #12
+	jsr close
+	jsr err9
+	bne st1
+	jsr setname
+
+st1	pla 
+	sta gd_modswitch
+	jsr gd_spron	; mouse on
+	sec 
+	rts 
+
+; ----------------------------------- 
+
+canc	lda #$ff
+	sta used
+	sec
+	rts 
+
+; ----------------------------------- Requester
+
+requ	inc used		; used: 0
+	ldx #<(ifflst)
+	ldy #>(ifflst)
+	jsr gd_xmloop
+	jmp st0
+
+; --------------------------- 
+; --------------------------- Input Routines
+!src "..\input.inc"
+; --------------------------- 
+; --------------------------- 
+
+ifftx	!pet "ffi."
+ifftxs	!scr "ffi."
+pw	!tx "w,p,"
+drinit	!tx "i0"
+wflen	!by 0
+
+wopen	jsr inull
+	bne err8
+	ldy wflen
+	ldx #3
+wo1	lda pw,x
+	sta ls_nambuf,y
+	iny 
+	dex 
+	bpl wo1
+	sty wflen
+	lda #12
+	tay 
+	ldx ls_drive
+	jsr filpar
+	lda wflen
+	ldx #<(ls_nambuf)
+	ldy #>(ls_nambuf)
+	jsr filnam
+	jsr copen
+	jmp err9
+
+inull	ldx #<(drinit)
+	ldy #>(drinit)
+	lda #2
+	jsr gd_sendcom
+
+err9	jsr gd_xmess	; Show Floppy Message (.x=0) 
+	lda ls_err2
+	and #15
+	beq err8
+	stx sc_keyprs	; if error:
+-	lda sc_keyprs	; wait for click (so you can read message)
+	beq -
+err8	sec 
+	rts 
+
+; ----------------------------------- Message Handler
+
+messout	ldx #<(message)
+	ldy #>(message)
+	jmp gd_xtxout2
+
+tcopy	ldy #0
+tc0	lda txt,x
+	beq clrmess
+	sta message,y
+	inx 
+	iny 
+	bne tc0
+
+action	dec adcnt		; gauge
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	cpy #22		; catch Gauge Overflow
+	bne act0
+	jsr clrmess
+act0	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts 
+
+clrmess	ldx #20		; init gauge
+	lda #32
+cl0	sta mess,x
+	dex 
+	bpl cl0
+	ldy #0
+	ldx #7
+	sty offy
+	stx offx
+	rts 
+
+filltab	!by 160,93,103,127,126,124,105,109
+
+cntwert	!by 50
+
+txt	!scr " Writing  @"
+	!scr " Shrinking@"
+
+message	!scr " Writing   "
+mess	!tx "....................."
+	!by 0
+
+; ----------------------------------- 
+
+getname	ldx #0
+si0	lda ls_lastname,x	; retrieve filename
+	beq si1
+	sta nbuf,x
+	inx 
+	cpx #16
+	bcc si0
+si1	rts 
+
+setname	lda #0
+	ldx #<(ls_picname)	; publish filename to GoDot
+	ldy #>(ls_picname)
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax 
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx 
+	iny 
+	bne si4
+si5	rts 
+
+nbuf	!fill 16,32	; filename buffer
+	!by 0
+
+; ----------------------------------- Write Image to Disk
+
+write	ldx #11		; message: "Shrinking"
+	jsr tcopy
+
+	ldy #0		; 1. pass: compute file length
+	lda #<(howlong)
+	ldx #>(howlong)
+	sta routine
+	stx routine+1
+	sty sum
+	sty sum+1
+	sty flagequal
+	jsr writebody
+
+	lda sum		; sum even?
+	tay 
+	and #1
+	beq fl2
+	sta flagequal	; no: flag, add 1
+	iny 
+	bne fl2
+	inc sum+1
+fl2	tya 
+	sta bodylen+3	; store body length
+	lda sum+1
+	sta bodylen+2
+
+	tya 		; add header length (188 bytes)
+	clc 
+	adc #188
+	sta sum
+	bcc fl1
+	inc sum+1
+fl1	sta hd120+7	; store length to header
+	lda sum+1
+	sta hd120+6
+
+; ----------------------------------- 
+
+	lda #<(writeline)	; 2. pass: Save
+	ldx #>(writeline)
+	sta routine
+	stx routine+1
+	jsr getgrgb	; get rgb data
+
+	ldx #0		; message: "Writing"
+	jsr tcopy
+
+	ldy #0
+whl0	lda hd120,y	; save header
+	jsr bsout
+	lda status
+	bne si5
+	iny 
+	cpy #128
+	bne whl0
+
+	ldy #0		; which mode?
+	lda pmode
+	bne wrgbl
+
+whl1	lda hd48,y	; 0: grey, save grey palette
+	jsr bsout
+	iny 
+	cpy #48
+	bne whl1
+	beq wrest
+
+wrgbl	lda red,y		; 1: color, save rgb palette
+	jsr bsout
+	lda grn,y
+	jsr bsout
+	lda blu,y
+	jsr bsout
+	iny 
+	cpy #16
+	bne wrgbl
+
+wrest	ldy #0		; save camg-chunk and body-header
+whl2	lda hd20,y
+	jsr bsout
+	iny 
+	cpy #20
+	bne whl2
+
+; ----------------------------------- Write image data
+
+writebody	lda #<($4000)	; from $4000
+	ldx #>($4000)
+	sta src0
+	sta src
+	stx src0+1
+	stx src+1
+
+	lda #25		; 25 block lines
+	sta lcnt8
+
+lnloop8	lda #8		; of 8 rasterlines each
+	sta lcnt
+
+lnloop	ldx #0
+
+byloop	ldy #3		; count to 4 (1 card: 4 times 2 pixels)
+
+btloop	lda (src),y	; split 4bit value (1 nibble) into 4 planes
+	lsr 
+	ror p0,x
+	lsr 
+	ror p1,x
+	lsr 
+	ror p2,x
+	lsr 
+	ror p3,x
+	lsr 
+	ror p0,x
+	lsr 
+	ror p1,x
+	lsr 
+	ror p2,x
+	lsr 
+	ror p3,x
+	dey 
+	bpl btloop
+
+	txa 		; save .x
+	pha 
+	jsr action	; gauge
+	pla 
+	tax 		; restore .x
+
+	lda src		; next 4bit card
+	clc 
+	adc #32
+	sta src
+	bcc s4
+	inc src+1
+s4	inx 
+	cpx #40		; until 40 (1 block line)
+	bne byloop
+
+	lda src0		; next rasterline in same blockline
+	clc 
+	adc #4
+	sta src0
+	sta src
+	bcc s5
+	inc src0+1
+s5	lda src0+1
+	sta src+1
+
+	jsr jumper	; compute/save planes
+
+	dec lcnt		; count rasterlines
+	bne lnloop	; until 8
+
+	lda src0		; next blockline
+	clc 
+	adc #<(1248)
+	sta src0
+	sta src
+	lda src0+1
+	adc #>(1248)
+	sta src0+1
+	sta src+1
+
+	dec lcnt8		; count blocklines
+	bne lnloop8	; until 25
+
+	lda flagequal	; make even
+	beq wrend
+	jsr bsout
+wrend	rts 		; finished image write
+
+; ----------------------------------- Task: write image data
+
+writeline	ldy #4
+	sty fourtimes	; 4 planes
+	lda #<(from)
+	ldx #>(from)
+wll0	sta add40
+	stx add40+1
+	jsr compress	; compress 1 rasterline
+	tax 
+	ldy #0
+wll	lda packed,y	; and output
+	jsr bsout
+	iny 
+	dex 
+	bne wll
+	dec fourtimes
+	beq wll1
+	ldx add40+1	; next plane
+	clc 
+	lda #40
+	adc add40
+	bcc wll0
+	inx 
+	bne wll0
+wll1	rts 
+
+; ----------------------------------- 
+
+jumper	jmp (routine)
+
+; ----------------------------------- 
+
+sum	!wo 0
+pmode	!by 0
+flagequal	!by 0
+
+; ----------------------------------- IFF Header Data
+
+hd120	!tx "form"		; Format
+	!by 0,0,$7d,$b4
+
+	!tx "ilbmbmhd"		; chunk: interleaved bitmap/bitmap header
+	!by 0,0,0,20
+	!by $01,$40,$00,$c8		; image: 320x200
+	!wo 0,0			; top left corner at 0,0
+	!by 4			; 4 planes
+	!by 0			; mask
+	!by 1,0			; 1: compressed (plus 0: padding)
+	!by 0,0			; transparent color
+	!by $0a,$0b		; aspect ratio
+	!by $01,$40,$00,$c8		; page: 320x200
+
+	!tx "anno"		; chunk: annotations
+	!by 0,0,0,72
+	!tx "godot by a.dettk"
+	!tx "e + w.kling - if"
+	!tx "f saver 1.03 (13"
+	!tx ".11.17) have fun"
+	!tx "!      "
+	!by 0
+
+	!tx "cmap"		; chunk: color map
+	!by 0,0,0,48
+hd48	!by $00,$00,$00		; grey palette
+	!by $11,$11,$11
+	!by $22,$22,$22
+	!by $33,$33,$33
+	!by $44,$44,$44
+	!by $55,$55,$55
+	!by $66,$66,$66
+	!by $77,$77,$77
+	!by $88,$88,$88
+	!by $99,$99,$99
+	!by $aa,$aa,$aa
+	!by $bb,$bb,$bb
+	!by $cc,$cc,$cc
+	!by $dd,$dd,$dd
+	!by $ee,$ee,$ee
+	!by $ff,$ff,$ff
+
+hd20	!tx "camg"		; chunk: C=Amiga viewmode
+	!by 0,0,0,4
+	!by $00,$00,$40,$00		; viewmode: SPRITES
+
+	!tx "body"
+bodylen	!by 0,0,$7d,$00
+
+; ----------------------------------- Palette (placeholder)
+
+red	!by $00,$00,$66,$33,$88,$cc,$dd,$77	; rgb palette
+	!by $00,$ff,$00,$bb,$aa,$ee,$aa,$ff
+grn	!by $00,$00,$44,$33,$00,$44,$88,$77
+	!by $88,$77,$cc,$bb,$ff,$ee,$ff,$ff
+blu	!by $00,$aa,$00,$33,$00,$cc,$55,$77
+	!by $ff,$77,$55,$bb,$ee,$77,$66,$ff
+
+; ----------------------------------- Task: compute length of image
+
+howlong	ldy #4
+	sty fourtimes	; 4 planes
+	lda #<(from)
+	ldx #>(from)
+hl0	sta add40
+	stx add40+1
+	jsr compress	; compress 1 rasterline
+	clc 
+	adc sum		; sum up length
+	sta sum
+	bcc hl
+	inc sum+1
+hl	dec fourtimes
+	beq hl1
+	ldx add40+1
+	clc 
+	lda #40
+	adc add40
+	bcc hl0
+	inx 
+	bne hl0
+hl1	rts 
+
+; ----------------------------------- Get system RGB values
+
+getgrgb	ldx #15
+gg0	lda cred,x
+	tay 
+	lda dnib,y
+	ldy cpref,x
+	sta red,y
+	lda cgrn,x
+	tay 
+	lda dnib,y
+	ldy cpref,x
+	sta grn,y
+	lda cblu,x
+	tay 
+	lda dnib,y
+	ldy cpref,x
+	sta blu,y
+	dex 
+	bpl gg0
+	rts 
+
+; ----------------------------------- 
+
+dnib	!by $00,$11,$22,$33,$44,$55,$66,$77
+	!by $88,$99,$aa,$bb,$cc,$dd,$ee,$ff
+cpref	!by 11,7,3,0,15,2,9,6,5,12,4,8,1,10,14,13
+
+; ----------------------------------- RLE Compression
+
+manybytes	ldy #$00
+	lda (source),y
+mb0	cmp (source),y
+	bne mb1
+	iny 
+	bne mb0
+mb1	dey 
+	cpy #$02
+	bcs mb3
+	inc source
+	bne mb2
+	inc source+1
+mb2	jmp manybytes
+mb3	sty somany
+	rts 
+
+; ----------------------------------- 
+
+packit	pha 
+	and #$7f
+	ldx counter
+	sta counter
+	txa 
+	clc 
+	sbc counter
+	sta counter
+	bcs pk0
+	dec counter+1
+pk0	pla 
+	bpl pk1
+	and #$7f
+	clc 
+	eor #$ff
+	adc #1
+pk1	ldy #$00
+	sta (dest),y
+	inc dest
+	bne pk2
+	inc dest+1
+pk2	rts 
+
+; ----------------------------------- 
+
+rest	ldx counter+1
+	bne rst0
+	tax 
+	inx 
+	cpx counter
+	beq rst0
+	bcc rst0
+	ldx counter
+	dex 
+	txa 
+rst0	rts 
+
+; ----------------------------------- Compress image data
+
+compress	sta source
+	stx source+1
+	lda #<(to)
+	ldx #>(to)
+	sta dest
+	stx dest+1
+	lda numberof
+	ldx numberof+1
+	sta counter
+	stx counter+1
+
+; ----------------------------------- 
+
+mainloop	ldx counter+1
+	bne findwhat
+	lda counter
+	bne findwhat
+	lda dest
+	ldx dest+1
+	clc 
+	rts 
+
+; ----------------------------------- 
+
+findwhat	lda source
+	ldx source+1
+	pha 
+	txa 
+	pha 
+	jsr manybytes
+	lda source
+	ldx source+1
+	sta packthere
+	stx packthere+1
+	pla 
+	tax 
+	pla 
+	sta source
+	stx source+1
+	cpx packthere+1
+	bne fw0
+	cmp packthere
+fw0	bne nopack
+	lda somany
+	cmp width
+	bcc fw1
+	lda width
+fw1	jsr rest
+	pha 
+	ora #$80
+	jsr packit
+	ldy #$01
+	lda (source),y
+	jsr pk1
+	pla 
+	sec 
+	adc source
+	sta source
+	bcc mainloop
+	inc source+1
+	jmp mainloop
+
+; ----------------------------------- 
+
+nopack	lda packthere
+	ldx packthere+1
+	clc 
+	sbc source
+	pha 
+	txa 
+	sbc source+1
+	tax 
+	pla 
+	cpx #$00
+	bne fw2
+	cmp width
+fw2	bcc fw3
+	lda width
+fw3	jsr rest
+	pha 
+	jsr packit
+	pla 
+	tax 
+fw4	ldy #$00
+	lda (source),y
+	jsr pk1
+	inc source
+	bne fw5
+	inc source+1
+fw5	dex 
+	bpl fw4
+	jmp mainloop
+
+; ----------------------------------- 
+
+counter	!wo 0
+somany	!by 0
+packthere	!wo 0
+numberof	!wo 40
+fourtimes	!by 0
+add40	!wo 0
+width	!by 39
+used	!by $ff
+
+; ----------------------------------- Event: Save Color
+
+sevcol	inc used		; used: 2, pmode: 1
+
+; ----------------------------------- Event: Save Grey
+
+sevgrey	inc used		; used: 1, pmode: 0
+	ldx used
+	dex 
+	stx pmode
+
+; ----------------------------------- Event: Cancel
+
+cn2	sec  		; on event used stays 0
+	rts 
+
+; ----------------------------------- Screenlist
+
+ifflst	!by 0
+	!by 4,11,18,16,$81,0,0
+	!scr "Save Amiga IFF@"
+	!by 9,11,18,3,$ca,<(sevgrey),>(sevgrey)
+	!scr "Grey Scale@"
+	!by 12,11,18,3,$ca,<(sevcol),>(sevcol)
+	!scr "Color@"
+	!by 15,11,18,3,$ca,<(cn2),>(cn2)
+	!scr "Cancel Save@"
+	!by $c0,6,14,11
+	!scr "Select Mode@"
+	!by $80
+
+; --------------------------------------------------------------Namen verlängern
+
+addiff	pha		; Länge merken
+	tay
+	dey
+	ldx #0
+ag4	lda ls_nambuf,y	; endet auf ".IFF"?
+	cmp ifftx,x
+	bne ag2		; nein
+	dey
+	inx
+	cpx #4
+	bcc ag4
+	pla		; ja, fertig
+	rts
+	
+ag2	pla
+	tay		; Name länger als 12 Zeichen?
+	cpy #13
+	bcs ag0		; ja, behandeln
+;
+ag5	ldx #3		; nein, ".iff" anhängen
+ag1	lda ifftx,x
+ag3	sta ls_nambuf,y
+	lda ifftxs,x	; auch für Image Info
+	sta ls_lastname,y
+	iny
+	dex
+	bpl ag1
+	sty wflen		; neue Länge merken, fertig
+	sty ls_flen
+	rts
+;
+ag0	dey		; auf 12 verkürzen
+	cpy #12
+	bne ag0
+	beq ag5		; unbed. Sprung
+;
+; ----------------------------------- 
+
+modend	!eof
