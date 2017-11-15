@@ -12,7 +12,8 @@
 ; 1.01, 20.05.93, 
 ; 1.02,
 ; 1.03, 19.07.93,
-; 1.04, 11.02.94, 
+; 1.04, 11.02.94,
+; 1.05, 15.11.17, added: recognition of balancing settings
 ;
 ; ----------------------------------- 
 
@@ -64,6 +65,7 @@
 	dbuf1		= dbuf+16
 
 	status		= $90
+	shift		= $028d
 
 ; ----------------------------------- Header
 
@@ -74,8 +76,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "PCX 16 Colors   "
-	!tx "1.04"
-	!tx "11.02.94"
+	!tx "1.05"
+	!tx "15.11.17"
 	!tx "W.Kling/A.Dettke"
 
 addtext	!tx "max 1024 Breite "
@@ -145,6 +147,19 @@ err	jsr gd_xclose	; close file
 
 cancel	lda #$ff
 	sta used
+
+	lda shift		; Shift (-Lock) gedrückt?
+	and #1
+	bne cn2		; ja, Sprung
+
+	ldy #16		; sonst: Balancing-Tabelle initialisieren
+	sty gr_ctr
+	sty gr_brt
+lll	dey 
+	tya 
+	sta gr_btab,y
+	bne lll
+
 cn2	sec 
 	rts 
 
@@ -342,6 +357,7 @@ getpal	ldx type
 	beq getp
 	dex 
 	bne getp
+
 	ldx which
 	bne col1
 
@@ -365,41 +381,41 @@ col0	lda grey,x
 	bpl col0
 	rts 
 
-; ----------------------------------- 
+; ----------------------------------- Retrieve Palette
 
 getp	ldx #0
 	ldy #0
-gpl4	lda palette,x
-	lsr 
-	lsr 
-	lsr 
-	lsr 
+
+gpl4	jsr pconv
 	sta red
-	inx 
-	lda palette,x
-	lsr 
-	lsr 
-	lsr 
-	lsr 
+	jsr pconv
 	sta grn
-	inx 
-	lda palette,x
-	lsr 
-	lsr 
-	lsr 
-	lsr 
+	jsr pconv
 	sta blu
-	inx 
+
 	stx gpx
 	sty gpy
 	jsr convcol
 	ldx gpx
 	ldy gpy
 	sta pal,y
+
 	iny 
 	cpy col
 	bne gpl4
 	rts 
+
+pconv	lda palette,x	; care for balancing
+	lsr 
+	lsr 
+	lsr 
+	lsr 
+	stx gpx
+	tax
+	lda gr_btab,x	; change value according to Balancing settings
+	ldx gpx
+	inx
+	rts
 
 ; ----------------------------------- 
 
