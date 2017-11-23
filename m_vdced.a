@@ -1,0 +1,726 @@
+
+	*= $c000
+	!src "..\godotlib.lib"
+	!ct pet
+
+; --------------------------------------
+;
+; mod.VDCEd
+;
+;   1.00,         : first release
+;   1.01, 
+;   1.02, 19.09.93: added Double
+;   1.03, 24.09.93:
+;   1.04, 03.09.95:
+;   1.05, 19.11.17: Update (new reg values, changed "Reset", removed Double)
+;
+; --------------------------------------
+
+; -------------------------------------- Equates
+
+	pport		= $01
+
+	src0		= $30
+	lcnt8		= $32
+	lcnt		= $33
+	gbyte		= $34
+	counter		= $35
+
+	puffer		= $c500
+
+	vctrl1		= $d011
+	vfast		= $d030
+	vdcstat		= $d600
+	vdcdata		= $d601
+	keybcol		= $dc01
+
+; -------------------------------------- Header
+
+header	jmp start
+	!by $20
+	!by 0
+	!by 0
+	!wo modend
+	!wo 0
+	!tx "VDCEd           "
+	!tx "1.05"
+	!tx "19.11.17"
+	!tx "A. Dettke       "
+
+; -------------------------------------- Check machine
+
+start	lda rm_vdcflag
+	and #1		; running on a C128?
+	bne st1
+	clc		; no, leave
+	rts
+
+; -------------------------------------- Main
+
+st1	ldx #<(vdclst)
+	ldy #>(vdclst)
+	jsr gd_screen
+	ldx #36
+st0	jsr readvdc
+	sta vdctab,x
+	sta onstart,x
+	dex
+	bpl st0
+	lda rm_vdcflag	; VDC 64k?
+	bpl st2
+	lda vdctab+28	; yes, set values accordingly
+	sta vdctab2+28
+	sta vdctab3+28
+st2	jsr shregs
+	jsr gd_eloop
+
+; -------------------------------------- Event: Leave
+
+evcan	sec
+	rts
+
+; -------------------------------------- Event: Reset
+
+evreset	ldx #0
+	stx gmode
+rs1	lda onstart,x
+	sta vdctab,x
+	stx vdcstat
+rs0	bit vdcstat
+	bpl rs0
+	sta vdcdata
+	inx
+	cpx #37
+	bne rs1
+	jsr evgraph
+	jsr shregs
+	clc
+	rts
+
+; -------------------------------------- Event: Set bitmap start address
+
+evbtmap	ldx #13		; reg 12/13
+	lda sc_merk+1
+	cmp #17
+	bcc bm0
+	jmp rw0
+
+bm0	dex
+	cmp #16
+	bcc bm1
+	jmp rw0
+
+bm1	cmp #14
+	bcc bm2
+	jmp rw2
+
+bm2	inx
+	jmp rw2
+
+; -------------------------------------- Event: Type of RAM
+
+evtpram	ldx #28		; reg 28, bit 4
+	lda vdctab,x
+	sta sc_merk
+	and #$10
+	beq tr0
+	lda sc_merk
+	and #$ef
+	bne tr1
+tr0	lda #$10
+	ora sc_merk
+tr1	sta vdctab,x
+	jmp rw1
+
+; -------------------------------------- Event: Softlace
+
+evslace	sei
+	lda vctrl1
+	pha
+	jsr swapsl
+	ldx #0
+	stx vctrl1
+	inx
+	stx vfast
+ehl0	ldy #0
+	jsr laceit
+	ldy vdctab+27
+	jsr laceit
+	lda keybcol
+	cmp #$ff
+	beq ehl0
+	ldx #0
+	stx vfast
+	lda skipmk
+	sta vdctab3+27
+	jsr reswap
+	pla
+	sta vctrl1
+	cli
+	clc
+	rts
+
+; --------------------------------------
+
+laceit	lda #32
+li0	bit vdcstat
+	beq li0
+li1	bit vdcstat
+	bne li1
+	ldx #13
+	tya
+	stx vdcstat
+li2	bit vdcstat
+	bpl li2
+	sta vdcdata
+	rts
+
+; --------------------------------------
+
+swapsl	lda vdctab+1
+	sta vdctab3+1
+	sta vdctab3+27
+	lda vdctab+27
+	sta skipmk
+
+reswap	ldx #36
+swsl	lda vdctab3,x
+	pha
+	lda vdctab,x
+	sta vdctab3,x
+	pla
+	sta vdctab,x
+	dex
+	bpl swsl
+	jmp setvdc
+
+; -------------------------------------- Text output Handler
+
+tabigad	!by <(chars),>(chars)
+	!by <(chtot),>(chtot)
+	!by <(lskip),>(lskip)
+	!by <(hswid),>(hswid)
+	!by <(leftb),>(leftb)
+	!by <(ldisp),>(ldisp)
+	!by <(rdisp),>(rdisp)
+	!by <(btmap),>(btmap)
+	!by <(tpram),>(tpram)
+	!by <(chwid),>(chwid)
+	!by <(rows),>(rows)
+	!by <(rwtot),>(rwtot)
+	!by <(rwadj),>(rwadj)
+	!by <(vswid),>(vswid)
+	!by <(uppbd),>(uppbd)
+	!by <(lhigh),>(lhigh)
+	!by <(lace),>(lace)
+	!by <(text),>(text)
+	!by <(graf),>(graf)
+	!by <(double),>(double)
+
+settab	lda #<(tabigad)
+	sta sc_texttab
+	lda #>(tabigad)
+	sta sc_texttab+1
+	rts
+
+gettab	lda (sc_texttab),y
+	sta sc_screentab
+	iny
+	lda (sc_texttab),y
+	sta sc_screentab+1
+	lda #0
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #3
+	bne gt0
+	stx sc_ho
+	jsr gd_trim
+	jmp gd_initmove
+
+; -------------------------------------- Show VDC Registers
+
+shregs	jsr settab
+	ldy #0
+	sty sc_merk	; counter for regs in .y
+
+sr0	ldx regs,y	; show 17 vdc registers: regs in .x
+	lda vdctab,x
+
+	cpx #12		; reg 12/13, start_of_graphics?
+	bne sr1
+sr2	php		; yes, get start address:
+	inx
+	tay		; hi: .y
+	lda vdctab,x	; lo: .a
+	plp
+	beq sr3		; unconditional branch
+
+sr1	cpy #3
+	bne sr11
+	and #$0f		; reg 3: horizontal sync (in lower nibble)
+
+sr11	cpy #8		; reg 8, ramtype?
+	bne sr31
+
+	and #$10		; yes, isolate ramtype bit
+	bne sr12
+	lda #16		; if 0: 16k
+	!by $2c
+sr12	lda #64		; if 1: 64k
+
+sr31	cpy #13
+	bne sr32
+	lsr		; reg 3 again: vertical sync (in upper nibble)
+	lsr
+	lsr
+	lsr
+
+sr32	cpy #12		; reg 12, adjust_scanlines? (so isolate lower 5 bits)
+	beq sr33
+	cpy #15		; reg 15, height_of_char? (so isolate lower 5 bits)
+	beq sr33
+	cpy #9		; reg 9, width_of_char? (so isolate lower nibble)
+	bne sr34
+	and #$0f
+sr33	and #$1f
+
+sr34	ldy #0		; hi_value to convert to decimals
+
+; -------------------------------------- Convert values to decimal numbers
+
+sr3	sty $62		; set hi
+	sta $63		; set lo
+
+	ldy #5		; init output buffer
+	lda #32
+sr4	sta sy_numbers,y
+	sta sc_movetab,y
+	dey
+	bpl sr4
+
+	inc pport		; convert (result in sy_numbers)
+	ldx #$90
+	sec
+	jsr $bc49
+	jsr $bddf
+	dec pport
+
+; -------------------------------------- Output numbers to screen
+
+	ldy #6		; find tail of number
+sr5	dey
+	lda sy_numbers,y
+	bne sr5
+	ldx #6		; make rightbound
+sr6	dex
+	sta sc_movetab,x
+	dey
+	bmi sr7
+	lda sy_numbers,y
+	bne sr6
+
+sr7	lda sc_merk	; get current reg counter
+	asl		; double
+	tay		; use as index
+	jsr gettab	; output number
+	jsr gd_xtxout3
+
+	inc sc_merk	; inc reg counter
+	ldy sc_merk
+	cpy #17		; all through?
+	bne sr8
+	rts		; yes, finished
+
+sr8	jmp sr0		; no, loop 
+
+; -------------------------------------- Init VDC
+
+setvdc	ldx #0		; reg in .x (starting with reg 0)
+wr1	lda vdctab,x	; data in .a
+write	stx vdcstat
+wr2	bit vdcstat
+	bpl wr2
+	sta vdcdata	; set
+	inx
+	cpx #37
+	bne wr1
+	clc
+	rts
+
+; -------------------------------------- Read from VDC
+
+readvdc	stx vdcstat	; set reg
+tv2	bit vdcstat
+	bpl tv2
+	lda vdcdata	; get data
+	rts
+
+; -------------------------------------- Event: Set Mode
+
+evgraph	jsr settab
+	ldx #25		; reg 25
+	lda vdctab,x
+	and #$6f		; clear bits 7 and 4
+
+	ldy gmode		; after reset: flag=0
+	dey		; when it's 1, set to 0
+	bpl gr0		; after start: flag=2
+grx	ora #$80		; if 0, set graphics on (bit 7)
+	ldy #2		; and set 2 to flag
+gr0	bne gr1		; if 2, set to 1
+; ---	ora #$10		; if 0, set double width (bit 4) ### removed: crashes VICE!!!
+	beq grx
+
+gr1	sty gmode		; .y is 0 (double), 1 (text) or 2 (graph)
+	sta vdctab,x
+	lda toff,y
+	tay
+	jsr gettab
+	ldy #2
+	jsr gd_xtxout1
+	jmp setvdc	; update vdc
+
+; -------------------------------------- Event: Choose Interlace Mode
+
+evilace	ldx #8		; reg 8
+	lda vdctab,x
+	and #3
+	tay
+	lda sc_merk+1
+	cmp #32
+	bcc il1
+	iny
+	bne il0
+il1	dey
+il0	tya
+	and #3
+il2	sta vdctab,x
+	jmp rw1
+
+; -------------------------------------- Event: Char rows
+
+evrows	ldx #6		; reg 6
+rw3	lda sc_merk+1
+	cmp #24
+	bcs rw0
+
+rw2	dec vdctab,x	; decrement reg
+
+rw1	jsr shregs	; show
+	jmp setvdc	; update regs
+
+rw0	inc vdctab,x	; increment reg
+	jmp rw1
+
+; -------------------------------------- Event: Chars per row
+
+evchars	ldx #1		; reg 1: chars per row
+ch0	lda sc_merk+1	; clicked in which column?
+	cmp #7
+ch2	bcs rw0
+	bcc rw2
+
+; -------------------------------------- Event: Chars per row (total)
+
+evchtot	ldx #0		; reg 0
+	beq ch0
+
+; -------------------------------------- Event: Lines total (vertical)
+
+evrwtot	ldx #4		; reg 4
+	bne rw3
+
+; -------------------------------------- Event: Line Skip
+
+evlskip	ldx #27		; reg 27
+	bne ch0
+
+; -------------------------------------- Event: Left Border
+
+evleftb	ldx #2		; reg 2
+	bne ch0
+
+; -------------------------------------- Event: Set upper border
+
+evuppbd	ldx #7		; reg 7
+	bne rw3
+
+; -------------------------------------- Event: Set end of horiz. blanking
+
+evldisp	ldx #35
+ds1	lda sc_merk+1
+	cmp #15
+ds0	jmp ch2
+
+; -------------------------------------- Event: Set start of horiz. blanking
+
+evrdisp	ldx #34
+	bne ds1
+
+; -------------------------------------- Event: Char Width
+
+evchwid	ldx #22		; reg 22, upper nibble
+	lda vdctab,x
+	and #$f0
+	lsr
+	lsr
+	lsr
+	lsr
+	tay
+	lda sc_merk+1
+	cmp #15
+	bcc rf1
+	iny
+	bne rf0
+rf1	dey
+
+rf0	tya
+	and #15
+	asl
+	asl
+	asl
+	asl
+	iny
+	sty sc_merk
+	ora sc_merk	; care for lower nibble
+	jmp il2
+
+; -------------------------------------- Event: Line height
+
+evlhigh	ldx #9		; reg 9 (line height)
+	lda sc_merk+1
+	cmp #32
+	jsr ch2
+	ldx #23		; reg 23 (char height)
+	lda sc_merk+1
+	cmp #32
+	jmp ch2
+
+; -------------------------------------- Event: Adjust lines total (vert.)
+
+evrwadj	ldx #5		; reg 5
+	lda sc_merk+1
+	cmp #24
+	jmp ch2
+
+; -------------------------------------- Event: Horizontal sync
+
+evhswid	ldx #3		; reg 3, lower nibble
+	lda vdctab,x
+	and #15
+	tay		; value to .y
+	lda sc_merk+1
+	cmp #7
+	bcc hw0
+hw3	iny
+	cpy #16		; delimit to 15
+	bne hw1
+	sty sc_merk
+hw0	dey
+	bmi hw3
+hw1	sty sc_merk
+
+	lda vdctab,x	; care for upper nibble
+	and #$f0
+hw2	ora sc_merk
+	sta vdctab,x
+	jsr shregs
+	jmp setvdc
+
+; -------------------------------------- Event: Vertical sync
+
+evvswid	ldx #3		; reg 3, upper nibble
+	lda vdctab,x
+	lsr
+	lsr
+	lsr
+	lsr
+	tay
+	lda sc_merk+1
+	cmp #24
+	bcc vw0
+vw2	iny
+	cpy #16
+	bne vw1
+vw0	dey
+	bmi vw2
+vw1	tya
+	asl
+	asl
+	asl
+	asl
+	sta sc_merk
+
+	lda vdctab,x	; care for lower nibble
+	and #15
+	jmp hw2
+
+; --------------------------------------
+
+vdctab	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0
+
+vdctab2	!by 127,80,102,73,25,0,25,19
+	!by 0,231,160,231,0,0,0,0
+	!by 0,0,0,0,8,0,120,232
+	!by 32,135,240,0,47,231,0,0
+	!by 0,0,125,100,245
+
+vdctab3	!by 127,80,102,73,25,0,25,19
+	!by 3,231,160,231,0,0,0,0
+	!by 0,0,0,0,8,0,120,232
+	!by 32,135,240,0,63,231,0,0
+	!by 0,0,125,100,245
+
+onstart	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0
+
+; --------------------------------------
+
+regs	!by 01,00,27,03,02,35,34,12,28
+	!by 22,06,04,05,03,07,09,08
+skipmk	!by 0
+gmode	!by 2
+toff	!by 38,34,36
+
+; --------------------------------------
+
+vdclst	!by 0
+	!by 1,3,34,23,$01,0,0
+chars	!by 3,4,7,3,$e0
+	!wo evchars
+	!fill 5,32
+	!by 0
+chtot	!by 7,4,7,3,$e0
+	!wo evchtot
+	!fill 5,32
+	!by 0
+lskip	!by 11,4,7,3,$e0
+	!wo evlskip
+	!fill 5,32
+	!by 0
+hswid	!by 15,4,7,3,$e0
+	!wo evhswid
+	!fill 5,32
+	!by 0
+leftb	!by 19,4,7,3,$e0
+	!wo evleftb
+	!fill 5,32
+	!by 0
+ldisp	!by 3,12,7,3,$e0
+	!wo evldisp
+	!fill 5,32
+	!by 0
+rdisp	!by 7,12,7,3,$e0
+	!wo evrdisp
+	!fill 5,32
+	!by 0
+btmap	!by 11,12,7,3,$e0
+	!wo evbtmap
+	!fill 5,32
+	!by 0
+tpram	!by 15,12,7,3,$e0
+	!wo evtpram
+	!fill 5,32
+	!by 0
+chwid	!by 19,12,7,3,$e0
+	!wo evchwid
+	!fill 5,32
+	!by 0
+rows	!by 3,21,7,3,$e0
+	!wo evrows
+	!fill 5,32
+	!by 0
+rwtot	!by 7,21,7,3,$e0
+	!wo evrwtot
+	!fill 5,32
+	!by 0
+rwadj	!by 11,21,7,3,$e0
+	!wo evrwadj
+	!fill 5,32
+	!by 0
+vswid	!by 15,21,7,3,$e0
+	!wo evvswid
+	!fill 5,32
+	!by 0
+uppbd	!by 19,21,7,3,$e0
+	!wo evuppbd
+	!fill 5,32
+	!by 0
+lhigh	!by 3,29,7,3,$e0
+	!wo evlhigh
+	!fill 5,32
+	!by 0
+lace	!by 7,29,7,3,$e0
+	!wo evilace
+	!fill 5,32
+	!by 0
+mode	!by 10,29,7,3,$c0
+	!wo evgraph
+	!scr "Graph@"
+	!by 13,29,7,3,$c0
+	!wo evreset
+	!scr "Reset@"
+	!by 16,29,7,3,$c0
+	!wo evslace
+	!scr "SLace@"
+	!by 21,29,7,3,$cc
+	!wo evcan
+	!scr "Leave@"
+	!by $c0,1,4,5
+	!scr "Chars@"
+	!by $c0,5,4,5
+	!scr "Total@"
+	!by $c0,17,4,5
+	!scr "LeftB@"
+	!by $c0,13,3,7
+	!scr "HSWidth@"
+	!by $c0,9,4,4
+	!scr "Skip@"
+	!by $c0,1,12,5
+	!scr "Disp"
+	!by 94,0			; larr
+	!by $c0,5,12,5
+	!scr "Disp"
+	!by 91,0			; rarr
+	!by $c0,9,11,6
+	!scr "Bitmap@"
+	!by $c0,13,11,7
+	!scr "RAMType@"
+	!by $c0,17,11,7
+	!scr "ChWidth@"
+	!by $c0,1,21,4
+	!scr "Rows@"
+	!by $c0,5,21,5
+	!scr "Total@"
+	!by $c0,9,20,6
+	!scr "Adjust@"
+	!by $c0,13,20,7
+	!scr "VSWidth@"
+	!by $c0,17,20,6
+	!scr "UpperB@"
+	!by $c0,1,28,7
+	!scr "LHeight@"
+	!by $c0,5,29,4
+	!scr "Lace@"
+	!by $80
+
+; --------------------------------------
+
+text	!by 10,29,7
+	!scr "Text @"
+graf	!by 10,29,7
+	!scr "Graph@"
+double	!by 10,29,7
+	!scr "Doubl@"
+
+; --------------------------------------
+
+modend	!eof
