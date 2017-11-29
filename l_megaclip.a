@@ -1,6 +1,7 @@
 
-!src "..\godotlib.lib"
-*	= $c000
+	!src "..\godotlib.lib"
+	*= $c000
+;	!sl "labels.txt"
 
 ; ----------------------------------- 
 ; Loader MegaClip Select
@@ -9,6 +10,8 @@
 ;   1.00, 04.01.17: first release
 ;   1.01, 05.01.17: bug: digits remain on screen, fixed
 ;                        adjusting clip failed above 128, fixed
+;   1.02, 29.11.17: bug: crash if only height was mega
+;                        garbage if only width was mega
 ;
 ; ----------------------------------- 
 
@@ -61,8 +64,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "MegaClip Select "
-	!pet "1.01"
-	!pet "05.01.17"
+	!pet "1.02"
+	!pet "29.11.17"
 	!pet "A.Dettke        "
 ;
 ; ----------------------------------- Main
@@ -172,12 +175,27 @@ gf0	sta clpho
 	sta byte2
 	pha
 
-	clc		; Breite plus Höhe < 65?
-	adc byte3
-	cmp #65
+; ### 1.02 ab hier ---
+;
+; miniclip: 0 = Megaclip
+;           3 = echter (Mini-) Clip
+;           1 = schmaler als 40 
+;           2 = niedriger als 25
+
+	cmp #25		; > max. Höhe?
+	bcs +
+	lda miniclip	; ja, Flag an
+	ora #2
+	sta miniclip
++	lda byte3		; oder > max. Breite?
+	cmp #40
 	bcs gf3
-	sta miniclip	; ja, Flag für Miniclip setzen
-	
+	lda miniclip	; ja, Flag an
+	ora #1
+	sta miniclip
+
+; ### 1.02 bis hier ---
+
 gf3	pla
 	cmp #$22		; Höhe: 34?
 	bne gf2
@@ -236,13 +254,21 @@ sevvice	lda viceshot
 
 sevmclip	jsr initread
 
-	lda #25
-	ldx #40
-	ldy miniclip
-	beq fx11
-	lda byte2		; echte Höhe des Clips vorhanden?
-	ldx byte3		; echte Breite des Clips vorhanden?
-fx11	sta pho
+	lda #25		; max. Breite
+	ldx #40		; max. Höhe
+	ldy miniclip	; Megaclip?
+	beq fx11		; dann begrenzen auf max
+
+	dey		; ### 1.02: zu schmal?
+	beq ++		;           ja, echte Breite setzen, Höhe max
+	dey		;           zu hoch?
+	bne +
+	lda byte2		;           ja, echte Höhe setzen, Breite max
+	bne fx11
++	lda byte2		;           beides? dann echte Höhe
+++	ldx byte3		;                   und echte Breite 
+
+fx11	sta pho		; height of clip = 25 oder echt
 	stx rbr		; width of clip = 40 oder echt
 	jsr set4bit
 	
@@ -274,6 +300,7 @@ fx10	jsr basin		; Header überlesen
 	beq fx4		; nein
 
 fx6 	lda miniclip	; ja, kleiner Clip?
+	and #1		; ### 1.02
 	bne fx8		; ja, kein Skip
 	sec
 	lda pbr		; sonst:
