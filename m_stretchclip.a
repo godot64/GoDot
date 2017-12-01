@@ -1,0 +1,661 @@
+
+	*= $c000
+	!src "..\godotlib.lib"
+	!ct pet
+;	!sl "labels.txt"
+
+; --------------------------------------
+;
+; mod.stretchclip
+;
+;   0.99, 06.01.93, first release
+;   1.00, 30.07.03, fixed crash on ram exec
+;                   added blink 
+;   1.01, 06.08.03, fixed no clipwidth > 32
+;   1.02, 09.08.03, fixed crash at clipwidth=32
+;   1.03, 10.08.03, fixed right and bottom most pixel missing
+; 
+; -------------------------------------- 
+
+; -------------------------------------- equates
+
+	bbuf		= $30
+	dstcnt		= $30
+	dst		= $32
+	adcnt		= $34
+	src		= $35
+	linenr		= $38
+	colnr		= $39
+	blcnt		= $3b
+	sbak		= $3c
+	sum		= $3d
+	ybufstart		= $3f
+	bufend		= $40
+	null		= $41
+	which		= $42
+	tab		= $43
+
+	spr255		= $3fc0
+	
+	ybuf0		= $bf00
+	ytab0		= $c500
+	xtab0		= $c500
+	ybuf1		= $c600
+	xbuf0		= $c700
+	xbuf1		= $c900
+	
+	y2		= $d005
+	spren		= $d015
+	border		= $d020
+
+; -------------------------------------- header
+
+	jmp start
+	!by $20
+	!by 0
+	!by 0		; "dirty" removed (1.00)
+	!wo modend
+	!by 0
+	!by 0
+	!tx "stretch the clip"
+	!tx "1.03"
+	!tx "10.08.03"
+	!tx "w.kling/a.dettke"
+
+; -------------------------------------- main 
+
+start	jsr vres
+	jsr hres
+	jsr clearad
+	clc
+	rts
+
+; --------------------------------------
+
+vres	lda sc_lastclpho
+	cmp #25
+	bne vstart0
+	jmp graphon
+
+; --------------------------------------
+
+vstart0	lda sc_lastclpzl
+	asl
+	asl
+	asl
+	sta ybufstart
+	
+	lda sc_lastclpho
+	asl
+	asl
+	asl
+	clc
+	adc ybufstart
+	sta bufend
+	inc bufend	; v1.03
+	ldx sc_lastclpho
+	lda ystep0,x
+	sta ystep
+	lda ystep1,x
+	sta ystep+1
+	
+	lda #0
+	sta sum
+	sta sum+1
+	sta sbak
+	
+	ldy ybufstart
+vtab1	lda sum
+	clc
+	adc ystep
+	sta sum
+	lda sum+1
+	sta sbak
+	adc ystep+1
+	sta sum+1
+	sec
+	sbc sbak
+	sta ytab0,y
+	iny
+	cpy bufend
+	bne vtab1
+
+	lda #8
+	jsr initad
+	
+	ldy #0
+	tya
+vclrlp	sta ybuf1,y
+	iny
+	bne vclrlp
+
+	lda #0
+	sta colnr
+	sta colnr+1
+
+vloop00	lda colnr+1
+	lsr
+	sta src+1
+	lda colnr
+	ror
+	bcs odd0
+	ldx #$0f
+	!by $2c
+odd0	ldx #$f0
+	stx which
+	
+	tax
+	and #3
+	sta src
+	txa
+	and #$fc
+	asl
+	rol src+1
+	asl
+	rol src+1
+	asl
+	rol src+1
+	ora src
+	sta src
+	lda src+1
+	ora #$40
+	sta src+1
+	
+	ldx #0
+	stx null
+	
+vloop0	ldy #0
+vloop1	lda (src),y
+	bit which
+	bvs odd1
+	lsr
+	lsr
+	lsr
+	lsr
+odd1	and #$0f
+	sta ybuf0,x
+	beq nuls0
+	sta null
+nuls0	inx
+	iny
+	iny
+	iny
+	iny
+	cpy #32
+	bcc vloop1
+	
+	lda src+1
+	clc
+	adc #$05
+	sta src+1
+	cmp #$bd
+	bcc vloop0
+	
+	lda null
+	beq nextcol
+	
+	ldx #0
+	ldy ybufstart
+vsql	lda ytab0,y
+	sta sum
+	lda ybuf0,y
+vsql1	sta ybuf1,x
+	inx
+	dec sum
+	bne vsql1
+	iny
+	cpy bufend
+	bne vsql
+	
+	lda colnr+1
+	lsr
+	sta dst+1
+	lda colnr
+	ror
+	bcs odd2
+	ldx #$0f
+	!by $2c
+odd2	ldx #$f0
+	stx which
+	
+	tax
+	and #3
+	sta dst
+	txa
+	and #$fc
+	asl
+	rol dst+1
+	asl
+	rol dst+1
+	asl
+	rol dst+1
+	ora dst
+	sta dst
+	lda dst+1
+	ora #$40
+	sta dst+1
+	
+	ldx #0
+vloop2	ldy #0
+vloop3	lda ybuf1,x
+	bit which
+	bvs odd3
+	asl
+	asl
+	asl
+	asl
+odd3	sta bbuf
+	lda (dst),y
+	and which
+	ora bbuf
+	sta (dst),y
+	inx
+	iny
+	iny
+	iny
+	iny
+	cpy #32
+	bcc vloop3
+	
+	lda dst+1
+	clc
+	adc #$05
+	sta dst+1
+	cmp #$bd
+	bcc vloop2
+
+nextcol	inc colnr
+	bne vskip0
+	inc colnr+1
+vskip0	lda colnr
+	cmp #$40
+	bne vskip1
+	lda colnr+1
+	bne vok
+	
+vskip1	dec adcnt
+	bne vadskp
+	inc y2
+	inc y2+2
+	lda #8
+	sta adcnt
+vadskp	jmp vloop00
+vok	rts
+
+; -------------------------------------- 
+
+ystep	!by 0, 0
+
+ystep0	!by $00,$00,$80,$55,$40
+	!by $00,$2a,$92,$20,$c7
+	!by $80,$45,$15,$ec,$c1
+	!by $aa,$90,$78,$63,$50
+	!by $40,$30,$22,$16,$0a
+;
+ystep1	!by $00,$19,$0c,$08,$06
+	!by $05,$04,$03,$03,$02
+	!by $02,$02,$02,$01,$01
+	!by $01,$01,$01,$01,$01
+	!by $01,$01,$01,$01,$01
+
+; -------------------------------------- 
+
+hres	lda sc_lastclpbr
+	cmp #40
+	bne hstart0
+	jmp graphon
+	
+hstart0	lda #0
+	sta sum
+	sta sum+1
+	sta sbak
+
+	sta dstcnt+1
+	lda #>(xtab0)
+	sta tabstart+1
+	lda #>(xbuf0)
+	sta bufstart+1
+	lda sc_lastclpsp
+	asl
+	asl
+	asl
+	sta tabstart
+	sta bufstart
+	bcc xskip0
+	inc tabstart+1
+	inc bufstart+1
+	
+xskip0	ldx sc_lastclpbr
+	lda xstep0,x
+	sta xstep
+	lda xstep1,x
+	sta xstep+1
+	txa
+	asl
+	asl
+	asl
+	sta dstcnt
+	bcc xl01
+	inc dstcnt+1
+
+xl01	lda tabstart
+	ldx tabstart+1
+	sta tab
+	stx tab+1
+	
+	ldy #0
+	lda dstcnt+1
+	beq xloop1
+	lda dstcnt
+	beq xloop10	; v1.03
+	
+xloop0	lda sum
+	clc
+	adc xstep
+	sta sum
+	lda sum+1
+	sta sbak
+	adc xstep+1
+	sta sum+1
+	sec
+	sbc sbak
+	sta (tab),y
+	iny
+	bne xloop0
+	inc tab+1
+
+xloop1	inc dstcnt	; v1.03
+xloop10	lda sum		; v1.03
+	clc
+	adc xstep
+	sta sum
+	lda sum+1
+	sta sbak
+	adc xstep+1
+	sta sum+1
+	sec
+	sbc sbak
+	sta (tab),y
+	iny
+	cpy dstcnt
+	bne xloop10	; v1.03
+	lda dstcnt	; v1.03
+	beq xloop11	; v1.03
+	dec dstcnt	; v1.03
+	
+xloop11	lda #5		; v1.03
+	jsr initad
+	
+	ldy #0
+	tya
+hclrlp	sta xbuf1,y
+	sta xbuf1+256,y
+	iny
+	bne hclrlp
+	
+	lda #0
+	sta linenr
+hloop00	lda linenr
+	pha
+	lsr
+	lsr
+	lsr
+	tax
+	pla
+	and #$07
+	asl
+	asl
+	sta dst
+	lda line8,x
+	sta dst+1
+	
+	lda #<(xbuf0)
+	ldx #>(xbuf0)
+	sta src
+	stx src+1
+	
+	ldx #0
+	stx null
+	lda #40
+	sta blcnt
+hloop0	ldy #0
+hloop1	lda (dst),y
+	beq nuls1
+	sta null
+nuls1	pha
+	lsr
+	lsr
+	lsr
+	lsr
+	sta (src,x)
+	inc src
+	bne hskip0
+	inc src+1
+hskip0	pla
+	and #$0f
+	sta (src,x)
+	inc src
+	bne hskip1
+	inc src+1
+hskip1	iny
+	cpy #4
+	bne hloop1
+	
+	lda dst
+	clc
+	adc #32
+	sta dst
+	bcc hskip2
+	inc dst+1
+hskip2	dec blcnt
+	bne hloop0
+	
+	lda null
+	bne xdoit
+	jmp nextline
+	
+xdoit	lda #<(xbuf1)
+	ldx #>(xbuf1)
+	sta dst
+	stx dst+1
+
+	lda bufstart
+	ldx bufstart+1
+	sta src
+	stx src+1
+	
+	lda tabstart
+	ldx tabstart+1
+	sta tab
+	stx tab+1
+	
+	ldx #0
+	ldy #0
+	lda dstcnt+1
+	beq xloop3
+	lda dstcnt
+	beq xloop30	; v1.03
+
+xloop2	lda (tab),y
+	sta sum
+	lda (src),y
+xl2	sta (dst,x)
+	inc dst
+	bne xl1
+	inc dst+1
+xl1	dec sum
+	bne xl2
+	iny
+	bne xloop2
+	inc tab+1
+	inc src+1
+
+xloop3	inc dstcnt	; v1.03
+xloop30	lda (tab),y
+	sta sum
+	lda (src),y
+xl4	sta (dst,x)
+	inc dst
+	bne xl3
+	inc dst+1
+xl3	dec sum
+	bne xl4
+ 	iny
+	cpy dstcnt
+	bne xloop30	; v1.03
+	lda dstcnt	; v1.03
+	beq xloop12	; v1.03
+	dec dstcnt	; v1.03
+	
+xloop12	lda linenr	; v1.03
+	pha
+	lsr
+	lsr
+	lsr
+	tax
+	pla
+	and #$07
+	asl
+	asl
+	sta dst
+	lda line8,x
+	sta dst+1
+	
+	lda #<(xbuf1)
+	ldx #>(xbuf1)
+	sta src
+	stx src+1
+	ldx #0
+	lda #40
+	sta blcnt
+hloop2	ldy #0
+hloop3	lda (src,x)
+	asl
+	asl
+	asl
+	asl
+	inc src
+	bne hskip3
+	inc src+1
+hskip3	ora (src,x)
+	inc src
+	bne hskip4
+	inc src+1
+hskip4	sta (dst),y
+	iny
+	cpy #4
+	bne hloop3
+	
+	lda dst
+	clc
+	adc #32
+	sta dst
+	bcc hskip5
+	inc dst+1
+hskip5	dec blcnt
+	bne hloop2
+
+nextline	inc linenr
+	lda linenr
+	cmp #200
+	beq hok
+	
+	dec adcnt
+	bne adskp
+	inc y2
+	inc y2+2
+	lda #5
+	sta adcnt
+adskp	jmp hloop00
+hok	rts
+
+; -------------------------------------- 
+
+line8	!by $40, $45, $4a, $4f, $54
+	!by $59, $5e, $63, $68, $6d
+	!by $72, $77, $7c, $81, $86
+	!by $8b, $90, $95, $9a, $9f
+	!by $a4, $a9, $ae, $b3, $b8
+
+xstep	!by 0, 0
+tabstart	!by 0, 0
+bufstart	!by 0, 0
+
+xstep0	!by $00,$00,$00,$55,$00
+	!by $00,$aa,$b6,$00,$71
+	!by $00,$a2,$55,$13,$db
+	!by $aa,$80,$5a,$38,$1a
+	!by $00,$e7,$d1,$bd,$aa
+	!by $99,$89,$7b,$6d,$61
+	!by $55,$4a,$40,$36,$2d
+	!by $24,$1c,$14,$0d,$06
+;
+xstep1	!by $00,$28,$14,$0d,$0a
+	!by $08,$06,$05,$05,$04
+	!by $04,$03,$03,$03,$02
+	!by $02,$02,$02,$02,$02
+	!by $02,$01,$01,$01,$01
+	!by $01,$01,$01,$01,$01
+	!by $01,$01,$01,$01,$01
+	!by $01,$01,$01,$01,$01
+
+; -------------------------------------- 
+
+clearad	lda spren
+	and #$f3
+	sta spren
+	lda spritehi
+	and #$f3
+	sta spritehi
+	rts
+
+initad	sta adcnt
+	ldy #60
+	lda #0
+adl0	sta spr255+3,y
+	dey
+	bpl adl0
+	sty spr255
+	sty spr255+1
+	sty spr255+2
+	sty gr_redisp
+	lda #15
+	sta $d029
+	sta $d02a
+	lda $d01d
+	ora #$0c
+	sta $d01d
+	lda spritehi
+	ora #$0c
+	sta spritehi
+	lda #8
+	sta $d004
+	lda #32
+	sta $d006
+	
+	lda #146
+	sta y2
+	sta y2+2
+	sty $07fa
+	sty $07fb
+	lda spren
+	ora #$0c
+	sta spren
+	rts
+
+; -------------------------------------- 
+
+graphon	lda border
+	pha
+	lda #2
+	sta border
+	ldx #$40
+	jsr gd_dl2
+	pla
+	sta border
+	clc
+	rts
+
+; -------------------------------------- 
+
+modend	!eof
