@@ -1,0 +1,559 @@
+
+	*= $c000
+	!src "..\godotlib.lib"
+	!ct pet
+
+; --------------------------------------
+;
+; mod.RandomMoveLeft
+;
+;   1.00,         , first release
+;   1.01, 10.04.93, added color chooser, new gui
+;
+; -------------------------------------- 
+
+; -------------------------------------- Equates
+
+	adcnt		= $30
+	src		= $35
+	dst		= $37
+	linenr		= $39
+	blcnt		= $3a
+	bbuf		= $3b
+	dist		= $3c
+	sum		= $3d
+	rtemp		= sum
+
+	sprptr		= $07f8
+	spr255		= $3fc0
+
+	rndtab		= $c500
+	buf0		= $c600
+	buf1		= $c800
+	buf2		= $ca00
+	buf3		= $cc00
+
+	x2		= $d004
+	y2		= x2+1
+	spren		= $d015
+	sprcol2		= $d029
+	sprxe		= $d01d
+
+	osc3		= $d40e
+	wave		= $d412
+	filt		= $d418
+	noise		= $d41b
+
+; -------------------------------------- Header
+
+	jmp start
+	!by $20
+	!by $00,$00
+	!wo (modend)
+	!by $00,$00
+	!tx "random move left"
+	!tx "1.01"
+	!tx "10.04.93"
+	!tx "W.Kling/A.Dettke"
+
+addtxt	!tx "                "
+	!tx "data x+rnd(1)   "
+	!tx "upto x+rnd(63)  "
+	!by 0
+
+; -------------------------------------- Requester
+
+requ	ldx #<(rmllst)
+	ldy #>(rmllst)
+	jsr gd_screen
+	sta sc_loop
+	ldx palgad
+	inx 
+	stx palzl
+	stx sc_zl
+	ldx palgad+1
+	inx 
+	stx palsp
+	stx sc_sp
+	ldx #4
+	stx sc_br
+	stx sc_ho
+	jsr gd_esm3
+	jmp makepal
+
+; -------------------------------------- Main
+
+start	jsr requ		; output requester
+	lda clrcol	; save values
+	sta mcol
+	lda speed
+	sta mspeed
+	jsr ziff		; output digits
+	jmp gd_eloop	; wait for mouse events
+
+; -------------------------------------- Output Digits to Screen
+
+ziff	pha 
+	lda #<(ziffern)	; first init position on screen
+	sta sc_screentab
+	lda #>(ziffern)
+	sta sc_screentab+1
+	lda #0
+	tax 
+	tay 
+gt0	jsr gd_setpos
+	cpx #3
+	bne gt0
+	stx sc_ho
+	jsr gd_trim
+	jsr gd_initmove
+	pla 
+	jsr gd_xcnvdez	; then make digits
+	ldy #8
+	sta ziffern,y
+	dey 
+	txa 
+	and #15
+	bne zi0
+	ldx #32
+zi0	txa 
+	sta ziffern,y
+	dey 
+	jmp gd_xtxout1	; and output
+
+; -------------------------------------- Event: Increment "Speed"
+
+evincsp	ldy speed		; inc distance to spread pixels ("speed")
+	iny 
+	cpy #64		; max. 63
+	bne isp0
+	ldy #1		; min. 1
+isp0	sty speed
+	tya 
+	jsr ziff		; show digits
+	clc 
+	rts 
+
+; -------------------------------------- Event: Decrement "Speed"
+
+evdecsp	ldy speed		; dec pixel distance ("speed")
+	dey 
+	bne isp0
+	ldy #63
+	bne isp0
+
+; -------------------------------------- Event: Cancel
+
+evrmlcan	lda mspeed	; Restore start values
+	sta speed
+	lda mcol
+	sta clrcol
+	sec 
+	rts 
+
+; -------------------------------------- Event: Accept
+
+evrmlacc	jsr initad	; re-init gauge
+	lda #$80		; init random feed
+	sta filt
+	sta osc3
+	sta osc3+1
+	lda #0
+	sta wave
+	lda #$81
+	sta wave
+
+	ldx speed		; take "speed"
+	inx 
+	stx dist
+	jsr mkrndtab	; and make a spreading table
+	jsr clrlines	; fill buffers with chosen color
+
+	lda #$00		; start with raster line 0
+	sta linenr
+	jsr getline 	; get first line
+loop00	jsr copy		; copy line
+	inc linenr
+	jsr getline	; get next line
+	jsr process	; process them
+	dec linenr
+	jsr putline	; put line to 4bit
+	jsr adinc		; activity
+	inc linenr
+	lda linenr
+	cmp #199		; end up with raster line 199
+	bne loop00
+
+	jsr clrline2	; process last line
+	jsr process
+	jsr putline
+	jmp exit
+
+; -------------------------------------- Produce Random Values Table
+
+mkrndtab	lda #0
+	sta sum
+	sta sum+1
+	sta rndtab
+	ldx #1
+rt0	lda sum
+	clc 
+	adc dist
+	sta sum
+	bcc rs0
+	inc sum+1
+rs0	lda sum+1
+	sta rndtab,x
+	inx 
+	bne rt0
+	rts 
+
+; -------------------------------------- Fill Gap with chosen Color
+
+clrlines	lda colind
+	ldy #0
+cll	sta buf0,y
+	sta buf0+256,y
+	sta buf1,y
+	sta buf1+256,y
+	sta buf2,y
+	sta buf2+256,y
+	iny 
+	bne cll
+	rts 
+
+; -------------------------------------- Fill last Gap
+
+clrline2	lda colind
+	ldy #0
+cll2	sta buf2,y
+	sta buf2+256,y
+	iny 
+	bne cll2
+	rts 
+
+; -------------------------------------- Process Raster line Pixels
+
+process	ldy #0		; left half
+pl	ldx noise
+	lda rndtab,x	; get pixel
+	sta rtemp
+	tya 
+	clc 
+	adc rtemp
+	tax 
+	lda buf1,x	; spread
+	sta buf3,y
+
+	ldx noise		; right half
+	lda rndtab,x
+	sta rtemp
+	tya 
+	clc 
+	adc rtemp
+	tax 
+	lda buf1+160,x
+	sta buf3+160,y
+	iny 
+	cpy #160
+	bne pl
+	rts 
+
+; -------------------------------------- Handle Activity Indicator
+
+adinc	dec adcnt		; show activity
+	bne adskip
+	inc y2
+	inc y2+2
+	lda #5
+	sta adcnt
+adskip	rts 
+
+; -------------------------------------- Copy buffers 1>0 - 2>1
+
+copy	ldy #0
+lc	lda buf1,y
+	sta buf0,y
+	lda buf1+160,y
+	sta buf0+160,y
+	lda buf2,y
+	sta buf1,y
+	lda buf2+160,y
+	sta buf1+160,y
+	iny 
+	cpy #160
+	bne lc
+	rts 
+
+; -------------------------------------- Retrieve 4Bit Pixels
+
+getline	lda linenr
+	pha 
+	lsr 
+	lsr 
+	lsr 
+	tax 
+	pla 
+	and #$07
+	asl 
+	asl 
+	sta dst
+	lda line8,x
+	sta dst+1
+
+	lda #<(buf2)
+	ldx #>(buf2)
+	sta src
+	stx src+1
+	ldx #0
+	lda #40
+	sta blcnt
+loop0	ldy #0
+loop1	lda (dst),y
+	pha 
+	lsr 
+	lsr 
+	lsr 
+	lsr 
+	sta (src,x)
+	inc src
+	bne skip0
+	inc src+1
+skip0	pla 
+	and #$0f
+	sta (src,x)
+	inc src
+	bne skip1
+	inc src+1
+skip1	iny 
+	cpy #4
+	bne loop1
+	lda dst
+	clc 
+	adc #32
+	sta dst
+	bcc skip2
+	inc dst+1
+skip2	dec blcnt
+	bne loop0
+	rts 
+
+; -------------------------------------- Store processed 4Bit Pixels
+
+putline	lda linenr
+	pha 
+	lsr 
+	lsr 
+	lsr 
+	tax 
+	pla 
+	and #$07
+	asl 
+	asl 
+	sta dst
+	lda line8,x
+	sta dst+1
+
+	lda #<(buf3)
+	ldx #>(buf3)
+	sta src
+	stx src+1
+	ldx #0
+	lda #40
+	sta blcnt
+loop2	ldy #0
+loop3	lda (src,x)
+	asl 
+	asl 
+	asl 
+	asl 
+	inc src
+	bne skip3
+	inc src+1
+skip3	ora (src,x)
+	inc src
+	bne skip4
+	inc src+1
+skip4	sta (dst),y
+	iny 
+	cpy #4
+	bne loop3
+	lda dst
+	clc 
+	adc #32
+	sta dst
+	bcc skip5
+	inc dst+1
+skip5	dec blcnt
+	bne loop2
+	rts 
+
+; -------------------------------------- 
+
+line8	!by $40,$45,$4a,$4f,$54
+	!by $59,$5e,$63,$68,$6d
+	!by $72,$77,$7c,$81,$86
+	!by $8b,$90,$95,$9a,$9f
+	!by $a4,$a9,$ae,$b3,$b8
+
+; -------------------------------------- Activity Handler
+
+exit	lda spren
+	and #243
+	sta spren
+	lda spritehi
+	and #243
+	sta spritehi
+	lda #$ff
+	sta gr_redisp
+	sec 
+	rts 
+
+initad	ldy #60
+	lda #0
+adl0	sta spr255+3,y
+	dey 
+	bpl adl0
+	lda #$ff
+	sta spr255
+	sta spr255+1
+	sta spr255+2
+	lda #15
+	sta sprcol2
+	sta sprcol2+1
+	lda sprxe
+	ora #12
+	sta sprxe
+	lda spritehi
+	ora #12
+	sta spritehi
+	lda #8
+	sta x2
+	lda #32
+	sta x2+2
+
+	lda #146
+	sta y2
+	sta y2+2
+	sty sprptr+2
+	sty sprptr+3
+	lda spren
+	ora #12
+	sta spren
+	lda #5
+	sta adcnt
+	rts 
+
+; -------------------------------------- Init Color Chooser
+
+makepal	lda clrcol
+	sta plast
+	lda palsp
+	sta sc_sp
+	pha 
+	lda palzl
+	sta sc_zl
+	ldx #1
+	stx sc_br
+	stx sc_ho
+	dex 
+	stx cnty
+	stx rtemp
+mp1	stx cntx
+	ldy rtemp
+	lda basepal,y
+	sta sc_chgcol
+	ldx #4
+	jsr gd_fcol
+	ldy sc_chgcol
+	cpy plast
+	bne mp2
+	ldy #0
+	sec 
+	lda sc_vekt20
+	sbc #40
+	sta sc_vekt20
+	lda sc_vekt20+1
+	sbc #$d4
+	sta sc_vekt20+1
+	lda #171		; set "+"
+	sta (sc_vekt20),y
+mp2	inc sc_sp
+	inc rtemp
+	ldx cntx
+	inx 
+	cpx #4
+	bne mp1
+	pla 
+	pha 
+	sta sc_sp
+	ldx #0
+	inc sc_zl
+	inc cnty
+	lda cnty
+	cmp #4
+	bne mp1
+	pla 
+	rts 
+
+; -------------------------------------- Event: Get Fill Gap Color
+
+evgetcol	sec 
+	lda sc_merk	; clicked where?
+	sbc palzl
+	asl 
+	asl 
+	sta rtemp
+	sec 
+	lda sc_merk+1
+	sbc palsp
+	clc 
+	adc rtemp
+	tax 
+	sta colind
+	lda basepal,x	; get color there
+	sta clrcol
+	jsr requ		; show ("+")
+	clc 
+	rts 
+
+; -------------------------------------- Variables
+
+speed	!by 8
+palzl	!by 0
+palsp	!by 0
+plast	!by 0
+cntx	!by 0
+cnty	!by 0
+mspeed	!by 0
+mcol	!by 0
+colind	!by 0
+clrcol	!by 0
+
+basepal	!by 0,6,9,11,2,4,8,12,14,10,5,15,3,7,13,1
+
+; -------------------------------------- Screenlist
+
+rmllst	!by 0
+	!by 9,10,18,14,$81,0,0
+	!scr "Random Move Left@"
+palgad	!by 16,11,6,6,$60,<(evgetcol),>(evgetcol)
+	!by 13,17,3,3,$c0,<(evdecsp),>(evdecsp)
+	!by 60,0				; "<" (less)
+ziffern	!by 13,20,4,3,$a0,0,0
+	!by 32,$38,0			; distance (" 8")
+	!by 13,24,3,3,$c0,<(evincsp),>(evincsp)
+	!by 62,0				; ">" (more)
+	!by 16,17,10,3,$c0,<(evrmlacc),>(evrmlacc)
+	!scr " Accept @"
+	!by 19,17,10,3,$c0,<(evrmlcan),>(evrmlcan)
+	!scr " Cancel @"
+	!by $c0,14,11,4
+	!scr "Fill@"
+	!by $c0,11,17,8
+	!scr "Distance@"
+	!by $80
+
+; -------------------------------------- 
+
+modend	!eof 
