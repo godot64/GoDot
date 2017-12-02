@@ -1,0 +1,551 @@
+
+	*= $c000
+	!src "..\godotlib.lib"
+	!ct pet
+
+; --------------------------------------
+;
+; mod.MineSweeper
+;
+;   0.99, 13.10.94, first release
+;   1.00, 20.10.94, added: capability of starting over
+;
+; --------------------------------------
+
+; ------------------------------------- Declarations
+
+	mfeld      = $30
+	fcount     = $32
+	mcount     = $33
+	lcount     = $34
+	amerk      = $35
+	nullfl     = $36
+	vektab     = $37
+	adcnt      = $3e
+	dst0       = $40
+	dst        = $42
+
+	status     = $90
+	geraet     = $9a
+	zeile      = $b0
+	spalte     = $b1
+
+	text0      = $122b
+
+	rausch     = $d41b
+
+	feld       = (playgrnd+11)-256
+	ntabzl     = $c500
+	ntabsp     = ntabzl+256
+
+; ------------------------------------- Header
+
+header	jmp start
+	!by $20
+	!by 0
+	!by 0
+	!wo modend
+	!wo 0
+	!tx "MineSweeper GoD!"
+	!tx "1.00"
+	!tx "20.10.94"
+	!tx "A.Dettke	  "
+
+; ------------------------------------- Main
+
+start	jsr makechar	; define new character
+	jsr random	; initialize random value generator
+	jsr evplay	; Start new game
+	jsr gd_eloop	; wait for activity (mouse clicks)
+canc	sec		; leave Minesweeper
+	rts
+
+; ------------------------------------- Define char 
+
+makechar	lda #$7e		; %01111110, all lines
+	ldy #7
+mc0	sta sc_undochar,y
+	dey
+	bpl mc0
+	lda #$3e		; %00111110, second to top line
+	sta sc_undochar+1
+	lda #0		; %00000000, topmost line
+	sta sc_undochar
+	sta sc_undochar+7	; bottommost line
+	rts
+
+; ------------------------------------- Text to screen Handler
+
+gettab	lda #<(secgad)	; locate display of number of non-mines
+	sta sc_screentab
+	lda #>(secgad)
+gt1	sta sc_screentab+1
+	lda #0
+	tax
+	tay
+gt0	jsr gd_setpos	; set parameters (zl,sp,br,ho)
+	cpx #4
+	bne gt0
+	jsr gd_trim	; trim to contents of gadget
+	jmp gd_initmove	; compute address in memory
+
+; ------------------------------------- Initialize random value using SID noise
+
+random	ldx #$80
+	stx $d418		; voice 3 mute
+	stx $d40e		; set oscillator 3 frequency
+	stx $d40f
+	lda #0
+	sta $d412		; voice 3 off
+	inx
+	stx $d412		; noise on/sound on
+	rts
+
+; ------------------------------------- Set number of neighbour cells with a mine
+
+setnb	lda #<(feld)	; pointer to the first cell of playground
+	sta mfeld
+	lda #>(feld)	; (minus 256)
+	sta mfeld+1
+	ldx #0
+	ldy #0
+	stx fcount	; line index counter (cells of 1 line)
+	stx lcount	; line counter
+
+sn5	stx mcount	; neighbour mine counter (first: 0)
+	inc mfeld+1
+
+	lda (mfeld),y	; get cell contents
+	php
+	dec mfeld+1
+	plp
+	bpl sn10		; a mine?
+
+	dec fcount	; yes, don't increase line index (see at sn11)
+	inc mfeld+1	; it has just been decremented, so increase now
+	bne sn11		; proceeding to next cell to check (a must jump)
+
+sn10	ldy #$f4		; no mine, index pointing to current cell-11,
+			; which is the upper left neighbour cell, how
+			; many mines are neighbours to the current cell?
+
+sn1	iny		; check (next) neighbour
+	bne sn6
+	inc mfeld+1	; if .y=zero set .y to 1, check nb to the right
+	bne sn1		; and below now
+
+sn6	lda (mfeld),y	; a mine?
+	bpl sn0		; no, proceed
+	and #1		; could it be a bordercell instead?
+	beq sn0		; yes, don't count
+	inc mcount	; otherwise count neighbours
+
+sn0	inx		; index into list of indexes to the nb cells
+	cpx #3		; if 3: upper nb checked, now to left nb
+	beq sn2
+	cpx #5		; if 5: left&right nb checked, now to bottom nb
+	beq sn2
+	cpx #8		; if 8: all checked
+	beq sn3		; set number of neighbours (into playground)
+	bne sn1
+
+sn2	lda yps,x		; getting new index 
+	tay
+	bne sn1		; a must jump
+
+sn3	lda mcount	; get number of nb
+	ldy #0
+	sta (mfeld),y	; set into playground
+
+sn11	inc mfeld		; proceed to next cell
+	bne sn4
+	inc mfeld+1
+
+sn4	dec mfeld+1	; decrement for pointing to upper nb
+	inc fcount	; count cell in line
+	lda fcount	; all?
+	cmp #8
+	beq sn7
+
+sn8	ldx #0		; no, index to zero
+	beq sn5		; must jump
+
+sn7	sty fcount	; line index to zero (.y=0) 
+	inc lcount	; next line
+	lda lcount	; all through?
+	cmp #8
+	bne sn8
+	rts		; yes, finished
+
+; ------------------------------------- Event: Start new game
+
+evplay	ldy #2		; delete number displaying cells still to find
+	lda #32
+pl0	sta txsec,y
+	dey
+	bpl pl0
+	sty nullfl	; initialize counter for recursion depth to $ff
+	iny
+	sty secd		; ??? (remainder)
+	jsr mkfield	; initialize visible playground
+	jsr setnb		; count number of mines that are neighbours
+			; to a cell
+	ldx #<(minelst)	; output playground to screen
+	ldy #>(minelst)
+	jsr gd_screen
+
+	lda #54		; number of 'undangerous' cells (non-mines)
+	sta rest
+	jsr mcnt2		; initialize this number
+	jsr gettab	; and display it
+	ldy #6
+	jsr gd_xtxout1
+
+setcol	lda fldgad+2	; playground:
+	sta sc_br		; width
+	lda fldgad+3
+	sta sc_ho		; height
+	lda fldgad
+	sta sc_zl		; row
+	lda #8		; color = orange
+	sta sc_chgcol
+	lda fldgad+1
+	sta sc_sp		; column
+
+	jsr gd_trim	; trim to the contents of the playground
+	ldx #4		; colorize it
+	jsr gd_fcol
+	clc		; finished, now play
+	rts
+
+; ------------------------------------- Set colors (part of evset)
+
+colorize	lda #<(field)	; set position of visible playground
+	sta sc_screentab
+	lda #>(field)	; hibyte will be set in gt1
+	sta sc_loop	; flag for colorram (if >0)
+	jsr gt1		; compute memory address
+
+	lda #0		; row counter
+	sta amerk
+clr2	jsr setln		; set vectors for pground
+	ldy #0
+clr0	lda (ls_vekta8),y	; get contents of cell
+	bmi clr1		; a mine? Yes, skip
+	and #$40		; already checked?
+	bne clr1		; Yes, skip
+	lda (vektab),y	; a number (of nb)
+	and #15
+	tax
+	lda colors,x	; get particular color
+	sta (sc_vekt20),y	; and set
+clr1	iny		; next column
+	cpy #8
+	bne clr0
+
+	jsr gd_plus40	; add 40 to memory vector (next row)
+	inc amerk
+	lda amerk		; all rows?
+	cmp #8
+	bne clr2
+	rts		; yes, finished
+
+; ------------------------------------- Place mines in the playground
+
+mkfield	lda #0		; counter to zero
+	sta amerk
+mf2	jsr setln		; set vectors to playground
+
+	ldx #8		; ??? (remainder)
+	ldy #0
+mf1	lda #0		; initialize pg with zero
+	sta (vektab),y
+	lda #$df		; and visible pg with new char
+	sta (ls_vekta8),y
+	iny
+	cpy #8
+	bne mf1
+	inc amerk		; 8 rows
+	lda amerk
+	cmp #8
+	bne mf2
+
+	ldx #10		; mine counter (10 mines)
+	stx amerk
+mf0	lda rausch	; random value between 0 and 7
+	and #7
+	jsr setln		; as (row) index into pground
+	lda rausch	; random value between 0 and 7
+	and #7
+	tay		; as (column) index into pg
+	lda (vektab),y	; get contents of that cell
+	bne mf0		; other than zero, try again
+	lda #$81		; set mine
+	sta (vektab),y
+	dec amerk		; decrease number of mines still to set
+	bne mf0
+	rts		; finished
+
+; ------------------------------------- Event: Play the game
+
+evset	lda rest		; number of non-mine cells ### 1.00: start over
+	bne evset2
+	jmp evplay	; if zero: new game
+
+evset2	lda spalte	; column of mouseclick
+	sec		; minus left border of playground
+	sbc #7
+	beq est01		; inside of playground?
+	bcc est0
+est01	cmp #8
+	bcc est1
+
+est0	lda #$80		; no, don't react
+est1	sta xo		; otherwise: check row
+	tay
+	bmi est3
+
+	lda zeile		; row of mouseclick
+	sec		; minus top border of playground
+	sbc #9
+	beq est02		; inside?
+	bcc est2
+est02	cmp #8
+	bcc est3
+
+est2	lda #$80		; no, don't react
+est3	sta yo		; otherwise: check cell
+	tay
+	bmi jtilt
+
+	jsr setln		; set vectors to the cell
+	ldy xo
+	lda (vektab),y	; check cell in playground
+	bmi jtilt		; was a mine!
+	beq null		; was empty, reveal all empty neighbours
+	tax
+	and #$40		; cell already checked?
+	bne through	; yes, finished
+
+	txa		; was a number, display it (number of nb)
+	jsr gd_xcnvdez	; convert from hex to petscii
+	sta (ls_vekta8),y	; set into visible playground
+	lda (vektab),y	; set checksign to playground
+	ora #$40
+	sta (vektab),y
+
+est5	jsr mcnt		; decrease number of undangerous cells
+	jsr gettab	; display on screen
+	ldy #6
+	jsr gd_xtxout1
+
+est51	lda #<(field-1)	; display whole playground
+	sta sc_screentab
+	lda #>(field-1)
+	sta sc_screentab+1
+	ldy #0
+	lda #$c0
+	jsr text0		; chars
+	jsr setcol	; global color (orange)
+	jsr colorize	; special colors (numbers)
+through	clc		; finished
+	rts
+
+jtilt	jmp tilt
+
+; ------------------------------------- Reveal all neighbour cells that are empty
+
+null	lda #32		; recursion: reveal empty cells until none to be found anymore
+	sta (ls_vekta8),y	; SPACE to visible playground
+	lda (vektab),y	; checksign to playground
+	ora #$40
+	sta (vektab),y
+	inc nullfl	; set flag
+	dec rest		; decrease number of undangerous cells
+
+	ldx nullfl	; becomes index into recursion stack
+	lda zeile		; store row
+	sta ntabzl,x
+	lda spalte	; store column
+	sta ntabsp,x
+
+null2	dec spalte	; upper left neighbour
+	dec zeile
+	jsr evset2	; simulate a mouseclick there (play)
+			; if check is positive (also an empty cell)
+			; recursion starts, of that cell will also
+			; be checked its upper left nb and so on...
+
+	inc spalte	; upper neighbour 
+	jsr evset2	; play
+	inc spalte	; upper right neighbour
+	jsr evset2	; play
+	dec spalte	; left nb
+	dec spalte
+	inc zeile
+	jsr evset2	; play
+	inc spalte	; right nb
+	inc spalte
+	jsr evset2	; play
+	dec spalte	; bottom left nb
+	dec spalte
+	inc zeile
+	jsr evset2	; play
+	inc spalte	; bottom nb
+	jsr evset2	; play
+	inc spalte	; bottom right nb
+	jsr evset2	; play
+
+	ldx nullfl	; end of recursion?
+	beq nullend	; yes, finished
+
+	pla		; leave most recent recursion level
+	pla
+	dex		; set next cell to check
+	stx nullfl
+	lda ntabzl,x
+	sta zeile
+	lda ntabsp,x
+	sta spalte
+	jmp null2		; and check it
+
+nullend	dec nullfl	; initialize flag (as $ff)
+	jmp est51		; output playground to screen
+
+; ------------------------------------- Stepped onto a mine?
+
+tilt	and #1		; was it the border?
+	bne dead
+	clc		; yes, don't react
+	rts
+
+dead	lda $d020		; you 'found' a mine!
+	pha		; flash border
+	lda #2
+	sta $d020
+	ldx #100
+	jsr gd_dl2
+	pla
+	sta $d020
+	lda #0		; set number of non-mines to zero
+	sta rest
+	sta amerk
+
+dd2	jsr setln		; show mines
+	ldy #0
+dd1	lda (vektab),y
+	bmi dd0
+dd3	iny
+	cpy #8
+	bne dd1
+	inc amerk
+	lda amerk
+	cmp #8
+	bne dd2
+	jmp est51		; and output to screen
+
+dd0	lda #$09		; depict them
+	sta (vektab),y
+	lda #$2a
+	sta (ls_vekta8),y
+	bne dd3
+
+; ------------------------------------- Show number of non-mines on screen
+
+mcnt	dec rest		; tilt?
+mcnt2	lda rest
+	beq fine		; no, you made it!
+
+mcnt3	jsr gd_xcnvdez	; output new counter
+	sta txsec+2
+	cpx #48		; "0"?
+	bne est7
+	ldx #32		; dann Space
+est7	txa
+	sta txsec+1
+	rts
+
+fine	jsr mcnt3		; show "0"
+	jsr dead		; flash border, show mines
+	ldx #100
+	jsr gd_dl2
+	jsr dead		; again
+	lda #<(madeit)	; show text
+	sta sc_screentab
+	lda #>(madeit)
+	jsr gt1
+	ldy #6
+	jmp gd_xtxout1	; finished
+
+; ------------------------------------- Set vectors for both visible and non
+;			   visible playgrounds
+
+setln	tax
+	asl
+	tay
+	lda lines,y	; visible
+	sta ls_vekta8
+	lda lines+1,y
+	sta ls_vekta8+1
+	lda plines,y	; non visible
+	sta vektab
+	lda plines+1,y
+	sta vektab+1
+	txa
+	rts
+
+; ------------------------------------- Screenlist for output
+
+minelst	!by 0
+	!by 7,21,19,11,$81,0,0
+	!scr "MineSweeper@"
+secgad	!by 6,4,14,14,$92,0
+txsec	!by 0,32,$30,32,32,32,32,32,32,32,32,32,32,0
+fldgad	!by 8,6,10,10,$60,<(evset),>(evset)
+	!by 13,21,19,3,$ca,<(evplay),>(evplay)
+	!scr "Start new Game@"
+	!by 15,21,19,3,$cb,<(canc),>(canc)
+	!scr "Leave MineSweeper@"
+	!by $c0,10,21,17
+	!scr "Mines to find: 10@"
+	!by $c0			; visible playground
+field	!by 8,6,8
+line1	!by $df,$df,$df,$df,$df,$df,$df,$df,0,$c0,9,6,8
+line2	!by $df,$df,$df,$df,$df,$df,$df,$df,0,$c0,10,6,8
+line3	!by $df,$df,$df,$df,$df,$df,$df,$df,0,$c0,11,6,8
+line4	!by $df,$df,$df,$df,$df,$df,$df,$df,0,$c0,12,6,8
+line5	!by $df,$df,$df,$df,$df,$df,$df,$df,0,$c0,13,6,8
+line6	!by $df,$df,$df,$df,$df,$df,$df,$df,0,$c0,14,6,8
+line7	!by $df,$df,$df,$df,$df,$df,$df,$df,0,$c0,15,6,8
+line8	!by $df,$df,$df,$df,$df,$df,$df,$df,0
+	!by $80
+
+; ------------------------------------- Variables
+
+madeit	!by 17,6,10,3,0,0,0
+	!scr "Made it!@"
+yps	!by 0,0,0,$fe,0,8
+secd	!by 0
+yo	!by 0
+xo	!by 0
+lines	!wo line1,line2,line3,line4,line5,line6,line7,line8
+plines	!wo pl1,pl2,pl3,pl4,pl5,pl6,pl7,pl8
+colors	!by 0,5,10,14,4,12,3,7,1,7
+rest	!by 54
+
+; ------------------------------------- Non visible playground
+
+playgrnd	!by $80,$80,$80,$80,$80,$80,$80,$80,$80,$80,$80
+pl1	!by $00,$00,$00,$00,$00,$00,$00,$00,$80,$80
+pl2	!by $00,$81,$00,$00,$00,$00,$00,$00,$80,$80
+pl3	!by $00,$00,$00,$00,$00,$81,$00,$00,$80,$80
+pl4	!by $00,$81,$00,$00,$00,$00,$00,$00,$80,$80
+pl5	!by $00,$00,$00,$00,$81,$00,$00,$00,$80,$80
+pl6	!by $00,$81,$00,$00,$00,$81,$00,$81,$80,$80
+pl7	!by $00,$00,$81,$00,$00,$00,$00,$00,$80,$80
+pl8	!by $00,$81,$00,$00,$81,$00,$00,$00,$80,$80
+	!by $80,$80,$80,$80,$80,$80,$80,$80,$80
+
+; ------------------------------------- 
+
+modend	!eof
