@@ -285,6 +285,7 @@ setxy	jsr swapspr	; get sprite
 kl	lda sc_keyprs	; wait for keyboard
 	bne ok
 	lda joy
+	and #16
 	bne kl
 ok	jsr swapspr	; then re-get mouse sprite
 	rts
