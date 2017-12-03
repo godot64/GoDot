@@ -1,0 +1,352 @@
+
+	*= $c000
+	!src "..\godotlib.lib"
+	!ct pet
+
+; --------------------------------------
+;
+; mod.StampSprite
+;   Stamp a mono sprite into 4Bit
+;   uses a superfast preview method (see pprev)
+;   study to test how to transfer sprites to 4bit pixelexactly
+;   - no loading of different sprites yet
+;   - no color chooser yet
+;
+;   0.99, 25.08.93, first release (functionality study)
+;
+; -------------------------------------- 
+
+; -------------------------------------- Equates
+
+	adcnt		= $30
+	src		= $35	; $36
+	dst		= $37	; $38
+	dst0		= $39	; $3a
+	linenr		= $3b
+	blcnt		= $3c
+	bcnt		= $3d
+	btcnt		= $3e
+	lcnt		= $3f
+	xbuf		= $40
+	byte		= $41
+	sprx		= $42	; $43
+	spry		= $44
+	stcol		= $45
+
+	sprptr		= $07f8
+	spr255		= $3fc0
+
+	buf0		= $cc00
+
+	sprx0		= $d000
+	spry0		= $d001
+	x2		= $d004
+	y2		= $d005
+	spren		= $d015
+	sprxe		= $d01d
+	sprcol2		= $d029
+
+	cram		= $d800
+
+; -------------------------------------- 
+
+	jmp start
+	!by $20
+	!by $00,$00
+	!wo modend
+	!wo 0
+	!tx "stamp monosprite"
+	!tx "0.99"
+	!tx "25.08.93"
+	!tx "W.Kling         "
+
+; -------------------------------------- Main
+
+start	jsr setxy		; set position where to stamp
+	lda spry0		; compute 4Bit address
+	sec
+	sbc #50
+	sta spry
+	bcs goon
+ex1	jmp fail		; exit if not completely on screen (top edge)
+
+goon	lda spritehi
+	and #1
+	sta sprx+1
+	lda sprx0
+	sec
+	sbc #24
+	sta sprx
+	bcs goon1
+	dec sprx+1
+	bmi ex1
+
+goon1	lda #$0f		; stamp color (white)
+	sta stcol
+
+	lda #<(buf0)
+	clc
+	adc sprx
+	sta dst0		; save start address
+	lda #>(buf0)
+	adc sprx+1
+	sta dst0+1
+
+	lda spry		; set Sprite y
+	sta linenr	; to raster line number
+	lda #0
+	sta xbuf
+	lda #21		; count 21 raster lines
+	sta lcnt
+
+; process: 4Bit to buffer, stamp into buffer
+
+loop00	lda linenr	; compute 4Bit address
+	pha
+	lsr
+	lsr
+	lsr
+	tax
+	pla
+	and #$07
+	asl
+	asl
+	sta dst
+	lda line8,x
+	sta dst+1
+
+	lda #<(buf0)	; fill buffer with 4Bit data
+	ldx #>(buf0)
+	sta src
+	stx src+1
+	ldx #0
+	lda #40		; 40 tiles
+	sta blcnt
+loop0	ldy #0
+loop1	lda (dst),y
+	pha
+	lsr
+	lsr
+	lsr
+	lsr
+	sta (src,x)
+	inc src
+	bne skip0
+	inc src+1
+skip0	pla
+	and #$0f
+	sta (src,x)
+	inc src
+	bne skip1
+	inc src+1
+skip1	iny		; 4 bytes per tile (1 rasterline)
+	cpy #4
+	bne loop1
+	lda dst
+	clc		; then next tile
+	adc #32
+	sta dst
+	bcc skip2
+	inc dst+1
+skip2	dec blcnt		; 40 times (1 complete rasterline)
+	bne loop0
+
+	lda dst0		; restore start address buffer
+	ldx dst0+1
+	sta dst
+	stx dst+1
+
+	ldx xbuf		; first: 0 (offset into stamp rasterlines)
+
+	lda #3		; process 3 bytes (width of sprite)
+	sta bcnt
+	ldy #0
+bloop	lda #8		; bit counter
+	sta btcnt
+	lda spr,x
+	sta byte
+btloop	asl byte		; bit set?
+	bcc nopix
+	lda stcol		; yes, get color of stamp
+	sta (dst),y	; and stamp into buffer data
+nopix	iny
+	dec btcnt		; all 8 bits?
+	bne btloop
+	inx		; in all 3 bytes?
+	dec bcnt
+	bne bloop
+
+	stx xbuf		; save .x (targetting next stamp rasterline)
+
+; process: buffer with stamped sprite back to 4bit
+
+	lda linenr	; compute 4bit address
+	pha
+	lsr
+	lsr
+	lsr
+	tax
+	pla
+	and #$07
+	asl
+	asl
+	sta dst
+	lda line8,x
+	sta dst+1
+
+	lda #<(buf0)	; get buffer data
+	ldx #>(buf0)
+	sta src
+	stx src+1
+
+	ldx #0
+	lda #40		; 40 tiles
+	sta blcnt
+loop2	ldy #0
+loop3	lda (src,x)	; combine two pixels
+	asl
+	asl
+	asl
+	asl
+	inc src
+	bne skip3
+	inc src+1
+skip3	ora (src,x)
+	inc src
+	bne skip4
+	inc src+1
+skip4	sta (dst),y	; write to 4bit
+	iny
+	cpy #4		; 4 times (1 tile rasterline)
+	bne loop3
+	lda dst		; next tile
+	clc
+	adc #32
+	sta dst
+	bcc skip5
+	inc dst+1
+skip5	dec blcnt		; 40 times
+	bne loop2
+
+	inc linenr	; next rasterline
+	lda linenr	; care for lower edge of 4bit
+	cmp #200		; (if sprite wasn't completely on screen)
+	beq exit
+	dec lcnt		; proceed to next rasterline of stamp sprite
+	beq exit
+	jmp loop00
+
+; -------------------------------------- Leave Module
+
+exit	lda #$ff		; finished
+	sta gr_redisp
+fail	sec
+	rts
+
+; -------------------------------------- 4Bit Rows
+
+line8	!by $40,$45,$4a,$4f,$54	; hi of 4bit block line addresses
+	!by $59,$5e,$63,$68,$6d
+	!by $72,$77,$7c,$81,$86
+	!by $8b,$90,$95,$9a,$9f
+	!by $a4,$a9,$ae,$b3,$b8
+
+; -------------------------------------- Stamp buffer
+
+spr	!by $ff,$ff,$ff	; Box shape
+	!by $c0,$00,$03
+	!by $c0,$00,$03
+	!by $c0,$00,$03
+	!by $c0,$00,$03
+	!by $c0,$00,$03
+	!by $c0,$00,$03
+	!by $c0,$00,$03
+	!by $c0,$00,$03
+	!by $c0,$00,$03
+	!by $c0,$00,$03
+	!by $c0,$00,$03
+	!by $c0,$00,$03
+	!by $c0,$00,$03
+	!by $c0,$00,$03
+	!by $c0,$00,$03
+	!by $c0,$00,$03
+	!by $c0,$00,$03
+	!by $c0,$00,$03
+	!by $c0,$00,$03
+	!by $ff,$ff,$ff
+
+; -------------------------------------- Set Stamp Sprite
+
+setxy	jsr swapspr	; get sprite
+	jsr clrcram	; clear color ram
+	jsr pprev		; preview graphics, then...
+	lda #0
+	sta sc_keyprs
+kl	lda sc_keyprs	; wait for keyboard
+	bne ok
+	lda joy
+	bne kl
+ok	jsr swapspr	; then re-get mouse sprite
+	rts
+
+; -------------------------------------- Swap Mouse with Stamp
+
+swapspr	ldy #63
+ssl	ldx sc_pointer,y	; exchange stamp and mouse sprites
+	lda spr,y
+	sta sc_pointer,y
+	txa
+	sta spr,y
+	dey
+	bpl ssl
+	rts
+
+; -------------------------------------- Superfast (but pretty coarse) Preview
+
+pprev	lda #<($4000)	; Start from $4000
+	ldx #>($4000)
+	sta src
+	stx src+1
+	lda #<($0400)	; write to screen ($0400)
+	ldx #>($0400)
+	sta dst
+	stx dst+1
+
+	ldy #0
+	ldx #0
+ppl	lda (src,x)	; get 4bit value (two pixels)
+	and #$0f		; restrict to right pixel
+	clc
+	adc #$e0		; add offset to dither pattern
+	sta (dst),y	; write that pattern to screen
+
+	lda src		; next tile
+	adc #32
+	sta src
+	bcc pps1
+	inc src+1
+	lda src+1
+	cmp #$bd		; until end of 4bit
+	beq ppok
+
+pps1	iny		; increment destination 
+	bne ppl
+	inc dst+1
+	bne ppl
+ppok	rts
+
+; -------------------------------------- Clear Color Ram
+
+clrcram	ldy #0
+	lda #$0f		; clear to light gray
+ccrl	sta cram,y
+	sta cram+256,y
+	sta cram+512,y
+	sta cram+768,y
+	iny
+	bne ccrl
+	rts
+
+; -------------------------------------- 
+
+modend	!eof
