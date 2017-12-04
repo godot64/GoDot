@@ -16,6 +16,8 @@
 ; ***  1.13, 02.04.93                                   ***
 ; ***  1.14, 16.08.93,                                  ***
 ; ***        01.11.00, complete comment revision        ***
+; ***  1.15, 04.12.17, optimized code to gain space,    ***
+; ***                  added: set amnt of colors in pal ***
 ; ***                                                   ***
 ;    ---------------------------------------------------   
 ;
@@ -58,7 +60,11 @@
 	sprptr		= $07fa
 
 	fi2		= $1121
+	gbox		= $1153
+	patch1		= $116c
 	makeline		= $11ae
+	chgcols		= $17f9
+	patch2		= $1814
 
 	dithtype		= $1e30
 	areatype		= $1ef4
@@ -127,8 +133,8 @@
 	!wo modend
 	!wo 0
 	!pet "GoDot f000 slot4"
-created	!pet "1.14"
-	!pet "16.08.93"		; date changed to 18.02.96 (start of NA distribution)
+created	!pet "1.15"		; 1.14: 16.08.93
+	!pet "04.12.17"		; date changed to 18.02.96 (start of NA distribution)
 				; date changed again to 22.11.16 (re-start of GoDot-ing)
 	!pet "A.Dettke/W.Kling"
 ;
@@ -160,14 +166,14 @@ start	stx pdis		; .x=0; clear flag (request from palette requester)
 	clc
 	rts
 
-jevdispl    jmp evdisplay
-jevpal      jmp evpal
-jevbal      jmp evbal
-jevdith     jmp evdith
-jevarea     jmp evarea
-jevprviu    jmp evprviu
-jevdisp2    jmp evdisp2
-jevinfo     jmp evinfo
+jevdispl    jmp evdisplay	; 2
+jevpal      jmp evpal	; 1
+jevbal      jmp evbal	; 0
+jevdith     jmp evdith	; 3
+jevarea     jmp evarea	; 4
+jevprviu    jmp evprviu	; 6
+jevdisp2    jmp evdisp2	; 7
+jevinfo     jmp evinfo	; 5
 
 ; -------------------------------------------------- 
 ; -------------------------------------------------- Show graphics
@@ -373,14 +379,7 @@ gettab	lda (sc_texttab),y
 	iny
 	sty sc_merk
 	stx sc_merk+1
-	lda #$00
-	tax
-	tay
-gt0	jsr gd_setpos
-	cpx #$04
-	bne gt0
-	jsr gd_trim
-	jmp gd_initmove
+	jmp bgt1
 
 ; -------------------------------------------------- Subevent: Display from Palette Requester
 
@@ -411,25 +410,18 @@ ppal	jsr settab	; re-set output vector
 	jsr gettab
 	ldy #$02		; width: 2 tiles
 	sty sc_br
-ep1	ldx #$04		; index to color
-	jsr gd_fcol	; colorize
-	inc sc_sp		; increment tile offset
-	inc sc_sp
+ep1	jsr setcol
 	inc sc_chgcol	; increment color (standard palette)
 	dec sc_merk+1	; count colors
 	bpl ep1
 
-	ldy #$02		; now lower palette gadget
-	jsr gettab
-	ldx #$00		; index into GoDot palette
-	ldy #$02		; width again: 2 tiles
+	jsr gettab	; now lower palette gadget
+	ldy #2
 	sty sc_br
+	ldx #$00		; index into GoDot palette
 ep2	lda gr_palette,x	; get color entry
 	sta sc_chgcol
-	ldx #$04		; index to color
-	jsr gd_fcol	; colorize
-	inc sc_sp		; increment tile offset
-	inc sc_sp
+	jsr setcol
 	inc sc_merk+1	; increment color index (GoDot palette)
 	ldx sc_merk+1	; last valid entry?
 	cpx gr_howmany
@@ -446,12 +438,43 @@ ep9	lda #$00		; care for textmode
 ep44	clc
 	rts
 
+setcol	ldx #$04		; index to color
+	jsr gd_fcol	; colorize
+	inc sc_sp		; increment tile offset
+	inc sc_sp
+	rts
+
+; -------------------------------------------------- Subevent: Less Colors
+
+se_lessc	ldy gr_howmany
+	cpy #2
+	beq lsmr
+	dey
+
+lsmr	lda #$4c		; JMP
+	sta patch2
+	jsr chgcols
+	lda #$20		; JSR
+	sta patch2
+	jmp buildreq
+
+; -------------------------------------------------- Subevent: More Colors
+
+se_morec	ldy gr_howmany
+	cpy #16
+	beq lsmr
+	iny
+	bne lsmr
+
 ; -------------------------------------------------- Event: Palette Requester
 
 evpal	jsr gd_savescvek	; save vector to main screenlist
 	sta pdis		; set Flag: rebuild Palette requester
 
-	lda gr_howmany	; compute width of GoDot palette gadget
+	jsr buildreq
+	jmp gd_eloop	; wait for further events
+
+buildreq	lda gr_howmany	; compute width of GoDot palette gadget
 	asl
 	tax
 	inx
@@ -474,7 +497,8 @@ ep5	lda gr_palette,x	; get 16 current palette values
 	sta paldflt,x	; store to default palette area
 	dex
 	bpl ep5
-	jmp gd_eloop	; wait for further events
+	clc
+	rts
 
 ; -------------------------------------------------- Subevent: Cancel Palette Requester
 
@@ -1488,9 +1512,8 @@ area3	lda sc_lastclpzl,y	; set appropriate values
 	bpl area3
 	inx
 area2	stx sc_clipped	; flag: clipped
-	ldy #$06
 	sty gr_redisp	; force re-render
-	jmp gd_xtxout1	; show new status
+	jmp sh3		; show new status
 
 ; -------------------------------------------------- 
 
@@ -1532,8 +1555,8 @@ dth1	stx gr_dither	; set dither type
 
 ; -------------------------------------------------- 
 
-dtadr	!by <(dtoff),>(dtoff),<(dthab),>(dthab)
-	!by <(dtpat),>(dtpat),<(dtnoi),>(dtnoi),<(dtrnd),>(dtrnd)
+dtadr	!wo dtoff,dthab
+	!wo dtpat,dtnoi,dtrnd
 dtoff	!scr "    Off     @"
 dthab	!scr "  Ordered   @"
 dtpat	!scr "  Pattern   @"
@@ -1543,32 +1566,41 @@ dtnoi	!scr "   Noise    @"
 ; -------------------------------------------------- Screenlist: Palette Requester
 
 pallst	!by $00
-	!by $04,$02,$24,$10
-	!by $91,$00,$00
+	!by $04,$02,$24,$10,$91
+	!wo 0
 	!scr "Palette@"
-	!by $0a,$03,$09,$03
-	!by $d0,<(se_paldis),>(se_paldis)
+	!by $0a,$03,$09,$03,$d0
+	!wo se_paldis
 	!scr "Display@"
-pickbox	!by $06,$03,$22,$04
-	!by $60,<(se_ppick),>(se_ppick)
-pick	!by $0a,$1c,$09,$03
-	!by $20,$00,$00
-palbox	!by $0d,$03,$06,$04
-	!by $60,<(se_pset),>(se_pset)
-	!by $11,$03,$09,$03
-	!by $dc,<(se_pdeft),>(se_pdeft)
+pickbox	!by $06,$03,$22,$04,$60
+	!wo se_ppick
+pick	!by $0a,$1c,$09,$03,$20
+	!wo 0
+lesscols	!by 10,12,3,3,$c0
+	!wo se_lessc
+	!by $5b,0
+morecols	!by 10,25,3,3,$c0
+	!wo se_morec
+	!by $5e,0
+palbox	!by $0d,$03,$06,$04,$60
+	!wo se_pset
+	!by $11,$03,$09,$03,$dc
+	!wo se_pdeft
 	!scr "Default@"
-	!by $11,$0c,$08,$03
-	!by $dc,<(se_pundo),>(se_pundo)
+	!by $11,$0c,$08,$03,$dc
+	!wo se_pundo
 	!scr " Undo @"
-	!by $11,$14,$08,$03
-	!by $dc,<(se_pacc),>(se_pacc)
+	!by $11,$14,$08,$03,$dc
+	!wo se_pacc
 	!scr "Accept@"
-	!by $11,$1c,$09,$03
-	!by $dc,<(se_pcanc),>(se_pcanc)
+	!by $11,$1c,$09,$03,$dc
+	!wo se_pcanc
 	!scr "Cancel @"
-	!by $c0,$09,$0d,$0b
-	!scr "Pick Color.@"
+	!by $c0,10,14,10
+	!scr "Pick"
+	!by $1e
+	!scr " Set"
+	!by $1f,0
 	!by $80
 
 ; -------------------------------------------------- 
@@ -1600,7 +1632,7 @@ ic0	ldx #<(ctrbox)
 	ldy #>(ctrbox)
 bgettab	stx sc_screentab
 	sty sc_screentab+1
-	lda #$00
+bgt1	lda #$00
 	tax
 	tay
 bgt0	jsr gd_setpos	; get 4 parameters
@@ -1679,7 +1711,7 @@ sh2	lda gr_btab,y
 	ldx #<(patbox)	; compute address of patternbox on screen
 	ldy #>(patbox)
 	jsr bgettab
-	ldy #$06		; show pattern
+sh3	ldy #$06		; show pattern
 	jmp gd_xtxout1
 
 ; -------------------------------------------------- 
@@ -1911,13 +1943,9 @@ loop1	lda spr2-1,x
 	sta dbuf-1,x
 	tya
 	sta spr2-1,x	; and initialize to $00
+	sta spr5-1,x
 	dex
 	bne loop1
-
-	ldx #$c0		; initialize three more sprites
-loop2	sta spr5-1,x
-	dex
-	bne loop2
 
 	sta sprpri	; priority
 	sta xexp		; no expansion
@@ -1953,8 +1981,7 @@ ploop	tya
 	dex
 	bpl ploop
 
-	lda #$ff		; switch sprites on
-	sta sprreg
+	stx sprreg	; .x=$ff: switch sprites on
 ;
 ; Now rendering the 4Bit Area to the sprites. Will be done as three
 ; bands of 12 tiles down from left to right.
@@ -2275,18 +2302,13 @@ tx01	cpx #$0a
 	stx sc_ho
 	ldx #$28
 	stx sc_br
+
+	lda #$4c		; JMP
+	sta patch1
 	jsr gd_initmove
-	ldy #$08
-	sty sc_merk
-	jsr makeline
-	jsr gd_backu
-	jsr gd_plus40
-	jsr makeline
-	ldx sc_ho
-	dex
-	jsr fi2
-	jsr makeline
-	jsr gd_backu
+	jsr gbox
+	lda #$20		; JSR
+	sta patch1
 
 	ldy #$00		; write text (light red: $0a)
 	ldx #$0a
