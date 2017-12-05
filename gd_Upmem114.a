@@ -63,7 +63,7 @@
 	gbox		= $1153
 	patch1		= $116c
 	makeline		= $11ae
-	chgcols		= $17f9
+	chgcols		= $17e0
 	patch2		= $1814
 
 	dithtype		= $1e30
@@ -444,27 +444,18 @@ setcol	ldx #$04		; index to color
 	inc sc_sp
 	rts
 
+; -------------------------------------------------- Subevent: More Colors
+
+se_morec			; (different places on screen!)
+
 ; -------------------------------------------------- Subevent: Less Colors
 
-se_lessc	ldy gr_howmany
-	cpy #2
-	beq lsmr
-	dey
-
-lsmr	lda #$4c		; JMP
+se_lessc	lda #$4c		; JMP
 	sta patch2
 	jsr chgcols
 	lda #$20		; JSR
 	sta patch2
-	jmp buildreq
-
-; -------------------------------------------------- Subevent: More Colors
-
-se_morec	ldy gr_howmany
-	cpy #16
-	beq lsmr
-	iny
-	bne lsmr
+	bne buildreq
 
 ; -------------------------------------------------- Event: Palette Requester
 
@@ -472,6 +463,9 @@ evpal	jsr gd_savescvek	; save vector to main screenlist
 	sta pdis		; set Flag: rebuild Palette requester
 
 	jsr buildreq
+	ldx gr_howmany	; store for undo
+	dex
+	stx sy_soffy+1
 	jmp gd_eloop	; wait for further events
 
 buildreq	lda gr_howmany	; compute width of GoDot palette gadget
@@ -504,6 +498,10 @@ ep5	lda gr_palette,x	; get 16 current palette values
 
 se_pcanc	lda #$00		; flag: don't re-render
 	sta gr_redisp
+
+	lda sy_soffy+1	; re-set # of colors
+	sta gr_howmany
+	jsr chgcols
 
 	ldx #$1f		; get PALCANC
 ep7	ldy #$0f
