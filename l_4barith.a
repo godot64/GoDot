@@ -13,6 +13,8 @@
 ;    1.03: 07.08.98, added Clips
 ;    1.04: 25.11.16, no Image Info on Clips and Compose anymore
 ;    1.05: 18.07.17, added Preview
+;    1.06: 13.12.17, bugfix: missing mouse pointer/open files
+;                    when accessing bad files
 ;
 ; ---------------------------
 
@@ -53,8 +55,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "4Bit&sub/mul/dif"
-	!pet "1.05"
-	!pet "18.07.17"
+	!pet "1.06"
+	!pet "13.12.17"
 	!pet "A.Dettke/W.Kling"
 ;
 ; ----------------------------------------- Main
@@ -250,7 +252,7 @@ messout	ldx #<(message)
 	ldy #>(message)
 	jmp gd_xtxout2
 ;
-error	jsr ld7
+error	jsr ld5		; ### 1.06
 	clc
 	rts
 ;
