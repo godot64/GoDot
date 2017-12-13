@@ -12,7 +12,9 @@
 ; 1.02, 09.01.94: Bugfix (Mauszeiger aus)
 ; 1.03, 09.08.98:
 ; 1.04, 25.11.16: Image Info bleibt unverändert bei Clips und Compose
-; 1.05: 18.07.17, added Preview
+; 1.05, 18.07.17, added Preview
+; 1.06, 13.12.17, bugfix: missing mouse pointer/open files
+;                 when accessing bad files
 ;
 ; ----------------------------------------- 
 
@@ -54,8 +56,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "4Bit&Alpha&Add  "
-	!pet "1.05"
-	!pet "18.07.17"
+	!pet "1.06"
+	!pet "13.12.17"
 	!pet "A.Dettke/W.Kling"
 ; ----------------------------------------- Leave
 cancel	lda #$ff
@@ -251,7 +253,7 @@ messout	ldx #<(message)
 	ldy #>(message)
 	jmp gd_xtxout2
 ;
-error	jsr ld7
+error	jsr ld5		; ### 1.06
 	clc
 	rts
 ;
