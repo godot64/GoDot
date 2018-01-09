@@ -13,6 +13,7 @@
 ;     1.00, 04.10.95, first release (still buggy)
 ;     1.01, 08.01.18, re-coded for convenience, bugfixes
 ;                     first fully functional version
+;     1.02, 09.01.18, no need to input again and again anymore
 ;
 ; --------------------------------------
 ;
@@ -33,8 +34,6 @@
 	save		= $30
 	zl		= $31
 	sp		= $32
-	zeile		= $33
-	spalte		= $34
 	zwisp		= $35	; /$36
 	source		= $37	; /$38
 	destin		= $39	; /$3a
@@ -43,13 +42,8 @@
 	colo		= $3d
 	quellzeile	= $3e
 	quellspalte	= $3f
-	zielzeile		= $40
-	zielspalte	= $41
 	zaehlersp		= $42
 	zaehlerzl		= $43
-	zielbreite	= $44
-	zielhoehe		= $45
-	
 
 ; -------------------------------------- Header
 
@@ -59,9 +53,9 @@
 	!wo modend
 	!wo 0
 	!tx "Move the Clip ! "
-	!tx "1.01"
-	!tx "08.01.18"
-	!tx "M.Burggraf      "
+	!tx "1.02"
+	!tx "09.01.18"
+	!tx "M.Burggraf/$AD  "
 
 ; -------------------------------------- Main
 
@@ -99,11 +93,7 @@ befchang	lda #0
 
 ; -------------------------------------- Perform Transport
 
-cliptrans	lda zeile
-	sta zielzeile
-	lda spalte
-	sta zielspalte
-	jsr initad
+cliptrans	jsr initad
 
 	lda #$ff		; Höhenzähler vor 0 setzen
 	sta zaehlerzl
@@ -114,7 +104,7 @@ lp1	lda #0		; Spaltenzähler auf Start (0)
 	jsr countad
 	inc zaehlerzl	; Höhe abzählen
 	lda zaehlerzl	; height complete?
-	cmp zielhoehe
+	cmp zhoehe
 	bcc lp0		; no, transport
 
 	jsr clearad	; finished
@@ -126,7 +116,7 @@ lp1	lda #0		; Spaltenzähler auf Start (0)
 lp0	jsr blocktrans	; no, transport
 	inc zaehlersp
 	lda zaehlersp	; width complete?
-	cmp zielbreite
+	cmp zbreite
 	bcc lp0
 	bcs lp1
 
@@ -164,10 +154,10 @@ calcblock	clc
 	jsr clcblksub	; perform calculation
 
 	clc
-	lda zielzeile
+	lda zzeile
 	adc zaehlerzl
 	sta zl
-	lda zielspalte
+	lda zspalte
 	adc zaehlersp
 	sta sp
 	inc flag		; then: destination
@@ -241,59 +231,47 @@ change	lda (source),y	; save source
 ; -------------------------------------- Event: Input Row of Target
 
 row	jsr yinput
-	sta zeile
-	jsr out0
+	sta zzeile
 	clc
-	lda int
-	adc zielhoehe
+	adc zhoehe
 	cmp #26
 	bcc +
 	lda #0
-	sta zeile
+	sta zzeile
 
-out0	jsr gd_xcnvdez	; Byte nach Ziffern
-	jsr subrout	; führende Null in Space tauschen
-	stx sc_movetab	; in Ausgabepuffer schreiben
-	sta sc_movetab+1
++	lda zzeile
+	jsr getzif	; convert to digits
+	stx zzltx		; in Screenlist schreiben
+	sta zzltx+1
 	ldy #0
-	sty sc_movetab+2
-	lda #11		; Zielzeile
-	sta sc_zl
-	lda #18		; Zielspalte
-	bne out2
+	beq out2
 
 ; -------------------------------------- Event: Input Column of Target
 
 col	jsr yinput
-	sta spalte
-	jsr out1
+	sta zspalte
 	clc
-	lda int
-	adc zielbreite
+	adc zbreite
 	cmp #41
 	bcc +
 	lda #0
-	sta spalte
+	sta zspalte
 
-out1	jsr gd_xcnvdez
-	jsr subrout
-	stx sc_movetab
-	sta sc_movetab+1
-	ldy #0
-	sty sc_movetab+2
-	lda #11
-	sta sc_zl
-	lda #25
++	lda zspalte
+	jsr getzif	; convert to digits
+	stx zsptx		; in Screenlist schreiben
+	sta zsptx+1
+	ldy #2
 
-out2	sta sc_sp
-	jsr gd_initmove
-	jsr gd_xtxout3
-+	clc
-	rts 
+out2	jsr settab
+	jsr gettab
+	ldy #6		; and display
+	jmp gd_xtxout1
 
 ; -------------------------------------- Leading Zero to Space
 
-subrout	cpx #$30
+getzif	jsr gd_xcnvdez	; Byte nach Ziffern
+	cpx #$30
 	bne +
 	ldx #$20
 +	rts 
@@ -386,10 +364,38 @@ init	lda #0
 	stx quellzeile
 	sty quellspalte
 	lda sc_lastclpbr
-	sta zielbreite
+	sta zbreite
 	lda sc_lastclpho
-	sta zielhoehe
+	sta zhoehe
 	rts 
+
+; ------------------------------------------------ Display Clip values
+
+tabigad	!by <(zielzl),>(zielzl)
+	!by <(zielsp),>(zielsp)
+
+settab	lda #<(tabigad)
+	sta sc_texttab
+	lda #>(tabigad)
+	sta sc_texttab+1
+	rts
+
+gettab	lda (sc_texttab),y
+	sta sc_screentab
+	iny
+	lda (sc_texttab),y
+	sta sc_screentab+1
+	iny
+	sty sc_merk
+	stx sc_merk+1
+	lda #$00
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #$04
+	bne gt0
+	jsr gd_trim
+	jmp gd_initmove
 
 ; -------------------------------------- Initialize Activity Bar
 
@@ -446,17 +452,26 @@ countad	inc $d005
 	sta $d007
 +	rts 
 
+; -------------------------------------- Data
+
+zln	!tx " 0123456789"
+
+zzeile	!by 0
+zspalte	!by 0
+zbreite	!by 0
+zhoehe	!by 0
+
 ; -------------------------------------- Screenlist
 
 liste	!by 0,6,13,16,13,$91
 	!wo 0
 	!scr "MoveClip@"
-	!by 10,17,4,3,$e0
+zielzl	!by 10,17,4,3,$e0
 	!wo row 
-	!scr " 0@"
-	!by 10,24,4,3,$e0
+zzltx	!scr " 0@"
+zielsp	!by 10,24,4,3,$e0
 	!wo col 
-	!scr " 0@"
+zsptx	!scr " 0@"
 	!by 13,13,8,3,$c8 
 	!wo befmove
 	!scr "Move@"
@@ -465,21 +480,17 @@ liste	!by 0,6,13,16,13,$91
 	!scr " Copy@"
 	!by 16,13,8,3,$c7 
 	!wo befchang
-	!scr "Change@"
+	!scr "XChnge@"
 	!by 16,21,8,3,$cd
 	!wo cancel
 	!scr " Exit@"
-	!by $c0,8,13,12
+	!by $c0,8,14,12
 	!scr "Destination:@"
 	!by $c0,10,13,3 
 	!scr "Row@"
 	!by $c0,10,20,3 
 	!scr "Col@"
 	!by $80 
-
-; -------------------------------------- Valid Chars on Input
-
-zln	!tx " 0123456789"
 
 ; -------------------------------------- 
 
