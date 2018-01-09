@@ -8,37 +8,47 @@
 ;     mod.MoveClip
 ;       Modifier zum Kopieren, Verschieben oder Tauschen von Clips
 ;       innerhalb des 4Bit-Bildes
-;     von Martin Burggraf
+;     von Martin Burggraf (1.01: $AD)
 ;
 ;     1.00, 04.10.95, first release (still buggy)
-; 
+;     1.01, 08.01.18, re-coded for convenience, bugfixes
+;                     first fully functional version
+;
+; --------------------------------------
+;
+;      Changed zeropage addresses to an area which does not affect
+;      any C64 functionality (to $30++); coded a new positioning
+;      routine which would deliver correct results; minor bugfixing.
+;
 ; -------------------------------------- 
 
 
 ; -------------------------------------- Equates
 
 	pport		= $01
-	save		= $02
-	zl		= $03
-	sp		= $04
-	zeile		= $05
-	spalte		= $06
-	zwisp		= $07	; /$08
-	source		= $09	; /$0a
-	destin		= $0b	; /$0c
-	flag		= $0d
-	flag2		= $0e
-	colo		= $0f
-	quellzeile	= $10
-	quellspalte	= $11
-	zielzeile		= $12
-	zielspalte	= $13
-	zielbreite	= $14
-	zielhoehe		= $15
-	zaehlersp		= $16
-	zaehlerzl		= $17
-	int		= $18
-	wordlo		= $19
+	merk		= $07
+	int		= $14
+	wordlo		= $15
+
+	save		= $30
+	zl		= $31
+	sp		= $32
+	zeile		= $33
+	spalte		= $34
+	zwisp		= $35	; /$36
+	source		= $37	; /$38
+	destin		= $39	; /$3a
+	flag		= $3b
+	flag2		= $3c
+	colo		= $3d
+	quellzeile	= $3e
+	quellspalte	= $3f
+	zielzeile		= $40
+	zielspalte	= $41
+	zaehlersp		= $42
+	zaehlerzl		= $43
+	zielbreite	= $44
+	zielhoehe		= $45
 	
 
 ; -------------------------------------- Header
@@ -49,8 +59,8 @@
 	!wo modend
 	!wo 0
 	!tx "Move the Clip ! "
-	!tx "1.00"
-	!tx "04.10.95"
+	!tx "1.01"
+	!tx "08.01.18"
 	!tx "M.Burggraf      "
 
 ; -------------------------------------- Main
@@ -65,15 +75,6 @@ start	lda gd_modswitch
 
 	lda save
 	sta gd_modswitch
-
-	ldy #16		; reset balancing (unused!)
-	sty gr_ctr
-	sty gr_brt
--	dey 
-	tya 
-	sta gr_btab,y
-	bne -
-
 	lda #15
 	sta gr_redisp
 cancel	sec 
@@ -83,129 +84,18 @@ cancel	sec
 
 befcopy	lda #2
 	sta flag2
-	jmp cliptrans
+	bne cliptrans
 
 ; -------------------------------------- Event: Move
 
 befmove	lda #1
 	sta flag2
-	jmp cliptrans
+	bne cliptrans
 
 ; -------------------------------------- Event: Exchange
 
 befchang	lda #0
 	sta flag2
-	jmp cliptrans
-
-; -------------------------------------- Event: Input Row of Target
-
-row	jsr yinput
-	lda int
-	adc zielhoehe
-	cmp #25
-	bpl +
-	sta zeile
-	rts 
-
-+	ldy #0
-	sty zeile
-	jmp prntrowncol
-
-; -------------------------------------- Event: Input Column of Target
-
-col	jsr yinput
-	lda int
-	adc zielbreite
-	cmp #40
-	bpl rstcl
-	sta spalte
-	rts 
-
-rstcl	ldy #0
-	sty spalte
-
-; -------------------------------------- Ausgabe der eingegebenen Ziffern
-
-prntrowncol
-	ldy zeile		; zuerst: Zeile
-	tya 
-	tax 
-	jsr gd_xcnvdez	; Byte nach Ziffern
-	jsr subrout	; führende Null in Space tauschen
-	stx sc_movetab	; in Ausgabepuffer schreiben
-	sta sc_movetab+1
-	ldy #0
-	sty sc_movetab+2
-	lda #11		; Zielzeile
-	sta sc_zl
-	lda #18
-	sta sc_sp		; Zielspalte
-	jsr gd_initmove	; Screenadresse berechnen
-	jsr gd_xtxout3	; ausgeben
-
-	ldy spalte	; dann: Spalte dito
-	tya 
-	tax 
-	jsr gd_xcnvdez
-	jsr subrout
-	stx sc_movetab
-	sta sc_movetab+1
-	ldy #0
-	sty sc_movetab+2
-	lda #11
-	sta sc_zl
-	lda #25
-	sta sc_sp
-	jsr gd_initmove
-	jsr gd_xtxout3
-	lda #0
-	rts 
-
-; -------------------------------------- Leading Zero to Space
-
-subrout	cpx #$30
-	bne +
-+	ldx #$20
-	rts 
-
-; -------------------------------------- Input Target
-
-yinput	ldy #10		; valid chars (digits and space, 11 bytes)
-	sty sc_iflag
--	lda zln,y
-	sta sy_global,y
-	dey 
-	bpl -
-
-	lda #<sy_global	; perform Input (result at ls_nambuf)
-	ldx #>sy_global
-	sta ls_vekta8
-	stx ls_vekta8+1
-	jsr gd_xinput
-
-	lda #0		; set vector to ls_nambuf
-	sta sc_iflag
-	sta ls_vekta8+1
-	lda #2
-	sta ls_vekta8
-	jmp gword		; convert digits to byte value (result in INT)
-
-; -------------------------------------- Initialize Position
-
-init	lda #0
-	ldx #22
--	sta zl,x
-	dex 
-	bpl -
-	ldx sc_clipzl
-	ldy sc_clipsp
-	stx quellzeile
-	sty quellspalte
-	lda sc_clipbr
-	sta zielbreite
-	lda sc_clipho
-	sta zielhoehe
-	rts 
 
 ; -------------------------------------- Perform Transport
 
@@ -214,50 +104,107 @@ cliptrans	lda zeile
 	lda spalte
 	sta zielspalte
 	jsr initad
-	lda #$ff
+
+	lda #$ff		; Höhenzähler vor 0 setzen
 	sta zaehlerzl
 
-lp1	lda #0
+lp1	lda #0		; Spaltenzähler auf Start (0)
 	sta zaehlersp
 	jsr countad	; Move activity bar
 	jsr countad
-	inc zaehlerzl
-	lda zielhoehe	; height complete?
-	cmp zaehlerzl
-	bpl lp0		; no, transport
+	inc zaehlerzl	; Höhe abzählen
+	lda zaehlerzl	; height complete?
+	cmp zielhoehe
+	bcc lp0		; no, transport
 
 	jsr clearad	; finished
-	clc 
+	sec 
 	rts
 
 ; -------------------------------------- 
 
-lp0	lda zaehlersp	; width complete?
-	cmp zielbreite
-	bpl lp1
-
-	jsr blocktrans	; no, transport
+lp0	jsr blocktrans	; no, transport
 	inc zaehlersp
-	jmp lp0
+	lda zaehlersp	; width complete?
+	cmp zielbreite
+	bcc lp0
+	bcs lp1
 
 ; -------------------------------------- Transport one 4Bit-Tile
 
 blocktrans
 	jsr calcblock	; calculate source and target addresses
 
-	ldy #31		; transport 32 bytes (1 tile)
--	sei 
+	sei 
 	lda pport
 	pha 
 	lda #1
 	sta pport
-	jsr transsub
+	ldy #31		; transport 32 bytes (1 tile)
+-	jsr transsub
+	dey 
+	bpl -
 	pla 
 	sta pport
 	cli 
-	dey 
-	bpl -
 
+	rts 
+
+; -------------------------------------- Calculate Addresses
+
+calcblock	clc
+	lda quellzeile	; neue Zeile
+	adc zaehlerzl
+	sta zl
+	lda quellspalte	; neue Spalte
+	adc zaehlersp
+	sta sp
+	lda #0		; first: source
+	sta flag
+	jsr clcblksub	; perform calculation
+
+	clc
+	lda zielzeile
+	adc zaehlerzl
+	sta zl
+	lda zielspalte
+	adc zaehlersp
+	sta sp
+	inc flag		; then: destination
+
+; -------------------------------------- Perform Calculation
+
+clcblksub	lda #$40		; rows from start of 4Bit ($4000+zl*$500)
+	sta zwisp+1
+	ldx zl
+	beq ++
+
+-	clc
+	adc #$05
+	dec zl
+	bne -
+	sta zwisp+1
+
+++	lda sp
+	beq ++
+
+	lda #0		; columns row+sp*32
+-	clc
+	adc #32
+	bcc +
+	inc zwisp+1
++	dec sp
+	bne -
+
+++	ldx zwisp+1	; Hi addr (lo in .a)
+	ldy flag
+	bne +
+	stx source+1	; set source
+	sta source
+	rts
+
++	stx destin+1	; set destination
+	sta destin
 	rts 
 
 ; -------------------------------------- Distributor
@@ -291,54 +238,157 @@ change	lda (source),y	; save source
 	sta (destin),y	; re-get source and set destination
 	rts 
 
-; -------------------------------------- Calculate Addresses
+; -------------------------------------- Event: Input Row of Target
 
-calcblock	lda quellzeile
-	adc zaehlerzl
-	sta zl
-	lda quellspalte
-	adc zaehlersp
-	sta sp
-	lda #0		; first: source
-	sta flag
-	jsr clcblksub	; perform calculation
+row	jsr yinput
+	sta zeile
+	jsr out0
+	clc
+	lda int
+	adc zielhoehe
+	cmp #26
+	bcc +
+	lda #0
+	sta zeile
 
-	lda zielzeile
-	adc zaehlerzl
-	sta zl
-	lda zielspalte
-	adc zaehlersp
-	sta sp
-	inc flag		; then: destination
+out0	jsr gd_xcnvdez	; Byte nach Ziffern
+	jsr subrout	; führende Null in Space tauschen
+	stx sc_movetab	; in Ausgabepuffer schreiben
+	sta sc_movetab+1
+	ldy #0
+	sty sc_movetab+2
+	lda #11		; Zielzeile
+	sta sc_zl
+	lda #18		; Zielspalte
+	bne out2
 
-; -------------------------------------- Perform Calculation
+; -------------------------------------- Event: Input Column of Target
 
-clcblksub	lda #$3b		; rows from start of 4Bit ($4000+x*$500)
-	sta zwisp+1
-	ldx zl
--	lda zwisp+1
-	adc #5
-	sta zwisp+1
-	dex 
+col	jsr yinput
+	sta spalte
+	jsr out1
+	clc
+	lda int
+	adc zielbreite
+	cmp #41
+	bcc +
+	lda #0
+	sta spalte
+
+out1	jsr gd_xcnvdez
+	jsr subrout
+	stx sc_movetab
+	sta sc_movetab+1
+	ldy #0
+	sty sc_movetab+2
+	lda #11
+	sta sc_zl
+	lda #25
+
+out2	sta sc_sp
+	jsr gd_initmove
+	jsr gd_xtxout3
++	clc
+	rts 
+
+; -------------------------------------- Leading Zero to Space
+
+subrout	cpx #$30
+	bne +
+	ldx #$20
++	rts 
+
+; -------------------------------------- Input Target
+
+yinput	ldy #10		; valid chars (digits and space, 11 bytes)
+	sty sc_iflag
+-	lda zln,y
+	sta sy_global,y
+	dey 
 	bpl -
 
-	ldx #5		; column from start of row (row+((x*256)and255)))
-	lda sp		; .x=5: 5*256=$500 (1 row)
--	asl
-	bcc +
-	inc zwisp+1
-+	dex 
-	bne -
+	lda #<sy_global	; perform Input (result at ls_nambuf)
+	ldx #>sy_global
+	sta ls_vekta8
+	stx ls_vekta8+1
+	jsr gd_xinput
 
-	ldx zwisp+1	; Hi addr (lo in .a)
-	ldy flag
-	bne +
-	stx source+1	; set source
-	sta source
+	lda #>ls_nambuf	; set vector to ls_nambuf
+	sta ls_vekta8+1
+	lda #<ls_nambuf
+	sta ls_vekta8
+	sta sc_iflag
+	ldy ls_flen
+	sta ls_vekta8,y
+
+; -------------------------------------- Convert Digits to Word (Byte in INT)
+
+gword	ldy #0
+	sty int
+	sty int+1
+	beq +
+
+-	jsr inca8
++	lda (ls_vekta8),y
+	cmp #$20
+	beq -
+
+	cmp #$3a
+	bcs +
+	sec 
+	sbc #$30
+	sec 
+	sbc #$d0
+	bcs +
+	sbc #$2f
+	sta merk
+	lda int+1
+	sta ls_temp
+	cmp #$19
+	bcs +
+	lda int
+	asl
+	rol ls_temp
+	asl
+	rol ls_temp
+	adc int
+	sta int
+	lda ls_temp
+	adc int+1
+	sta int+1
+	asl int
+	rol int+1
+	lda int
+	adc merk
+	sta int
+	bcc -
+	inc int+1
+	bne -
++	lda int
 	rts
 
-+	stx destin+1	; set destination
-	sta destin
+; -------------------------------------- 
+
+inca8	inc ls_vekta8
+	bne +
+	inc ls_vekta8+1
++	rts 
+
+; -------------------------------------- Initialize Position
+
+init	lda #0
+	ldx #22
+-	sta zl,x
+	dex 
+	bpl -
+	ldx sc_lastclpzl	; ### 1.01 (set to *last*)
+	ldy sc_lastclpsp
+	stx quellzeile
+	sty quellspalte
+	lda sc_lastclpbr
+	sta zielbreite
+	lda sc_lastclpho
+	sta zielhoehe
 	rts 
 
 ; -------------------------------------- Initialize Activity Bar
@@ -367,9 +417,8 @@ initad	ldy #63
 	lda #$92
 	sta $d005
 	sta $d007
-	lda #$ff
-	sta $07fa
-	sta $07fb
+	sty $07fa
+	sty $07fb
 	lda $d015
 	ora #$0c
 	sta $d015
@@ -395,56 +444,6 @@ countad	inc $d005
 	lda #$92
 	sta $d005
 	sta $d007
-+	rts 
-
-; -------------------------------------- Convert Digits to Word (Byte in INT)
-
-gword	ldx #0
-	stx int
-	stx int+1
--	jsr inca8
-	lda (ls_vekta8),y
-	cmp #$20
-	beq -
-	cmp #$3a
-	bcs +
-	sec 
-	sbc #$30
-	sec 
-	sbc #$d0
-	bcs +
-	sbc #$2f
-	sta wordlo
-	lda int+1
-	sta ls_temp
-	cmp #$19
-	bcs +
-	lda int
-	asl
-	rol ls_temp
-	asl
-	rol ls_temp
-	adc int
-	sta int
-	lda ls_temp
-	adc int+1
-	sta int+1
-	asl int
-	rol int+1
-	lda int
-	adc wordlo
-	sta int
-	bcc -
-	inc int+1
-	bne -
-+	lda int
-	rts
-
-; -------------------------------------- 
-
-inca8	inc ls_vekta8
-	bne +
-	inc ls_vekta8+1
 +	rts 
 
 ; -------------------------------------- Screenlist
