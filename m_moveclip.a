@@ -14,7 +14,7 @@
 ;     1.01, 08.01.18, re-coded for convenience, bugfixes
 ;                     first fully functional version
 ;     1.02, 09.01.18, no need to input again and again anymore
-;     1.03, 10.01.18, added: visually set position of destination
+;     1.03, 11.01.18, added: visually set position of destination
 ;
 ; --------------------------------------
 ;
@@ -36,8 +36,8 @@
 	save		= $30
 	zl		= $31
 	sp		= $32
-	dispmk		= $33
-	zlmk		= $34
+	zlmk		= $33
+	spmk		= $34
 	zwisp		= $35	; /$36
 	source		= $37	; /$38
 	destin		= $39	; /$3a
@@ -46,6 +46,7 @@
 	colo		= $3d
 	quellzeile	= $3e
 	quellspalte	= $3f
+	dispmk		= $40
 	zaehlersp		= $42
 	zaehlerzl		= $43
 
@@ -74,7 +75,7 @@
 	!wo 0
 	!tx "Move the Clip ! "
 	!tx "1.03"
-	!tx "10.01.18"
+	!tx "11.01.18"
 	!tx "M.Burggraf/$AD  "
 
 ; -------------------------------------- Main
@@ -270,10 +271,12 @@ chrow	sta zzeile
 	adc zhoehe
 	cmp #26
 	bcc +
-	lda #0
+	jsr ss14
+	lda zlmk
 	sta zzeile
 
 +	lda zzeile
+	sta zlmk
 	jsr getzif	; convert to digits
 	stx zzltx		; in Screenlist schreiben
 	sta zzltx+1
@@ -289,10 +292,12 @@ chcol	sta zspalte
 	adc zbreite
 	cmp #41
 	bcc +
-	lda #0
+	jsr ss14
+	lda spmk
 	sta zspalte
 
 +	lda zspalte
+	sta spmk
 	jsr getzif	; convert to digits
 	stx zsptx		; in Screenlist schreiben
 	sta zsptx+1
@@ -354,29 +359,19 @@ getzif	jsr gd_xcnvdez	; Byte nach Ziffern
 ; ------------------------------------------------ Get Mouse Position
 
 getpos	jsr gd_position	; compute position of mouse pointer
-	tay		; off screen on left?
+	tay		; column: off screen on left?
+	lda sc_merk
+	sta merk
+	tya
 	bmi ss14		; yes, reject value
 	cmp #40		; off screen on right?
 	bcs ss14		; yes, reject
-	clc
-	adc zbreite
-	cmp #41
-	bcs ss14
-	lda sc_merk
-	sta zlmk
-	tya
-	jsr chcol		; set column value
+	jsr chcol		; ok, set column value
 
-	lda zlmk		; off screen beyond top?
-	tay
+	lda merk		; off screen beyond top?
 	bmi ss14		; yes, reject
 	cmp #25		; beyond bottom?
 	bcs ss14		; yes, reject
-	clc
-	adc zhoehe
-	cmp #26
-	bcs ss14
-	tya
 	jsr chrow
 
 	lda sc_stop
@@ -497,7 +492,9 @@ init	lda #0
 	ldy sc_lastclpsp
 	stx quellzeile
 	sty quellspalte
+	stx zlmk
 	lda sc_lastclpbr
+	sty spmk
 	sta zbreite
 	lda sc_lastclpho
 	sta zhoehe
