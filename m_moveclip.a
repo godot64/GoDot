@@ -14,9 +14,11 @@
 ;     1.01, 08.01.18, re-coded for convenience, bugfixes
 ;                     first fully functional version
 ;     1.02, 09.01.18, no need to input again and again anymore
+;     1.03, 10.01.18, added: visually set position of destination
 ;
 ; --------------------------------------
 ;
+;      Repaired:
 ;      Changed zeropage addresses to an area which does not affect
 ;      any C64 functionality (to $30++); coded a new positioning
 ;      routine which would deliver correct results; minor bugfixing.
@@ -34,6 +36,8 @@
 	save		= $30
 	zl		= $31
 	sp		= $32
+	dispmk		= $33
+	zlmk		= $34
 	zwisp		= $35	; /$36
 	source		= $37	; /$38
 	destin		= $39	; /$3a
@@ -45,6 +49,22 @@
 	zaehlersp		= $42
 	zaehlerzl		= $43
 
+	togg		= $44
+	slot		= $45
+	v1buf		= $47
+	v2buf		= $48
+	cbuf		= $49
+
+	vram2		= $ce0b
+	vram1		= $de0b
+	cstart		= $ee0b
+
+	grafreg		= $d011
+	multreg		= $d016
+	charreg		= $d018
+	rahmen		= $d020
+	backgr		= $d021
+
 ; -------------------------------------- Header
 
 	jmp start
@@ -53,15 +73,23 @@
 	!wo modend
 	!wo 0
 	!tx "Move the Clip ! "
-	!tx "1.02"
-	!tx "09.01.18"
+	!tx "1.03"
+	!tx "10.01.18"
 	!tx "M.Burggraf/$AD  "
 
 ; -------------------------------------- Main
 
-start	lda gd_modswitch
+start	ldx sc_screenvek	; save vector to mainlist
+	stx list
+	ldx sc_screenvek+1
+	stx list+1
+	lda gd_modswitch
 	sta save
+	lda gr_redisp	; save flag for re-render
+	sta dispmk
+
 	jsr init
+	jsr checkcols	; where is which module? (for re-display)
 	ldx #<liste
 	ldy #>liste
 	jsr gd_screen
@@ -69,9 +97,12 @@ start	lda gd_modswitch
 
 	lda save
 	sta gd_modswitch
-	lda #15
+
+; -------------------------------------- Event: Exit
+
+cancel	lda dispmk
 	sta gr_redisp
-cancel	sec 
+	sec 
 	rts 
 
 ; -------------------------------------- Event: Copy
@@ -97,6 +128,7 @@ cliptrans	jsr initad
 
 	lda #$ff		; Höhenzähler vor 0 setzen
 	sta zaehlerzl
+	sta dispmk
 
 lp1	lda #0		; Spaltenzähler auf Start (0)
 	sta zaehlersp
@@ -226,12 +258,14 @@ change	lda (source),y	; save source
 	sta (source),y
 	pla 
 	sta (destin),y	; re-get source and set destination
+-	clc
 	rts 
 
 ; -------------------------------------- Event: Input Row of Target
 
-row	jsr yinput
-	sta zzeile
+row	jsr ss16		; Input
+	beq -
+chrow	sta zzeile
 	clc
 	adc zhoehe
 	cmp #26
@@ -248,8 +282,9 @@ row	jsr yinput
 
 ; -------------------------------------- Event: Input Column of Target
 
-col	jsr yinput
-	sta zspalte
+col	jsr ss16		; Input
+	beq -
+chcol	sta zspalte
 	clc
 	adc zbreite
 	cmp #41
@@ -268,6 +303,46 @@ out2	jsr settab
 	ldy #6		; and display
 	jmp gd_xtxout1
 
+; ------------------------------------------------ Event: SetClip
+
+sevsetcl	ldx #0		; clear key buffer
+	stx sy_tbuffer
+	sta sc_stop
+	inx
+	stx gr_redisp
+	jsr redisplay	; turn graphics on
+	lda quellzeile	; set clip values
+	sta sc_zl
+	lda quellspalte
+	sta sc_sp
+	lda zbreite
+	beq rdy
+	lda zhoehe
+	beq rdy
+
+	lda #0		; clear toggle flag
+	sta togg
+	sta gr_redisp
+sh0	jsr invertcl	; blink clip
+	ldx #250
+	jsr gd_dl2
+	lda togg
+	eor #1
+	sta togg
+	lda $dc00		; fire?
+	and #16
+	beq sh1		; yes, finish
+	lda sy_tbuffer	; any key?
+	beq sh0		; no, loop
+
+sh1	lda togg		; finish
+	and #1		; clip in blink phase?
+	beq sh0		; no, add one blink
+	jsr invertcl	; yes, clip to off
+
+	jsr getpos
+rdy	jmp dp2		; text mode on, finished
+
 ; -------------------------------------- Leading Zero to Space
 
 getzif	jsr gd_xcnvdez	; Byte nach Ziffern
@@ -275,6 +350,62 @@ getzif	jsr gd_xcnvdez	; Byte nach Ziffern
 	bne +
 	ldx #$20
 +	rts 
+
+; ------------------------------------------------ Get Mouse Position
+
+getpos	jsr gd_position	; compute position of mouse pointer
+	tay		; off screen on left?
+	bmi ss14		; yes, reject value
+	cmp #40		; off screen on right?
+	bcs ss14		; yes, reject
+	clc
+	adc zbreite
+	cmp #41
+	bcs ss14
+	lda sc_merk
+	sta zlmk
+	tya
+	jsr chcol		; set column value
+
+	lda zlmk		; off screen beyond top?
+	tay
+	bmi ss14		; yes, reject
+	cmp #25		; beyond bottom?
+	bcs ss14		; yes, reject
+	clc
+	adc zhoehe
+	cmp #26
+	bcs ss14
+	tya
+	jsr chrow
+
+	lda sc_stop
+	bne ss15
+
+	lda zl
+	sta zzeile
+	jsr chrow
+	lda sp
+	sta zspalte
+	jmp chcol
+
+ss14	ldy #2
+	pha
+	jsr graphon
+	bcc +
+
+ss16	jsr yinput
+ss15	pha
+	beq +
+
+	lda zzeile	; save values (if STOP)
+	sta zl
+	lda zspalte
+	sta sp
++	lda #0
+	sta sc_stop
+	pla
+	rts
 
 ; -------------------------------------- Input Target
 
@@ -359,7 +490,10 @@ init	lda #0
 -	sta zl,x
 	dex 
 	bpl -
-	ldx sc_lastclpzl	; ### 1.01 (set to *last*)
+	sta sc_keyprs	; clear keyboard
+	sta sc_loop	; clear flag for graphics mode
+	sta gr_redisp	; clear redisplay flag
+	ldx sc_lastclpzl
 	ldy sc_lastclpsp
 	stx quellzeile
 	sty quellspalte
@@ -369,10 +503,281 @@ init	lda #0
 	sta zhoehe
 	rts 
 
+; ------------------------------------------------ Invert clip area
+
+invertcl	ldx #0		; care for text mode
+	stx sc_loop
+	jsr gd_initmove	; compute address
+inv0	ldy #0		; .y index for width
+inv1	cpy zbreite
+	beq inv2
+	lda sc_vekt20+1
+	pha
+	lda (sc_vekt20),y	; first invert video ram
+	eor #$ff
+	sta (sc_vekt20),y
+	lda sc_vekt20+1
+	clc
+	adc #$d4		; then color ram
+	sta sc_vekt20+1
+	lda (sc_vekt20),y
+	eor #$ff
+	sta (sc_vekt20),y
+	pla
+	sta sc_vekt20+1
+	iny
+	bne inv1		; one row
+inv2	inx		; next one
+	cpx zhoehe
+	beq ready		; finished if height
+	jsr gd_plus40	; else add 40 for next
+	bne inv0
+ready	rts
+
+; ----------------------------------------------------- Blink the Border
+
+graphon	lda rahmen
+	pha
+	sty rahmen
+	ldx #$40
+	jsr gd_dl2
+	pla
+	sta rahmen
+	stx sy_tbuffer
+	clc
+	rts
+
+; ------------------------------------------------ 
+; ------------------------------------------------ graphics display
+; ------------------------------------------------ 
+
+checkcols	sei 		; GoDot off
+	ldx #$00
+	stx pport
+
+	ldy #$03		; set lobyte of...
+	sty slot
+
+	lda #$f0		; ...Slot4, check for types of module there
+	sta slot+1	; (may be cram when input is active)
+	jsr sethicol	; (otherwise unchanged)
+
+	lda #$c0		; ...Slot1 and check
+	sta slot+1
+	jsr sethicol
+
+	lda #$d0		; ...Slot2 and check
+	sta slot+1
+	jsr sethicol
+
+	lda #$e0		; ...Slot3 and check
+	sta slot+1
+	jsr sethicol
+
+	lda #$36		; GoDot on again
+	sta pport
+	cli 
+	rts 
+
+; ------------------------------------------------ 
+
+sethicol	lda (slot,x)	; get type of module (at $c003): $20, $40, $80
+	tay 
+	and #$40		; is saver there? (contains vram1)
+	beq +		; no, next type
+
+	jsr c147		; yes, set color buffer 
+	sta v1buf
+	bne ++
+
++	tya 		; loader? ($80, contains cram)
+	bpl +		; no, next type
+
+	jsr c147		; yes, set accordingly
+	sta cbuf
+	bne ++
+
++	jsr c147		; so, it's a modifier (contains vram2)
+	sta v2buf
+
+++	rts 
+
+c147 	lda slot+1	; get hibyte...
+	ora #$0e		; ...and OR %00001110 to it (ie $ce)
+	rts 		; thus: get correct hi address of color buffers
+
+; ------------------------------------------------ 
+
+redisplay	ldx gr_palette	; set border to color 0 (normally black)
+	stx rahmen
+	jsr setcolors	; get colors from their buffers
+
+	lda gr_cmode	; which mode?
+	beq dp4
+	lda #$18		; multicolor
+	sta multreg
+dp4	lda #$1b		; hires
+	sta charreg
+	lda #$3b
+	sta grafreg
+	lda gr_redisp	; Flag: display graphics set?
+	bne dp3		; yes, branch and leave
+
+; ------------------------------------------------ End display
+
+dp2	jsr getcolors	; no, end display: save colors
+	jsr tmode		; activate textmode
+oldreq	lda sc_screenvek	; save vector to current screenlist (ClipWorks)
+	pha
+	lda sc_screenvek+1
+	pha
+	ldx list		; yes, re-build main screen
+	ldy list+1
+	jsr gd_screen
+dp5	pla		; and then re-build MoveClip requester
+	tay
+	pla
+	tax
+	jsr gd_screen
+dp3	clc		; leave
+	rts
+
+; ------------------------------------------------ Switch textmode on
+
+tmode	ldx #$13
+	lda #$1b
+	stx charreg
+	sta grafreg
+	lda #$08
+	sta multreg
+	lda sc_maincolor
+	sta rahmen
+	sta backgr
+	rts
+
+; ------------------------------------------------ 
+; ------------------------------------------------ 
+; Routines to handle GoDot's graphics color buffers
+; for comments see sources for god.upmem
+; ------------------------------------------------ 
+; ------------------------------------------------ 
+
+setcveks	sei
+	lda #$35
+	sta pport
+	lda cbuf 		; color ram
+	ldx #$d8
+	bne scv0
+setbveks	lda v1buf 	; vram1
+	ldx #4
+	dec pport
+scv0	stx ls_adrmisc+1
+	ldy #0
+	sty sc_merk
+	sty ls_adrmisc
+	dey
+setlast	sty gr_bkcol
+	ldy #<(cstart)
+	sty sc_vekt20
+	sta sc_vekt20+1
+	lda #<(500)
+	sta ls_vekta8
+	lda #>(500)
+	sta ls_vekta8+1
+	ldy #0
+	rts
+
+count	inc sc_vekt20
+	bne cou5
+	inc sc_vekt20+1
+cou5	inc ls_adrmisc
+	bne cou6
+	inc ls_adrmisc+1
+cou6	lda ls_vekta8
+	bne cou7
+	dec ls_vekta8+1
+cou7	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	rts
+
+getcolors	jsr setcveks
+stco	lda (ls_adrmisc),y
+	sta sc_merk
+	inc ls_adrmisc
+	bne stc0
+	inc ls_adrmisc+1
+stc0	lda (ls_adrmisc),y
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	lda sc_merk
+	sta (sc_vekt20),y
+	jsr count
+	bne stco
+	jsr setbveks
+stc1	lda (ls_adrmisc),y
+	sta (sc_vekt20),y
+	jsr count
+	bne stc1
+	ldy gr_bkcol
+	bpl scv1
+	ldy #0
+	lda v2buf 	; vram2
+	jsr setlast
+	beq stc1
+scv1	lda #$36
+	sta pport
+	cli
+	lda backgr
+	and #15
+	sta gr_bkcol
+	rts
+
+setcolors	lda gr_bkcol
+	sta backgr
+	pha
+	jsr setcveks
+stc2	sty sc_merk
+	lda (sc_vekt20),y
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	sta (ls_adrmisc),y
+	inc ls_adrmisc
+	bne stc3
+	inc ls_adrmisc+1
+stc3	lda sc_merk
+	sta (ls_adrmisc),y
+	jsr count
+	bne stc2
+	jsr setbveks
+stc4	lda (sc_vekt20),y
+	sta (ls_adrmisc),y
+	jsr count
+	bne stc4
+	ldy gr_bkcol
+	bpl scv1
+	pla
+	tay
+	lda v2buf 	; vram2
+	jsr setlast
+	beq stc4
+
 ; ------------------------------------------------ Display Clip values
 
-tabigad	!by <(zielzl),>(zielzl)
-	!by <(zielsp),>(zielsp)
+tabigad	!wo zielzl
+	!wo zielsp
 
 settab	lda #<(tabigad)
 	sta sc_texttab
@@ -460,6 +865,7 @@ zzeile	!by 0
 zspalte	!by 0
 zbreite	!by 0
 zhoehe	!by 0
+list	!wo 0
 
 ; -------------------------------------- Screenlist
 
@@ -484,6 +890,9 @@ zsptx	!scr " 0@"
 	!by 16,21,8,3,$cd
 	!wo cancel
 	!scr " Exit@"
+	!by 11,29,11,7,$4d	; 4Bit-Preview
+	!wo sevsetcl
+
 	!by $c0,8,14,12
 	!scr "Destination:@"
 	!by $c0,10,13,3 
