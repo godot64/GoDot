@@ -15,6 +15,7 @@
 ;                     first fully functional version
 ;     1.02, 09.01.18, no need to input again and again anymore
 ;     1.03, 11.01.18, added: visually set position of destination
+;                     added: take over new clip position (or not)
 ;
 ; --------------------------------------
 ;
@@ -140,7 +141,15 @@ lp1	lda #0		; Spaltenzähler auf Start (0)
 	cmp zhoehe
 	bcc lp0		; no, transport
 
-	jsr clearad	; finished
+	lda transfl
+	beq +
+	lda zzeile
+	ldx zspalte
+	sta sc_lastclpzl
+	stx sc_lastclpsp
+	jsr reinit
+	jsr reout
++	jsr clearad	; finished
 	sec 
 	rts
 
@@ -186,14 +195,14 @@ calcblock	clc
 	sta flag
 	jsr clcblksub	; perform calculation
 
-	clc
+	clc		; then: destination
 	lda zzeile
 	adc zaehlerzl
 	sta zl
 	lda zspalte
 	adc zaehlersp
 	sta sp
-	inc flag		; then: destination
+	inc flag
 
 ; -------------------------------------- Perform Calculation
 
@@ -261,6 +270,24 @@ change	lda (source),y	; save source
 	sta (destin),y	; re-get source and set destination
 -	clc
 	rts 
+
+; -------------------------------------- Event: Set Flag for TakeOver
+
+sevtkover	ldx transfl
+	beq +
+	ldx #$ff
++	inx
+	stx transfl
+	beq +
+	ldx #6
++	ldy #5
+-	lda transtx,x
+	sta togtx,y
+	inx
+	dey
+	bpl -
+	ldy #4
+	bne out2
 
 ; -------------------------------------- Event: Input Row of Target
 
@@ -368,7 +395,7 @@ getpos	jsr gd_position	; compute position of mouse pointer
 	bcs ss14		; yes, reject
 	jsr chcol		; ok, set column value
 
-	lda merk		; off screen beyond top?
+	lda merk		; row: off screen beyond top?
 	bmi ss14		; yes, reject
 	cmp #25		; beyond bottom?
 	bcs ss14		; yes, reject
@@ -377,19 +404,19 @@ getpos	jsr gd_position	; compute position of mouse pointer
 	lda sc_stop
 	bne ss15
 
-	lda zl
+reout	lda zl
 	sta zzeile
 	jsr chrow
 	lda sp
 	sta zspalte
 	jmp chcol
 
-ss14	ldy #2
+ss14	ldy #2		; blink border (red)
 	pha
 	jsr graphon
 	bcc +
 
-ss16	jsr yinput
+ss16	jsr yinput	; input values from keyboard
 ss15	pha
 	beq +
 
@@ -485,16 +512,18 @@ init	lda #0
 -	sta zl,x
 	dex 
 	bpl -
-	sta sc_keyprs	; clear keyboard
+reinit	sta sc_keyprs	; clear keyboard
 	sta sc_loop	; clear flag for graphics mode
 	sta gr_redisp	; clear redisplay flag
 	ldx sc_lastclpzl
 	ldy sc_lastclpsp
 	stx quellzeile
 	sty quellspalte
-	stx zlmk
+	stx zlmk		; first value row (on fail)
+	stx zl
 	lda sc_lastclpbr
-	sty spmk
+	sty spmk		; first value column (on fail)
+	sty sp
 	sta zbreite
 	lda sc_lastclpho
 	sta zhoehe
@@ -775,6 +804,7 @@ stc4	lda (sc_vekt20),y
 
 tabigad	!wo zielzl
 	!wo zielsp
+	!wo togclp
 
 settab	lda #<(tabigad)
 	sta sc_texttab
@@ -863,10 +893,13 @@ zspalte	!by 0
 zbreite	!by 0
 zhoehe	!by 0
 list	!wo 0
+transfl	!by 0
+transtx	!scr " dloH fsnarT"
 
 ; -------------------------------------- Screenlist
 
-liste	!by 0,6,13,16,13,$91
+liste	!by 0
+	!by 6,13,16,16,$91
 	!wo 0
 	!scr "MoveClip@"
 zielzl	!by 10,17,4,3,$e0
@@ -875,20 +908,24 @@ zzltx	!scr " 0@"
 zielsp	!by 10,24,4,3,$e0
 	!wo col 
 zsptx	!scr " 0@"
-	!by 13,13,8,3,$c8 
+	!by 13,13,8,3,$c8
+	!wo sevsetcl
+	!scr "SetClp@"
+togclp	!by 13,21,8,3,$cf
+	!wo sevtkover
+togtx	!scr " Hold @"	; or "Transf@"
+	!by 16,13,8,3,$c8 
 	!wo befmove
 	!scr "Move@"
-	!by 13,21,8,3,$cf 
+	!by 16,21,8,3,$cf
 	!wo befcopy
 	!scr " Copy@"
-	!by 16,13,8,3,$c7 
+	!by 19,13,8,3,$c7
 	!wo befchang
 	!scr "XChnge@"
-	!by 16,21,8,3,$cd
+	!by 19,21,8,3,$cd
 	!wo cancel
 	!scr " Exit@"
-	!by 11,29,11,7,$4d	; 4Bit-Preview
-	!wo sevsetcl
 
 	!by $c0,8,14,12
 	!scr "Destination:@"
