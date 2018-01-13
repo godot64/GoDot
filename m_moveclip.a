@@ -14,7 +14,7 @@
 ;     1.01, 08.01.18, re-coded for convenience, bugfixes
 ;                     first fully functional version
 ;     1.02, 09.01.18, no need to input again and again anymore
-;     1.03, 11.01.18, added: visually set position of destination
+;     1.03, 13.01.18, added: visually set position of destination
 ;                     added: take over new clip position (or not)
 ;
 ; --------------------------------------
@@ -76,7 +76,7 @@
 	!wo 0
 	!tx "Move the Clip ! "
 	!tx "1.03"
-	!tx "11.01.18"
+	!tx "13.01.18"
 	!tx "M.Burggraf/$AD  "
 
 ; -------------------------------------- Main
@@ -143,12 +143,11 @@ lp1	lda #0		; Spaltenzähler auf Start (0)
 
 	lda transfl
 	beq +
-	lda zzeile
-	ldx zspalte
-	sta sc_lastclpzl
-	stx sc_lastclpsp
+	ldx zzeile
+	ldy zspalte
+	stx sc_lastclpzl
+	sty sc_lastclpsp
 	jsr reinit
-	jsr reout
 +	jsr clearad	; finished
 	sec 
 	rts
@@ -404,7 +403,7 @@ getpos	jsr gd_position	; compute position of mouse pointer
 	lda sc_stop
 	bne ss15
 
-reout	lda zl
+	lda zl
 	sta zzeile
 	jsr chrow
 	lda sp
@@ -512,18 +511,16 @@ init	lda #0
 -	sta zl,x
 	dex 
 	bpl -
-reinit	sta sc_keyprs	; clear keyboard
+	sta sc_keyprs	; clear keyboard
 	sta sc_loop	; clear flag for graphics mode
 	sta gr_redisp	; clear redisplay flag
 	ldx sc_lastclpzl
 	ldy sc_lastclpsp
-	stx quellzeile
+reinit	stx quellzeile
 	sty quellspalte
 	stx zlmk		; first value row (on fail)
-	stx zl
-	lda sc_lastclpbr
 	sty spmk		; first value column (on fail)
-	sty sp
+	lda sc_lastclpbr
 	sta zbreite
 	lda sc_lastclpho
 	sta zhoehe
