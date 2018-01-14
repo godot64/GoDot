@@ -11,6 +11,8 @@
 ;       17.11.00, completely rewrote comment
 ; 1.01: 06.07.03, added Temp access for screen moves
 ; 1.02: 22.08.04, bugfix: show name of Temp after first use
+; 1.03: 14.01.18, accomodated to current dev.REU
+;                 (provides recognition of saver)
 ;
 ; ----------------------------------------- 
 
@@ -40,10 +42,10 @@ header	jmp start
 	!by 0
 	!by 1
 	!wo modend
-	!wo 0
+	!wo $0040			; svr present
 	!pet "4Bit Godot Clip "
-	!pet "1.02"
-	!pet "22.08.04"
+	!pet "1.03"
+	!pet "14.01.18"
 	!pet "A.Dettke        "
 
 ; ---------------------------------------- Main
