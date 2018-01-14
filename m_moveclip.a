@@ -2,6 +2,7 @@
 	!src "..\godotlib.lib"
 	*= $c000
 	!ct pet
+;	!sl "moveclp.txt"
 
 ; --------------------------------------
 ;
@@ -16,6 +17,7 @@
 ;     1.02, 09.01.18, no need to input again and again anymore
 ;     1.03, 13.01.18, added: visually set position of destination
 ;                     added: take over new clip position (or not)
+;     1.04, 14.01.18, added: take account of overlapping clips
 ;
 ; --------------------------------------
 ;
@@ -48,6 +50,7 @@
 	quellzeile	= $3e
 	quellspalte	= $3f
 	dispmk		= $40
+	fwflag		= $41
 	zaehlersp		= $42
 	zaehlerzl		= $43
 
@@ -75,8 +78,8 @@
 	!wo modend
 	!wo 0
 	!tx "Move the Clip ! "
-	!tx "1.03"
-	!tx "13.01.18"
+	!tx "1.04"
+	!tx "14.01.18"
 	!tx "M.Burggraf/$AD  "
 
 ; -------------------------------------- Main
@@ -99,6 +102,13 @@ start	ldx sc_screenvek	; save vector to mainlist
 
 	lda save
 	sta gd_modswitch
+	ldx #3
+-	lda sc_lastclpzl,x	; if modified, update clip data
+	sta sc_clipzl,x
+	dex
+	bpl -
+	sec
+	rts
 
 ; -------------------------------------- Event: Exit
 
@@ -127,10 +137,13 @@ befchang	lda #0
 ; -------------------------------------- Perform Transport
 
 cliptrans	jsr initad
+	jsr chkwhere	; check position of destination clip (overlap?)
+	sta gr_redisp
+	beq +		; if equal do nothing
+	bmi bwards
 
-	lda #$ff		; Höhenzähler vor 0 setzen
+fwards	lda #$ff		; vorwärts: Höhenzähler vor 0 setzen
 	sta zaehlerzl
-	sta dispmk
 
 lp1	lda #0		; Spaltenzähler auf Start (0)
 	sta zaehlersp
@@ -139,27 +152,45 @@ lp1	lda #0		; Spaltenzähler auf Start (0)
 	inc zaehlerzl	; Höhe abzählen
 	lda zaehlerzl	; height complete?
 	cmp zhoehe
-	bcc lp0		; no, transport
-
-	lda transfl
-	beq +
-	ldx zzeile
-	ldy zspalte
-	stx sc_lastclpzl
-	sty sc_lastclpsp
-	jsr reinit
-+	jsr clearad	; finished
-	sec 
-	rts
-
-; -------------------------------------- 
+	bcs trend		; yes, end
 
 lp0	jsr blocktrans	; no, transport
 	inc zaehlersp
 	lda zaehlersp	; width complete?
 	cmp zbreite
 	bcc lp0
-	bcs lp1
+	bcs lp1		; yes, next row
+
+bwards	lda zhoehe	; rückwärts: Höhenzähler auf Cliphöhe (+1) setzen
+	sta zaehlerzl
+	inc zaehlerzl
+
+lp3	lda zbreite	; Spaltenzähler auf Clipbreite
+	sta zaehlersp
+	jsr countad	; Activity bar
+	jsr countad
+	dec zaehlerzl	; height complete?
+	bmi trend		; yes, end
+
+lp2	jsr blocktrans	; no, transport
+	dec zaehlersp	; width complete?
+	bpl lp2
+	bmi lp3		; yes, next row
+
+trend	lda transfl
+	beq +
+
+	ldx zzeile
+	ldy zspalte
+	stx sc_lastclpzl
+	sty sc_lastclpsp
+	jsr reinit
+
++	jsr clearad	; finished
+	sec 
+	rts
+
+; -------------------------------------- 
 
 ; -------------------------------------- Transport one 4Bit-Tile
 
@@ -238,6 +269,54 @@ clcblksub	lda #$40		; rows from start of 4Bit ($4000+zl*$500)
 	sta destin
 	rts 
 
+; -------------------------------------- Check for Overlap
+
+chkwhere	clc
+	lda quellzeile
+	adc zhoehe
+	sta zl
+	lda quellspalte
+	adc zbreite
+	sta sp
+	lda zzeile
+	adc zhoehe
+	sta zlmk
+	lda zspalte
+	adc zbreite
+	sta spmk
+
+	lda quellzeile	; first: check if equal
+	eor zzeile
+	bne olap
+	lda quellspalte
+	eor zspalte
+	bne olap
+	rts		; yes, destination is equal to source, do nothing
+
+olap	lda zlmk		; destination clip above source clip?
+	cmp quellzeile
+	bcc fwd		; yes, forwards (no overlap)
+	lda sp		; destination clip right of source clip?
+	cmp zspalte
+	bcc fwd		; yes, forwards
+	lda zl		; destination clip below source clip?
+	cmp zzeile
+	bcc fwd		; yes, forwards
+
+	lda zzeile	; if overlap: dst clip above?
+	cmp quellzeile
+	bcc fwd		; yes, forwards
+	beq fwd		; equal, then backwards
+
+	lda spmk		; otherwise: destination clip left of source clip?
+	cmp quellspalte
+	bcc fwd		; yes, forwards
+
+bwd	lda #$ff		; any other: backwards
+	bmi +
+fwd	lda #1
++	sta fwflag
+	rts
 ; -------------------------------------- Distributor
 
 transsub	ldx flag2
@@ -514,6 +593,7 @@ init	lda #0
 	sta sc_keyprs	; clear keyboard
 	sta sc_loop	; clear flag for graphics mode
 	sta gr_redisp	; clear redisplay flag
+	sta fwflag	; clear forward flag
 	ldx sc_lastclpzl
 	ldy sc_lastclpsp
 reinit	stx quellzeile
