@@ -306,7 +306,7 @@ olap	lda zlmk		; destination clip above source clip?
 	lda zzeile	; if overlap: dst clip above?
 	cmp quellzeile
 	bcc fwd		; yes, forwards
-	beq fwd		; equal, then backwards
+	beq fwd		; equal, then also forwards
 
 	lda spmk		; otherwise: destination clip left of source clip?
 	cmp quellspalte
@@ -317,6 +317,7 @@ bwd	lda #$ff		; any other: backwards
 fwd	lda #1
 +	sta fwflag
 	rts
+
 ; -------------------------------------- Distributor
 
 transsub	ldx flag2
@@ -357,8 +358,8 @@ sevtkover	ldx transfl
 +	inx
 	stx transfl
 	beq +
-	ldx #6
-+	ldy #5
+	ldx #5
++	ldy #4
 -	lda transtx,x
 	sta togtx,y
 	inx
@@ -594,6 +595,7 @@ init	lda #0
 	sta sc_loop	; clear flag for graphics mode
 	sta gr_redisp	; clear redisplay flag
 	sta fwflag	; clear forward flag
+	jsr makechr
 	ldx sc_lastclpzl
 	ldy sc_lastclpsp
 reinit	stx quellzeile
@@ -961,9 +963,19 @@ countad	inc $d005
 	sta $d007
 +	rts 
 
+; --------------------------- Kringel definieren
+
+makechr	ldx #7
+-	lda chschr,x
+	sta sc_undochar,x
+	dex
+	bpl -
+	rts
+
 ; -------------------------------------- Data
 
 zln	!tx " 0123456789"
+chschr	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
 
 zzeile	!by 0
 zspalte	!by 0
@@ -971,7 +983,7 @@ zbreite	!by 0
 zhoehe	!by 0
 list	!wo 0
 transfl	!by 0
-transtx	!scr " dloH fsnarT"
+transtx	!scr " dloHsnarT"
 
 ; -------------------------------------- Screenlist
 
@@ -990,7 +1002,8 @@ zsptx	!scr " 0@"
 	!scr "SetClp@"
 togclp	!by 13,21,8,3,$cf
 	!wo sevtkover
-togtx	!scr " Hold @"	; or "Transf@"
+	!by 223
+togtx	!scr "Hold @"	; or "Trans@"
 	!by 16,13,8,3,$c8 
 	!wo befmove
 	!scr "Move@"
