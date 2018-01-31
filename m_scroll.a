@@ -10,6 +10,7 @@
 ; 1.02: 18.07.01, bugfix: vertical operation didn't apply on values lower 8
 ; 1.03: 14.08.01, bugfix: scroll down didn't work
 ; 1.04: 08.08.03, bugfix: crash on preview after input when executed from REU
+; 1.05: 31.01.18, bugfix: activity bar could run all down the screen
 ; 
 ; ------------------------------------------------ 
 
@@ -56,17 +57,21 @@
 	!wo modend
 	!by $00,$00
 	!pet "scroll 4Bit     "
-	!pet "1.04"
-	!pet "08.08.03"
+	!pet "1.05"
+	!pet "31.01.18"
 	!pet "A.Dettke        "
 
 ; ------------------------------------ Hauptschleife 
 
-start 	jsr initinput	; Input für Ziffern vorbereiten
+start	lda gd_modswitch
+	pha
+ 	jsr initinput	; Input für Ziffern vorbereiten
 	ldx #<(scrlist)	; Requester ausgeben
 	ldy #>(scrlist)
 	jsr gd_screen
 	jsr gd_eloop	; Warten auf Ereignisse
+	pla
+	sta gd_modswitch
 	lda #0		; Input auf normal
 	sta sc_iflag
 	
@@ -76,7 +81,9 @@ evleave	sec		; Modul verlassen
 
 ; ------------------------------------ Scrollen, Hauptroutine waagerecht
 
-evexec	jsr initad	; Activity initialisieren
+evexec	lda #5		; re-init activity counter
+	sta adrun
+	jsr initad	; Activity initialisieren
 	lda direction	; welche Richtung?
 	cmp #2		; senkrecht?
 	bcc ex0
@@ -573,6 +580,7 @@ amount	!by 8
 direction	!by 0		; 0=rechts, 1=links, 2=up, 3=down
 dirchars	!by 94,91,30,31
 adrun	!by 5
+save	!by 0
 ziffern	!pet " 0123456789"
 maxziff	!pet " 64"
 hvmerk	!wo 0
