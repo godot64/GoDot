@@ -18,13 +18,15 @@
 ;     1.03, 13.01.18, added: visually set position of destination
 ;                     added: take over new clip position (or not)
 ;     1.04, 14.01.18, added: take account of overlapping clips
+;     1.05, 02.02.18, changed: color of hole after "move" is now background color
+;                     bugfix: if moved backwards transported 1 row and column too much
 ;
 ; --------------------------------------
 ;
-;      Repaired:
+;      Repaired from Martin's version:
 ;      Changed zeropage addresses to an area which does not affect
 ;      any C64 functionality (to $30++); coded a new positioning
-;      routine which would deliver correct results; minor bugfixing.
+;      routine which would deliver correct results; some additional minor bugfixing.
 ;
 ; -------------------------------------- 
 
@@ -78,8 +80,8 @@
 	!wo modend
 	!wo 0
 	!tx "Move the Clip ! "
-	!tx "1.04"
-	!tx "14.01.18"
+	!tx "1.05"
+	!tx "02.02.18"
 	!tx "M.Burggraf/$AD  "
 
 ; -------------------------------------- Main
@@ -161,12 +163,12 @@ lp0	jsr blocktrans	; no, transport
 	bcc lp0
 	bcs lp1		; yes, next row
 
-bwards	lda zhoehe	; rückwärts: Höhenzähler auf Cliphöhe (+1) setzen
+bwards	lda zhoehe	; rückwärts: Höhenzähler auf Cliphöhe setzen
 	sta zaehlerzl
-	inc zaehlerzl
 
-lp3	lda zbreite	; Spaltenzähler auf Clipbreite
+lp3	lda zbreite	; Spaltenzähler auf Clipbreite (-1)
 	sta zaehlersp
+	dec zaehlersp
 	jsr countad	; Activity bar
 	jsr countad
 	dec zaehlerzl	; height complete?
@@ -335,7 +337,9 @@ copy	lda (source),y	; just source to destination
 
 move	lda (source),y	; source to destination, then
 	sta (destin),y
-	lda colo		; fill source
+	lda gr_bkcol	; fill source
+	tax
+	lda c4bit,x
 	sta (source),y
 	rts
 
@@ -976,6 +980,8 @@ makechr	ldx #7
 
 zln	!tx " 0123456789"
 chschr	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
+c4bit	!by $00,$0f,$04,$0c,$05,$0a,$01,$0d
+	!by $06,$02,$09,$03,$07,$0e,$08,$0b 
 
 zzeile	!by 0
 zspalte	!by 0
