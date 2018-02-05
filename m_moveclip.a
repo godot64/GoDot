@@ -20,6 +20,8 @@
 ;     1.04, 14.01.18, added: take account of overlapping clips
 ;     1.05, 02.02.18, changed: color of hole after "move" is now background color
 ;                     bugfix: if moved backwards transported 1 row and column too much
+;     1.06, 05.02.18, added: selector sprites for destination
+;                     bugfix: visual selection above tile 31 (x: more than 255 px)
 ;
 ; --------------------------------------
 ;
@@ -48,7 +50,7 @@
 	destin		= $39	; /$3a
 	flag		= $3b
 	flag2		= $3c
-	colo		= $3d
+	spr2y		= $3d
 	quellzeile	= $3e
 	quellspalte	= $3f
 	dispmk		= $40
@@ -61,16 +63,30 @@
 	v1buf		= $47
 	v2buf		= $48
 	cbuf		= $49
+	spr2x		= $4a	; /$4b
+
+	sprpnt		= $07fa
+	sp252		= $3f00
+	sp253		= sp252+64
+	sp254		= sp253+64
+	sp255		= sp254+64
 
 	vram2		= $ce0b
 	vram1		= $de0b
 	cstart		= $ee0b
 
 	grafreg		= $d011
+	spronoff		= $d015
 	multreg		= $d016
 	charreg		= $d018
+	sprmulti		= $d01c
+	sprxxpnd		= $d01d
 	rahmen		= $d020
 	backgr		= $d021
+	sp255col		= $d029
+	sp254col		= $d02a
+	sp253col		= $d02b
+	sp252col		= $d02c
 
 ; -------------------------------------- Header
 
@@ -80,8 +96,8 @@
 	!wo modend
 	!wo 0
 	!tx "Move the Clip ! "
-	!tx "1.05"
-	!tx "02.02.18"
+	!tx "1.06"
+	!tx "05.02.18"
 	!tx "M.Burggraf/$AD  "
 
 ; -------------------------------------- Main
@@ -90,10 +106,10 @@ start	ldx sc_screenvek	; save vector to mainlist
 	stx list
 	ldx sc_screenvek+1
 	stx list+1
-	lda gd_modswitch
-	sta save
 	lda gr_redisp	; save flag for re-render
 	sta dispmk
+	lda gd_modswitch
+	pha
 
 	jsr init
 	jsr checkcols	; where is which module? (for re-display)
@@ -102,8 +118,9 @@ start	ldx sc_screenvek	; save vector to mainlist
 	jsr gd_screen
 	jsr gd_eloop
 
-	lda save
+	pla
 	sta gd_modswitch
+
 	ldx #3
 -	lda sc_lastclpzl,x	; if modified, update clip data
 	sta sc_clipzl,x
@@ -337,10 +354,11 @@ copy	lda (source),y	; just source to destination
 
 move	lda (source),y	; source to destination, then
 	sta (destin),y
-	lda gr_bkcol	; fill source
-	tax
+	lda gr_cmode	; if Hires, just black
+	beq +
+	ldx gr_bkcol	; fill source with background color
 	lda c4bit,x
-	sta (source),y
++	sta (source),y
 	rts
 
 ; -------------------------------------- Perform Exchange
@@ -375,7 +393,6 @@ sevtkover	ldx transfl
 ; -------------------------------------- Event: Input Row of Target
 
 row	jsr ss16		; Input
-	beq -
 chrow	sta zzeile
 	clc
 	adc zhoehe
@@ -396,7 +413,6 @@ chrow	sta zzeile
 ; -------------------------------------- Event: Input Column of Target
 
 col	jsr ss16		; Input
-	beq -
 chcol	sta zspalte
 	clc
 	adc zbreite
@@ -426,6 +442,7 @@ sevsetcl	ldx #0		; clear key buffer
 	inx
 	stx gr_redisp
 	jsr redisplay	; turn graphics on
+	jsr iselectr	; set selector angles
 	lda quellzeile	; set clip values
 	sta sc_zl
 	lda quellspalte
@@ -439,8 +456,9 @@ sevsetcl	ldx #0		; clear key buffer
 	sta togg
 	sta gr_redisp
 sh0	jsr invertcl	; blink clip
+	jsr setsprpos	; display selector
 	ldx #250
-	jsr gd_dl2
+	jsr gd_dl2	; blink delay
 	lda togg
 	eor #1
 	sta togg
@@ -455,7 +473,17 @@ sh1	lda togg		; finish
 	beq sh0		; no, add one blink
 	jsr invertcl	; yes, clip to off
 
-	jsr getpos
+	jsr gd_spron
+	jsr swap252	; repair rendered image after task
+	lda spritehi	; don't care about lower selector pos
+	and #$0f
+	sta spritehi
+	lda spritex+2	; set correct selector position
+	sta spritex
+	jsr getpos	; get selector position for transport
+	lda spritehi	; leave only pointer
+	and #3
+	sta spritehi
 rdy	jmp dp2		; text mode on, finished
 
 ; -------------------------------------- Leading Zero to Space
@@ -588,9 +616,115 @@ inca8	inc ls_vekta8
 	inc ls_vekta8+1
 +	rts 
 
+; -------------------------------------- 
+
+swap252	ldy #$3f
+-	lda sp252,y
+	ldx sy_bigbuffer+$200,y
+	sta sy_bigbuffer+$200,y
+	txa
+	sta sp252,y
+	dey
+	bpl -
+	rts
+
+; -------------------------------------- Init Selector Sprites
+
+iselectr	jsr swap252
+	iny
+	sty sprmulti
+	sty sprxxpnd
+	tya
+-	sta sp252,y	; clear 4 sprites
+	iny
+	bne -
+
+	lda #$aa		; set %10101010
+	sta sp255
+	sta sp252+21
+	lsr		; set %01010101
+	sta sp254
+	sta sp253+21
+
+	lda #$80		; the same vertically
+-	ldx tab1,y
+	sta sp255,x
+	iny
+	cpy #3
+	bcc -
+-	ldx tab1,y
+	sta sp254,x
+	iny
+	cpy #7
+	bcc -
+	dey
+	lda #$01
+-	ldx tab2,y
+	sta sp253,x
+	dey
+	cpy #4
+	bcs -
+-	ldx tab2,y
+	sta sp252,x
+	dey
+	bpl -
+
+	ldx #0		; set sprite pointers
+-	tya
+	sta sprpnt,x
+	dey
+	inx
+	cpx #4
+	bne -
+
+	lda #$00		; colorize (b&w)
+	sta sp255col
+	sta sp253col
+	lda #$01
+	sta sp254col
+	sta sp252col
+	lda #$3f		; activate selector
+	sta spronoff
+
+; -------------------------------------- Set Selector Position
+
+setsprpos	lda spritex-2	; depending on mouse pointer
+	and #$f8
+	sta spritex+2	; sync upper selector's x-position
+	sta spritex+4
+	clc
+	adc spr2x		; compute x-position of lower selector
+	sta spritex+6
+	sta spritex+8
+
+	lda spritehi	; get register for "x above 255"
++	and #$03		; check mouse pointer
+	beq +
+	ora #$3c		; sync selectors
++	ldx spr2x+1	; lower sel above 255?
+	bne +
+	bcc ++
++	ora #$30		; yes, mask in lower selector
+++	sta spritehi	; set register for "x above 255"
+
+	lda spritey-2	; set y-position of selectors
+	and #$f8
+	tax
+	inx
+	inx
+	stx spritey+2	; upper
+	stx spritey+4
+	txa
+	clc
+	adc spr2y
+	sta spritey+6	; lower
+	sta spritey+8
+	rts
+
 ; -------------------------------------- Initialize Position
 
 init	lda #0
+	sta spr2x+1
 	ldx #22
 -	sta zl,x
 	dex 
@@ -607,9 +741,24 @@ reinit	stx quellzeile
 	stx zlmk		; first value row (on fail)
 	sty spmk		; first value column (on fail)
 	lda sc_lastclpbr
-	sta zbreite
-	lda sc_lastclpho
-	sta zhoehe
+	sta zbreite	; compute width of selector
+	tax
+	dex
+	txa
+	asl
+	asl
+	asl
+	sta spr2x		; save in spr2x
+	rol spr2x+1	; if wider than 255: (spr2x+1)=1
++	lda sc_lastclpho
+	sta zhoehe	; compute height of selector
+	tax
+	dex
+	txa
+	asl
+	asl
+	asl
+	sta spr2y		; save in spr2y
 	rts 
 
 ; ------------------------------------------------ Invert clip area
@@ -922,7 +1071,7 @@ initad	ldy #63
 	sty $3fc0
 	sty $3fc1
 	sty $3fc2
-	lda sc_hilite
+	lda sc_light
 	sta $d029
 	sta $d02a
 	lda $d01d
@@ -980,8 +1129,11 @@ makechr	ldx #7
 
 zln	!tx " 0123456789"
 chschr	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
+
 c4bit	!by $00,$0f,$04,$0c,$05,$0a,$01,$0d
 	!by $06,$02,$09,$03,$07,$0e,$08,$0b 
+tab1	!by 6,12,18,3,9,15,21
+tab2	!by 18,12,6,0,15,9,3
 
 zzeile	!by 0
 zspalte	!by 0
@@ -989,7 +1141,7 @@ zbreite	!by 0
 zhoehe	!by 0
 list	!wo 0
 transfl	!by 0
-transtx	!scr " dloHsnarT"
+transtx	!scr "dloH eviG "
 
 ; -------------------------------------- Screenlist
 
@@ -1009,7 +1161,7 @@ zsptx	!scr " 0@"
 togclp	!by 13,21,8,3,$cf
 	!wo sevtkover
 	!by 223
-togtx	!scr "Hold @"	; or "Trans@"
+togtx	!scr " Hold@"	; or "Give@"
 	!by 16,13,8,3,$c8 
 	!wo befmove
 	!scr "Move@"
