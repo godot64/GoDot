@@ -22,6 +22,7 @@
 ;                     bugfix: if moved backwards transported 1 row and column too much
 ;     1.06, 05.02.18, added: selector sprites for destination
 ;                     bugfix: visual selection above tile 31 (x: more than 255 px)
+;     1.07, 07.02.18, added: move with transparency
 ;
 ; --------------------------------------
 ;
@@ -64,6 +65,10 @@
 	v2buf		= $48
 	cbuf		= $49
 	spr2x		= $4a	; /$4b
+	check1		= $4c
+	check2		= $4d
+
+	spalte		= sc_merk+1
 
 	sprpnt		= $07fa
 	sp252		= $3f00
@@ -96,8 +101,8 @@
 	!wo modend
 	!wo 0
 	!tx "Move the Clip ! "
-	!tx "1.06"
-	!tx "05.02.18"
+	!tx "1.07"
+	!tx "07.02.18"
 	!tx "M.Burggraf/$AD  "
 
 ; -------------------------------------- Main
@@ -116,6 +121,7 @@ start	ldx sc_screenvek	; save vector to mainlist
 	ldx #<liste
 	ldy #>liste
 	jsr gd_screen
+	jsr colrize
 	jsr gd_eloop
 
 	pla
@@ -222,8 +228,12 @@ blocktrans
 	lda #1
 	sta pport
 	ldy #31		; transport 32 bytes (1 tile)
--	jsr transsub
-	dey 
+-	ldx trnspfl
+	beq +
+	jsr transsubt
+	jmp ++
++	jsr transsubo
+++	dey 
 	bpl -
 	pla 
 	sta pport
@@ -337,9 +347,9 @@ fwd	lda #1
 +	sta fwflag
 	rts
 
-; -------------------------------------- Distributor
+; -------------------------------------- Opaque-Distributor
 
-transsub	ldx flag2
+transsubo	ldx flag2
 	beq change
 	dex 
 	beq move
@@ -369,8 +379,157 @@ change	lda (source),y	; save source
 	sta (source),y
 	pla 
 	sta (destin),y	; re-get source and set destination
--	clc
+	clc
 	rts 
+
+; -------------------------------------- Transparent-Distributor
+
+transsubt	ldx flag2
+	beq tchange
+	dex 
+	beq tmove
+
+; -------------------------------------- Perform Transparent-Copy
+
+tcopy	lda (source),y	; just source to destination
+	jsr tcheck
+	sta (destin),y
+	rts 
+
+; -------------------------------------- Perform Transparent-Move
+
+tmove	lda (source),y	; source to destination, then
+	jsr tcheck
+	sta (destin),y
+	lda gr_cmode	; if Hires, just black
+	beq +
+	ldx gr_bkcol	; fill source with background color
+	lda c4bit,x
++	sta (source),y
+	rts
+
+; -------------------------------------- Perform Transparent-Exchange
+
+tchange	lda (destin),y	; save destination
+	jsr tcheck
+	pha 
+	lda (source),y	; source to destination
+	jsr tcheck
+	sta (destin),y
+	pla 
+	sta (source),y	; re-get destination and set source
+	clc
+	rts 
+
+; -------------------------------------- Check for Transparency
+
+tcheck	tax		; Quelle
+
+	lda (destin),y	; Ziel: Pixel isolieren
+	pha
+	and #$f0
+	sta check1
+	pla
+	and #$0f
+	sta check2
+
+	txa		; Quelle: linkes Pixel
+	and #$f0
+	cmp chkcoll	; transparent?
+	bne +
+
+	txa		; ja, linkes Pixel vom Ziel setzen
+	and #$0f
+	ora check1
+	tax
+
++	txa		; Quelle: rechtes Pixel
+	and #$0f
+	cmp chkcolr	; transparent?
+	bne +
+
+	txa		; ja, rechtes Pixel vom Ziel setzen
+	and #$f0
+	ora check2
+	tax
+
++	txa
+	rts
+
+; -------------------------------------- Event: Set Transparency Color
+
+sevcolor	ldx curcol
+	lda spalte	; wo geklickt?
+	cmp #17
+	bcs +
+	dex		; linke Hälfte: rückwärts
+	bpl ++
+	ldx #14
++	inx		; rechte Hälfte: vorwärts
+	cpx #16
+	bne ++
+	ldx #0
+++	stx curcol
+	lda dnibs,x
+	tay
+	and #$f0		; for left pixel
+	sta chkcoll
+	tya
+	and #$0f		; for right pixel
+	sta chkcolr
+	ldy tab3,x
+	ldx #0
+-	lda coltxs,y
+	sta curcoltx,x
+	iny
+	inx
+	cpx #3
+	bne -
+	jmp colrize
+
+; -------------------------------------- Event: Set Flag for Transparency
+
+sevtrnsp	ldx trnspfl
+	beq +
+	ldx #$ff
++	inx
+	stx trnspfl
+	beq +
+	ldx #5
++	ldy #4
+-	lda trnsps,x
+	sta trnsptx,y
+	inx
+	dey
+	bpl -
+	ldy #5
+	ldx trnspfl	; is opaque?
+	bne +
+	lda #$60		; yes, show color opaquely
+	!by $2c
++	lda #$a0		; no, show color clearly
+	ldx #2
+-	sta curcoltx,y
+	dey
+	dex
+	bpl -
+	ldy #6
+	jsr out2
+
+; -------------------------------------- Colorize Gadget Entry
+
+colrize	ldy #8		; output color gadget
+	jsr out2
+	ldx curcol	; and set current color
+	lda cc64,x
+	sta sc_chgcol
+	lda #3
+	sta sc_br
+	sta sc_loop
+	lda #17
+	sta sc_sp
+	ldx #4
+	jmp gd_fcol
 
 ; -------------------------------------- Event: Set Flag for TakeOver
 
@@ -802,7 +961,7 @@ graphon	lda rahmen
 	pla
 	sta rahmen
 	stx sy_tbuffer
-	clc
+stay	clc
 	rts
 
 ; ------------------------------------------------ 
@@ -897,6 +1056,7 @@ dp5	pla		; and then re-build MoveClip requester
 	pla
 	tax
 	jsr gd_screen
+	jsr colrize
 dp3	clc		; leave
 	rts
 
@@ -1034,9 +1194,11 @@ stc4	lda (sc_vekt20),y
 
 ; ------------------------------------------------ Display Clip values
 
-tabigad	!wo zielzl
-	!wo zielsp
-	!wo togclp
+tabigad	!wo zielzl	; 0
+	!wo zielsp	; 2
+	!wo togclp	; 4
+	!wo trnsptog	; 6
+	!wo trnscol	; 8
 
 settab	lda #<(tabigad)
 	sta sc_texttab
@@ -1129,57 +1291,80 @@ makechr	ldx #7
 
 zln	!tx " 0123456789"
 chschr	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
+coltxs	!scr "blkblubwndgrredpuroramgrlbllrdgrnlgrcyayellgnwht"
 
 c4bit	!by $00,$0f,$04,$0c,$05,$0a,$01,$0d
-	!by $06,$02,$09,$03,$07,$0e,$08,$0b 
+	!by $06,$02,$09,$03,$07,$0e,$08,$0b
+cc64	!by $00,$06,$09,$0b,$02,$04,$08,$0c
+	!by $0e,$0a,$05,$0f,$03,$07,$0d,$01
+dnibs	!by $00,$11,$22,$33,$44,$55,$66,$77
+	!by $88,$99,$aa,$bb,$cc,$dd,$ee,$ff
 tab1	!by 6,12,18,3,9,15,21
 tab2	!by 18,12,6,0,15,9,3
+tab3	!by 0,3,6,9,12,15,18,21,24,27,30,33,36,39,42,45
 
 zzeile	!by 0
 zspalte	!by 0
 zbreite	!by 0
 zhoehe	!by 0
+curcol	!by 0		; default: blk
+chkcoll	!by 0		; colors for transparency check
+chkcolr	!by 0
 list	!wo 0
 transfl	!by 0
 transtx	!scr "dloH eviG "
+trnspfl	!by 0
+trnsps	!scr "eqapOsnarT"
 
 ; -------------------------------------- Screenlist
 
 liste	!by 0
-	!by 6,13,16,16,$91
+	!by 4,13,16,18,$91
 	!wo 0
 	!scr "MoveClip@"
-zielzl	!by 10,17,4,3,$e0
+zielzl	!by 8,17,4,3,$e0
 	!wo row 
 zzltx	!scr " 0@"
-zielsp	!by 10,24,4,3,$e0
+zielsp	!by 8,24,4,3,$e0
 	!wo col 
 zsptx	!scr " 0@"
-	!by 13,13,8,3,$c8
+	!by 11,21,8,3,$dd
 	!wo sevsetcl
 	!scr "SetClp@"
-togclp	!by 13,21,8,3,$cf
-	!wo sevtkover
-	!by 223
-togtx	!scr " Hold@"	; or "Give@"
-	!by 16,13,8,3,$c8 
+	!by 13,21,8,3,$ce 
 	!wo befmove
-	!scr "Move@"
-	!by 16,21,8,3,$cf
+	!scr " Move@"
+	!by 15,21,8,3,$ce
 	!wo befcopy
 	!scr " Copy@"
-	!by 19,13,8,3,$c7
+	!by 17,21,8,3,$ce
 	!wo befchang
 	!scr "XChnge@"
-	!by 19,21,8,3,$cd
+
+trnsptog	!by 12,13,8,3,$c8
+	!wo sevtrnsp
+	!by 223
+trnsptx	!scr "Opaqe@"	; or "Trans@"
+
+trnscol	!by 15,13,8,3,$c8
+	!wo sevcolor
+curcoltx	!scr "blk"
+	!by $60,$60,$60,0
+
+togclp	!by 18,13,8,3,$c8
+	!wo sevtkover
+	!by 223
+togtx	!scr " Hold@"	; or " Give@"
+
+	!by 19,21,8,3,$ce
 	!wo cancel
 	!scr " Exit@"
 
-	!by $c0,8,14,12
+	!by $c0,6,14,12
 	!scr "Destination:@"
-	!by $c0,10,13,3 
+	!by $c0,8,13,3 
 	!scr "Row@"
-	!by $c0,10,20,3 
+	!by $c0,8,20,3 
 	!scr "Col@"
 	!by $80 
 
