@@ -23,13 +23,18 @@
 ;     1.06, 05.02.18, added: selector sprites for destination
 ;                     bugfix: visual selection above tile 31 (x: more than 255 px)
 ;     1.07, 07.02.18, added: move with transparency
+;     1.08, 08.02.18, changed: fill color on hires transparency move is color 0
+;                              (which leads to the same result, actually)
+;                     removed: dirty flag (now executable from REU)
 ;
 ; --------------------------------------
 ;
-;      Repaired from Martin's version:
+;      Repaired and enhanced from Martin's version (v1.00):
 ;      Changed zeropage addresses to an area which does not affect
 ;      any C64 functionality (to $30++); coded a new positioning
-;      routine which would deliver correct results; some additional minor bugfixing.
+;      routine which would deliver correct results; added visual
+;      selection; added selector sprites for choosing destination
+;      area; added moving with choosable transparency color
 ;
 ; -------------------------------------- 
 
@@ -41,7 +46,6 @@
 	int		= $14
 	wordlo		= $15
 
-	save		= $30
 	zl		= $31
 	sp		= $32
 	zlmk		= $33
@@ -97,12 +101,12 @@
 
 	jmp start
 
-	!by $20,$00,$01 
+	!by $20,$00,$00 
 	!wo modend
 	!wo 0
 	!tx "Move the Clip ! "
-	!tx "1.07"
-	!tx "07.02.18"
+	!tx "1.08"
+	!tx "08.02.18"
 	!tx "M.Burggraf/$AD  "
 
 ; -------------------------------------- Main
@@ -121,14 +125,14 @@ start	ldx sc_screenvek	; save vector to mainlist
 	ldx #<liste
 	ldy #>liste
 	jsr gd_screen
-	jsr colrize
+	jsr colrize	; show off chosen transparency color
 	jsr gd_eloop
 
 	pla
 	sta gd_modswitch
 
 	ldx #3
--	lda sc_lastclpzl,x	; if modified, update clip data
+-	lda sc_lastclpzl,x	; if modified ("Give"), update clip data
 	sta sc_clipzl,x
 	dex
 	bpl -
@@ -364,11 +368,11 @@ copy	lda (source),y	; just source to destination
 
 move	lda (source),y	; source to destination, then
 	sta (destin),y
-	lda gr_cmode	; if Hires, just black
+	ldx gr_cmode	; if Hires, just color 0 (black)
 	beq +
 	ldx gr_bkcol	; fill source with background color
-	lda c4bit,x
-+	sta (source),y
++	lda c4bit,x
+	sta (source),y
 	rts
 
 ; -------------------------------------- Perform Exchange
@@ -392,7 +396,7 @@ transsubt	ldx flag2
 ; -------------------------------------- Perform Transparent-Copy
 
 tcopy	lda (source),y	; just source to destination
-	jsr tcheck
+	jsr tcheck	; check for transparent pixels
 	sta (destin),y
 	rts 
 
@@ -401,19 +405,19 @@ tcopy	lda (source),y	; just source to destination
 tmove	lda (source),y	; source to destination, then
 	jsr tcheck
 	sta (destin),y
-	lda gr_cmode	; if Hires, just black
+	ldx gr_cmode	; if Hires, just color 0 (black)
 	beq +
 	ldx gr_bkcol	; fill source with background color
-	lda c4bit,x
-+	sta (source),y
++	lda c4bit,x
+	sta (source),y
 	rts
 
 ; -------------------------------------- Perform Transparent-Exchange
 
-tchange	lda (destin),y	; save destination
+tchange	lda (destin),y	; save destination (no transparency here)
 	jsr tcheck
 	pha 
-	lda (source),y	; source to destination
+	lda (source),y	; source to destination (with transparency)
 	jsr tcheck
 	sta (destin),y
 	pla 
@@ -497,7 +501,7 @@ sevtrnsp	ldx trnspfl
 	beq +
 	ldx #5
 +	ldy #4
--	lda trnsps,x
+-	lda trnsps,x	; show text
 	sta trnsptx,y
 	inx
 	dey
@@ -533,7 +537,7 @@ colrize	ldy #8		; output color gadget
 
 ; -------------------------------------- Event: Set Flag for TakeOver
 
-sevtkover	ldx transfl
+sevtkover	ldx transfl	; Hold or Give
 	beq +
 	ldx #$ff
 +	inx
@@ -671,7 +675,7 @@ getpos	jsr gd_position	; compute position of mouse pointer
 	bcs ss14		; yes, reject
 	jsr chrow
 
-	lda sc_stop
+	lda sc_stop	; abbrechen, wenn STOP
 	bne ss15
 
 	lda zl
@@ -775,7 +779,7 @@ inca8	inc ls_vekta8
 	inc ls_vekta8+1
 +	rts 
 
-; -------------------------------------- 
+; -------------------------------------- Save/Restore last 64 Bytes of rendered Image
 
 swap252	ldy #$3f
 -	lda sp252,y
