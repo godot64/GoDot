@@ -16,6 +16,9 @@
 ; 1.03, 28.01.17: changed mouse register due to change in system driver
 ; 1.04, 29.01.17: added Hold Mouse Position on Move Commands
 ;                 changed Wipe to follow mode (erase/draw)
+; 1.05, 11.02.18: added CTRL-i (Invert Tile)
+;                 finally solved mouse positioning problem when moving from
+;                 keyboard (mouse pointer now stays in place)
 ;
 ; ----------------------------------------- 
 
@@ -34,6 +37,8 @@
 	mky		= $3d
 	vpos		= $3e
 
+	zeile		= sc_merk
+	spalte		= zeile+1
 	lastkey 		= $c5       ; current key
 	mac 		= $fb
 
@@ -65,8 +70,8 @@
 	!word (modend)
 	!byte 0,0
 	!pet "Edit Mask pixels"
-	!pet "1.04"
-	!pet "29.01.17"
+	!pet "1.05"
+	!pet "11.02.18"
 	!pet "A.Dettke/Mac    "
 
 ; ----------------------------------------- Main
@@ -156,7 +161,7 @@ masp: 	lda sprstore,x 	; load sprite
 	sta sprites+6
 	sta sprites+7
 	jsr sprbox   
-; ----------------------------------------- set vert loc
+; ----------------------------------------- set vert grid loc
 	lda #111
 	sta $d005
 	sta $d007
@@ -165,7 +170,7 @@ masp: 	lda sprstore,x 	; load sprite
 	sta $d00b
 	sta $d00d
 	sta $d00f
-; ----------------------------------------- set horiz loc
+; ----------------------------------------- set horiz grid loc
 	lda #85
 	sta $d004
 	sta $d00a
@@ -218,7 +223,7 @@ grstore: 	!fill 8,$ff			; tile buffer on CTRL+
 pmove: 	!fill 8,0
 
 
-sprstore: !byte 16,0,0,16,0,0,16,0
+sprstore: !byte 16,0,0,16,0,0,16,0		; grid sprite
 	!byte 0,254,0,0,16,0,0,16
 	!byte 0,0,16,0,0,0,0,0
 	!byte 0,0,0,0,0,0,0,0
@@ -454,7 +459,8 @@ sl3: 	pla		; restore indents
 
 ; ----------------------------------------- Move by key
 
-keymove: 	txa		; Commo-Flag (1 (Shift), 4 (CTRL) or 5 (both))
+keymove: 	jsr holdmpos	; hold mouse position
+	txa		; Commo-Flag (1 (Shift), 4 (CTRL) or 5 (both))
 	ldx lastkey
 	cpx #40		; "+" key
 	bne pe2
@@ -480,10 +486,8 @@ pe5: 	cpx #37		; "k" key
 	lda sprenable 
 	eor #$fc		; flip sprites
 	sta sprenable 
-pete: 	pha
-	jsr holdmpos	; v1.04: store mouse position
-	pla
-	cpx #60		; left mouse button?
+
+pete: 	cpx #60		; left mouse button?
 	beq shifted
 	cmp #5
 	beq shifted
@@ -492,7 +496,7 @@ pete: 	pha
 unshifted	cpx #2		; CRSR right
 	bne km0
 	jsr right
-	bne km1
+	bne km01
 km0: 	cpx #7		; CRSR down
 	bne km4
 	jsr down
@@ -531,11 +535,16 @@ kmb 	beq kmd
 kmd	jsr tdelay
 	jsr evmode
 	bcc km6
-kmc 	cpx #9		; "w" for Wipe
+kmc	cpx #33		; "i" for Invert Tile
+	bne kmc0
+	jsr invert
+	beq km1
+kmc0 	cpx #9		; "w" for Wipe
 	bne km3
 	jsr tdelay
 	jsr evwipe
 	bcc km3
+
 shifted: 	cpx #60		; Shift Space (left mouse button)?
 	bne km9
 	cmp #1		; (Shift?)
@@ -544,12 +553,11 @@ shifted: 	cpx #60		; Shift Space (left mouse button)?
 km9: 	cpx #2		; CRSR left
 	bne km2
 	jsr left
-	bne km1
+km01:	bne km1
 km2: 	cpx #7		; CRSR up
 	bne km3
 	jsr up
-km1: 	jsr fetchmpos	; v1.04: restore mouse position
-	jsr home		; display section
+km1: 	jsr home		; display section
 km6: 	lda vertical
 	pha
 	ldy horizont
@@ -1013,8 +1021,7 @@ redisplay	lda gr_redisp
 
 ; ----------------------------------------- Event Wipe Screen
 
-evwipe: 	jsr holdmpos	; v1.04: store mouse position
-	lda #50
+evwipe: 	lda #50
 	sta vpos
 	lda #0
 	sta spritehi
@@ -1038,23 +1045,27 @@ ew0 	lda tabspr,x	; get x-position
 	sta vpos
 	dey
 	bne ew1
-	jsr fetchmpos	; v1.04: restore mouse position
 	jmp dp00
 
-holdmpos	lda spritex	; save current position
-	sta storespx
-	lda spritey-2	; v1.29
-	sta storespy
-	lda spritehi
-	sta storesph
+; ----------------------------------------- Hold current Position
+
+holdmpos	lda zeile		; save current position
+	sta oldv
+	inc oldv
+	lda spalte
+	sta oldh
 	rts
 
-fetchmpos	lda storespy	; restore current position
-	sta spritey-2	; v1.29
-	lda storespx
-	sta spritex
-	lda storesph
-	sta spritehi
+; ----------------------------------------- Invert Routines
+
+invert	jsr hv1
+	ldy #0
+ip0	lda (sc_texttab),y
+	eor #$ff
+	sta (sc_texttab),y
+	iny
+	cpy #8
+	bne ip0
 	rts
 
 ; ----------------------------------------- Wipe Routines
