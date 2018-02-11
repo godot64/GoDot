@@ -21,6 +21,7 @@
 ;   1.30. 29.01.17: added Hold Mouse Position on Move Commands
 ;   1.31, 29.05.17: added ability to preview graphics correctly, also when executed from RAM
 ;   1.32, 31.07.17: added display of screen position (column/row of topleft edge)
+;   1.33, 11.02.18: solved problem with Hold Mouse Position
 ;
 ; ------------------------------------------------------------ 
 
@@ -49,6 +50,8 @@
 	v2buf		= $48
 	cbuf		= $49
 
+	zeile		= sc_merk
+	spalte		= zeile+1
 	lastkey 		= $c5	; current key
 	mac 		= $fb
 	commoflag 	= $028d
@@ -77,8 +80,8 @@
 	!wo (modend)
 	!wo 0
 	!pet "Edit 4bit pixels"
-	!pet "1.32"
-	!pet "31.07.17"
+	!pet "1.33"
+	!pet "11.02.18"
 	!pet "AD/ H.McMenamin "
 
 ; ------------------------------------------ Main
@@ -584,7 +587,8 @@ sl3:	pla		; restore indents
 
 ; ------------------------------------------ Move by key
 
-keymove:	txa		; Commo-Flag (1 (Shift), 4 (CTRL) or 5 (both))
+keymove:	jsr holdmpos	; hold mouse position
+	txa		; Commo-Flag (1 (Shift), 4 (CTRL) or 5 (both))
 	ldx lastkey
 	cpx #40 		; "+" key
 	bne pe2
@@ -620,10 +624,7 @@ pe6:	cpx #41		; "p" key
 	jsr tdelay	; key delay
 	jmp ed0		; back to edit loop
 ; ------------------------------------------ 
-pete:	pha
-	jsr holdmpos	; ### v1.30: store mouse position
-	pla
-	cpx #60		; left mouse button?
+pete:	cpx #60		; left mouse button?
 	beq shifted
 	cmp #5
 	beq shifted
@@ -634,7 +635,7 @@ unshifted:
 	cpx #2		; CRSR right
 	bne km0
 	jsr right
-	bne km1
+	bne km01
 km0:	cpx #7		; CRSR down
 	bne km4
 	jsr down
@@ -680,12 +681,11 @@ shifted:	cpx #60		; Shift Space (left mouse button)?
 km9:	cpx #2		; CRSR left
 	bne km2
 	jsr left
-	bne km1
+km01:	bne km1
 km2:	cpx #7		; CRSR up
 	bne km3
 	jsr up
-km1:	jsr fetchmpos	; ### v1.30: restore mouse position
-	jsr home		; display section
+km1:	jsr home		; display section
 km6:	lda vertical
 	pha
 	ldy horizont
@@ -1381,8 +1381,7 @@ redisplay:
 
 ; ----------------------------------------- Event Wipe Screen
 
-evwipe	jsr holdmpos	; ### v1.30: store mouse position
-	lda #50
+evwipe	lda #50
 	sta vpos
 	lda #0
 	sta spritehi
@@ -1394,7 +1393,6 @@ ew0	lda tabspr,x	; get x-position
 	sta spritey-2	; ### v1.29
 	stx mkx
 	sty mky
-	jsr gd_position
 	jsr f33		; fill 1 tile
 	ldy mky
 	ldx mkx
@@ -1409,23 +1407,15 @@ ew0	lda tabspr,x	; get x-position
 	bne ew1
 	iny
 	sty gr_redisp
-	jsr fetchmpos	; ### v1.30: restore mouse position
 	jmp dp00
 
-holdmpos	lda spritex	; save current position
-	sta storespx
-	lda spritey-2	; ### v1.29
-	sta storespy
-	lda spritehi
-	sta storesph
-	rts
+; ----------------------------------------- Hold current Position
 
-fetchmpos	lda storespy	; restore current position
-	sta spritey-2	; ### v1.29
-	lda storespx
-	sta spritex
-	lda storesph
-	sta spritehi
+holdmpos	lda zeile		; save current position
+	sta oldv
+	inc oldv
+	lda spalte
+	sta oldh
 	rts
 
 ; ------------------------------------------ Fill Tile Routines
