@@ -15,6 +15,7 @@
 ;    1.04: 21.10.16, added multi/hires modes
 ;    1.05: 22.10.16, added multi renderer
 ;    1.06: 23.10.16, added color chooser for Multi
+;    1.07: 11.02.18, added show charset (in its appropriate gfx mode)
 ;
 ; --------------------------- 
 
@@ -56,6 +57,14 @@
 	col2	= align+2
 	col3	= align+3
 
+	grafreg	= $d011
+	spronoff	= $d015
+	multreg	= $d016
+	charreg	= $d018
+	rahmen	= $d020
+	backgr	= $d021
+	cram	= $d800
+
 ; --------------------------- 
 
 header	jmp start
@@ -66,8 +75,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "basic text rem/?"
-	!pet "1.06"
-	!pet "23.10.16"
+	!pet "1.07"
+	!pet "11.02.17"
 	!pet "W.Kling/A.Dettke"
 
 ; --------------------------- 
@@ -81,7 +90,11 @@ header	jmp start
 
 ; --------------------------- 
 
-start	jsr makechr
+start	lda sc_screenvek	; Zeiger auf Main-Liste retten für ShowFont
+	sta mlist
+	lda sc_screenvek+1
+	sta mlist+1
+	jsr makechr
 	lda mcflg
 	bne st2
 	jsr setmcols
@@ -194,8 +207,7 @@ errnf	ldx list		; sonst: Requester einblenden
 
 finish	jsr gd_xclose	; File schließen
 	jsr chgdrv
-	ldx #3		; Mauszeiger an
-	stx $d015
+	jsr gd_spron	; Mauszeiger an
 	sec
 	rts
 
@@ -259,7 +271,7 @@ sevldfont	jsr clrmssg
 	stx ls_flen
 	jsr swppname
 
-	lda #$38		; patch mod (SEC - RTS)
+	lda #$38		; patch mod (to SEC - RTS)
 	sta header
 	lda #$60
 	sta header+1
@@ -280,7 +292,7 @@ sevldfont	jsr clrmssg
 	pla
 	sta sc_screenvek
 	lda #$4c
-	sta header	; unpatch mod (JMP START)
+	sta header	; unpatch mod (to JMP START)
 	lda #<(start)
 	sta header+1
 	jsr swppname
@@ -964,6 +976,92 @@ cf1	lda fonttx,x
 	ldy #>(fontis-1)
 	jmp gd_xtxout2
 
+; --------------------------- Zeichensatz anzeigen
+
+sevshow	jsr view		; Show graphics
+	jsr wait		; wait for click
+	jsr rp2		; restore requester
+	clc		; stay in module
+	rts
+
+; ------------------------------------------ Switch Graphics/Text
+
+view:	ldx #1
+	stx gr_redisp
+	lda gmode
+	beq hires
+
+	lda mcols
+	sta backgr
+	lda mcols+1
+	asl
+	asl
+	asl
+	asl
+	ora mcols+2
+	sta hcols
+	lda #$18
+	sta multreg
+	lda mcols+3
+	ldy #0
+-	sta cram,y
+	iny
+	bne -
+	inx
+	cpx #5
+	bne -
+
+hires:	ldy #251
+	lda hcols		; ink: lgrey, paper: black
+red0	sta $03ff,y
+	sta $04f9,y
+	sta $05f3,y
+	sta $06ed,y
+	dey
+	bne red0
+rp4:	lda #$1b		; hires graphics on
+	sta charreg
+	lda #$3b
+	sta grafreg
+	lda gr_redisp 	; leave if flag set
+	bne rp3
+
+rp2:	jsr tmode
+	ldx mlist		; Mainscreen aufbauen
+	ldy mlist+1
+	jsr gd_screen
+	ldx list		; Requester aufbauen
+	ldy list+1
+	jsr gd_screen
+	jsr gm4
+	lda gmode
+	beq rp3
+	jsr tgmode
+rp3:	clc
+	rts
+
+tmode:	ldx #$13		; back to text mode (graphics off)
+	lda #$1b
+	stx charreg
+	sta grafreg
+	lda #$08
+	sta multreg
+	lda #$f0
+	sta hcols
+	lda sc_maincolor
+	sta backgr
+	rts
+
+; ------------------------------------------ Wait for Key
+
+wait	lda #0
+	sta sc_keyprs
+	sta sc_stop
+kl	lda sc_stop
+	ora sc_keyprs	; wait for key
+	beq kl
+	rts
+
 ; --------------------------- Kringel definieren
 
 makechr	ldx #7
@@ -987,7 +1085,7 @@ cf5	jsr gd_setpos
 ; --------------------------- Multifarben vorbesetzen
 
 setmcols	ldx #3
-sm0	lda gr_palette,x
+sm0	lda dmcols,x
 	sta mcols,x
 	dex
 	bpl sm0
@@ -1029,7 +1127,9 @@ modetx	!scr " Hires"	; 5
 nofont	!scr " No Font loaded " ; 16
 mode	!by 1		; Replace / Overlay
 gmode	!by 0		; Hires / Multi
-mcols	!by 0,0,0,0	; Multifarben
+hcols	!by $f0		; lgr, blk
+dmcols	!by 11,0,1,3	; default: dgr,blk,wht,cya
+mcols	!by 0,0,0,0	; Multifarben (bgr,mc1,mc2,fgr) 
 mcflg	!by 0		; Colors are set (if 1)
 prflg	!by 0		; PRINT found
 rmflg	!by 0		; REM found
@@ -1037,6 +1137,7 @@ tabigad	!wo bgrgad	; 0
 	!wo mc1gad	; 2
 	!wo mc2gad	; 4
 	!wo fgrgad	; 6
+mlist	!wo 0		; Zeiger auf Mainlist
 chschr	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
 
 ; --------------------------- Screenliste
@@ -1048,18 +1149,20 @@ btxlist	!by 0
 	!scr " Replace @"
 	!by 10,11,11,3,$c8,<(sevovl),>(sevovl)
 	!scr " Overlay @"
-	!by 13,11,9,3,$c8,<(sevldfont),>(sevldfont)
-	!scr "Ld Font@"
-modegad	!by 13,20,9,3,$cf,<(sevgmode),>(sevgmode)
-	!by 223
-modeis	!scr " Hires@"
-	!by 16,11,5,3,$c8,<(sevgetfnt),>(sevgetfnt)
+	!by 13,11,5,3,$c8,<(sevgetfnt),>(sevgetfnt)
 	!scr "Get@"
-	!by 16,16,13,3,$cf,<(sevchsfnt),>(sevchsfnt)
+	!by 13,16,13,3,$cf,<(sevchsfnt),>(sevchsfnt)
 	!by 223
 fontis	!scr "GoDot Font@"
-	!by 19,11,18,3,$ca,<(cancel),>(cancel)
-	!scr "Cancel Load@"
+	!by 16,11,9,3,$c8,<(sevldfont),>(sevldfont)
+	!scr "Ld Font@"
+modegad	!by 16,20,9,3,$cf,<(sevgmode),>(sevgmode)
+	!by 223
+modeis	!scr " Hires@"
+	!by 19,11,11,3,$c8,<(sevshow),>(sevshow)
+	!scr "Show Font@"
+	!by 19,22,7,3,$cf,<(cancel),>(cancel)
+	!scr "Leave@"
 bgrgad	!by 7,25,4,3,$cf,<(sevbgr),>(sevbgr)
 bgrtx	!scr "  @"
 mc1gad	!by 8,25,4,3,$cf,<(sevmc1),>(sevmc1)
