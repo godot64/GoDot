@@ -19,6 +19,7 @@
 ; 1.05, 11.02.18: added CTRL-i (Invert Tile)
 ;                 finally solved mouse positioning problem when moving from
 ;                 keyboard (mouse pointer now stays in place)
+; 1.06, 12.02.18: added display of screen position (column/row of topleft edge)
 ;
 ; ----------------------------------------- 
 
@@ -36,6 +37,10 @@
 	mkx		= $3c
 	mky		= $3d
 	vpos		= $3e
+	vertical		= $3f	; ### v1.06 (saves space)
+	horizont		= $40
+	oldv		= $41
+	oldh		= $42	; ### bis hier
 
 	zeile		= sc_merk
 	spalte		= zeile+1
@@ -70,8 +75,8 @@
 	!word (modend)
 	!byte 0,0
 	!pet "Edit Mask pixels"
-	!pet "1.05"
-	!pet "11.02.18"
+	!pet "1.06"
+	!pet "12.02.18"
 	!pet "A.Dettke/Mac    "
 
 ; ----------------------------------------- Main
@@ -209,10 +214,6 @@ tabspr: 	!byte 0,64,128,192
 cols: 	!byte 0,0,0,0,0
 bestcolor	!byte 6,2,5,8			; schwarz
 bits: 	!byte $80,$40,$20,$10,$08,$04,$02,$01
-vertical:	!byte 0
-horizont:	!byte 0
-oldv: 	!byte 0
-oldh: 	!byte 0
 grclr: 	!byte 1
 pmode: 	!byte 1				; mode: 1=set 0=reset
 pcols: 	!byte 0,15
@@ -459,7 +460,7 @@ sl3: 	pla		; restore indents
 
 ; ----------------------------------------- Move by key
 
-keymove: 	jsr holdmpos	; hold mouse position
+keymove: 	jsr holdmpos	; hold mouse position ### 1.05
 	txa		; Commo-Flag (1 (Shift), 4 (CTRL) or 5 (both))
 	ldx lastkey
 	cpx #40		; "+" key
@@ -624,7 +625,8 @@ display: 	jsr fill		; fill with new character
 	ldx #0		; black border
 	stx $d020
 home: 	jsr setstart 	; compute address in Bitmap
-dp00: 	ldx screenpnt 	; get address
+dp00:	jsr showxy	; ### 1.06
+ 	ldx screenpnt 	; get address
 	stx sc_texttab 	; store to work vector
 	ldy #1		; width/height: 1
 	sty sc_br
@@ -864,6 +866,45 @@ left: 	ldx horizont
 	sta screenpnt+1
 	rts
 
+; ------------------------------------------ Display Screen Position
+; ### v1.06 ---
+
+showxy:	lda horizont
+	jsr gd_xcnvdez
+	sta coltx+1
+	sta coltx2+1
+	cpx #$30
+	bne +
+	ldx #$20
++	stx coltx
+	stx coltx2
+	ldx #<colgad
+	ldy #>colgad
+	jsr shownums
+	lda vertical
+	jsr gd_xcnvdez
+	sta rowtx+1
+	sta rowtx2+1
+	cpx #$30
+	bne +
+	ldx #$20
++	stx rowtx
+	stx rowtx2
+	ldx #<rowgad
+	ldy #>rowgad
+shownums	stx sc_screentab
+	sty sc_screentab+1
+	lda #0
+	tax
+	tay
+-	jsr gd_setpos
+	cpx #3
+	bne -
+	jsr gd_initmove
+	ldy #2
+	jmp gd_xtxout1
+
+; ### bis hier ---
 ; ----------------------------------------- Display graphics event
 
 evdisplay	nop		; dummy (don't know anymore why)
@@ -1238,9 +1279,16 @@ editgad: 	!byte 19,33,6,3
 	!word cancel
 	!scr "Exit@"
 
-	!byte $c0,0,33,4
+	!by $c0,0,33,4		; Position ### 1.06
+	!scr "X:"
+coltx	!scr " 0@"
+	!by $c0,1,33,4
+	!scr "Y:"
+rowtx	!scr " 0@"
+	
+	!byte $c0,9,33,4		; Title
 	!scr "Edit@"
-	!byte $c0,1,33,4
+	!byte $c0,10,33,4		; ### 1.06 bis hier 
 	!scr "Mask@"
 
 	!byte $c0,4,33,4
@@ -1257,6 +1305,11 @@ editgad: 	!byte 19,33,6,3
 	!byte $c0,23,255,26		; Message: Edit Mode
 	!scr "STOP exits from Edit Mode.@"
 	!byte $80
+
+colgad	!by 1,36,2		; Position ### 1.06
+coltx2	!scr " 0@"
+rowgad	!by 2,36,2
+rowtx2	!scr " 0@"		; ### 1.06 bis hier
 
 modend: 	!eof
 
