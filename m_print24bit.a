@@ -16,6 +16,8 @@
 ;    1.05: 22.10.16, added multi renderer
 ;    1.06: 23.10.16, added color chooser for Multi
 ;    1.07: 11.02.18, added show charset (in its appropriate gfx mode)
+;    1.08: 12.02.18, added Clear Char Buffer before load
+;                    fixed wrong buffer address after adding Show Font routines
 ;
 ; --------------------------- 
 
@@ -45,9 +47,9 @@
 	status	= $90
 	
 	display	= $2000
-	txmodes	= $ca00
-	txbuf	= $cb00
-	txbuf1	= $cc00
+	txmodes	= $cb00
+	txbuf	= $cc00
+	txbuf1	= $cd00
 	align	= txmodes
 	ccol	= align+1
 	bcol	= align+2
@@ -75,8 +77,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "basic text rem/?"
-	!pet "1.07"
-	!pet "11.02.17"
+	!pet "1.08"
+	!pet "12.02.17"
 	!pet "W.Kling/A.Dettke"
 
 ; --------------------------- 
@@ -297,6 +299,7 @@ sevldfont	jsr clrmssg
 	sta header+1
 	jsr swppname
 
+	jsr clrbuffer
 	lda ls_flen	; nichts gewählt?
 	beq jnofile	; ja, Ende
 
@@ -832,6 +835,23 @@ clrl	sta (dst),y
 	stx dst+1
 	cpx #$bd
 	bne clrl
+	rts
+
+; --------------------------- Char-Puffer löschen
+
+clrbuffer	lda #<(display)	; $2000
+	ldx #>(display)
+	sta dst
+	stx dst+1
+	ldy #$00
+	tya 
+-	sta (dst),y
+	iny 
+	bne -
+	inx 
+	stx dst+1
+	cpx #>sy_4bit
+	bne -
 	rts
 
 ; --------------------------- Farben für Multi ändern
