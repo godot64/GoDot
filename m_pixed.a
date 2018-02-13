@@ -21,7 +21,7 @@
 ;   1.30. 29.01.17: added Hold Mouse Position on Move Commands
 ;   1.31, 29.05.17: added ability to preview graphics correctly, also when executed from RAM
 ;   1.32, 31.07.17: added display of screen position (column/row of topleft edge)
-;   1.33, 11.02.18: solved problem with Hold Mouse Position
+;   1.33, 13.02.18: solved problem with Hold Mouse Position
 ;
 ; ------------------------------------------------------------ 
 
@@ -81,7 +81,7 @@
 	!wo 0
 	!pet "Edit 4bit pixels"
 	!pet "1.33"
-	!pet "11.02.18"
+	!pet "13.02.18"
 	!pet "AD/ H.McMenamin "
 
 ; ------------------------------------------ Main
@@ -429,6 +429,10 @@ ckgads	lda sc_merk+1	; horizontal in Gadgetgebiet?
 	bcc ok1		; nein, dazwischen
 jended	pla
 	pla
+	lda vertical
+	sta oldv
+	lda horizont
+	sta oldh
 	jmp endedit
 ok1	rts
 
