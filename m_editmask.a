@@ -19,7 +19,7 @@
 ; 1.05, 11.02.18: added CTRL-i (Invert Tile)
 ;                 finally solved mouse positioning problem when moving from
 ;                 keyboard (mouse pointer now stays in place)
-; 1.06, 12.02.18: added display of screen position (column/row of topleft edge)
+; 1.06, 13.02.18: added display of screen position (column/row of topleft edge)
 ;
 ; ----------------------------------------- 
 
@@ -76,7 +76,7 @@
 	!byte 0,0
 	!pet "Edit Mask pixels"
 	!pet "1.06"
-	!pet "12.02.18"
+	!pet "13.02.18"
 	!pet "A.Dettke/Mac    "
 
 ; ----------------------------------------- Main
@@ -256,6 +256,10 @@ ckgads: 	lda sc_merk+1	; horizontal in Gadgetgebiet?
 	bcc ok1		; nein, zwischen Wipe und Draw
 jended: 	pla
 	pla
+	lda vertical
+	sta oldv
+	lda horizont
+	sta oldh
 	jmp endedit
 ok1: 	rts
 ; ----------------------------------------- Switch Draw Mode
