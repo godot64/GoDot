@@ -1,6 +1,7 @@
 
 !src "..\godotlib.lib"
 *= $c000
+;	!sl "labels.txt"
 
 ; ------------------------------------------------------------ 
 ;
@@ -23,6 +24,7 @@
 ;   1.32, 31.07.17: added display of screen position (column/row of topleft edge)
 ;   1.33, 13.02.18: solved problem with Hold Mouse Position
 ;   1.34, 14.02.18: solved problem with mouse pointer set to wrong tile
+;   1.35, 14.02.18: really solved the problem (was use of CTRL instead of CBM key!)
 ;
 ; ------------------------------------------------------------ 
 
@@ -60,6 +62,8 @@
 	sprites 		= $07f8	; Sprite definition pointers
 	spr255 		= $3fc0	; Spriteblock 255
 
+	sprp2 		= $d004	; spr #4 x pos
+	sprp3 		= $d006	; spr #4 x pos
 	sprp4 		= $d008	; spr #4 x pos
 	sprp5 		= $d00a 	; spr #5 x pos
 	sprp6 		= $d00c	; spr #6 x pos
@@ -68,7 +72,8 @@
 	sprxy 		= $d017	; expand spr y
 	sprmulti 		= $d01c	; multicolr
 	sprxx 		= $d01d 	; exp spr x
-	sprcols 		= $d02b
+	rahmen		= $d020
+	backgr		= $d021
 
 	vram2 		= $ce0b
 	vram1 		= $de0b
@@ -81,7 +86,7 @@
 	!wo (modend)
 	!wo 0
 	!pet "Edit 4bit pixels"
-	!pet "1.34"
+	!pet "1.35"
 	!pet "14.02.18"
 	!pet "AD/ H.McMenamin "
 
@@ -103,15 +108,15 @@ start:	jsr makech	; define new character
 	jsr initchooser	; set colors in color chooser
 	jsr display	; show 4Bit enlarged
 	jsr sprbox	; show spritebox
-	jsr gd_eloop	; wait... (what else within GoDot?)
+	jmp gd_eloop	; wait... (what else within GoDot?)
 
 ; ------------------------------------------ 
 
 cancel:	jsr restcols	; restore screen colors
 	ldy #0
-	lda sc_merk
+	lda zeile
 	sta vertical
-	lda sc_merk+1
+	lda spalte
 	sta horizont
 	jsr dp13		; sprites and so on
 	sec		; leave module
@@ -196,13 +201,13 @@ mp3:	ldy #0
 
 evgetcol:
  	sec		; row of mouse pointer
-	lda sc_merk
+	lda zeile
 	sbc palzl		; minus topleft corner of gadget
 	asl
 	asl 		; times 4 is
 	sta hold 		; row position inside of palette
 	sec		; add column
-	lda sc_merk+1
+	lda spalte
 	sbc palsp
 	clc
 	adc hold		; makes offset into palette
@@ -341,8 +346,8 @@ masp:	lda sprstore,x	; load sprite
 	sta spritehi
 	lda #0
 	sta sprmulti	; multi off
-	sta $d01d
-	sta $d017
+	sta sprxx
+	sta sprxy
 	jsr gridcl
 	lda #$ff		; all sprites
 	sta sprites+2	; point to $ff
@@ -354,23 +359,23 @@ masp:	lda sprstore,x	; load sprite
 	jsr sprbox   
 ; ------------------------------------------ set vert loc
 	lda #111
-	sta $d005
-	sta $d007
-	sta $d009
+	sta sprp2+1
+	sta sprp3+1
+	sta sprp4+1
 	lda #175
-	sta $d00b
-	sta $d00d
-	sta $d00f
+	sta sprp5+1
+	sta sprp6+1
+	sta sprp7+1
 ; ------------------------------------------ set horiz loc
 	lda #85
-	sta $d004
-	sta $d00a
+	sta sprp2
+	sta sprp5
 	lda #149
-	sta $d006
-	sta $d00c
+	sta sprp3
+	sta sprp6
 	lda #213
-	sta $d008
-	sta $d00e
+	sta sprp4
+	sta sprp7
 	rts
 
 ; ------------------------------------------ grid color
@@ -414,12 +419,12 @@ sprstore:	!by 16,0,0,16,0,0,16,0
 
 ; ------------------------------------------ Check for Gadgets when in Edit Mode
 
-ckgads	lda sc_merk+1	; horizontal in Gadgetgebiet?
+ckgads	lda spalte	; horizontal in Gadgetgebiet?
 	cmp gdbr
 	bcs ok1		; nein, zu weit rechts
 	cmp gdsp
 	bcc ok1		; nein, zu weit links
-	lda sc_merk	; vertikal darin?
+	lda zeile		; vertikal darin?
 	cmp gdho2
 	bcs ok1		; nein, zu weit unten
 	cmp gdzl1
@@ -437,51 +442,57 @@ jended	pla
 	jmp endedit
 ok1	rts
 
-; ------------------------------------------ Edit pixels
+; ------------------------------------------ Event: Edit pixels
 
 evedit:	jsr messon	; show message
 	lda #0		; init break with STOP key
 	sta sc_stop
 	sta bigbox	; set function inactive
 	jsr hiedi		; hilite Edit gadget
-	lda vertical	; save current position
+	lda vertical	; save current mouse position
 	sta oldv
 	lda horizont
 	sta oldh
+
 ; ------------------------------------------ Edit Routines
+
 ed0:	jsr ckgads	; in einem der Auswahlgadgets?
-	lda sc_merk+1	; nein, look for too wide
+	lda spalte	; nein, look for too wide
 	cmp #$20
-	bcs edx1		; too far rt
-	lda sc_merk
-	cmp #$18		; too far dwn
+	bcs edx1		; too far rt?
+	lda zeile
+	cmp #$18		; too far dwn?
 	bcc edx3
-edx1:	ldx #2		; border red
-	stx $d020
-edx2:	inx		; delay
+edx1:	ldx #2		; yes, border red
+	stx rahmen
+edx2:	inx		; delay (blink)
 	bne edx2
 	jsr gd_position
-	lda #0		; border black
-	sta $d020
-	beq ed0
+	lda #0		; then border black
+	sta rahmen
+	beq ed0		; and loop
+
 edx3:	lda sc_keyprs	; FIRE/RETURN/STOP?
-	ora commoflag	; CTRL key?
+	ora commoflag	; CBM key?
 	ora sc_stop
 	beq ed0		; no, wait
+
 	tay		; hold key
 	jsr gd_position	; where is the mouse?
-	lda commoflag	; check for CTRL/Shift
+	lda commoflag	; check for CBM/Shift
 	beq edit		; no, other key
 	ldx #0
 	stx sc_keyprs
 	stx commoflag
 	tax
-	and #5
+	and #3
 	beq ed0
-	jmp keymove	; keyboard if CTRL or Shift pressed
+	jmp keymove	; keyboard if CBM or Shift pressed
+
 ; ------------------------------------------ 
-edit:	lda sc_stop	; if STOP: exit from edit
+edit:	lda sc_stop	; if STOP (>0): end edit
 	beq ed1		; no STOP
+; ------------------------------------------ 
 
 endedit	lda sc_normtext	; STOP: exit, restore Edit gadget
 	sta sc_chgcol
@@ -502,7 +513,9 @@ ed3:	lda editgad,y
 	sta horizont
 sl5:	clc		; leave function
 	rts
+
 ; ------------------------------------------ 
+
 ed1:	sta sc_loop	; init memflag
 	lda screenpnt	; save current 4Bit pointer
 	pha
@@ -512,7 +525,8 @@ ed1:	sta sc_loop	; init memflag
 	pha
 	lda horizont
 	pha
-	lda sc_merk	; row of mouse pointer
+
+	lda zeile		; row of mouse pointer
 	cmp #24		; valid?
 	bcs sl3		; no, leave
 	pha		; save value (y indent)
@@ -520,7 +534,7 @@ ed1:	sta sc_loop	; init memflag
 	lsr
 	lsr
 	sta vertical
-	lda sc_merk+1	; column of mouse pointer
+	lda spalte	; column of mouse pointer
 	cmp #32		; valid?
 	bcc sl4
 	pla		; if no, clear stack...
@@ -570,9 +584,9 @@ sl1:	tya		; right nibble (or pixel)
 	and #$f0
 sl2:	ora cnt		; set new color to 4Bit
 	sta (screenpnt),y
-	lda sc_merk	; set new color to display
+	lda zeile		; set new color to display
 	sta sc_zl
-	lda sc_merk+1
+	lda spalte
 	sta sc_sp
 	lda #1
 	sta sc_br
@@ -580,6 +594,7 @@ sl2:	ora cnt		; set new color to 4Bit
 	sta gr_redisp
 	ldx #4
 	jsr gd_fcol
+
 sl3:	pla		; restore indents
 	sta horizont
 	pla
@@ -593,7 +608,7 @@ sl3:	pla		; restore indents
 ; ------------------------------------------ Move by key
 
 keymove:	jsr holdmpos	; hold mouse position
-	txa		; Commo-Flag (1 (Shift), 4 (CTRL) or 5 (both))
+	txa		; Commo-Flag (1 (Shift), 2 (CBM) or 3 (both))
 	ldx lastkey
 	cpx #40 		; "+" key
 	bne pe2
@@ -628,14 +643,18 @@ pe6:	cpx #41		; "p" key
 	jsr pdirect	; and set new color
 	jsr tdelay	; key delay
 	jmp ed0		; back to edit loop
+
 ; ------------------------------------------ 
+
 pete:	cpx #60		; left mouse button?
 	beq shifted
-	cmp #5
+	cmp #3
 	beq shifted
-	cmp #4
-	bne kmc3
+	cmp #2		; CBM?
+	bne kmc3		; no, loop
+
 ; ------------------------------------------ 
+
 unshifted:
 	cpx #2		; CRSR right
 	bne km0
@@ -671,13 +690,14 @@ km8:	cpx #38 		; "o" for Overview
 	jsr messon
 	jsr hiedi
 	beq km6
-kmc	cpx #9		  ; "w" for Wipe
+kmc	cpx #9		; "w" for Wipe
 kmc3	bne km3
 	jsr tdelay
 	jsr evwipe
 	bcc km3
 
 ; ------------------------------------------ 
+
 shifted:	cpx #60		; Shift Space (left mouse button)?
 	bne km9
 	cmp #1 		; (Shift?)
@@ -737,6 +757,7 @@ ms0:	sta sc_chgcol
 	jmp gd_fcol
 
 ; ------------------------------------------ hilite Edit gadget
+
 hiedi:	lda sc_hilite
 	sta sc_chgcol
 	ldy #3
@@ -752,9 +773,9 @@ ed2:	lda editgad,y
 
 display:	jsr fill		; fill with new character
 	lda gr_bkcol	; set background color
-	sta $d021
+	sta backgr
 	ldx #0 		; black border
-	stx $d020
+	stx rahmen
 home:	jsr setstart	; compute address in 4Bit
 
 dp00:	jsr showxy
@@ -840,8 +861,9 @@ dummy:	clc
 jevhome:	jmp evhome
 jevcenter:
 	jmp evcenter
-evmove:	lda sc_merk	; row
-	ldx sc_merk+1	; column
+
+evmove:	lda zeile		; row
+	ldx spalte	; column
 	cmp #4		; topmost row of gadget?
 	bne em0
 	cpx #34		; four columns within
@@ -1115,8 +1137,8 @@ c147 	lda slot+1	; get hibyte...
 
 dp13:	sty sc_stop	; re-init stop flag
 	lda sc_maincolor	; restore colors
-	sta $d020
-	sta $d021
+	sta rahmen
+	sta backgr
 	jsr setspr	; set pointer to last tile
 	jsr gd_spron	; switch sprites on
 	sec		; leave module
@@ -1157,15 +1179,15 @@ disp2:	jsr setspr	; set pointer
 	jsr gd_spron	; switch on
 	jsr redisplay	; redisplay graphics
 	jsr gd_position	; get pointer position
-	lda sc_merk
+	lda zeile		; Mauszeile
 	pha
 	lda #5
 	sta vertical
-	lda sc_merk+1
+	lda spalte	; Mausspalte
 	pha
 	lda #35
 	sta horizont
-	jsr setspr
+	jsr setspr	; setze auf 5/35 ("O")
 	pla
 	sta horizont
 	pla
@@ -1184,12 +1206,10 @@ setspr:	lda spritehi 	; X-Hi off
 	clc
 	adc sy_soffy
 	tax
-	inx		; ### 1.34
+	stx $d001		; ### 1.34
 	inx
-	stx $d003
-	dex
-	dex
-	stx $d001
+	inx
+	stx spritey
 	lda horizont	; set column
 	tax
 	cmp #29
@@ -1206,7 +1226,7 @@ ssp0:	txa
 	clc
 	adc sy_soffx
 	tax
-	stx $d002
+	stx spritex
 	stx $d000
 	rts
 
@@ -1258,7 +1278,7 @@ setbveks	lda v1buf 	; vram1 ### 1.31
 	dec pport
 scv0:	stx $b3
 	ldy #0
-	sty sc_merk
+	sty zeile
 	sty $b2
 	dey
 
@@ -1296,20 +1316,20 @@ cou7:	dec $a8
 getcolors:
 	jsr setcveks
 stco:	lda ($b2),y
-	sta sc_merk
+	sta zeile
 	inc $b2
 	bne stc0
 	inc $b3
 stc0:	lda ($b2),y
 	lsr
-	rol sc_merk
+	rol zeile
 	lsr
-	rol sc_merk
+	rol zeile
 	lsr
-	rol sc_merk
+	rol zeile
 	lsr
-	rol sc_merk
-	lda sc_merk
+	rol zeile
+	lda zeile
 	sta ($20),y
 	jsr count
 	bne stco
@@ -1327,7 +1347,7 @@ stc1:	lda ($b2),y
 scv1:	lda #$36
 	sta pport
 	cli
-	lda $d021
+	lda backgr
 	and #15
 	sta gr_bkcol
 	rts
@@ -1336,24 +1356,24 @@ scv1:	lda #$36
 
 setcolors:
 	lda gr_bkcol
-	sta $d021
+	sta backgr
 	pha
 	jsr setcveks
-stc2:	sty sc_merk
+stc2:	sty zeile
 	lda ($20),y
 	lsr
-	rol sc_merk
+	rol zeile
 	lsr
-	rol sc_merk
+	rol zeile
 	lsr
-	rol sc_merk
+	rol zeile
 	lsr
-	rol sc_merk
+	rol zeile
 	sta ($b2),y
 	inc $b2
 	bne stc3
 	inc $b3
-stc3:	lda sc_merk
+stc3:	lda zeile
 	sta ($b2),y
 	jsr count
 	bne stc2
@@ -1420,7 +1440,6 @@ ew0	lda tabspr,x	; get x-position
 
 holdmpos	lda zeile		; save current position
 	sta oldv
-	inc oldv
 	lda spalte
 	sta oldh
 	rts
@@ -1471,12 +1490,13 @@ f7	sty gr_redisp
 ; ------------------------------------------ 
 
 hv1:	lda screenpnt+1	; lda msb
-	inc $d020		; flash border
+	inc rahmen		; flash border
 	pha		; store msb
-	lda sc_merk	; lda how many rows down
+	jsr gd_position
+	lda zeile		; lda how many rows down
 	lsr		; / 2
-	lsr		; / 2
-	lsr		; / 2
+	lsr		; / 4
+	lsr		; / 8
 	tay		; put in y
 	pla		; get msb back
 	cpy #0
@@ -1489,10 +1509,10 @@ hv2:	clc
 hv3:	sta mac+1
 	lda screenpnt	; lda lsb
 	pha		; save it
-	lda sc_merk+1	; get horz rows
+	lda spalte	; get horz cols
 	lsr		; /2
-	lsr		; /2
-	lsr		; /2
+	lsr		; /4
+	lsr		; /8
 	tay		; put in y
 	pla		; get lsb back
 	cpy #0		; if 0 skip
@@ -1502,10 +1522,9 @@ hh2:	clc
 	bne hh5
 	inc mac+1
 hh5:	dey
-	beq hh3
-	jmp hh2
+	bne hh2
 hh3:	sta mac
-	dec $d020		; restore border
+	dec rahmen	; restore border
 	rts
 
 ; ------------------------------------------ Screenlist
