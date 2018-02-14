@@ -20,6 +20,7 @@
 ;                 finally solved mouse positioning problem when moving from
 ;                 keyboard (mouse pointer now stays in place)
 ; 1.06, 13.02.18: added display of screen position (column/row of topleft edge)
+; 1.07, 14.02.18: solved problem with mouse pointer set to wrong tile
 ;
 ; ----------------------------------------- 
 
@@ -75,8 +76,8 @@
 	!word (modend)
 	!byte 0,0
 	!pet "Edit Mask pixels"
-	!pet "1.06"
-	!pet "13.02.18"
+	!pet "1.07"
+	!pet "14.02.18"
 	!pet "A.Dettke/Mac    "
 
 ; ----------------------------------------- Main
@@ -990,6 +991,8 @@ setspr: 	lda $d010		; X-Hi off
 	clc
 	adc sy_soffy
 	tax
+	inx		; ### 1.07
+	inx
 	stx $d003
 	dex
 	dex
