@@ -22,6 +22,7 @@
 ;   1.31, 29.05.17: added ability to preview graphics correctly, also when executed from RAM
 ;   1.32, 31.07.17: added display of screen position (column/row of topleft edge)
 ;   1.33, 13.02.18: solved problem with Hold Mouse Position
+;   1.34, 14.02.18: solved problem with mouse pointer set to wrong tile
 ;
 ; ------------------------------------------------------------ 
 
@@ -80,8 +81,8 @@
 	!wo (modend)
 	!wo 0
 	!pet "Edit 4bit pixels"
-	!pet "1.33"
-	!pet "13.02.18"
+	!pet "1.34"
+	!pet "14.02.18"
 	!pet "AD/ H.McMenamin "
 
 ; ------------------------------------------ Main
@@ -1183,6 +1184,8 @@ setspr:	lda spritehi 	; X-Hi off
 	clc
 	adc sy_soffy
 	tax
+	inx		; ### 1.34
+	inx
 	stx $d003
 	dex
 	dex
