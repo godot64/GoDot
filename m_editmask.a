@@ -21,6 +21,7 @@
 ;                 keyboard (mouse pointer now stays in place)
 ; 1.06, 13.02.18: added display of screen position (column/row of topleft edge)
 ; 1.07, 14.02.18: solved problem with mouse pointer set to wrong tile
+; 1.08, 14.02.18: really solved the problem (was use of CTRL instead of CBM key!)
 ;
 ; ----------------------------------------- 
 
@@ -76,7 +77,7 @@
 	!word (modend)
 	!byte 0,0
 	!pet "Edit Mask pixels"
-	!pet "1.07"
+	!pet "1.08"
 	!pet "14.02.18"
 	!pet "A.Dettke/Mac    "
 
@@ -352,21 +353,21 @@ edx2: 	inx		; delay
 	sta $d020
 	beq ed0		; loop until in box again
 edx3: 	lda sc_keyprs 	; FIRE/RETURN/STOP?
-	ora commoflag 	; CTRL key?
+	ora commoflag 	; CBM key?
 	ora sc_stop
 	beq ed0		; no, wait
 
 	tay		; hold key
 	jsr gd_position 	; where is the mouse?
-	lda commoflag 	; check for CTRL/Shift
+	lda commoflag 	; check for CBM/Shift
 	beq edit		; no, other key
 	ldx #0
 	stx sc_keyprs
 	stx commoflag
 	tax
-	and #5
+	and #3
 	beq ed0
-	jmp keymove 	; keyboard if CTRL or Shift pressed
+	jmp keymove 	; keyboard if CBM or Shift pressed
 
 edit: 	lda sc_stop 	; if STOP: exit from edit
 	beq ed1		; no STOP
@@ -495,10 +496,11 @@ pe5: 	cpx #37		; "k" key
 
 pete: 	cpx #60		; left mouse button?
 	beq shifted
-	cmp #5
+	cmp #3
 	beq shifted
-	cmp #4
+	cmp #2
 	bne kmb
+
 unshifted	cpx #2		; CRSR right
 	bne km0
 	jsr right
@@ -1099,7 +1101,6 @@ ew0 	lda tabspr,x	; get x-position
 
 holdmpos	lda zeile		; save current position
 	sta oldv
-	inc oldv
 	lda spalte
 	sta oldh
 	rts
