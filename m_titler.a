@@ -14,6 +14,7 @@
 ;    1.01, 17.05.17, preview in hires (better positioning)
 ;    1.02, 21.06.17, bug: last two bytes didn't load, fixed
 ;    1.03: 18.07.17, added 4Bit-Preview
+;    1.04: 25.02.18, bugfixes: chars smaller than 1 tile, 
 ;
 ; ------------------------------------------------------------ 
 
@@ -243,7 +244,7 @@ evs4	clc
 	cmp #41		; right?
 	bcs fail
 	
-	sty pactive
+	sty pactive	; .y=0
 	jsr getcpos	; Zeichenposition berechnen
 	jsr setchar	; sonst: Zeichen einstempeln
 	jsr gd_spron
@@ -251,6 +252,7 @@ evs4	clc
 	ldy #$ff
 	jsr wait2
 	sta gr_redisp
+	sty pactive	; ### 1.04
 
 evs1	lda cactive
 	beq evs2
@@ -325,9 +327,9 @@ evchchar	lda #0
 	lsr
 	sta ckerning	; merken
 	tya
-	and #7
+	and #$f8		; ### 1.04
 	bne ecc2
-	inc ckerning
+	inc ckerning	; mindestens 1
 ecc2	lda pxwidth	; Pixelbreite des Zeichensatzes
 	sec
 	sbc kernings,x	; Pixelbreite des Zeichens abziehen = Kerning
