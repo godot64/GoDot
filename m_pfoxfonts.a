@@ -1,0 +1,1596 @@
+
+	!src "..\godotlib.lib"
+	*= $c000
+	!ct pet
+	!sl "labels.txt"
+
+; --------------------------------------
+;
+;     mod.PfoxFont
+;       Modifier zum Laden von Printfox-Zeichensätzen
+;
+;     1.00, 01.03.18, first release
+;
+; --------------------------------------
+
+; -------------------------------------- Equates
+
+	pport		= $01
+	merk		= $07
+	int		= $14
+	wordlo		= $15
+
+	counter		= $30	; /$31
+	gbyte		= $32	; dekodiertes Byte
+	cnt1		= $33	; zählt bis 8 (1 Kachel)
+	bcnt		= $34	; zählt Char-Breite
+	hcnt		= $35	; zählt Char-Höhe
+	tcnt		= $36	; zählt oberen Leerraum
+	lcnt		= $37	; zählt Chars pro Zeile
+	dst		= $38	; /$39
+	dst0		= $3a	; /$3b
+	dst1		= $3c	; /$3d
+	temp		= $3e	; /$3f
+	feed		= $40	; /$41
+	countdwn		= $42	; /$43
+	curdiv		= $44	; aktuelle Div beim Speichern
+	xmerk		= $45
+
+	zeile		= sc_merk
+	spalte		= zeile+1
+
+	patch		= $1bd2	; Systempatch für Wildcard "?"
+	patch1		= $1be8	; Patch für Normalfilenamen (5 statt 9)
+	patch2		= $19b7	; Patch für Anzeige des letzten Files
+	showfile		= $1988	; Anzeige letztes File
+	display		= $2000	; Ziel
+	charset		= $3040	; Ziel bei Re-Org
+
+	grafreg	= $d011
+	multreg	= $d016
+	charreg	= $d018
+
+; -------------------------------------- Header
+
+header	jmp start
+
+	!by $20
+	!by $00
+	!by $00
+	!wo modend
+	!wo 0
+	!tx "View PFox Fonts "
+	!tx "1.00"
+	!tx "01.03.18"
+	!tx "A.Dettke        "
+
+; -------------------------------------- Main
+
+start	jsr spatch
+	jsr makechr
+	jsr swppname
+	lda gr_redisp
+	sta redispmk
+	lda sc_screenvek	; Zeiger auf Main-Liste retten für ShowFont
+	sta mlist
+	lda sc_screenvek+1
+	sta mlist+1
+	ldx #<(pfntlst)
+	ldy #>(pfntlst)
+	jsr screen	; Requester aufbauen
+	jsr invert
+	lda sc_screenvek	; Zeiger auf PfoxFonts-Liste retten 
+	sta list
+	lda sc_screenvek+1
+	sta list+1
+	
+	jmp gd_eloop	; warten
+
+; -------------------------------------- Event: Don't Exit
+
+stay	clc
+	rts
+
+; -------------------------------------- Event: Exit
+
+evexit	jsr swppname
+	lda redispmk
+	sta gr_redisp
+	sec 
+	rts 
+
+; --------------------------- Event: Show (Zeichensatz anzeigen)
+
+evshow	lda hasinfo	; wurde Info schon geladen?
+	beq +
+	jsr evldfont	; ja, dann Font ohne Requester laden
++	jsr view		; Show graphics
+	jsr wait		; wait for click
+	jsr rp2		; restore requester
+	clc		; stay in module
+	rts
+
+; ------------------------------------------ Display Requester
+
+screen	stx temp
+	sty temp+1
+	jsr getinfo
+	ldx temp
+	ldy temp+1
+	jsr gd_screen
+	lda #2
+	sta sc_chgcol
+	lda #<infogad
+	ldx #>infogad
+	jsr scr1
+	lda #3
+	sta sc_chgcol
+	lda #<chargad
+	ldx #>chargad
+scr1	jsr setpos
+	jsr gd_trim
+	jsr gd_initmove
+	ldx sc_chgcol
+	jmp gd_fcol
+
+invert	lda theight
+	beq +
+	sta sc_ho
+	lda #12
+	sec
+	sbc theight
+	sta sc_zl
+	lda #26
+	sta sc_sp
+	ldx cwidth
+	stx sc_br
+	lda #0
+	sta sc_loop
+	jsr gd_initmove
+	jsr gd_invert
++	rts
+	
+
+; ------------------------------------------ Switch Graphics/Text
+
+view:	ldx #1
+	stx gr_redisp
+
+hires:	ldy #251
+	lda hcols		; ink: lgrey, paper: black
+red0	sta $03ff,y
+	sta $04f9,y
+	sta $05f3,y
+	sta $06ed,y
+	dey
+	bne red0
+rp4:	lda #$1b		; hires graphics on
+	sta charreg
+	lda #$3b
+	sta grafreg
+	lda gr_redisp 	; leave if flag set
+	bne rp3
+
+rp2:	jsr tmode
+	ldx mlist		; Mainscreen aufbauen
+	ldy mlist+1
+	jsr gd_screen
+	ldx list		; Requester aufbauen
+	ldy list+1
+	jsr screen
+	jsr invert
+rp3:	clc
+	rts
+
+tmode:	ldx #$13		; back to text mode (graphics off)
+	lda #$1b
+	stx charreg
+	sta grafreg
+	lda #$08
+	sta multreg
+	rts
+
+; ------------------------------------------ Wait for Key
+
+wait	lda #0
+	sta sc_keyprs
+	sta sc_stop
+kl	lda sc_stop
+	ora sc_keyprs	; wait for key
+	beq kl
+	rts
+
+; --------------------------- Event: Set Division
+
+evsetdiv	lda chsdiv
+	cmp maxdiv
+	bcc +
+	lda #$ff
+	sta chsdiv
++	inc chsdiv
+	jsr loadpars
+	jsr sdv0
+	iny		; .y=0, Offset auf divgad-Vektor
+	jsr settext
+	ldy #6
+	jmp gd_xtxout1	; Text-Ausgabe
+
+sdv0	ldx chsdiv
+	lda divoffs,x
+	tax
+	ldy #4
+-	lda division,x
+	sta divtx,y
+	dex
+	dey
+	bpl -
+	rts
+
+; --------------------------- Event: Info
+
+evinfo	jsr clrmssg
+	jsr chgdrv
+
+	jsr lrequest
+	lda ls_flen	; nichts gewählt?
+	beq jnofile	; ja, Ende
+	lda zeile
+	cmp #17
+	beq jnofile
+
+	jsr cutprefix
+
+	lda #$ff
+	sta hasinfo
+	lda namelen
+	sta ls_temp
+	jsr fileopen
+	jsr getmaxdiv
+	jmp ldl12
+
+; --------------------------- Event: Load Font
+
+jnofile	jmp nofile
+
+jfaila	jsr finish
+	lda #0		; Info ausschalten
+	sta hasinfo
+	jsr chgdrv
+	jmp faila		; no pfox
+
+evldfont	jsr clrmssg
+	jsr chgdrv
+
+	ldx #<(display)
+	ldy #>(display)
+	stx dst
+	sty dst+1
+	stx dst1
+	sty dst1+1
+	stx counter	; .x=0, Komprimierungszähler auf Null
+	stx counter+1
+	stx countdwn
+	stx countdwn+1
+
+	lda hasinfo	; wurde Info bereits eingelesen?
+	bne frominfo	; ja, dann laden ohne Requester
+
+	jsr lrequest
+
+	lda ls_flen	; nichts gewählt?
+	beq jnofile	; ja, Ende
+	lda zeile
+	cmp #17
+	beq jnofile
+
+	jsr cutprefix
+
+; -------------------------------------- 
+
+frominfo	jsr getzsname
+	jsr clrbuffer	; Zielbereich löschen
+
+	lda #<ls_nambuf
+	sta ls_vekta8
+	lda #>ls_nambuf
+	sta ls_vekta8+1
+	lda namelen
+	sta ls_temp
+	jsr fileopen	; und Datei anlesen, Countwerte berechnen
+	jsr getmaxdiv
+	ldx chsdiv	; which division?
+	ldy skoffs,x
+	lda skipbytes,y	; Anzahl Bytes für Skip setzen
+	sta ls_vekta8
+	iny
+	lda skipbytes,y
+	sta ls_vekta8+1
+	txa
+	beq +
+	lda amount
+	sta countdwn
+	lda amount+1
+	sta countdwn+1
++	jsr intoskip
+
+	lda cwidth	; Space überlesen, wenn große Chars
+	clc
+	adc theight
+	cmp #4
+	bcc ldloop
+	lda #0
+	sta ls_vekta8+1
+	lda onechar
+	sta ls_vekta8
+	jsr intoskip
+
+ldloop	lda dst		; Init:
+	ldx dst+1
+	sta dst0		; Startadresse der Zeile merken
+	stx dst0+1
+
+oloop	ldx topskip	; Leerraum oben im Zeichen
+	stx tcnt
+	ldx #0
+	stx lcnt		; Zeichen pro Zeile
+	stx bcnt		; Zeichenbreite
+	stx cnt1		; Anzahl Linien in einer Kachel (8)
+	stx hcnt		; Zähler für Zeichenhöhe auf -1
+	dec hcnt
+	
+; -------------------------------------- 
+
+ldl0	ldx cnt1		; Kachellinienzähler abgelaufen?
+	bne ol0
+
+; -------------------------------------- 
+
+	ldx #8		; ja, neu setzen
+	stx cnt1
+	inc hcnt
+	beq ol1
+	ldx hcnt		; Zeichenhöhe erreicht?
+	cpx theight	; (max. 6)
+	bcs +
+
+; -------------------------------------- 
+
+	ldx #1
+	clc
+	lda dst0		; ja, nächste Kachelzeile ansteuern
+	adc voffsl,x
+	sta dst
+	sta dst0
+	lda dst0+1
+	adc voffsh,x
+	sta dst+1
+	sta dst0+1
+	bne ldl0		; von vorn
+
+; -------------------------------------- 
+
++	ldx #0		; nächstes Zeichen
+	stx hcnt		; re-init Zeichenhöhe
+	stx bcnt
+	ldx topskip	; Topskip reaktivieren
+	stx tcnt
+	inc lcnt		; erstes Zeichen?
+ol1	beq oneline	; ja, bearbeiten
+	ldx lcnt		; nein, alle Zeichen einer Zeile fertig?
+	cpx lwidth
+	bcs ++
+
+	lda dst1+1	; nein, nächstes Zeichen, zurück in
+	sta dst0+1	; die Ursprungszeile
+	sta dst+1
+	lda dst1
+	sta dst0
+	sta dst
+
+	ldy cwidth	; Einrücken um .x*Breite Bytes
+	lda hoffs,y	; (8,16 oder 24)
+	sta temp
+-	lda dst		; .x mal Breite addieren
+	clc
+	adc temp
+	sta dst
+	sta dst0
+	bcc +
+	inc dst+1
+	inc dst0+1
++	dex
+	bne -
+
+ol0	jmp oneline
+
+; -------------------------------------- 
+
+++	ldx theight	; neue Zeichenzeile ansteuern
+	lda voffsl,x
+	clc
+	adc dst1
+	sta dst0
+	sta dst1
+	sta dst
+	lda voffsh,x
+	adc dst1+1
+	sta dst0+1
+	sta dst1+1
+	sta dst+1
+	jmp oloop		; alles auf Anfang
+
+; -------------------------------------- 
+
+oneline	ldx topskip	; Topskip aktiv?
+	bne ++		; ja, unten weiter
+
+-	jsr readfont	; nein, Char-Daten holen
+	tay
+	lda status	; Diskstatus checken
+	tax
+	and #64		; EOF?
+	bne ldl10		; no, so end reading
+	txa		; any other failure?
+	bne jfaile	; yes, message and end
+	jsr count
+	beq ldl13
+ldl11	tya		; sonst: weiter
+	jsr setdata
+	bcc -
+	bcs +
+
+++	ldx tcnt		; abgelaufen?
+	beq -		; ja, nichts tun
+	dec tcnt		; Topskip zählen
+	lda #$ff		; Leerdaten eintragen für eine Linie
+-	jsr setdata	; Daten in die Bitmap
+	bcc -		; ganze Breite fertig?
+
++	lda #0
+	sta bcnt		; ja, re-init Breite
+
+	inc dst		; nächste Linie in der Bitmap
+	bne next
+	inc dst+1
+next	dec cnt1		; Linien zählen
+
+	lda dst+1
+	cmp #>sy_4bit	; bis höchstens zum 4Bit-Bereich
+	bcs toolong
+	jmp ldl0
+
+; --------------------------------------
+
+toolong	jsr ldl1		; truncated
+	lda #0		; Info ausschalten
+	sta hasinfo
+	jsr failf
+	jsr chgdrv
+	jmp nofile
+
+jfaile	jsr finish
+	lda #0		; Info ausschalten
+	sta hasinfo
+	pha
+	pha
+	jsr chgdrv
+	jmp faile		; corrupt
+
+; --------------------------------------
+
+ldl10	lda counter	; letzte Komprimierung läuft noch?
+	ora counter+1
+	bne ldl11		; ja, abschließen
+
+ldl13	tya
+	jsr setdata	; allerletztes Byte schreiben
+	lda #0		; Info ausschalten (Font ist jetzt geladen)
+	sta hasinfo
+ldl12	jsr nofile	; Laden beenden, Requester ausgeben
+
+ldl1	ldx #11
+cf6	lda ls_lastname,x
+	sta fnttx,x
+	dex
+	bpl cf6
+	lda #<(nofntgad)	; Fontnamen ansteuern und
+	ldx #>(nofntgad)
+	jsr setpos
+	ldx #<(fnttx)	; ausgeben und
+	ldy #>(fnttx)
+	jsr gd_xtxout2
+	ldx #3		; hiliten
+	jmp gd_fcol
+
+; --------------------------- ERROR 
+
+nofile	jsr errnf
+	clc
+	rts
+
+; --------------------------- Abschluss
+
+errnf	ldx list		; sonst: Requester einblenden
+	ldy list+1
+	jsr screen
+	jsr invert
+
+finish	jsr gd_xclose	; File schließen
+	jsr chgdrv
+	jsr gd_spron	; Mauszeiger an
+	sec
+	rts
+
+; ----------------------------------- Decode PFox Font
+
+readfont 	lda counter
+	ora counter+1
+	bne getit2
+	inc counter
+	jsr basin
+	cmp #$9b
+	bne getit1
+	bit foxtype
+	bvc getit1
+	jsr basin
+	sta counter
+	lda foxtype
+	and #2
+	bne fxl1
+	lda counter
+	beq fxl2
+	lda #0
+	beq fxl3
+fxl2 	lda #1
+	bne fxl3
+fxl1 	jsr basin
+fxl3 	sta counter+1
+	jsr basin
+getit1 	eor #$ff
+	sta gbyte
+getit2 	lda counter
+	bne fxl4
+	dec counter+1
+fxl4 	dec counter
+	lda gbyte
+	rts
+
+; --------------------------- Event: Save C64 Font
+
+evsvfont	jsr clrmssg
+	jsr chgdrv
+	lda #0
+	sta ls_flen
+	lda gd_modswitch
+	pha
+
+	lda #5		; Patch 1 System
+	sta patch1
+	lda #$60		; Patch 2 System
+	sta patch2
+	ldx #<svpat
+	ldy #>svpat
+	stx ls_adrmisc
+	sty ls_adrmisc+1
+	jsr savecset
+
+	ldy #0
+	sty ls_dirmask	; fake "Graphics"
+	jsr showfile	; show name of last file
+	tay		; (.a: drive)
+	lda #$8d		; Unpatch 2
+	sta patch2
+	lda #8
+	sta ls_dirmask	; reset "Misc"
+	tya
+	jsr patch2	; continue
+
+	sta ls_loadsave
+	jsr gd_eloop	; warten
+	lda ls_drive
+	sta ls_saveto
+
+	lda #9		; Unpatch 1
+	sta patch1
+
+	lda ls_flen
+	beq ++
+	lda zeile
+	cmp #17
+	beq ++
+
+	ldx ls_nambuf
+	cpx #$3f
+	bne +
+	ldx #0
+-	lda ls_nambuf+4,x
+	sta ls_nambuf,x
+	inx
+	cpx #12
+	bne -
+
++	ldx #11
+-	lda ls_nambuf,x
+	sta csname,x
+	dex
+	bpl -
+	lda cwidth
+	ora #$30
+	sta csetname
+	lda theight
+	ora #$30
+	sta csetname+2
+	ldx #15
+-	lda csetname,x
+	sta ls_nambuf,x
+	dex
+	bpl -
+	ldx #15
+-	lda ls_nambuf,x
+	jsr pet2bc
+	sta ls_lastname,x
+	dex
+	bpl -
+	ldx #16
+-	dex
+	lda csetname,x
+	cmp #32
+	beq -
+	inx
+	stx wflen
+	jsr svcharset
+
+++	pla
+	sta gd_modswitch
+	jmp ldl12
+	
+; --------------------------- Definitely Save Font
+
+svcharset	jsr inull
+	beq +
+	jmp err8
++	ldy wflen
+	ldx #3
+-	lda pw,x
+	sta csetname,y
+	iny
+	dex
+	bpl -
+	sty wflen
+	lda #12
+	tay
+	ldx ls_drive
+	jsr filpar
+	lda wflen
+	ldx #<csetname
+	ldy #>csetname
+	jsr filnam
+	jsr copen
+	jsr anyerror
+	bne +++
+
+	jsr reorg
+	ldx #$40		; Startadresse anwählen ($3040)
+	lda #$30
+	stx feed
+	sta feed+1
+
+	lda cwidth	; Anzahl Bytes berechnen
+	clc
+	adc theight
+	cmp #2
+	bne +
+	ldx #<768		; 1x1 
+	lda #>768
+	bne ++
++	cmp #3
+	bne +
+	ldx #<1536	; 2x1 und 1x2
+	lda #>1536
+	bne ++
++	ldx #<2048	; alle anderen
+	lda #>2048
+++	stx countdwn
+	sta countdwn+1
+
+	ldx #12
+	jsr ckout
+	lda #$00		; write start address ($3800)
+	jsr bsout
+	lda #$38
+	jsr bsout
+
+	ldy #0		; write charset
+-	lda (feed),y
+	jsr bsout
+	inc feed
+	bne +
+	inc feed+1
++	jsr count
+	bne -
+
++++	jsr clrch		; close file
+	lda #12
+	jsr close
+	jmp anyerror
+
+inull	ldx #<(drinit)
+	ldy #>(drinit)
+	lda #2
+	jsr gd_sendcom
+
+anyerror	jsr gd_xmess	; (.x=0)
+	lda ls_err2
+	and #15
+	beq err8
+	stx sc_keyprs
+-	lda sc_keyprs
+	beq -
+err8	sec
+	rts
+
+
+; --------------------------- 
+
+savecset	lda #<svpat
+	pha
+	lda #>svpat
+	pha
+	lda #8
+	ldx #0
+	jmp gd_xloadsave
+
+; --------------------------- 
+
+loadcset	lda #<pfoxzs
+	pha
+	lda #>pfoxzs
+	pha
+	lda #8
+	jmp gd_xloadm
+
+; --------------------------- 
+
+pet2bc	eor #$e0
+	clc
+	adc #32
+	bpl +
+	adc #64
+	bpl +
+	eor #$a0
++	rts
+
+; --------------------------- Put Data to Bitmap
+
+setdata	ldx bcnt		; Breite abzählen (0..n)
+	ldy hoffs,x	; Offsets holen
+	sta (dst),y	; Byte setzen
+	inc bcnt		; Zähler erhöhen
+	ldx bcnt
+	cpx cwidth	; Breite erreicht? (.c=1)
+	rts
+
+; -------------------------------------- Open for Read
+
+fileopen	jsr gd_xopen	; ab hier: laden
+	jsr gd_clrms
+
+	jsr readhead
+	jsr loadpars
+
+readpar	jsr basin		; get offset to last char in set
+	sec
+	sbc #32		; compute number of chars
+	sta numchs
+	ldx #114		; Skip Font kerning Parameters
+	stx temp
+-	jsr gd_onebyte
+	txa		; check disk status
+	and #64
+	beq +
+	pla
+	pla
+	jmp jfaile	; Fehler: corrupt
++	dec temp
+	bne -
+	jsr basin		; Höhe ohne Unterlänge
+	sta baseline
+	beq +
+	lda cheight
+	sec
+	sbc baseline
+	sta baseline
++	jsr basin		; Standard-Zeichenabstand
+	sta kerning
+	rts
+
+; -------------------------------------- 
+
+readhead	jsr basin		; erstes Zeichen holen
+	cmp #$5a		; "Z"? (Kennung eines Fonts)
+	beq +
+	pla
+	pla
+	jmp jfaila	; nein, kein Printfox Font, Fehler
++	sta foxtype	; Kennung merken für den Dekoder 
+
+	jsr basin		; zweites Byte: Nummer des Fonts
+	sta fontnum	; merken
+
+	jsr basin		; Zeichenbreite holen
+	sta cwidth	; merken
+	tax
+	lda chspln,x	; wie viele dieser Zeichen pro Zeile?
+	sta lwidth	; merken
+
+	jsr basin		; Zeichenhöhe holen
+	sta cheight	; merken
+	ldx #0
+-	inx		; das sind .x Kacheln
+	sec
+	sbc #8
+	beq +
+	bcs -
+	eor #$ff		; <0? Dann Zahl invertieren
+	adc #1
++	stx theight	; merken
+	sta topskip	; wobei oben .a Pixelzeilen leer sind
+	rts
+
+; --------------------------- Char-Puffer löschen
+
+clrbuffer	lda #<(display)	; $2000
+	ldx #>(display)
+	sta ls_adrmisc
+	stx ls_adrmisc+1
+	ldy #$00
+	tya 
+-	sta (ls_adrmisc),y
+	iny 
+	bne -
+	inx 
+	stx ls_adrmisc+1
+	cpx #>sy_4bit
+	bne -
+	rts
+
+; --------------------------- Compute Load Parameters
+
+loadpars	lda #0
+	sta feed
+	sta feed+1
+	lda cheight
+	sta temp
+	jsr bpchar	; Bytes/Zeichen?
+	sta onechar	; = Bytes/Char (8..126)
+	sta feed
+	jsr mal32		; Anzahl pro Division
+
+	lda feed		; Amount: max. 4032 Bytes (42x3)
+	sta amount
+	lda feed+1
+	sta amount+1
+
+	lda theight	; Zeichenhöhe in Tiles
+	asl
+	asl
+	asl		; mal 8 = Pixelhöhe (max 48)
+	sta temp
+	jsr bptiles	; Speicherbedarf für ein Zeichen
+	stx feed+1
+	sta feed
+	jsr mal32		; Save-Amount (max. 4608)
+
+	lda feed
+	sta samount	; Start von Save-Upper
+	lda feed+1
+	sta samount+1
+
+	lda amount
+	clc
+	adc amount
+	sta divlower	; Start von Lower
+	lda amount+1
+	adc amount+1
+	sta divlower+1
+	lda divlower
+	clc
+	adc amount
+	sta divextra	; Start von Extra
+	lda divlower+1
+	adc amount+1
+	sta divextra+1	; (Start von Digit ist $0000)
+
+	lda samount
+	clc
+	adc samount
+	sta slower	; Start von Save-Lower
+	lda samount+1
+	adc samount+1
+	sta slower+1
+
+	rts
+
+; --------------------------- Mal 32
+
+mal32	clc
+	rol feed		; 32 Chars pro Division
+	rol feed+1	; berechne Anzahl Bytes
+	rol feed
+	rol feed+1
+	rol feed
+	rol feed+1
+	rol feed
+	rol feed+1
+	rol feed
+	rol feed+1
+	rts
+
+bpchar	lda temp		; Höhe (in Pixel)...
+bptiles	ldx cwidth	; mal Breite (in Kacheln)
+-	dex
+	beq +
+	clc
+	adc temp
+	bne -
++	rts
+
+; --------------------------- Skip Bytes
+
+skip	lda ls_vekta8
+	bne +
+	dec ls_vekta8+1
++	dec ls_vekta8
+	jsr readfont
+intoskip	lda ls_vekta8
+	ora ls_vekta8+1
+	bne skip
+	rts
+
+count	lda countdwn
+	bne +
+	dec countdwn+1
++	dec countdwn
+	lda countdwn
+	ora countdwn+1
+	rts
+
+
+; --------------------------- Maxdiv ermitteln
+
+getmaxdiv	ldx #4
+	lda numchs
+	cmp #96
+	beq +
+	bcs ++
++	dex
+++	cmp #64
+	beq +
+	bcs ++
++	dex
+++	cmp #32
+	beq +
+	bcs ++
++	dex
+++	stx maxdiv
+	cpx chsdiv
+	bcs +
+	stx chsdiv
+	jsr sdv0
++	rts
+	
+; --------------------------- Bootdrive sicherstellen
+
+chgdrv	lda ls_sysdrive
+	ldx ls_bootdrive
+	sta ls_bootdrive
+	stx ls_sysdrive
+	rts
+	
+; --------------------------- Name des 4Bit-Bildes retten
+
+swppname	ldy #15
+sn0	lda ofilename,y
+	pha
+	lda ls_picname,y
+	sta ofilename,y
+	pla
+	sta ls_picname,y
+	dey
+	bpl sn0
+	rts
+	
+; --------------------------- Name des Zeichensatzes retten
+
+getzsname	ldx #12
+-	lda ls_lastname,x
+	sta ls_picname,x
+	dex
+	bpl -
+	rts
+
+; --------------------------- Kringel definieren
+
+makechr	ldx #7
+mk0	lda chschr,x
+	sta sc_undochar,x
+	dex
+	bpl mk0
+	clc
+	rts
+
+; --------------------------- Perform System Patch
+
+spatch	ldx #17
+-	lda syspatch,x
+	sta patch,x
+	dex
+	bpl -
+	rts
+
+; --------------------------- Gadgetposition setzen
+
+setpos	sta sc_screentab
+	stx sc_screentab+1
+	ldx #0
+	ldy #0
+cf5	jsr gd_setpos
+	cpx #4
+	bne cf5
+	rts
+
+; --------------------------- Move Divisions
+
+mv0	lda #<charset
+	sta dst
+	lda #>charset
+	sta dst+1
+	lda #<display
+	sta feed
+	lda #>display
+	sta feed+1
+	ldy #0
+	ldx #8
+-	lda (feed),y
+	eor #$ff
+	sta (dst),y
+	iny
+	bne -
+	inc feed+1
+	inc dst+1
+	dex
+	bne -
+	clc
+	rts
+
+; --------------------------- Re-Organize Charset
+
+reorg	ldx chsdiv	; All angewählt?
+	bne mv0		; nein
+
+	stx curdiv	; Abschnitt 1 startet
+
+	ldx cwidth	; Breite größer als 2?
+	cpx #3
+	bcs mv0		; ja
+
+	txa		; sonst nur 1x1, 1x2 oder 2x1 zulassen
+	clc
+	adc theight
+	cmp #4
+	bcs mv0
+
+	jsr settarget	; Startwerte für Ziel festlegen
+	ldy #0
+	ldx theight
+-	cpx #2		; 1x2?
+	bne +
+	jmp einmal2
+
++	lda slower	; nein, 1x1 oder 2x1: Quelle: lower
+	sta dst1
+	lda slower+1
+	sta dst1+1
+	jsr move
+
+	lda #0		; dann digit
+	sta dst1
+	sta dst1+1
+	jsr move
+
+	lda samount	; und zuletzt upper
+	sta dst1
+	lda samount+1
+	sta dst1+1
+
+; --------------------------- 
+
+move	jsr setamount
+move2	lda #<display
+	clc
+	adc dst1
+	sta feed
+	lda #>display
+	adc dst1+1
+	sta feed+1
+
+move3	lda (feed),y
+	eor #$ff
+	sta (dst),y
+
+advance	inc feed
+	bne +
+	inc feed+1
++	inc dst
+	bne +
+	inc dst+1
++	jsr count
+	bne move3
+	clc
+	rts
+	
+; --------------------------- 
+
+move5	lda dst0		; zweite Zeile, dst0: $3040+$140
+	sta dst
+	lda dst0+1
+	sta dst+1
+	lda temp		; Offset zurückholen ($480)
+	sta dst1
+	lda temp+1
+	sta dst1+1
+move4	ldx xmerk
+	jsr sa2		; erster Abschnitt
+	jsr move2
+	txa
+	beq +
+move6	jsr sa2		; die folgenden (0..3)
+	jsr move3
+	dex
+	bne move6
++	rts
+
+
+; --------------------------- 
+
+setamount	lda samount
+	sta countdwn
+	lda samount+1
+	sta countdwn+1
+	rts
+
+sa2	lda #64
+	sta countdwn
+	lda #0
+	sta countdwn+1
+	rts
+
+; --------------------------- 
+
+settarget	ldx curdiv
+	lda #<charset	; Zieladresse setzen (zuerst $3040)
+	clc
+	adc zoffs1x2l,x
+	sta dst
+	lda #>charset
+	adc zoffs1x2h,x
+	sta dst+1
+	lda dst
+	clc
+	adc #$40		; und Ziel+320 ebenso (zuerst $3180)
+	sta dst0
+	lda dst+1
+	adc #$01
+	sta dst0+1
+	rts
+
+; --------------------------- 
+
+einmal2	jsr passes
+-	inc curdiv
+	jsr settarget
+	jsr passes
+	lda curdiv
+	cmp #3
+	bcc -
+	clc
+	rts
+
+passes	ldx curdiv
+	lda qoffs1x2l,x	; Start: $340 (1x2), erste Zeile
+	sta dst1
+	clc
+	adc #$40		; Start+320 in temp (für 2. Zeile)
+	sta temp
+	lda qoffs1x2h,x
+	sta dst1+1
+	adc #$01
+	sta temp+1
+	lda x11x2,x
+	sta xmerk
+	jsr move4
+	jsr move5
+
+	lda dst
+	sta dst0
+	lda dst+1
+	sta dst0+1
+
+	ldx curdiv
+	bne +
+
+-	lda feed		; feed+320 in temp (für 2. Zeile)
+	clc
+	adc #$40
+	sta temp
+	lda feed+1
+	adc #1
+	and #15
+	sta temp+1
+	bne ++
+
++	cpx #2
+	beq -
+
++	lda feed
+	sec
+	sbc #$40
+	sta temp
+	lda feed+1
+	sbc #1
+	and #15
+	sta temp+1
+
+	lda dst		; zweiter Abschnitt
+	clc
+	adc #$40
+	sta dst
+	lda dst+1
+	adc #1
+	sta dst+1
+	bne +
+
+++	lda dst
+	sec
+	sbc #$40
+	sta dst
+	lda dst+1
+	sbc #1
+	sta dst+1
+
++	lda x21x2,x
+	tax
+	sta xmerk
+	beq +
+	jsr move6
+	dec xmerk
+	jmp move5
+
+; --------------------------- Error Handler
+
+faila	ldx #0		; err1
+	!by $2c
+faile	ldx #32		; err5
+	!by $2c
+failf	ldx #64		; err6
+	ldy #0
+fl0	lda err1,x
+	sta message,y
+	inx 
+	iny 
+	cpy #32
+	bne fl0
+	jsr errnf
+	jsr gd_clrms
+	jsr messout
+	pla 
+	pla 
++	clc 
+	rts
+
+; --------------------------- Load Requester
+
+lrequest	ldy #0
+	sty ls_flen
+
+	lda #$38		; Patch 3 mod (SEC - RTS)
+	sta header
+	lda #$60
+	sta header+1
+	lda sc_screenvek
+	pha
+	lda sc_screenvek+1
+	pha
+	lda gd_modswitch
+	pha
+
+	lda #5		; Patch 1 System
+	sta patch1
+	lda #$60		; Patch 2 System
+	sta patch2
+
+	ldx #<display
+	ldy #>display
+	stx ls_adrmisc
+	sty ls_adrmisc+1
+	jsr loadcset
+
+	ldy #0
+	sty ls_dirmask	; fake "Graphics"
+	jsr showfile	; show name of last file
+	tay		; (.a: drive)
+	lda #$8d		; Unpatch 2
+	sta patch2
+	lda #8
+	sta ls_dirmask	; reset "Misc"
+	tya
+	jsr patch2	; continue
+	jsr gd_eloop
+
+	lda #9		; Unpatch 1
+	sta patch1
+	
+	pla
+	sta gd_modswitch
+	pla
+	sta sc_screenvek+1
+	pla
+	sta sc_screenvek
+	lda #$4c
+	sta header	; Unpatch 3 mod (JMP START)
+	lda #<(start)
+	sta header+1
+	rts
+
+; --------------------------- Get Info
+
+getinfo	lda cwidth	; Zeichenbreite
+	jsr gd_xcnvdez
+	sta sizetx
+	lda theight	; Zeichenhöhe (in Kacheln)
+	jsr gd_xcnvdez
+	sta sizetx+2
+
+	lda cheight	; Zeichenhöhe (in Pixeln)
+	jsr getziff
+	stx heighttx1+1
+	stx heighttx2+1
+	sta heighttx1+2
+	sta heighttx2+2
+
+	lda #32
+	sta charstx1
+	sta charstx2
+	lda numchs	; Anzahl Chars
+	cmp #100		; (dreistellig?)
+	bcc +
+	ldy #$31
+	sty charstx1
+	sty charstx2
+	sec
+	sbc #100
+	jsr gd_xcnvdez
+	bne ++
++	jsr getziff
+++	stx charstx1+1
+	stx charstx2+1
+	sta charstx1+2
+	sta charstx2+2
+
+	lda baseline	; Baseline (Größe der Unterlänge in Pixeln)
+	jsr getziff
+	stx blinetx1+1
+	stx blinetx2+1
+	sta blinetx1+2
+	sta blinetx2+2
+
+	rts
+
+getziff	jsr gd_xcnvdez
+	cpx #$30
+	bne +
+	ldx #$20
++	rts	
+
+; --------------------------- Cut off Prefix of ZS
+
+cutprefix	lda ls_drive
+	sta ls_loadfrom
+	lda ls_nambuf+3
+	cmp #$3f
+	bne +
+	ldx #4
+	ldy #0
+-	lda ls_nambuf,x
+	sta ls_nambuf,y
+	iny
+	inx
+	cpx ls_flen
+	bne -
+	sty ls_flen
+	sty namelen
+	lda #$20
+-	sta ls_nambuf,y
+	iny
+	cpy #12
+	bcc -
++	rts
+
+; --------------------------- Messages
+
+clrmssg	ldx #24
+	lda #32
+clm	sta mess,x
+	dex
+	bpl clm
+	rts
+
+messout 	ldx #<(message)
+	ldy #>(message)
+	jmp gd_xtxout2
+
+message	!scr " PFont "
+mess	!fill 25,32
+	!by 0       
+
+settext	lda #<tabigad
+	sta sc_texttab
+	lda #>tabigad
+	sta sc_texttab+1
+
+gettext	lda (sc_texttab),y	; .y=Offset auf Gadgetparameter
+	sta sc_screentab
+	iny
+	lda (sc_texttab),y
+	sta sc_screentab+1
+	lda #0
+	tax
+	tay
+-	jsr gd_setpos
+	cpx #3
+	bne -
+	jsr gd_trim
+	jsr gd_initmove
+	ldy #6
+	jmp gd_xtxout1
+
+; --------------------------- Fehlermeldungen
+
+err1 	!scr "   ERROR: Couldn't read File!   "	; 0
+err5	!scr "     ERROR: File corrupt!       "	; 32
+err6	!scr "  WARNING: File cut. Too long.  "	; 64
+
+; -------------------------------------- Data
+
+division	!scr " All DigitUpperLowerExtra"
+chsdiv	!by 0	; Which Division? (0-4; 0=All)
+maxdiv	!by 0	; Höchstzahl Divisions (1..4)
+
+mlist	!wo 0
+list	!wo 0
+hcols	!by $f0	; lgr, blk
+redispmk	!by 0
+pw	!tx "w,p,"
+drinit	!tx "i0"
+wflen	!by 0
+ofilename	!fi 16,32	; Name d. akt. Bildes retten
+pfoxzs	!pet "zs???"
+	!by 0
+csetname	!pet "?x?-"
+csname	!fi 16,32	; Name des neuen C64-Zeichensatzes
+svpat	!pet "?x?-*"
+	!by 0	; Search-Pattern beim Speichern
+
+foxtype 	!by 0
+fontnum	!by 0	; Nummer des Zeichensatzes
+numchs	!by 0	; Anzahl Zeichen im Set (max. 114)
+baseline	!by 0	; Höhe ohne Unterlänge (0..cheight)
+kerning	!by 0	; Standardabstand der Zeichen
+cwidth	!by 0	; Zeichenbreite in Kacheln (1..3)
+lwidth	!by 0	; Anzahl Zeichen pro Zeile (40, 20 oder 13)
+cheight	!by 0	; echte Zeichenhöhe (5..42)
+theight	!by 0	; Zeichenhöhe in Kacheln (1..6)
+onechar	!by 0	; Anzahl Bytes pro Char (8..126)
+
+skipbytes	!wo 0	; Anzahl Bytes bei skipdiv ("Digit", immer 0)
+amount	!wo 0	; Anzahl Bytes pro Division (=Skip auf "Upper")
+divlower	!wo 0	; Skip auf Division "Lower" (2*amount)
+divextra	!wo 0	; Skip auf Division "Extra" (3*amount)
+samount	!wo 0	; Amount für komplette Kacheln (=Offset von "Upper" bei Save)
+slower	!wo 0	; Offset "Lower" beim Speichern ("Digit"=0)
+
+topskip	!by 0	; Leerbereich oben (in Pixel, 0..7)
+hasinfo	!by 0	; Info wurde bereits ausgeführt ($ff)
+namelen	!by 0	; Namenslänge
+
+chspln	!by 0,40,20,13
+hoffs	!by 0,8,16,24,32,40,48,56,64,72,80
+voffsl	!by 0,<320,<640,<960,<1280,<1600,<1920
+voffsh	!by 0,>320,>640,>960,>1280,>1600,>1920
+divoffs	!by 4,9,14,19,24
+divlimits	!by 0,32,64,96
+skoffs	!by 0,0,2,4,6
+qoffs1x2l	!by $40,$00,$00,$c0	; Quelloffsets
+qoffs1x2h	!by $03,$00,$01,$02
+zoffs1x2l	!by $00,$00,$40,$00	; Zieloffsets
+zoffs1x2h	!by $00,$01,$03,$05
+x11x2	!by 1,0,0,1
+x21x2	!by 2,3,1,0
+chschr	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
+syspatch	!by $a0,$04,$b9,$28,$1d,$c9,$3f,$f0
+	!by $05,$dd,$00,$bf,$d0,$04,$ca,$88
+	!by $d0,$f0
+
+nofntgad	!by 6,13,12,1
+heightgad	!by 9,21,5,3,0,0
+heighttx2	!scr "  0@"
+blinegad	!by 10,21,5,3,0,0
+blinetx2	!scr "  0@"
+charsgad	!by 11,21,5,3,0,0
+charstx2	!scr "  0@"
+
+tabigad	!wo divgad	; 0 (Division)
+
+; -------------------------------------- Screenlist
+
+pfntlst	!by 0
+	!by 3,12,18,19,$91
+	!wo 0
+	!scr " Printfox Fonts @"
+chargad	!by 5,25,5,8,$0f
+	!wo 0
+infogad	!by 7,20,5,6,$a0
+	!wo 0
+sizetx	!scr "0x0@"
+	!by 13,22,8,3,$cf
+	!wo evinfo
+	!scr " Info@"
+	!by 13,12,10,3,$c8
+	!wo evldfont
+	!scr "  Load  @"
+divgad	!by 15,22,8,3,$ce
+	!wo evsetdiv
+	!by 223
+divtx	!scr " All @"
+	!by 17,12,10,3,$c8
+	!wo evshow
+	!scr "  Show  @"
+	!by 17,22,8,3,$ce
+	!wo evsvfont
+	!scr " Save@"
+	!by 19,12,18,3,$cb
+	!wo evexit
+	!scr "Leave@"
+
+	!by $c0
+	!by 5,12,12
+fnttx	!scr "No Font     @"
+	!by $c0
+	!by 7,12,7
+	!scr "Size  :@"
+	!by $c0
+	!by 8,12,7
+	!scr "Height:@"
+	!by $c0
+	!by 9,12,7
+	!scr "BLine :@"
+	!by $c0
+	!by 10,12,7
+	!scr "Chars :@"
+	!by $c0
+	!by 15,12,9
+	!scr "Division:@"
+	!by $c0
+	!by 8,20,3
+heighttx1	!scr "  0@"
+	!by $c0
+	!by 9,20,3
+blinetx1	!scr "  0@"
+	!by $c0
+	!by 10,20,3
+charstx1	!scr "  0@"
+	!by $80 
+
+; -------------------------------------- 
+
+modend	!eof
