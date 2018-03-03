@@ -10,6 +10,7 @@
 ; Lader für Bilder des FLI-Editors der Demogruppe Blackmail
 ;
 ;    1.00, 21.11.99, bugfixes
+;    1.01, 03.03.18, process list of background colors
 ;
 ; ------------------------------------------------------------ 
 
@@ -25,7 +26,7 @@
 	byte		= $39
 	cntwert		= $3a
 	vrcnt		= $3b
-	pack		= $3c
+	bckcnt		= $3c
 	pcnt		= $3d
 	data		= $3e
 	offx		= ls_adrmisc
@@ -43,8 +44,8 @@
 	!wo modend
 	!by $00,$00
 	!tx "FLI by Blackmail"
-	!tx "1.00"
-	!tx "21.11.99"
+	!tx "1.01"
+	!tx "03.03.18"
 	!tx "A.Dettke/W.Kling"
 
 ; ----------------------------------------- 
@@ -74,6 +75,8 @@ stt2	jsr getname	; save filename
 	jsr tcopy		; .x=0
 	jsr getbckcol	; get background colors
 
+; ------------------------------------------------------------- 
+
 	lda #7
 	sta cntwert
 	ldx #18
@@ -88,8 +91,8 @@ stt2	jsr getname	; save filename
 	jsr tcopy
 	jsr setdst0
 	lda #8		; get 8 video rams
-	sta vrcnt
-vloop	lda dst0
+	sta vrcnt		; and spread them over one rasterline
+vloop	lda dst0		; after the other (one rasterline for each vram)
 	ldy dst0+1
 	sta dst
 	sty dst+1
@@ -171,7 +174,7 @@ bskip0	lda dst0+1
 	ldy #192
 	jsr dumy
 
-; ------------------------------------------------------------- 
+; ----------------------------------------- Process Data
 
 	lda #7
 	sta cntwert
@@ -215,34 +218,79 @@ cskip1	lda dst0+1
 
 ; ------------------------------------------------------------- 
 
-	lda #200
+	iny		; .y=1
+	sty adcnt
+	lda #50
 	sta cntwert
-	sta adcnt
 	ldx #36
 	jsr tcopy
 
 	jsr setdst0
-	lda #0		; process background color (black for all)
-	and #$0f		; (in fact, we HAVE a buffer full of bkcols!)
+	sta pcnt		; .a=0; count rasterlines
 	tax
-	lda dnib,x
+	dex		; count tiles (40 per rasterline, now: $ff)
+
+n0loop	lda #8		; process 8 rasterlines
+	sta vrcnt
+nloop	ldy pcnt
+	lda bcbuf,y	; process background color
+	and #$0f
+	tay
+	lda dnib,y
 	sta byte
+
+	lda dst0
+	ldy dst0+1
+	sta dst
+	sty dst+1
+
+-	stx bckcnt	; (set tile counter)
 nloop0	jsr action
-	ldy #0
-	lda (dst0),y
+
+	ldy #0		; 1 tile
+nloop1	lda (dst),y
 	beq nskip0
 	and #$0f
 	tax
 	lda dnib,x
 	!by $2c
 nskip0	lda byte
-	sta (dst0),y
-	inc dst0
-	bne nskip1
-	inc dst0+1
-nskip1	lda dst0+1
-	cmp #$bd
-	bne nloop0
+	sta (dst),y
+	iny
+	cpy #4
+	bne nloop1
+
+	lda dst		; next tile
+	clc
+	adc #32
+	sta dst
+	bcc +
+	inc dst+1
++	ldx bckcnt	; 40 tiles?
+	inx
+	cpx #40
+	bne -
+
+	lda dst0		; next rasterline
+	clc
+	adc #4
+	sta dst0
+	ldx #0		; reset tile counter
+	inc pcnt		; count rasterlines
+	dec vrcnt
+	bne nloop
+
+	lda dst0
+	clc
+	adc #$e0
+	sta dst0
+	lda dst0+1
+	adc #$04
+	sta dst0+1
+	
+	lda pcnt
+	cmp #200		; 200 rasterlines?
+	bne n0loop
 
 ; ------------------------------------------------------------- 
 
@@ -253,7 +301,7 @@ sk10	jsr gd_xmess	; end of processing
 	sec
 	rts
 
-; ------------------------------------------------------------- 
+; ----------------------------------------- Retrieve Chunks
 
 getcram	lda #<(cbuf)	; read color ram bytes from disk
 	ldx #>(cbuf)
@@ -289,14 +337,14 @@ gbc	jsr basin
 	lda byte
 	rts
 
-; ------------------------------------------------------------- 
+; ----------------------------------------- Skip Chunk
 
 dumy	jsr basin
 	dey
 	bne dumy
 	rts
 
-; ----------------------------------------- 
+; ----------------------------------------- Service Routines
 
 setdst0	lda #<sy_4bit
 	ldy #>sy_4bit
@@ -317,7 +365,7 @@ error	jsr gd_xclose
 	clc
 	rts
 
-; ------------------------------------------------------------- 
+; ----------------------------------------- Message Handler
 
 messout	ldx #<(message)
 	ldy #>(message)
@@ -339,7 +387,7 @@ action	dec adcnt
 	lda cntwert
 	sta adcnt
 	ldy offy
-	cpy #22		; catch Gauge Overflow
+	cpy #20		; catch Gauge Overflow
 	bne act0
 	jsr clrmess
 act0	ldx offx
@@ -367,7 +415,7 @@ cl0	sta mess,x
 	stx offx
 	rts
 
-; ------------------------------------------------------------- 
+; ----------------------------------------- Data
 
 dnib	!by $00,$ff,$44,$cc,$55,$aa,$11,$dd
 	!by $66,$22,$99,$33,$77,$ee,$88,$bb
