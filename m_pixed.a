@@ -25,6 +25,7 @@
 ;   1.33, 13.02.18: solved problem with Hold Mouse Position
 ;   1.34, 14.02.18: solved problem with mouse pointer set to wrong tile
 ;   1.35, 14.02.18: really solved the problem (was use of CTRL instead of CBM key!)
+;   1.36, 03.03.18: changed navigation icons
 ;
 ; ------------------------------------------------------------ 
 
@@ -86,13 +87,14 @@
 	!wo (modend)
 	!wo 0
 	!pet "Edit 4bit pixels"
-	!pet "1.35"
-	!pet "14.02.18"
+	!pet "1.36"
+	!pet "03.03.18"
 	!pet "AD/ H.McMenamin "
 
 ; ------------------------------------------ Main
 
 start:	jsr makech	; define new character
+	jsr makenav	; define new navigation icons
 	jsr savecols	; save screen colors
 	jsr bestcols	; set best colors
 	jsr makespr	; define spritebox
@@ -119,6 +121,7 @@ cancel:	jsr restcols	; restore screen colors
 	lda spalte
 	sta horizont
 	jsr dp13		; sprites and so on
+	jsr makenav
 	sec		; leave module
 	rts
 
@@ -323,6 +326,18 @@ fill:	ldy #0		; set textscreen as destination
 	jsr gd_initmove	; compute screenaddress
 	lda #223		; get fill character
 	jmp gd_fi0	; fill now
+
+; ------------------------------------------ Toggle to new navi icons
+
+makenav:	ldx #31
+mn0:	lda gr_pattern,x	; buffer syspattern (chars 224 to 227)
+	ldy newnavs,x
+	sta newnavs,x
+	tya
+	sta gr_pattern,x
+	dex
+	bpl mn0
+	rts
 
 ; ------------------------------------------ Make new character
 
@@ -1537,7 +1552,7 @@ bigbox:	!by $40 		; active
 movgad:	!by 3,33,6,6	; mover
 	!by $d0
 	!wo (evmove)
-	!by 223,30,223
+	!by 224,30,225
 	!scr "H@"
 
 palgad:	!by 9,33,6,6	; chooser
@@ -1573,7 +1588,7 @@ rowtx	!scr " 0@"
 	!scr "*@"
 
 	!by $c0,5,33,4
-	!by 223,31,223
+	!by 226,31,227
 	!scr "T@"
 
 	!by $c0,6,33,4
@@ -1689,6 +1704,11 @@ stow:	!by 0,0,0,0,0,0,0,0
 	!by 0,0,0,0,0,0,0,0
 stoy:	!by 0,0,0,0,0,0,0,0
 	!by 0,0,0,0,0,0,0,0
+
+newnavs	!by $00,$00,$00,$00,$0e,$08,$0a,$01
+	!by $00,$00,$00,$00,$70,$10,$50,$80
+	!by $01,$0a,$08,$0e,$00,$00,$00,$00
+	!by $80,$50,$10,$70,$00,$00,$00,$00
 
 ; ------------------------------------------ 
 
