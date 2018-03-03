@@ -26,6 +26,7 @@
 ;     1.08, 08.02.18, changed: fill color on hires transparency move is color 0
 ;                              (which leads to the same result, actually)
 ;                     removed: dirty flag (now executable from REU)
+;     1.09, 03.03.18, bugfix: set correct target position on SetClip
 ;
 ; --------------------------------------
 ;
@@ -105,8 +106,8 @@
 	!wo modend
 	!wo 0
 	!tx "Move the Clip ! "
-	!tx "1.08"
-	!tx "08.02.18"
+	!tx "1.09"
+	!tx "03.03.18"
 	!tx "M.Burggraf/$AD  "
 
 ; -------------------------------------- Main
@@ -638,16 +639,19 @@ sh1	lda togg		; finish
 
 	jsr gd_spron
 	jsr swap252	; repair rendered image after task
+	jsr getcolors
 	lda spritehi	; don't care about lower selector pos
 	and #$0f
 	sta spritehi
 	lda spritex+2	; set correct selector position
 	sta spritex
+	lda spritey+2	; ### 1.09
+	sta spritey
 	jsr getpos	; get selector position for transport
 	lda spritehi	; leave only pointer
 	and #3
 	sta spritehi
-rdy	jmp dp2		; text mode on, finished
+rdy	jmp dp20		; text mode on, finished
 
 ; -------------------------------------- Leading Zero to Space
 
@@ -1047,7 +1051,7 @@ dp4	lda #$1b		; hires
 ; ------------------------------------------------ End display
 
 dp2	jsr getcolors	; no, end display: save colors
-	jsr tmode		; activate textmode
+dp20	jsr tmode		; activate textmode
 oldreq	lda sc_screenvek	; save vector to current screenlist (ClipWorks)
 	pha
 	lda sc_screenvek+1
