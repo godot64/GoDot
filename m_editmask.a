@@ -22,6 +22,7 @@
 ; 1.06, 13.02.18: added display of screen position (column/row of topleft edge)
 ; 1.07, 14.02.18: solved problem with mouse pointer set to wrong tile
 ; 1.08, 14.02.18: really solved the problem (was use of CTRL instead of CBM key!)
+; 1.09, 03.03.18: changed navigation icons
 ;
 ; ----------------------------------------- 
 
@@ -77,13 +78,14 @@
 	!word (modend)
 	!byte 0,0
 	!pet "Edit Mask pixels"
-	!pet "1.08"
-	!pet "14.02.18"
+	!pet "1.09"
+	!pet "03.03.18"
 	!pet "A.Dettke/Mac    "
 
 ; ----------------------------------------- Main
 
 start:	jsr makech	; define new character
+	jsr makenav	; define new navigation icons
 	jsr makespr	; define spritebox
 	jsr savecols	; save screen colors
 	jsr bestcols	; set best colors for black
@@ -97,8 +99,7 @@ start:	jsr makech	; define new character
 	sta sc_loop	; init mem flag (to: textmem)
 	jsr display	; show Mask enlarged
 	jsr sprbox	; show spritebox
-;	jsr sptr
-	jsr gd_eloop	; wait... (what else within GoDot?)
+	jmp gd_eloop	; wait... (what else within GoDot?)
 
 cancel: 	jsr restcols	; restore screen colors
 	ldy #0
@@ -107,6 +108,7 @@ cancel: 	jsr restcols	; restore screen colors
 	lda sc_merk+1
 	sta horizont
 	jsr dp13 		; sprites and so on
+	jsr makenav
 	sec		; leave module
 	rts
 
@@ -136,6 +138,18 @@ fill: 	ldy #0		; set textscreen as destination
 	jsr gd_initmove     ; compute screenaddress
 	lda #223		; get fill character
 	jmp gd_fi0	; fill now
+
+; ------------------------------------------ Toggle to new navi icons
+
+makenav:	ldx #31
+mn0:	lda gr_pattern,x	; buffer syspattern (chars 224 to 227)
+	ldy newnavs,x
+	sta newnavs,x
+	tya
+	sta gr_pattern,x
+	dex
+	bpl mn0
+	rts
 
 ; ----------------------------------------- Make new character
 
@@ -1253,6 +1267,10 @@ gdho1 	!byte 7
 gdho2 	!byte 15
 gdho3 	!byte 18
 
+newnavs	!by $00,$00,$00,$00,$0e,$08,$0a,$01
+	!by $00,$00,$00,$00,$70,$10,$50,$80
+	!by $01,$0a,$08,$0e,$00,$00,$00,$00
+	!by $80,$50,$10,$70,$00,$00,$00,$00
 
 ; ----------------------------------------- Screenlist
 
@@ -1264,7 +1282,7 @@ bigbox: 	!byte $40			; active
 	!byte 3,33,6,6 		; mover
 	!byte $d0
 	!word (evmove)
-	!byte 223,30,223
+	!by 224,30,225
 	!scr "H@"
 
 wipegad: 	!byte 13,33,6,3
@@ -1304,7 +1322,7 @@ rowtx	!scr " 0@"
 	!scr "O",94,"*@"
 
 	!byte $c0,5,33,4
-	!byte 223,31,223
+	!by 226,31,227
 	!scr "T@"
 
 	!byte $c0,6,33,4
