@@ -17,8 +17,9 @@ sc_ho          = $25   ;   height
 ls_lines       = $26   ; amount of files currently in filerequester
 rm_reusize     = $27   ; encoded size of attached REU (none if 0, see section "values" below))
 ls_found       = $28   ; flag: files of current type existing
+ls_dlines		= $29	; max. entries in directory window
 
-;                $29 to $2f: reserved
+;                $2a to $2f: reserved
 ;                $30 up to $53: free for programmer
 
 sy_soffx       = $7a   ; x-offset of mouse pointer to its hotspot
