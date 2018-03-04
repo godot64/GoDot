@@ -18,6 +18,7 @@
 ;    1.07: 11.02.18, added show charset (in its appropriate gfx mode)
 ;    1.08: 12.02.18, added Clear Char Buffer before load
 ;                    fixed wrong buffer address after adding Show Font routines
+;    1.09: 04.03.18, bugfix: last byte of file got lost
 ;
 ; --------------------------- 
 
@@ -77,8 +78,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "basic text rem/?"
-	!pet "1.08"
-	!pet "12.02.17"
+	!pet "1.09"
+	!pet "04.03.18"
 	!pet "W.Kling/A.Dettke"
 
 ; --------------------------- 
@@ -341,6 +342,7 @@ jfaile	jsr errnf
 	jmp faile
 
 ldl1	pla
+	sta (ls_adrmisc),y	; ### 1.09: write last byte from file
 	jsr nofile
 	ldx #15
 cf6	lda ls_lastname,x
