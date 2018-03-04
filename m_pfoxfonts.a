@@ -10,6 +10,7 @@
 ;       Modifier zum Laden von Printfox-Zeichensätzen
 ;
 ;     1.00, 01.03.18, first release
+;     1.01, 04.ß3.18, bugfix: save on empty buffer now assumes 1x1 font
 ;
 ; --------------------------------------
 
@@ -35,6 +36,7 @@
 	countdwn		= $42	; /$43
 	curdiv		= $44	; aktuelle Div beim Speichern
 	xmerk		= $45
+	svvek		= $46	; /$47
 
 	zeile		= sc_merk
 	spalte		= zeile+1
@@ -60,8 +62,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "View PFox Fonts "
-	!tx "1.00"
-	!tx "01.03.18"
+	!tx "1.01"
+	!tx "04.03.18"
 	!tx "A.Dettke        "
 
 ; -------------------------------------- Main
@@ -669,11 +671,19 @@ svcharset	jsr inull
 	jsr anyerror
 	bne +++
 
-	jsr reorg
 	ldx #$40		; Startadresse anwählen ($3040)
 	lda #$30
-	stx feed
-	sta feed+1
+	stx svvek		; ### 1.01
+	sta svvek+1
+
+	lda theight
+	bne +
+	sta svvek
+	lda #$20
+	sta svvek+1
+	bne svc0
+
++	jsr reorg
 
 	lda cwidth	; Anzahl Bytes berechnen
 	clc
@@ -684,11 +694,11 @@ svcharset	jsr inull
 	lda #>768
 	bne ++
 +	cmp #3
-	bne +
+	bne svc0
 	ldx #<1536	; 2x1 und 1x2
 	lda #>1536
 	bne ++
-+	ldx #<2048	; alle anderen
+svc0	ldx #<2048	; alle anderen
 	lda #>2048
 ++	stx countdwn
 	sta countdwn+1
@@ -701,11 +711,11 @@ svcharset	jsr inull
 	jsr bsout
 
 	ldy #0		; write charset
--	lda (feed),y
+-	lda (svvek),y
 	jsr bsout
-	inc feed
+	inc svvek
 	bne +
-	inc feed+1
+	inc svvek+1
 +	jsr count
 	bne -
 
