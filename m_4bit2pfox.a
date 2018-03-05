@@ -1,50 +1,53 @@
-!to "mod.4Bit2PFox", cbm
-!CONVTAB pet
 
-;         .li 1,4,7
+	!src "..\godotlib.lib"
 	*= $c000
-;
-	basin	=	$ffcf
-	bswitch	=	$de80
-	reset	=	$fce2
-	xtxout1	=	$1461
-	irqalt	=	$0f8c
+	!ct pet
+;	!sl "labels.txt"
 
-	err2	=	$0fb5
-	error2	=	$1464
-	bootdrive=	$02ac
-	drive	=	$0fa8
-	xopen	=	$1458
-	xclose	=	$145b
-	adcnt	=	$3e
-	dst0	=	$40
-	dst	=	$42
-	temp	=	$a7
-	xmess	=	$145e
-	vekta8	=	$a8
-	ram	=	$0fae
-	pos	=	$a4
-	vekt20	=	$20
-	zl	=	$22
-	sp	=	zl+1
-	br	=	sp+1
-	ho	=	br+1
-	movetab	=	$0fd8
-	merk	=	$b0
-	screentab=	$ab
-	screenvek=	$0f88
-	texttab	=	$ae
-	initmove	=	$1090
-	screen	=	$11e0
-	setpos	=	$11cc
-	position	=	$1289
-	trim	=	$1324
-	savescvek=	$143f
-	mloop	=	$1420
-	eloop	=	$1423
-	buf	=	$c900
-	destbuf	=	$ca00
+; --------------------------------------
 ;
+;     mod.4Bit2PFox
+;       Modifier zum Rendern von 4Bit-Bildern direkt in den
+;       Bildspeicher von Pagefox
+;
+;     1.00, 10.08.93, first release
+;     1.01, 25.08.94, bugfix: retrieve correct startadress of "gofox"
+;     1.02, 24.08.16, 
+;
+; --------------------------------------
+
+; -------------------------------------- Equates
+
+	dst	= $30
+	dst0	= $32
+	cnt	= $34
+	dbl	= $36
+	vertcnt	= $37
+	byte	= $39
+	bitcnt	= $3a
+	bcnt1	= $3b
+	src	= $3c
+	adcnt	= $3e
+	src0	= $40
+	hold	= $42
+	lcnt8	= $43
+	lcnt	= $44
+	bcnt	= $45
+
+	buf	= $c900
+	destbuf	= $ca00
+
+	oszi3	= $d40e
+	wave	= $d412
+	filter	= $d418
+	rausch	= $d41b
+
+	bswitch	= $de80
+	reset	= $fce2
+
+
+; --------------------------------------
+
 header	jmp start
 	!byte $20
 	!byte 0
@@ -55,72 +58,55 @@ header	jmp start
 	!text "1.02"
 	!text "24.08.16"
 	!text "A.Dettke        "
-addtext	!text "Start PageFox   "
+
+; --------------------------------------
+
+addtext	!text "Starts PageFox  "
 	!text "after transport "
 	!byte 0
-;
-start	lda ram	; Pagefox im System?
+
+; --------------------------------------
+
+start	lda ls_ramdrive	; Pagefox im System?
 	and #15
 	cmp #3
 	beq st0
-	clc	; nein, zurï¿½ck zu Mainscreen
+	clc		; nein, zurück zu Mainscreen
 	rts
+
+; --------------------------------------
+
 st0	ldx #<(pflst)	; ja, Modul aktivieren
 	ldy #>(pflst)
-	jmp mloop
-;
-;
-	oszi3=	$d40e
-	wave=	$d412
-	filter=	$d418
-	rausch=	$d41b
-;
+	jmp gd_xmloop
 
-	btab=	$03b0
-	pattern=	$0f00
-	pathab=	$0340
-	dither=	$0fbc
-;
-	src=	$3c
-	src0=	$f7
-	hold=	$f9
-	lcnt8=	$fa
+; --------------------------------------
 
-	lcnt=	$fb
-	bcnt=	$fc
-;
-	bitcnt=	$3a
-	bcnt1=	$3b
-	byte=	$39
-	dst=	$30
-	dst0=	$32
-	cnt=	$34
-	dbl=	$36
-	vertcnt=	$37
-;
-sevpfox	lda #0
-	sta $d015
+sevpfox	jsr gd_sproff
 	lda #5
 	jsr initad
-	lda dither
+	lda gr_dither
 	tax
 	lda dlo,x
 	sta dmode
 	lda dhi,x
 	sta dmode+1
-	lda #$80
+
+	lda #$80		; init randomizer
 	sta filter
 	sta oszi3
 	sta oszi3+1
-	sta texttab+1
+	sta sc_texttab+1	; to $8000 in Pagefox
 	lda #0
 	sta wave
-	sta texttab
+	sta sc_texttab
 	lda #$81
 	sta wave
-;
-pfoxgb	lda #<($4000)
-	ldx #>($4000)
+
+; -------------------------------------- Render to Pagefox
+
+pfoxgb	lda #<sy_4bit	; from $4000 (4Bit)
+	ldx #>sy_4bit
 	sta src0
 	sta src
 	stx src0+1
@@ -130,11 +116,12 @@ pfoxgb	lda #<($4000)
 	sta vertcnt
 	lda #8
 	sta bank
-	lda #25
+
+	lda #25		; comments in svr.PFoxGB
 	sta lcnt8
 lnloop8	lda #0
 	sta lcnt
-;
+
 lnloop	jsr adinc
 ads0	ldx #0
 zloop	lda #2
@@ -151,16 +138,16 @@ btloop	ldy #0
 	lsr
 	lsr
 	tay
-	lda btab,y
+	lda gr_btab,y
 	jsr makebyte
 	lsr bitcnt
 	lsr bitcnt
 	pla
 	and #$0f
 	tay
-	lda btab,y
+	lda gr_btab,y
 	jsr makebyte
-;
+
 	inc src
 	bne s3
 	inc src+1
@@ -180,7 +167,7 @@ s3	lsr bitcnt
 s4	cpx #80
 	bne zloop
 	jsr moveline
-;
+
 	ldx vertcnt
 	inx
 	cpx #8
@@ -197,6 +184,7 @@ s41	stx vertcnt
 	lda src0+1
 	sta src+1
 	bne ads0
+
 newline	lda src0
 	clc
 	adc #4
@@ -223,14 +211,22 @@ s51	lda src0
 	dec lcnt8
 	beq done
 	jmp lnloop8
+
 done	jsr clearad
-	lda #3
-	sta $d015
+	jsr gd_spron
 	clc
 	rts
-;
+
+; --------------------------------------
+; -------------------------------------- Dither Routines
+; --------------------------------------
+
+; -------------------------------------- Distributor
+
 makebyte	jmp (dmode)
-;
+
+; -------------------------------------- Off
+
 dithoff	cmp #8
 	bpl do0
 	lda #0
@@ -239,27 +235,33 @@ do0	lda bitcnt
 	ora byte
 	sta byte
 	rts
-;
+
+; -------------------------------------- Ordered
+
 dithrst	ldy vertcnt
 	ora offs,y
 	tay
-	lda pathab,y
+	lda gr_orderedpat,y
 	and bitcnt
 	ora byte
 	sta byte
 	rts
-;
+
+; -------------------------------------- Pattern
+
 dithpat	asl
 	asl
 	asl
 	ora vertcnt
 	tay
-	lda pattern,y
+	lda gr_pattern,y
 	and bitcnt
 	ora byte
 	sta byte
 	rts
-;
+
+; -------------------------------------- Noise
+
 dithnoi	beq dn0
 	cmp #15
 	beq dn1
@@ -282,7 +284,9 @@ dn1	lda #$ff
 dn0	ora byte
 	sta byte
 	rts
-;
+
+; -------------------------------------- Random
+
 dithrnd	cmp #8
 	beq dr0
 	bcs dr1
@@ -296,7 +300,11 @@ dr2	lda #0
 	ora byte
 	sta byte
 ml4	rts
-;
+
+; --------------------------------------
+; -------------------------------------- Convert 1 Blockline
+; --------------------------------------
+
 moveline	lda vertcnt
 	bne ml0
 
@@ -305,12 +313,14 @@ moveline	lda vertcnt
 	sta dst0
 	sty dst0+1
 	bne ml2
+
 ml0	inc dst0
 ml2	lda dst0
 	ldy dst0+1
 	sta dst
 	sty dst+1
-	ldy #0
+
+	ldy #0		; create 1 line (80 tiles)
 	ldx #0
 mlup	lda buf,x
 	sta (dst),y
@@ -323,244 +333,289 @@ mlup	lda buf,x
 ml3	inx
 	cpx #80
 	bne mlup
-	ldy vertcnt
+
+	ldy vertcnt	; 8 times (1 blockline)
 	cpy #7
-	bne ml4
-;
-wrloop	ldx #5
-	lda #<(destbuf)
+	bne ml4		; (RTS)
+
+; -------------------------------------- and write to Pagefox
+
+	ldx #5		; write 640 bytes (2.5 pages)
+	lda #<(destbuf)	; get bytes from render buffer
 	ldy #>(destbuf)
 	sta dst0
 	sty dst0+1
+
 wl6	ldy #0
 wloop	lda (dst0),y
-	eor #$ff
+	eor #$ff		; revert them (Pagefox pixels are reverted)
 	sei
-	jsr spfox
+	jsr spfox		; and write to Pagefox
 	cli
 	iny
 	cpy #128
 	bne wloop
+
 	clc
 	lda dst0
 	adc #128
 	sta dst0
 	bcc wl5
 	inc dst0+1
-wl5	dex
+
+wl5	dex		; 5x128 Bytes
 	bne wl6
 	rts
-;
-spfox	stx merk
-	sty merk+1
-	ldx #$34
+
+; -------------------------------------- Transmit Data to Pagefox
+
+spfox	stx sc_merk	; save .x and .y
+	sty sc_merk+1
+
+	ldx #$34		; get C64 bytes
 	stx 1
 	ldy #0
 pw5	tax
-	lda (texttab),y
-	pha
-	inc 1
-	lda bank
-	sta bswitch
-	txa
-	sta (texttab),y
+	lda (sc_texttab),y
+	pha		; save them
 
-	lda #$ff
+	inc 1		; write to Pagefox (same location!):
+	lda bank
+	sta bswitch	; switch Pagefox bank 8 at $8000 on (see sevpfox)
+	txa
+	sta (sc_texttab),y	; write
+	lda #$ff		; switch Pagefox off
 	sta bswitch
 	dec 1
-	pla
 
-	sta (texttab),y
-	inc texttab
+	pla		; restore C64 bytes
+	sta (sc_texttab),y
+
+	inc sc_texttab	; advance
 	bne pw2
-	inc texttab+1
-pw2	lda texttab+1
+	inc sc_texttab+1
+pw2	lda sc_texttab+1	; up to $be80
 	cmp #$be
 	bcc pw3
-	lda texttab
+	lda sc_texttab
 	cmp #$80
 	bcc pw3
 	lda bank
 	cmp #10
 	beq pw3
-	lda #10
+	lda #10		; switch to bank 10, $8000
 	sta bank
 	lda #$80
-	sta texttab+1
+	sta sc_texttab+1
 	asl
-	sta texttab
-pw3	lda #$36
+	sta sc_texttab
+
+pw3	lda #$36		; end this pass
 	sta 1
-	ldx merk
-	ldy merk+1
+	ldx sc_merk	; restore .x and .y
+	ldy sc_merk+1
 	rts
-;
-sevstpf	lda screenvek
+
+; -------------------------------------- Event: Requester for Go to Pagefox
+
+sevstpf	lda sc_screenvek	; save current screenlist
 	pha
-	lda screenvek+1
+	lda sc_screenvek+1
 	pha
-	ldx #<(ldlst)
+
+	ldx #<(ldlst)	; new requester
 	ldy #>(ldlst)
-	jsr screen
-	jsr eloop
+	jsr gd_screen
+	jsr gd_eloop
 
 	pla
 	tay
-	sta screenvek+1
+	sta sc_screenvek+1	; restore
 	pla
 	tax
-	sta screenvek
-	jsr screen
+	sta sc_screenvek
+	jsr gd_screen
 	clc
 	rts
-;
-sevleave	lda #<(inittx)
-	sta screentab
+
+; -------------------------------------- Event: Go to Pagefox
+
+sevleave	lda #<(inittx)	; output: "Initialising"
+	sta sc_screentab
 	lda #>(inittx)
-	sta screentab+1
+	sta sc_screentab+1
 	lda #0
 	tax
 	tay
-gt0	jsr setpos
+gt0	jsr gd_setpos
 	cpx #3
 	bne gt0
-	jsr initmove
+	jsr gd_initmove
 	ldy #2
-	jsr xtxout1
-	jsr testfile
-	bne sevcan
-	lda #$80
-	ldy #0
+	jsr gd_xtxout1
+
+	jsr testfile	; "gofox" on disk?
+	bne sevcan	; no
+
+	lda #$80		; yes, erase Screen 1 and 2 of Pagefox
+	ldy #0		; (Screens 3 and 4 are occupied by GoDot)
 	sty $d015
-	sta vekta8+1
-	sty vekta8
+	sta ls_vekta8+1
+	sty ls_vekta8
 era1	tya
-era0	sta (vekta8),y
+era0	sta (ls_vekta8),y
 	iny
 	bne era0
-	inc vekta8+1
-	lda vekta8+1
+	inc ls_vekta8+1
+	lda ls_vekta8+1
 	cmp #$c0
 	bne era1
-	sei
 
-	lda irqalt
-	ldx irqalt+1
+	sei
+	lda sy_irqalt	; switch on C64 IRQ
+	ldx sy_irqalt+1
 	sta $0314
 	stx $0315
 	inc 1
 	cli
-	jsr ldpfox
-	bcs sevcan
-	lda #64
+	jsr ldpfox	; LOAD "gofox",bootdrive,1
+	bcs sevcan	; error?
+
+	lda #64		; no, jump into Pagefox (and *don't* clear graphics!)
 	jmp $1802
-;
+
+; -------------------------------------- Event: Leave
+
 sevcan	sec
 	rts
-;
+
+; -------------------------------------- Load Pagefox Booter
+
 ldpfox	lda pflen
-	ldx #<(pfox)
+	ldx #<(pfox)	; filename ("gofox")
 	ldy #>(pfox)
-	jsr $ffbd
+	jsr filnam
 	lda #1
-	ldx bootdrive
+	ldx ls_bootdrive
 	ldy #0
-	jsr $ffba
+	jsr filpar
 	lda #0
-	ldx addr
+	ldx addr		; get start address
 	ldy addr+1
-	jmp $ffd5
+	jmp $ffd5		; LOAD
+
+; -------------------------------------- Test if booter present
 
 testfile	lda pflen
-	sta temp
+	sta ls_temp
 	lda #<(pfox)
-	sta vekta8
+	sta ls_vekta8
 	lda #>(pfox)
-	sta vekta8+1
-	lda drive
-
+	sta ls_vekta8+1
+	lda ls_drive
 	pha
-	lda bootdrive
-	sta drive
-	jsr xopen
+
+	lda ls_bootdrive	; Open "gofox"
+	sta ls_drive
+	jsr gd_xopen
 	jsr basin
-	sta addr
+	sta addr		; get start address
 	jsr basin
 	sta addr+1
-	jsr xclose
-	jsr messout
+	jsr gd_xclose
+	jsr messout	; show floppy message
+
 	pla
-	sta drive
-	jsr done
-	lda err2
+	sta ls_drive
+	jsr done		; mouse on
+	lda ls_err2	; error?
 	and #15
 	rts
-;
-messout	lda screenvek
+
+; -------------------------------------- Floppy Message
+
+messout	lda sc_screenvek	; save current screenlist
 	pha
-	lda screenvek+1
+	lda sc_screenvek+1
 	pha
-	ldx #<(mess)
+
+	ldx #<(mess)	; show gauge window (gadget on bottom of screen)
 	ldy #>(mess)
-	jsr screen
+	jsr gd_screen
+
+	pla		; restore screenlist
+	sta sc_screenvek+1
 	pla
-	sta screenvek+1
-	pla
-	sta screenvek
-	jmp xmess
-;
-;
-;
+	sta sc_screenvek
+	jmp gd_xmess
+
+; -------------------------------------- Screenlist
+
 pflst	!byte 0
 	!byte 4,11,18,16,$81,0,0
-	!byte 82,5,14,4,5,18,32,20,15,32,80,70,15,24,0
+	!scr "Render to PFox@"
 	!byte 9,11,18,3,$ca,<(sevpfox),>(sevpfox)
-	!byte 82,5,14,4,5,18,0
+	!scr "Render@"
 	!byte 12,11,18,3,$ca,<(sevstpf),>(sevstpf)
-	!byte 71,15,32,20,15,32,80,70,15,24,0
+	!scr "Go to PFox@"
 	!byte 15,11,18,3,$ca,<(sevcan),>(sevcan)
-	!byte 76,5,1,22,5,0
-	!byte $c0,6,11,16,83,5,12,5,3,20,32,32,65,3,20,9,22,9,20,25,0
+	!scr "Leave@"
+	!byte $c0,6,11,16
+	!scr "Select  Activity@"
 	!byte $80
+
+; -------------------------------------- Screenlist for Leaving to Pagefox
 
 ldlst	!byte 0
 	!byte 4,11,18,16,$81,0,0
-	!byte 82,5,14,4,5,18,32,20,15,32,80,70,15,24,0
+	!scr "Render to PFox@"
 	!byte 16,12,7,3,$c0,<(sevleave),>(sevleave)
-	!byte 32,89,5,19,32,0
+	!scr " yes @"
 	!byte 16,21,7,3,$c0,<(sevcan),>(sevcan)
-	!byte 32,78,15,33,32,0
-	!byte $c0,7,15,8,89,15,21,32,23,9,12,12,0
-	!byte $c0,9,13,12,12,5,1,22,5,32,71,15,68,15,20,33,0
-	!byte $c0,13,13,12,82,5,1,4,25,32,20,15,32,7,15,63,0
+	!scr " no! @"
+	!byte $c0,7,15,8
+	!scr "You will@"
+	!byte $c0,9,13,12
+	!scr "leave GoDot!@"
+	!byte $c0,13,13,12
+	!scr "Ready to go?@"
 	!byte $80
-;
 
-inittx	!byte 14,14,12,73,14,9,20,9,1,12,9,19,9,14,7,0
-mess	!byte 0,22,3,34,3,$02,0,0,$80
-;
+mess	!byte 0			; Gauge Window Parameters
+	!byte 22,3,34,3,$02,0,0
+	!byte $80
+
+; --------------------------------------
+
+inittx	!byte 14,14,12
+	!scr "Initialising@"
+
+; -------------------------------------- Data
+
 offs	!byte $00,$10,$20,$30
 	!byte $00,$10,$20,$30
-;
+
 dlo	!byte <(dithoff)
 	!byte <(dithrst)
 	!byte <(dithpat)
 	!byte <(dithnoi)
 	!byte <(dithrnd)
-;
+
 dhi	!byte >(dithoff)
 	!byte >(dithrst)
 	!byte >(dithpat)
 	!byte >(dithnoi)
 	!byte >(dithrnd)
-;
+
 dmode	!word 0
 xmerk	!byte 0
 bank	!byte 8
 pflen	!byte 5
 pfox	!text "gofox"
 addr	!word $0da0
-;
+
+; -------------------------------------- Activity Handler
+
 adinc	dec adcnt
 	bne adskip
 	inc $d005
@@ -568,7 +623,9 @@ adinc	dec adcnt
 	lda #5
 	sta adcnt
 adskip	rts
-;
+
+; --------------------------------------
+
 initad	sta adcnt
 	ldy #63
 	lda #0
@@ -591,18 +648,19 @@ adl0	sta $3fc0,y
 	sta $d004
 	lda #32
 	sta $d006
-;
+
 	lda #146
 	sta $d005
 	sta $d007
-	lda #$ff
-	sta $07fa
-	sta $07fb
+	sty $07fa
+	sty $07fb
 	lda $d015
 	ora #12
 	sta $d015
 	rts
-;
+
+; --------------------------------------
+
 clearad	lda $d015
 	and #$f3
 	sta $d015
@@ -610,7 +668,9 @@ clearad	lda $d015
 	and #$f3
 	sta $d010
 	rts
-;
+
+; --------------------------------------
+
 modend	!eof
 
 
