@@ -225,7 +225,7 @@ overwr	jsr failc		; message ("Select 'save' ...")
 	jsr gd_screen
 	lda txflag	; result: successful?
 	beq ow0		; yes, message ("Temp saved...")
-	jsr gd_clrms	: no, clear message bar
+	jsr gd_clrms	; no, clear message bar
 ow0	clc
 	rts
 
