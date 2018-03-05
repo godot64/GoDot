@@ -1,0 +1,572 @@
+	!src "..\godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ----------------------------------------- 
+;
+; svr.PFoxGB
+;     Saver for Printfox GB images (640x400 pixels)
+;
+; 1.00: 03.10.92, first release
+;
+; ----------------------------------------- 
+
+	dst	= $30
+	dst0	= $32
+	cnt	= $34
+	dbl	= $36
+	vertcnt	= $37
+	byte	= $39
+	bitcnt	= $3a
+	bcnt1	= $3b
+	src	= $3c
+	adcnt	= $3e  
+	src0	= $40
+	hold	= $42
+	lcnt8	= $44
+	lcnt	= $45
+	bcnt	= $46
+
+	offx	= ls_adrmisc
+	offy	= offx+1
+
+
+	oszi3	= $d40e
+	wave	= $d412
+	filter	= $d418
+	rausch	= $d41b
+
+	buf	= $cd00
+	destbuf	= $ca00
+
+; ---------------------------------------- Header
+
+header	jmp start
+	!by $40
+	!by 0
+	!by 1
+	!wo modend
+	!wo 0
+	!tx "PFox GB Saver   "
+	!tx "1.00"
+	!tx "03.10.92"
+	!tx "A.Dettke/W.Kling"
+
+
+; ---------------------------------------- 
+
+start	ldx gr_nr
+	dex
+	bne st0
+	jmp initinp
+
+; ---------------------------------------- Main
+
+st0	jsr gd_sproff
+	lda gd_modswitch
+	pha
+
+	lda ls_flen
+	beq st1
+	sta wflen
+	lda #1
+	sta adcnt
+	jsr wopen
+	bne st2
+	jsr getname
+	ldx #12
+	jsr ckout
+	jsr gd_clrms
+	ldx #0
+	jsr tcopy
+
+	jsr write
+
+st2	jsr clrch
+	lda #12
+	jsr close
+	jsr err9
+	bne st1
+	jsr setname
+
+st1	pla
+	sta gd_modswitch
+	jsr gd_spron
+	sec
+	rts
+
+
+; --------------------------- 
+; --------------------------- Input Routines
+
+!src "..\input.inc"
+
+; --------------------------- 
+; --------------------------- 
+
+pw	!tx "w,p,"
+drinit	!tx "i0"
+wflen	!by 0
+
+wopen	jsr inull
+	bne err8
+	ldy wflen
+	ldx #3
+wo1	lda pw,x
+	sta ls_nambuf,y
+	iny
+	dex
+	bpl wo1
+	sty wflen
+	lda #12
+	tay
+	ldx ls_drive
+	jsr filpar
+	lda wflen
+	ldx #<(ls_nambuf)
+	ldy #>(ls_nambuf)
+	jsr filnam
+	jsr copen
+	jmp err9
+
+inull	ldx #<(drinit)
+	ldy #>(drinit)
+	lda #2
+	jsr gd_sendcom
+err9	jsr gd_xmess
+	lda ls_err2
+	and #15
+err8	sec
+	rts
+
+; ---------------------------------------- 
+
+messout	ldx #<(message)
+	ldy #>(message)
+	jmp gd_xtxout2
+
+tcopy	ldy #0
+tc0	lda txt,x
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+
+action	dec adcnt
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	cpy #25		; catch Gauge Overflow
+	bne act0
+	jsr clrmess
+act0	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts
+
+clrmess	ldx #25
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0
+	ldx #7
+	sty offy
+	stx offx
+	rts
+
+filltab	!by 160,93,103,127,126,124,105,109
+
+cntwert	!by 1
+
+txt	!scr " PFox @"
+
+message	!fi 6,32
+mess	!fi 26,32
+	!by 0
+
+; ---------------------------------------- 
+
+getname	ldx #0
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+setname	lda #0
+	ldx #<(ls_picname)
+	ldy #>(ls_picname)
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!fi 16,32
+	!by 0
+
+
+; ---------------------------------------- Write PFox GB
+
+write	lda #$47		; Signature ("G")
+	jsr bsout
+
+	lda gr_dither	; set dither mode
+	tax
+	lda dlo,x
+	sta dmode
+	lda dhi,x
+	sta dmode+1
+	lda #$80
+	sta filter
+	sta oszi3
+	sta oszi3+1
+	lda #0
+	sta wave
+	lda #$81
+	sta wave
+
+	jsr pfoxgb	; save image
+
+	ldx #3
+m0	lda gbend,x	; add end signature
+	jsr bsout
+	dex
+	bpl m0
+	sec
+	rts
+
+; ---------------------------------------- Render Image to Disk
+
+pfoxgb	lda #<(sy_4bit)
+	ldx #>(sy_4bit)
+	sta src0
+	sta src
+	stx src0+1
+	stx src+1
+
+	lda #0
+	sta dbl
+	sta vertcnt
+	lda #25
+	sta lcnt8
+lnloop8	lda #0
+	sta lcnt
+
+lnloop	jsr action
+ads0	ldx #0
+zloop	lda #2		; 1 Line
+	sta bcnt1
+byloop	lda #$c0		; 1 tile
+	sta bitcnt
+	lda #0
+	sta byte
+btloop	ldy #0		; 1 pixel
+	lda (src),y
+	pha
+	lsr		; left pixel
+	lsr
+	lsr
+	lsr
+	tay
+	lda gr_btab,y
+	jsr makebyte	; dither
+	lsr bitcnt
+	lsr bitcnt
+	pla
+	and #$0f		; right pixel
+	tay
+	lda gr_btab,y
+	jsr makebyte	; dither
+	inc src
+	bne s3
+	inc src+1
+s3	lsr bitcnt
+	lsr bitcnt
+	bcc btloop
+	sta buf,x		; buffer result (640 pixels)
+	inx
+	dec bcnt1
+	bne byloop
+	lda src
+	clc
+	adc #28
+	sta src
+	bcc s4
+	inc src+1
+s4	cpx #80		; index in buffer (is 80?)
+	bne zloop
+
+	jsr moveline	; write buffer to disk
+
+	ldx vertcnt	; next line 
+	inx
+	cpx #8
+	bne s41
+	ldx #0
+s41	stx vertcnt
+	lda dbl		; first: double vertical (produces 400 lines)
+	eor #$ff
+	sta dbl
+	beq newline
+	lda src0
+	sta src
+	lda src0+1
+	sta src+1
+	bne ads0
+
+newline	lda src0		; now advance to new line
+	clc
+	adc #4
+	sta src0
+	sta src
+	bcc s5
+	inc src0+1
+s5	lda src0+1
+	sta src+1
+	inc lcnt
+	lda #8		; 8 per tile (1 tile row)
+	cmp lcnt
+	beq s51
+	jmp lnloop
+
+s51	lda src0		; next tile row
+	clc
+	adc #<(1248)
+	sta src0
+	sta src
+	lda src0+1
+	adc #>(1248)
+	sta src0+1
+	sta src+1
+	dec lcnt8
+	beq done
+	jmp lnloop8
+
+done	rts		; until done
+
+; ---------------------------------------- Dither Distributor
+
+makebyte	jmp (dmode)
+
+; ---------------------------------------- Off
+
+dithoff	cmp #8
+	bpl do0
+	lda #0
+	!by $2c
+do0	lda bitcnt
+	ora byte
+	sta byte
+	rts
+
+; ---------------------------------------- Ordered
+
+dithrst	ldy vertcnt
+	ora offs,y
+	tay
+	lda gr_orderedpat,y
+	and bitcnt
+	ora byte
+	sta byte
+	rts
+
+; ---------------------------------------- Pattern
+
+dithpat	asl
+	asl
+	asl
+	ora vertcnt
+	tay
+	lda gr_pattern,y
+	and bitcnt
+	ora byte
+	sta byte
+	rts
+
+; ---------------------------------------- Noise
+
+dithnoi	beq dn0
+	cmp #15
+	beq dn1
+	ldy #0
+	sta hold
+	lda rausch
+	and #$0f
+	cmp hold
+	bcs dn3
+	ldy #$aa
+dn3	lda rausch
+	and #$0f
+	cmp hold
+	tya
+	bcs dn2
+	ora #$55
+dn2	!by $2c
+dn1	lda #$ff
+	and bitcnt
+dn0	ora byte
+	sta byte
+	rts
+
+; ---------------------------------------- Random
+
+dithrnd	cmp #8
+	beq dr0
+	bcs dr1
+	bcc dr2
+dr0	lda rausch
+	!by $2c
+dr1	lda bitcnt
+	and bitcnt
+	!by $2c
+dr2	lda #0
+	ora byte
+	sta byte
+ml4	rts
+
+; ---------------------------------------- Write Render Buffer
+
+moveline	lda vertcnt
+	bne ml0
+	lda #<(destbuf)	; set write buffer address
+	ldy #>(destbuf)
+	sta dst0
+	sty dst0+1
+	bne ml2
+ml0	inc dst0
+ml2	lda dst0
+	ldy dst0+1
+	sta dst
+	sty dst+1
+	ldy #0
+	ldx #0
+mloop	lda buf,x		; get rendered pixels
+	sta (dst),y	; fill write buffer
+	lda dst
+	clc
+	adc #8
+	sta dst
+	bcc ml3
+	inc dst+1
+ml3	inx
+	cpx #80		; with 1 line (80 tiles)
+	bne mloop
+	ldy vertcnt
+	cpy #7
+	bne ml4
+
+; ---------------------------------------- Write to Disk
+
+writeloop	ldx #5		; write 2.5 pages (640 bytes)
+	lda #<(destbuf)	; from write buffer
+	ldy #>(destbuf)
+	sta dst0
+	sty dst0+1
+	ldy #0
+	sty cnt
+	sty cnt+1
+	sty byte
+wloop	lda (dst0),y
+
+	jsr pack		; compress data and write to disk
+
+	iny
+	cpy #128
+	bne wloop
+	clc
+	lda dst0
+	adc #128
+	sta dst0
+	bcc wl5
+	inc dst0+1
+wl5	ldy #0
+	dex
+	bne wloop
+	lda byte		; flush compress buffer
+	eor #$ff
+
+; ---------------------------------------- Compress and Write
+
+pack	cmp byte
+	bne writeit
+	jmp incr
+
+writeit	pha
+	lda cnt+1
+	bne wl0
+	lda cnt
+	beq wl1
+	cmp #5
+	bcs wl0
+	lda byte
+	cmp #$9b
+	bne wl2
+wl0	lda #$9b		; Indicator: $9b
+	jsr bsout
+	lda cnt		; Counter: !word
+	jsr bsout
+	lda cnt+1
+	jsr bsout
+	lda #1
+	sta cnt
+	lda #0
+	sta cnt+1
+wl2	lda byte		; Byte: revert pixels (Printfox uses reverted pixels!)
+	eor #$ff
+	jsr bsout		; write to disk (without status check)
+	dec cnt
+	bne wl2
+	lda cnt+1
+	beq wl1
+	dec cnt+1
+	jmp wl2
+
+wl1	pla
+	sta byte
+incr	inc cnt
+	bne wl3
+	inc cnt+1
+wl3	rts
+
+; ---------------------------------------- Data
+
+offs	!by $00,$10,$20,$30
+	!by $00,$10,$20,$30
+
+dlo	!by <(dithoff)
+	!by <(dithrst)
+	!by <(dithpat)
+	!by <(dithnoi)
+	!by <(dithrnd)
+
+dhi	!by >(dithoff)
+	!by >(dithrst)
+	!by >(dithpat)
+	!by >(dithnoi)
+	!by >(dithrnd)
+
+dmode	!by 0,0
+gbend	!by $bf,$20,$00,$9b		; end signature
+
+; ---------------------------------------- 
+
+modend	!eof
