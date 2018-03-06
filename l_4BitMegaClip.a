@@ -1,0 +1,1342 @@
+
+	!src "..\godotlib.lib"
+	*= $c000
+;	!sl "labels.txt"
+
+; ----------------------------------- 
+; Loader MegaClip Select
+;   lädt wählbare Ausschnitte aus 4Bit-MegaClips
+;
+;   1.00, 04.01.17: first release
+;   1.01, 05.01.17: bug: digits remain on screen, fixed
+;                        adjusting clip failed above 128, fixed
+;   1.02, 29.11.17: bug: crash if only height was mega
+;                        garbage if only width was mega
+;
+; ----------------------------------- 
+
+; ----------------------------------- Equates
+
+	mbr		= $30
+	mho		= $31
+	msp		= $32
+	mrc		= $33
+	zstart		= $34
+	sstart		= $35
+	lcnt8		= $36
+	bcnt		= $37
+	nibcnt		= $38
+	gbyte		= $39
+	counter		= $3a	; /$3b
+	byte		= $3c
+	bycnt		= $3d
+	rrand		= $3e
+	adcnt		= $3f
+	vekt40		= $40	; /$41
+	dst		= $42	; /$43
+	offx		= $44
+	offy		= offx+1
+	skip		= $46	; /$47
+	brmerk		= $48
+	bbreite		= $49	; /$4a
+
+	maussp		= sc_merk+1
+
+	pport		= $01
+	hsign		= gr_pattern	; hlinie
+	vsign		= gr_pattern+8	; vlinie
+	esign		= gr_pattern+16	; eck
+
+; Konstanten
+
+	shspace		= 160
+	packbyte		= $ad
+	hlinie		= $e0
+	vlinie		= $e1
+	eck		= $e2
+
+; ----------------------------------- Header
+
+header	jmp start
+	!by $80
+	!by 0
+	!by 0
+	!wo modend
+	!wo 0
+	!pet "MegaClip Select "
+	!pet "1.02"
+	!pet "29.11.17"
+	!pet "A.Dettke        "
+;
+; ----------------------------------- Main
+
+start	ldx used
+	bmi readhd
+cancel	jsr last
+ff	lda #$ff
+	sta used
+freq	sec
+	rts
+;
+; ----------------------------------- Read File Header
+
+readhd  	inc used
+	inx
+	stx breite	; width ("breite" means width)
+	stx breite+1
+	stx bbreite
+	stx bbreite+1
+	stx byte2		; File-Clip-Dimensionen vorbereiten
+	stx byte3
+	stx ftype		; init filetype
+	stx miniclip
+	stx xpos
+	stx ypos
+	stx viceshot	; VICE-Screenshot: vorbereiten
+	lda #$80
+	sta vicepos+4
+	ldx #31
+	lda #32		; init statline
+ld62	sta statline,x
+	dex
+	bpl ld62
+	sta xpostxt+7
+	sta ypostxt+7
+
+	jsr gd_xopen
+	jsr onebyte	; get first byte ("G")
+	bne rdende	; on error: break
+	cmp #$47
+	bne jerror
+	tay		; is $00?
+	jsr onebyte	; otherwise: get "O"...
+	bne rdende
+	cmp #$4f
+	bne jerror
+	jsr onebyte	; and "D"
+	bne rdende
+	cmp #$44
+	bne jerror
+	jsr onebyte	; finally "0" or "1"
+	bne rdende
+	sta ftype		; store preliminarily as filetype
+	tya
+	bne ld61		; is uncompresssed?
+	sta ftype		; yes, store $00 as filetype
+ld61	asl ftype		; real filetype: $60/$62 or $00
+
+	lda ftype
+	and #2		; Clip?
+	beq ld10		; no
+	jsr getfclip	; yes, get clip data
+	php
+	lda clpbr		; new width for Full
+	sta brmerk
+	jsr gbh2
+	plp
+	bcc cont		; file error?
+ld10	jsr setframe	; set 0,0,40,25
+
+ld11	jsr setfullscr	; set parameters for full 4bit
+	jsr rd2		; close file
+	bcc ld12
+
+jerror	jsr error
+ld12	jsr requ		; prepare requester
+
+	ldx #<(mcliplst)	; display
+	ldy #>(mcliplst)
+	jsr gd_xmloop	; wait...
+	jmp start
+;
+; ----------------------------------- Abschluss
+
+rdende	jsr ff
+rd2 	jsr ld5
+cont 	clc
+	rts
+;
+; ----------------------------------------- Read Clip values
+
+getfclip	jsr onebyte	; row
+	bne rdende	; break on error
+	sta clpzl
+	jsr onebyte	; column
+	bne rdende
+	sta clpsp
+	jsr onebyte	; width
+	bne rdende
+gf1	sta clpbr
+	sta byte3
+	sta pbr
+	jsr onebyte	; height
+	bne rdende
+gf0	sta clpho
+	sta byte2
+	pha
+
+; ### 1.02 ab hier ---
+;
+; miniclip: 0 = Megaclip
+;           3 = echter (Mini-) Clip
+;           1 = schmaler als 40 
+;           2 = niedriger als 25
+
+	cmp #25		; > max. Höhe?
+	bcs +
+	lda miniclip	; ja, Flag an
+	ora #2
+	sta miniclip
++	lda byte3		; oder > max. Breite?
+	cmp #40
+	bcs gf3
+	lda miniclip	; ja, Flag an
+	ora #1
+	sta miniclip
+
+; ### 1.02 bis hier ---
+
+gf3	pla
+	cmp #$22		; Höhe: 34?
+	bne gf2
+	lda clpzl		; bei Ursprung an 0,0?
+	ora clpsp
+	bne gf2
+	lda clpbr		; Breite: 48?
+	cmp #$30
+	bne gf2
+	lda #$d0
+	sta vicepos+4
+	sta viceshot	; ja, dann VICE-Screenshot
+gf2	sec
+	rts
+
+; ----------------------------------- Init Read 
+
+initread 	inc used
+	lda ls_flen
+	sta ls_temp
+	lda #2
+	sta ls_vekta8+1
+	lda #0
+	sta ls_vekta8
+	sta counter
+	sta counter+1
+	lda ypos
+	sta zstart
+	lda xpos
+	sta sstart
+	rts
+	
+; ----------------------------------- Read VICE Screenshot
+
+sevvice	lda viceshot
+	beq gf2
+	lda #4
+	sta xpos
+	sta ypos
+	lda byte3
+	sta pbr
+	lda #40
+	sta rbr
+	lda #26
+	sta pho
+	jsr initread
+	jsr setvice
+	jsr readfile
+	inx
+	stx adcnt
+	jsr moveline
+	sec
+	rts
+
+; ----------------------------------- Read File
+
+sevmclip	jsr initread
+
+	lda #25		; max. Breite
+	ldx #40		; max. Höhe
+	ldy miniclip	; Megaclip?
+	beq fx11		; dann begrenzen auf max
+
+	dey		; ### 1.02: zu schmal?
+	beq ++		;           ja, echte Breite setzen, Höhe max
+	dey		;           zu hoch?
+	bne +
+	lda byte2		;           ja, echte Höhe setzen, Breite max
+	bne fx11
++	lda byte2		;           beides? dann echte Höhe
+++	ldx byte3		;                   und echte Breite 
+
+fx11	sta pho		; height of clip = 25 oder echt
+	stx rbr		; width of clip = 40 oder echt
+	jsr set4bit
+	
+readfile	jsr getname
+	jsr gd_xopen
+	jsr gd_clrms
+	inx
+	stx adcnt
+;
+	ldx #2		; .x = Zähler für Überlesen
+	ldy ftype		; uncompressed?
+	beq fx10		; ja (kommt nicht vor)
+	ldx #8
+	tya
+	and #2		; Clip-File?
+	bne fx10		; ja
+	ldx #4		; sonst: 4Bit
+	
+fx10	jsr basin		; Header überlesen
+ 	dex
+	bne fx10
+;
+	lda #215		; right skip = 215 as default setting
+	sta mro
+
+	tya		; Filetype
+	ldy #0
+	and #2		; Clip-File?
+	beq fx4		; nein
+
+fx6 	lda miniclip	; ja, kleiner Clip?
+	and #1		; ### 1.02
+	bne fx8		; ja, kein Skip
+	sec
+	lda pbr		; sonst:
+	sbc #40		; rightskip (mro) = pbr minus 40 minus col
+	sbc sstart
+	!by $2c
+fx8	lda #0		; auf Null begrenzen
+fx9	sta mro
+	jmp fx0
+	
+fx4 	lda #40		; 4Bit: max width = 40, right skip = 0
+	sty mro
+fx5 	sta pbr
+
+fx0	jsr readdumy	; and top skip (zstart und pbr)
+;
+ 	ldx #0
+	jsr tcopy
+	lda pho		; (Standard: 25)
+	sta lcnt8
+loop8 	jsr readdumx1
+	lda rbr		; (Standard: 40)
+	sta bcnt
+bloop 	jsr readblock	; Bytes einlesen
+	dec bcnt
+	bne bloop
+	jsr readdumx2
+	clc		; nächste Blockzeile
+	lda dst0+1
+	adc #5
+	sta dst0+1
+	sta dst+1
+	lda dst0
+	sta dst
+	dec lcnt8
+	bne loop8
+	jmp ld3
+
+; ----------------------------------- Adjust X or Y
+
+sevxadjst	lda xpos
+	tax
+	ora ypos
+	beq sxa2
+	jsr settab
+	lda maussp
+	cmp #23
+	bne sxa0
+	cpx xlimit
+	bcs sxa1
+	inx
+	bne sxa1
+sxa0	dex
+	cpx #255
+	bne sxa1
+	inx
+sxa1	txa
+	sta xpos
+	jsr ch9
+sxa2	clc
+	rts
+
+sevyadjst	lda ypos
+	tax
+	ora xpos
+	beq sxa5
+	jsr settab
+	lda maussp
+	cmp #32
+	bne sxa3
+	cpx ylimit
+	bcs sxa4
+	inx
+	bne sxa4
+sxa3	dex
+	cpx #255
+	bne sxa4
+	inx
+sxa4	txa
+	sta ypos
+	jsr ch5
+sxa5	clc
+	rts
+
+; ----------------------------------- Read one Block
+
+readblock	lda #8		; acht Rasterlinien
+	sta bycnt
+byloop	lda #4		; vier Doppelnibble pro Linie (acht Pixel)
+	sta nibcnt
+	ldy #0
+nloop	jsr read
+	sta (dst),y
+	inc dst
+	bne skip0
+	inc dst+1
+skip0	dec nibcnt
+	bne nloop
+	jsr action
+	dec bycnt
+	bne byloop
+	rts
+
+; ----------------------------------- Gauge Bar Activity
+
+action 	dec adcnt
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	cpy #22
+	bne act0
+	jsr clrmess
+act0	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4 	rts
+;
+ld3 	jsr setinfo
+ld5 	jsr gd_xclose
+	jsr gd_spron
+	jsr gd_xmess
+	sec
+	rts
+;
+; ----------------------------------- File Error
+
+error	jsr ld5
+	ldx #33
+	ldy #0
+err1	lda txt,x
+	beq err0
+	sta statline,y
+	inx
+	iny
+	bne err1
+err0	rts
+
+; ----------------------------------- Messages
+
+messout 	ldx #<(message)
+	ldy #>(message)
+	jmp gd_xtxout2
+;
+tcopy 	ldy #0
+tc0 	lda txt,x
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+;
+clrmess 	ldx #21
+	lda #32
+cl0 	sta mess,x
+	dex
+	bpl cl0
+	ldy #0
+	ldx #7
+	sty offy
+	stx offx
+	rts
+;
+onebyte 	jsr basin
+	ldx $90
+	rts
+;
+filltab 	!by 160,93,103,127,126,124,105,109
+txt 	!scr " Reading  @"	; 0
+	!scr " Skipping @"	; 11
+	!scr " Moving   @"	; 22
+ 	!scr "  This is no GoDot image file!  @" ; 33
+message 	!scr ".........."
+mess 	!scr "......................@"
+
+; ----------------------------------- Top skip
+
+readdumy	ldx zstart
+	beq nixy
+	stx mho
+	ldx #11		; "Skipping"
+	jsr tcopy
+ys0 	lda pbr
+	sta mbr
+yl1 	jsr read
+	dec cntr
+	bne yl1
+	lda #32
+	sta cntr
+	jsr action
+	dec mbr
+	bne yl1
+	dec mho
+	bne ys0
+nixy 	rts
+;
+; -----------------------------------
+
+readdumx1	lda pbr
+	cmp #41
+	bcc nixx1
+	lda sstart
+	beq nixx1
+	sta msp
+xl10 	jsr read
+	dec cntr
+	bne xl10
+	lda #32
+	sta cntr
+	dec msp
+	bne xl10
+nixx1 	rts
+;
+; -----------------------------------
+
+readdumx2	lda mro
+	beq nixx2
+	sta mrc
+xl20 	jsr read
+	dec cntr
+	bne xl20
+	lda #32
+	sta cntr
+	dec mrc
+	bne xl20
+nixx2 	rts
+;
+; ------------------------------------ Zeilenadresse berechnen
+
+getladd	tya		; durch 8 (wird Index in Hibyte-Tabelle)
+	pha
+	lsr
+	lsr
+	lsr
+	tax
+	pla		; Lobyte mal 4
+	and #$07
+	asl
+	asl
+	sta dst		; ist 4Bitadresse
+	lda line8,x
+	sta dst+1
+	rts
+
+; ------------------------------------ Bild scrollen
+
+moveline	jsr gd_clrms
+	ldx #22
+	jsr tcopy
+	ldy #202		; Quellzeile
+	sty lcnt8
+
+move	jsr getladd
+	lda dst
+	sta vekt40
+	lda dst+1
+	sta vekt40+1
+	tya
+	clc		; Zielzeile (5 mehr)
+	adc #5
+	tay
+	jsr getladd
+
+	lda #40		; 40 Kacheln
+	sta bcnt
+gl0	ldy #0
+gl1	lda (vekt40),y	; 4 Bytes holen (1 Kachellinie)
+	sta (dst),y	; 4 Bytes ablegen
+skp0	iny
+	cpy #4
+	bne gl1
+	jsr action
+	lda dst		; 32 addieren, zur nächsten Kachel
+	clc
+	adc #32
+	sta dst
+	bcc skp1
+	inc dst+1
+skp1	clc
+	lda vekt40
+	adc #32
+	sta vekt40
+	bcc skp2
+	inc vekt40+1
+skp2	dec bcnt		; alle durch?
+	bne gl0		; nein
+
+	dec lcnt8		; nächste Rasterzeile
+	ldy lcnt8
+	bne move
+
+	rts
+
+; -----------------------------------
+
+byte2 	!by 0		; height of shape
+byte3 	!by 0		; width  of shape
+cntr 	!by 32		; skip counter
+mro 	!by 215		; right skip
+rbr 	!by 40		; width to read
+pbr 	!by 255		; true width of image
+pho 	!by 25
+clpzl	!by 0
+clpsp	!by 0
+clpbr	!by 40
+clpho	!by 25
+mclip	!by 0,0,40,25
+full	!by 0,0,40,25
+breite	!wo 0
+hoehe	!by 25
+ymerk	!by 0
+xpos 	!by 0		; skip file data offsets
+ypos 	!by 0
+xkoo 	!by 63		; selectbox (frame position)
+ykoo 	!by 81
+xkoomk 	!by 0
+ykoomk 	!by 0
+xmax 	!by 119		; bottom limit
+ymax 	!by 169
+xlimit	!by 0
+ylimit	!by 0
+maxbr 	!by 40		; Auswahlgröße: 40x25
+maxho 	!by 25
+dst0 	!wo 0
+used 	!by $ff
+ftype 	!by 0
+miniclip	!by 0
+viceshot	!by 0
+cntwert 	!by 50
+pbuffer 	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+zbr 	!by 0
+zho 	!by 0
+zsph 	!by 0
+zspv 	!by 0
+hwert 	!by $00,$80,$c0,$e0,$f0,$f8,$fc,$fe
+;
+sprou 	!by $fc,$ff,$ff
+sprmi 	!by $04,$00,$80
+;
+line8	!by $3b,$40,$45,$4a,$4f,$54	; 26 (!) Blockzeilen ab $3b00
+	!by $59,$5e,$63,$68,$6d
+	!by $72,$77,$7c,$81,$86
+	!by $8b,$90,$95,$9a,$9f
+	!by $a4,$a9,$ae,$b3,$b8
+;
+; ----------------------------------- Read mclip Image
+
+read	lda counter	; repeated byte?
+	ora counter+1
+	bne getit2	; yes, re-get value
+
+	inc counter	; no, counter to 1
+	jsr basin		; get 1 byte
+	cmp #packbyte	; compression flag? (=$ad)
+	bne getit1	; no
+
+	bit ftype		; file compressed?
+	bvc getit1	; no
+
+	jsr basin		; compressed: get counter
+	sta counter
+	beq rb2		; $00 equals 256 bytes
+	lda #0
+	beq rb3
+rb2	lda #1
+rb3	sta counter+1
+	jsr basin		; get byte to compress
+
+getit1	sta gbyte		; and store
+
+getit2	lda counter	; count repetition
+	bne rb4
+	dec counter+1
+rb4	dec counter
+	lda gbyte		; re-get byte
+	rts
+
+; ----------------------------------- Image Information
+
+getname 	ldx #0
+si0 	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1 	rts
+;
+getdatac 	ldx #4
+	!by $2c
+getdatag 	ldx #9
+	ldy #4
+sinfo0 	lda dtextc,x
+	sta datatype,y
+	dex
+	dey
+	bpl sinfo0
+	rts
+;
+setinfo 	jsr getdatac
+	jsr setname
+	jsr setloader
+	jsr setmode
+	jmp setdata
+;
+setname 	lda #0
+	ldx #<(ls_picname)
+	ldy #>(ls_picname)
+	bne si3
+setloader	lda #17
+	ldx #<(ls_iloader)
+	ldy #>(ls_iloader)
+	bne si3
+setmode 	lda #25
+	ldx #<(ls_imode)
+	ldy #>(ls_imode)
+	bne si3
+setdata 	lda #33
+	ldx #<(ls_idrive)
+	ldy #>(ls_idrive)
+si3 	stx dst
+	sty dst+1
+	tax
+	ldy #0
+si4 	lda nbuf,x
+	beq si5
+	sta (dst),y
+	inx
+	iny
+	bne si4
+si5 	rts
+;
+nbuf 	!fill 16,32
+	!by 0
+	!scr "mclip  @"
+modetx 	!scr "320x200@"
+datatype 	!scr "Color@"
+ttext 	!scr "Text   "
+htext 	!scr "320x200@"
+mtext 	!scr "Multi  "
+dtextc 	!scr "Color"
+dtextg 	!scr "Gray "
+
+; ----------------------------------- Shape routines
+
+first 	ldy #23		; save pattern and then erase
+	ldx #0
+f3 	lda gr_pattern,y
+	sta pbuffer,y
+	txa
+	sta gr_pattern,y
+	dey
+	bpl f3
+	rts
+;
+; -----------------------------------
+
+last 	ldy #23		; restore pattern
+f4 	lda pbuffer,y
+	sta gr_pattern,y
+	dey
+	bpl f4
+	rts
+;
+; -----------------------------------
+
+sclear 	ldy #15		; clear current output row in shape
+	lda #32
+f13 	sta (vekt40),y
+	dey
+	bpl f13
+	ldy zsph
+	rts
+;
+; -----------------------------------
+
+requ 	lda #<(string1)	; first output line
+	sta vekt40
+	lda #>(string1)
+	sta vekt40+1
+	lda ftype		; Filetype: 4Bit?
+	and #2
+	bne r0
+r3 	ldx #40		; ja: 40x25
+	lda #25
+r4 	stx byte3
+	sta byte2
+
+r0 	jsr settxt	; sonst Filewerte verwenden
+	jsr first
+	lda byte3		; width div 16 = columns (zsph)
+	tay
+	lsr
+	lsr
+	lsr
+	lsr
+	sta zsph
+	tya
+	and #15
+	lsr
+	sta zbr		; mod 16: rest (zbr)
+	lda byte2		; height div 16 = rows (zspv)
+	tay
+	lsr
+	lsr
+	lsr
+	lsr
+	sta zspv
+	tya
+	and #15
+	lsr
+	sta zho		; mod 16: rest (zho)
+	
+	lda zspv		; only 1 block? (beide Werte 0)
+	ora zsph
+	beq ecke
+
+hline 	ldy zbr		; add char: right
+	lda hwert,y
+	ldy #7
+hl0 	sta hsign,y
+	dey
+	bpl hl0
+vline 	lda #$ff		; add char: bottom
+	ldy zho
+	bne hl01
+hl1 	sta vsign,y
+hl01 	dey
+	bpl hl1
+
+ecke 	ldy zbr		; add: corner
+	lda hwert,y
+	ldy zho
+	bne hl02
+hl2 	sta esign,y
+hl02 	dey
+	bpl hl2
+;
+	ldx zspv		; rechter Rand vorhanden?
+	beq hl8		; nein
+hl7 	jsr sclear
+	lda zbr		; rechts Platz?
+	beq hl5		; nein
+	lda #hlinie
+	sta (vekt40),y
+hl5 	lda #shspace
+hl6 	dey
+	bmi hl9
+	sta (vekt40),y
+	bne hl6
+
+hl9 	clc		; nächste Zeile
+	lda vekt40
+	adc #21
+	sta vekt40
+	bcc hl10
+	inc vekt40+1
+hl10 	dex
+	bne hl7
+;
+hl8 	jsr sclear
+	lda zho		; unterer Rand vorhanden?
+	beq rest		; nein
+	lda zbr		; unten Platz?
+	beq hl13		; nein
+
+	lda #eck		; Ecke unten rechts
+	sta (vekt40),y
+
+hl13 	lda #vlinie	; unterer Rand
+hl11 	dey
+	bmi rest
+	sta (vekt40),y
+	bne hl11
+
+rest 	clc		; unten löschen bei Bedarf
+	lda vekt40
+	adc #21
+	sta vekt40
+	bcc rst0
+	inc vekt40+1
+rst0 	ldy #0
+	lda (vekt40),y
+	cmp #$ff		; bis Endeflag
+	beq rst1
+	lda #32
+rst2 	sta (vekt40),y
+	iny
+	cpy #16		; Zeile löschen
+	bne rst2
+	beq rest
+rst1 	rts
+
+; ----------------------------------- Clipdimension ausgeben
+
+settxt 	lda byte3
+	tax
+	lda #32
+	sta xtxt
+	sta xtxt+1
+	jsr cnvwa
+	ldx #2
+stx1	jsr getdigs
+	sta xtxt,x
+	dex
+	tya
+	bne stx1
+	lda byte2
+	tax
+	lda #32
+	sta ytxt
+	sta ytxt+1
+	jsr cnvwa
+	ldx #2
+stx2	jsr getdigs
+	sta ytxt,x
+	dex
+	tya
+	bne stx2
+
+stx3 	ldy fmdata+3
+	dey
+	dey
+	dey
+	lda #32
+	sta xpostxt+8
+	sta ypostxt+8
+stx5 	sta mclipms,y
+	dey
+	cpy ls_flen
+	bcs stx5
+stx6 	lda ls_lastname,y
+	sta mclipms+1,y
+	dey
+	bpl stx6
+	lda #$30
+	sta xpostxt+9
+	sta ypostxt+9
+	rts
+;
+; ----------------------------------- Selektor-Kasten
+
+ss7 	jmp cont
+
+sevsclip 	lda byte2		; Datei vorhanden?
+	ora byte3
+	beq ss7		; nein
+	ldx #$40		; sonst: ab $3f40
+	stx vekt40
+	dex
+	stx vekt40+1
+	ldy #0		; Breite: 22 (lässt 20 Spalten frei)
+ss4 	ldx #2
+ss0 	lda sprou,x	; oberer Rand
+	sta (vekt40),y
+	iny
+	dex
+	bpl ss0
+	cpy #42		; unterer Rand bei Zeile 14 (lässt 13 Zeilen frei)
+	beq ss3
+
+ss2 	ldx #2		; dazwischen 13 Zeilen linke und rechte Begrenzung
+ss1 	lda sprmi,x
+	sta (vekt40),y
+	iny
+	dex
+	bpl ss1
+	cpy #39		; (Zeile 13 fertig?)
+	bne ss2
+	beq ss4
+
+ss3 	lda #0		; Rest löschen
+ss5 	sta (vekt40),y
+	iny
+	cpy #64
+	bne ss5
+
+	lda $d002		; Mausposition merken (x)
+	sta xkoomk
+	clc
+	lda $d003		; (und y)
+	adc #24
+	sta ykoomk
+	lda $d010		; (und x-hi)
+	pha
+
+	lda byte2		; Höhe des Clips
+	sec
+	sbc maxho		; minus Maxhöhe
+	beq mm0		; wenn <=0: 0
+	bcc mm0
+	!by $2c		; sonst: Wert beibehalten
+mm0 	lda #0
+	sta ylimit
+	lsr		; halbieren
+	clc		; dann: Y-Koordinate addieren
+	adc ykoo		; ist Höchstposition des Kastens (nach unten)
+	sta ymax
+
+	lda byte3		; Breite des Clips
+	sec
+	sbc maxbr		; minus Maxbreite 
+	beq mm1		; wenn <=0: 0
+	bcc mm1
+	!by $2c		; sonst: Wert beibehalten
+mm1 	lda #0
+	sta xlimit
+	lsr		; halbieren
+	clc		; dann: X-Koordinate addieren
+	adc xkoo		; (X-Hi spielt keine Rolle)
+	sta xmax
+
+	lda ykoo		; Startkoordinate des Kastens (y)
+	sta $d003
+	lda xkoo		; (und x)
+	sta $d002
+	lda #$02		; Sprite 1 an
+	sta $d015
+	lda #0		; Tastendrücke vorbereiten
+	sta sc_keyprs
+	sta sc_stop
+	sta $d01c		; Multisprite aus
+	sta $d010		; X-Hi aus
+	lda #253		; Spriteblock 253 aktivieren
+	sta $07f9
+
+ss6 	jsr checkpos	; Tastendruck?
+	ora sc_stop
+	beq ss6		; nein, warten
+
+	lda xkoomk	; Mauszeiger rekonstruierem
+	sta $d002		; X
+	lda ykoomk
+	sta $d003		; Y
+	pla
+	sta $d010		; X-Hi
+	lda #11		; Spriteblock 11
+	sta $07f9
+	lda #3		; Mauszeiger an
+	sta $d015
+	clc
+	rts
+;
+; ----------------------------------------- set full 4bit values
+
+setfullscr
+	ldy #3		; row and column from full
+gm41	lda full,y
+	sta mclip,y
+	dey
+	bpl gm41
+	lda full+2	; right border = 40
+	sta rrand
+	lda clpho
+	sta hoehe
+	ldx clpbr		; width from file
+
+; ----------------------------------------- Get image width
+
+getbr	ldy #0		; .x is amount of tiles
+	sty breite	; max amount = 255 (breite=$1fe0)
+	sty breite+1
+gbh0	clc		; width * 32
+	lda breite
+	adc #$20
+	sta breite
+	bcc gbh1
+	inc breite+1
+gbh1	dex
+	bne gbh0		; makes counter for width 
+	rts
+
+; ---------------------------------------- Set start address
+
+setvice	lda #$3b		; $3b00
+	!by $2c
+set4bit	lda #$40		; $4000
+	ldy #0
+	sta dst+1
+	sty dst
+	sta dst0+1
+	sty dst0
+	rts 
+
+; ---------------------------------------- Set start address
+
+setframe	lda #0
+	sta clpzl		; set full 4Bit values
+	sta clpsp
+	lda #40
+	sta clpbr
+	sta brmerk
+	lda #25	
+	sta clpho
+	rts
+
+; ----------------------------------------- true width of Clip
+
+gbh2	tax		; .a (amount of tiles) times 32
+	jsr getbr
+	lda breite	; result
+	sta bbreite	; and store
+	lda breite+1
+	sta bbreite+1
+
+	ldx brmerk	; re-get amount of tiles (width)
+	rts
+
+; ----------------------------------- Convert Word to Digits
+
+cnvwa	lda #0		; nur Zahlen bis max 255
+	sta $62
+	stx $63		; Wert in .x
+	inc pport
+	ldx #$90
+	sec
+	jsr $bc49
+	jsr $bddf
+	dec pport
+cnw1	lda sy_numbers,y	; Ergebnis an $0100
+	beq cnw0
+	iny		; Offset auf letzte Ziffer in .y
+	bne cnw1
+cnw0	rts
+
+getdigs	dey
+	lda sy_numbers,y
+	rts
+
+; -----------------------------------
+
+over1 	tay
+	sec
+	sbc $d002,x
+	bcc ov0
+	tya
+	sta $d002,x
+ov0 	rts
+;
+; -----------------------------------
+
+over2 	tay
+	sec
+	sbc $d002,x
+	bcs ov0
+	tya
+	sta $d002,x
+	rts
+;
+; ----------------------------------- Position im Shape anzeigen
+
+checkpos 	jsr settab
+	ldx #0
+	lda xkoo
+	jsr over1
+	lda xmax
+	jsr over2
+	inx
+	lda ykoo
+	jsr over1
+	lda ymax
+	jsr over2
+
+	sec
+	lda $d002		; X
+	sbc xkoo
+	cmp xpos
+	beq ch1
+	asl		; mal 2
+	sta xpos
+	jsr ch9
+
+ch1 	sec
+	lda $d003		; Y
+	sbc ykoo
+	cmp ypos
+	beq ch3
+	asl		; mal 2
+	sta ypos
+
+ch5	tax
+	lda #32
+	sta ypostxt+7
+	sta ypostxt+8
+	jsr cnvwa
+	ldx #9
+ch4	jsr getdigs
+	sta ypostxt,x
+	dex
+	tya
+	bne ch4
+ch7	ldy #2		; Ausgabe
+
+ch8	jsr gettab
+	ldy #6
+	jsr gd_xtxout1
+ch3 	lda sc_keyprs
+	rts
+
+ch9	tax
+	lda #32
+	sta xpostxt+7
+	sta xpostxt+8
+	jsr cnvwa
+	ldx #9
+ch2	jsr getdigs
+	sta xpostxt,x
+	dex
+	tya
+	bne ch2
+	ldy #0		; Ausgabe
+	beq ch8
+;
+; -----------------------------------
+
+tabigad 	!wo xpostxt	; 0
+	!wo ypostxt	; 2
+	!wo vicepos	; 4
+
+settab 	lda #<(tabigad)
+	sta vekt40
+	lda #>(tabigad)
+	sta vekt40+1
+	rts
+;
+gettab 	lda (vekt40),y
+	sta sc_screentab
+	iny
+	lda (vekt40),y
+	sta sc_screentab+1
+	lda #0
+	tax
+	tay
+gt0 	jsr gd_setpos
+	cpx #3
+	bne gt0
+	stx sc_ho
+	jsr gd_trim
+	jmp gd_initmove
+;
+; -----------------------------------
+
+mcliplst 	!by 0
+	!by 1,3,34,22,$91,0,0
+	!scr "Load 40x25 from 4BitMegaClip@"
+	!by 3,22,13,3,$a0,0,0
+ 	!scr " "
+xtxt 	!scr "    x "
+ytxt 	!scr "    @"
+xpostxt 	!by 6,24,5,3,$a0,0,0
+	!scr "  0@"
+ypostxt 	!by 6,30,5,3,$a0,0,0
+	!scr "  0@"
+	!scr 9,22,4,3,$c0,<(sevxadjst),>(sevxadjst)
+	!by $1e,$1f,0
+	!by 9,26,5,3,$d0,<(sevsclip),>(sevsclip)
+	!scr "Set@"
+	!scr 9,31,4,3,$c0,<(sevyadjst),>(sevyadjst)
+	!by $1e,$1f,0
+	!by 12,22,13,3,$c0,<(sevmclip),>(sevmclip)
+	!scr "Load 4Bit@"
+vicepos	!by 15,22,13,3,$c0,<(sevvice),>(sevvice)
+	!scr "VICE ScShot@"
+	!by 18,22,13,3,$c0,<(freq),>(freq)
+	!scr "Cancel@"
+	!by 3,4,18,18,$00,0,0
+	!by $c0,22,3,32
+statline	!fill 32,32
+	!by 0
+	!by $c0,6,22,1
+	!scr "X@"
+	!by $c0,6,28,1
+	!scr "Y@"
+	!by $c0,20,4,11
+	!scr "Select from@"
+fmdata 	!by $c0,20,15,20
+mclipms 	!fill 20,32
+	!by 0
+	!by $c0,3,4,16
+string1 	!fill 16,32
+	!by 0
+	!by $c0,4,4,16
+	!fill 16,32
+	!by 0
+	!by $c0,5,4,16
+	!fill 16,32
+	!by 0
+	!by $c0,6,4,16
+	!fill 16,32
+	!by 0
+	!by $c0,7,4,16
+	!fill 16,32
+	!by 0
+	!by $c0,8,4,16
+	!fill 16,32
+	!by 0
+	!by $c0,9,4,16
+	!fill 16,32
+	!by 0
+	!by $c0,10,4,16
+	!fill 16,32
+	!by 0
+	!by $c0,11,4,16
+	!fill 16,32
+	!by 0
+	!by $c0,12,4,16
+	!fill 16,32
+	!by 0
+	!by $c0,13,4,16
+	!fill 16,32
+	!by 0
+	!by $c0,14,4,16
+	!fill 16,32
+	!by 0
+	!by $c0,15,4,16
+	!fill 16,32
+	!by 0
+	!by $c0,16,4,16
+	!fill 16,32
+	!by 0
+	!by $c0,17,4,16
+	!fill 16,32
+	!by 0
+	!by $c0,18,4,16
+	!fill 16,32
+	!by 0
+	!by $80,0,0,0
+	!by $ff
+
+;
+modend 	!eof

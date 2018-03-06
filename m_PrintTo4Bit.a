@@ -1,0 +1,1214 @@
+
+!src "..\godotlib.lib"
+*	= $c000
+
+; ---------------------------
+;
+;    mod.PrintTo4Bit (formerly: ldr.BasicTxt)
+;    Lader für Basic-Text-Screens
+;
+;    0.99: 14.04.93, first release
+;    1.00: 16.10.16, many bugfixes
+;    1.01: 17.10.16, added support for any font, changed LDR to MOD
+;    1.02: 19.10.16, added no-newline after ";"
+;    1.03: 20.10.16, added chooser for built-in fonts, changed Name of MOD
+;    1.04: 21.10.16, added multi/hires modes
+;    1.05: 22.10.16, added multi renderer
+;    1.06: 23.10.16, added color chooser for Multi
+;    1.07: 11.02.18, added show charset (in its appropriate gfx mode)
+;    1.08: 12.02.18, added Clear Char Buffer before load
+;                    fixed wrong buffer address after adding Show Font routines
+;    1.09: 04.03.18, bugfix: last byte of file got lost
+;
+; --------------------------- 
+
+; --------------------------- Equates
+
+	prozport	= $01
+
+	dst	= $35
+	src	= $37
+	loccol	= $39
+	hiccol	= $3a
+	lobcol	= $3b
+	hibcol	= $3c
+	txcnt	= $3d
+	ccnt	= $3e
+	cnt	= ccnt
+	lnr	= $3f
+
+	list	= $41
+	chrcol	= $43
+	char	= $45
+	chrset	= $47
+	hicol	= $49
+	locol	= $4a
+	chrbyte	= $4b
+
+	status	= $90
+	
+	display	= $2000
+	txmodes	= $cb00
+	txbuf	= $cc00
+	txbuf1	= $cd00
+	align	= txmodes
+	ccol	= align+1
+	bcol	= align+2
+	shade	= align+3
+	col0	= align
+	col1	= align+1
+	col2	= align+2
+	col3	= align+3
+
+	grafreg	= $d011
+	spronoff	= $d015
+	multreg	= $d016
+	charreg	= $d018
+	rahmen	= $d020
+	backgr	= $d021
+	cram	= $d800
+
+; --------------------------- 
+
+header	jmp start
+
+	!by $20
+	!by 0
+	!by 0
+	!wo modend
+	!wo 0
+	!pet "basic text rem/?"
+	!pet "1.09"
+	!pet "04.03.18"
+	!pet "W.Kling/A.Dettke"
+
+; --------------------------- 
+
+	!pet "mode1: print    "
+	!pet "mode2: rem      "
+	!pet " code1: align   "
+	!pet " code2: txcolor "
+	!pet " code3: bgcolor "
+	!by $00
+
+; --------------------------- 
+
+start	lda sc_screenvek	; Zeiger auf Main-Liste retten für ShowFont
+	sta mlist
+	lda sc_screenvek+1
+	sta mlist+1
+	jsr makechr
+	lda mcflg
+	bne st2
+	jsr setmcols
+st2	lda gr_redisp
+	bne st0
+	ldx #15
+st1	lda nofont,x
+	sta nofnttx,x
+	dex
+	bpl st1
+st0	ldx #<(btxlist)
+	ldy #>(btxlist)
+	jsr gd_screen	; Requester aufbauen
+	lda sc_screenvek	; Zeiger auf diese Liste retten für ERROR
+	sta list
+	lda sc_screenvek+1
+	sta list+1
+	jsr gm4
+	lda gmode
+	beq st3
+	jsr tgmode
+st3	jsr gd_eloop	; warten
+
+; --------------------------- Sub: Cancel
+
+cancel	sec
+	rts 
+
+; --------------------------- Sub: Set Mode
+
+sevovl	ldx #2		; = 2
+	!by $2c
+sevload	ldx #1		; = 1
+	stx mode
+	jsr clrmssg
+
+getfile	jsr chgdrv
+
+	ldx #0
+	stx ls_flen
+	jsr swppname
+
+	lda #$38		; patch mod (SEC - RTS)
+	sta header
+	lda #$60
+	sta header+1
+	lda sc_screenvek
+	pha
+	lda sc_screenvek+1
+	pha
+	lda gd_modswitch
+	pha
+
+	inx		; Filerequester (mit eigener Screenlist)
+	jsr gd_xload
+
+	pla
+	sta gd_modswitch
+	pla
+	sta sc_screenvek+1
+	pla
+	sta sc_screenvek
+	lda #$4c
+	sta header	; unpatch mod (JMP START)
+	lda #<(start)
+	sta header+1
+	jsr swppname
+
+	lda ls_flen	; nichts gewählt?
+	beq nofile	; ja, Ende
+
+	jsr gd_xopen	; sonst ab hier: laden
+	jsr gd_clrms
+	stx prflg		; .x=0
+	stx rmflg
+	jsr txmini	; Codes vorbesetzen
+
+	ldx mode
+	dex
+	bne clrs
+
+	jsr clrdata	; bei Replace: 4Bit löschen
+
+clrs	jsr getlines	; Basic-Programm einlesen
+
+	lda prflg		; PRINT enthalten?
+	beq gf1
+	jsr cnvscreen	; ja, nach 4Bit (REM ist schon bearbeitet)
+
+gf1	jmp finish
+
+; --------------------------- ERROR 
+
+nofile	jsr errnf
+	clc
+	rts
+
+err	lda prflg		; kein Requester, wenn kein PRINT	
+	beq finish
+
+errnf	ldx list		; sonst: Requester einblenden
+	ldy list+1
+	jsr gd_screen
+	jsr gm4	
+	lda gmode
+	beq finish
+	jsr tgmode
+
+; --------------------------- Abschluss
+
+finish	jsr gd_xclose	; File schließen
+	jsr chgdrv
+	jsr gd_spron	; Mauszeiger an
+	sec
+	rts
+
+; --------------------------- Bootdrive sicherstellen
+
+chgdrv	lda ls_sysdrive
+	ldx ls_bootdrive
+	sta ls_bootdrive
+	stx ls_sysdrive
+	rts
+	
+; --------------------------- Picname löschen
+
+swppname	ldy #15
+sn0	lda mess,y
+	pha
+	lda ls_picname,y
+	sta mess,y
+	pla
+	sta ls_picname,y
+	dey
+	bpl sn0
+	rts
+	
+; --------------------------- Messages
+
+clrmssg	ldx #24
+	lda #32
+clm	sta mess,x
+	dex
+	bpl clm
+	rts
+
+messout 	ldx #<(message)
+	ldy #>(message)
+	jmp gd_xtxout2
+
+message	!scr " BText "
+mess	!fill 25,32
+	!by 0       
+
+; --------------------------- Fehlermeldungen
+
+err1 	!scr "    ERROR: Not a BASIC file!    "	; 0
+err2	!scr "ERROR: No PRINT or missing quote"	; 32
+err3	!scr "ERROR: Missing colon? Line >40? "	; 64
+err4	!scr " ERROR: REM-line# out of range! "	; 96
+err5	!scr "     ERROR: File corrupt!       "	; 128
+err6	!scr "  ERROR: File can't be a Font!  "	; 160
+
+; --------------------------- Sub: Load Font
+
+sevldfont	jsr clrmssg
+	jsr chgdrv
+
+	ldx #<(display)
+	ldy #>(display)
+	stx ls_adrmisc
+	sty ls_adrmisc+1
+	ldx #0
+	stx ls_flen
+	jsr swppname
+
+	lda #$38		; patch mod (to SEC - RTS)
+	sta header
+	lda #$60
+	sta header+1
+	lda sc_screenvek
+	pha
+	lda sc_screenvek+1
+	pha
+	lda gd_modswitch
+	pha
+
+	inx		; Filerequester (mit eigener Screenlist)
+	jsr gd_xload
+
+	pla
+	sta gd_modswitch
+	pla
+	sta sc_screenvek+1
+	pla
+	sta sc_screenvek
+	lda #$4c
+	sta header	; unpatch mod (to JMP START)
+	lda #<(start)
+	sta header+1
+	jsr swppname
+
+	jsr clrbuffer
+	lda ls_flen	; nichts gewählt?
+	beq jnofile	; ja, Ende
+
+	jsr gd_xopen	; sonst ab hier: laden
+	jsr gd_clrms
+
+	jsr basin		; Programmadresse überlesen
+	jsr basin
+
+ldloop	ldy #0
+ldl0	jsr basin
+
+	pha
+	lda status
+	tax
+	and #64
+	bne ldl1
+	txa
+	bne jfaile
+
+	pla
+	sta (ls_adrmisc),y
+	inc ls_adrmisc
+	bne ldl0
+	inc ls_adrmisc+1
+	lda ls_adrmisc+1
+	cmp #$28
+	bcc ldl0
+
+	jsr finish
+	pha
+	pha
+	jmp failf
+
+jnofile	jmp nofile
+
+jfaile	jsr errnf
+	pha
+	jmp faile
+
+ldl1	pla
+	sta (ls_adrmisc),y	; ### 1.09: write last byte from file
+	jsr nofile
+	ldx #15
+cf6	lda ls_lastname,x
+	sta nofnttx,x
+	dex
+	bpl cf6
+cf4	lda #<(nofntgad)	; Fontnamen ansteuern
+	ldx #>(nofntgad)
+	jsr setpos
+	ldx #<(nofnttx)	; ausgeben
+	ldy #>(nofnttx)
+	jsr gd_xtxout2
+	ldx #3		; hiliten
+	jmp gd_fcol
+
+; --------------------------- BASIC einlesen
+
+getlines	jsr basin
+	cmp #$01		; $0801 (Basic?)
+	bne faila
+	jsr basin
+	cmp #$08
+	bne faila
+	beq lineloop
+
+cr	lda #13
+	jsr bsout
+	bne lineloop
+nocr	jsr basin
+	bne nocr
+
+lineloop	jsr basin		; Link lo
+	jsr basin		; Link hi = 0? 
+	beq ok		; end of prog
+
+	jsr basin
+	tax 
+	jsr basin
+	stx lnr
+	sta lnr+1
+
+	jsr basin		; BASIC command
+	tax 
+ll0	jsr basin
+	cmp #" "
+	beq ll0
+	cmp #$22		; next: quote?
+	bne failb		; no, error
+
+	cpx #$8f		; REM?
+	beq rem
+	cpx #$99		; PRINT?
+	bne failb		; no, error
+
+; --------------------------- PRINT
+
+	stx prflg
+print	jsr basin		; PRINT ausführen
+	beq cr
+	cmp #$22		; End-Quote?
+	bne ll1
+	jsr basin
+	beq cr
+	cmp #";"
+	beq nocr
+ll1	jsr bsout
+	jmp print
+
+; --------------------------- Abschluss
+
+ok	lda #1
+	sta gr_redisp	; Flag: Bild neu rendern
+	rts
+
+; --------------------------- REM 
+
+rem	ldx #0
+reml1	jsr basin		; neue holen (wenn da)
+	beq lineloop
+	cmp #$3a		; ab Kolon: ausführen
+	beq remtxt
+	sta txmodes,x	; Codes puffern
+	inx 
+	bne reml1
+	beq failc
+
+; --------------------------- Error Handler
+
+faila	ldx #0
+	!by $2c
+failb	ldx #32
+	!by $2c
+failc	ldx #64
+	!by $2c
+faild	ldx #96
+	!by $2c
+faile	ldx #128
+	!by $2c
+failf	ldx #160
+	ldy #0
+fl0	lda err1,x
+	sta message,y
+	inx 
+	iny 
+	cpy #32
+	bne fl0
+	jsr errnf
+	jsr gd_clrms
+	jsr messout
+	pla 
+	pla 
+	clc 
+	rts
+
+; --------------------------- REM ausführen
+
+remtxt	lda rmflg
+	bne rt1
+	lda ccol		; Farben setzen
+	jsr getcol
+	lda ghnib,x
+	sta hiccol
+	lda glnib,x
+	sta loccol
+	stx ccol
+	lda bcol
+	jsr getcol
+	lda ghnib,x
+	sta hibcol
+	lda glnib,x
+	sta lobcol
+	stx bcol
+	lda #1
+	sta rmflg
+rt1	ldx #0
+	txa
+
+txloop	tay		; Inhalt puffern
+	jsr basin
+	beq format	; bis Zeilenende
+	cmp #$22
+	beq txloop
+	sta txbuf,x
+	inx 
+	bne txloop
+	beq failc
+
+format	cpy #$3a		; letztes Zeichen: Kolon?
+	bne rs0
+	dex 		; ja, übergehen
+rs0	cpx #40		; Zeilenbreite erreicht?
+	beq write
+	bcc rs1
+	ldx #40		; wenn überschritten: begrenzen
+rs1	stx txcnt
+	lda #$ff
+	ldy #39
+rl0	sta txbuf1,y
+	dey 
+	bpl rl0
+	lda align
+	sec 
+	sbc #$30
+	beq write
+	cmp #1
+	beq right
+	cmp #2
+	beq center
+
+write	ldy #0
+	beq wc
+right	lda #40
+	sec 
+	sbc txcnt
+	tay 
+	bne wc
+center	lda #40
+	sec 
+	sbc txcnt
+	lsr 
+	tay 
+wc	ldx #0
+wcl	lda txbuf,x
+	jsr tobcode
+	sta txbuf1,y
+	iny 
+	inx 
+	cpx txcnt
+	bne wcl
+
+	lda lnr+1
+	bne noline
+	lda lnr
+	cmp #25
+	bcs noline
+
+	tax 
+	lda #0
+	sta dst
+	lda line8,x
+	sta dst+1
+	lda #0
+	sta ccnt
+cl1	jsr cnvchr
+	inc ccnt
+	lda ccnt
+	cmp #40
+	bne cl1
+	jmp lineloop
+
+; --------------------------- REM-Zeilenfehler
+
+noline	jmp faild		; REM-Zeilennummer nicht zwischen 0 und 24
+
+; --------------------------- Zeichen in Bildschirmcode konvertieren
+
+tobcode	eor #$e0		; Eingang: Petscii
+	clc
+	adc #32
+	bpl bc0
+	adc #64
+	bpl bc0
+	eor #$a0
+bc0	rts		; Ausgang: Bcode
+
+; --------------------------- 4Bit Zeilenanfänge
+
+line8	!by $40,$45,$4a,$4f,$54
+	!by $59,$5e,$63,$68,$6d
+	!by $72,$77,$7c,$81,$86 
+	!by $8b,$90,$95,$9a,$9f
+	!by $a4,$a9,$ae,$b3,$b8
+
+; --------------------------- Zeichen nach 4Bit schreiben
+
+cnvchr	ldx ccnt
+	lda txbuf1,x
+	cmp #$ff
+	beq ccs4
+	sta chrset
+	lda #0
+	asl chrset
+	rol
+	asl chrset
+	rol
+	asl chrset
+	rol
+	clc 		; Startadresse Zeichensatz ($2000)
+	adc #>(display)
+	sta chrset+1
+	ldy #0
+ccl0	ldx #0
+	lda (chrset,x)
+	sta chrbyte
+	ldx #4
+ccl1	lda (dst),y
+	asl chrbyte
+	bcc ccs0
+	bit ccol
+	bmi ccs1
+	and #15
+	ora hiccol
+	bcs ccs1
+ccs0	bit bcol
+	bmi ccs1
+	and #15
+	ora hibcol
+ccs1	asl chrbyte
+	bcc ccs2
+	bit ccol
+	bmi ccs3
+	and #$f0
+	ora loccol
+	bcs ccs3
+ccs2	bit bcol
+	bmi ccs3
+	and #$f0
+	ora lobcol
+ccs3	sta (dst),y
+	iny 
+	dex 
+	bne ccl1
+	inc chrset
+	cpy #32
+	bne ccl0
+ccs4	lda dst
+	clc 
+	adc #32
+	sta dst
+	bcc ccs5
+	inc dst+1
+ccs5	rts
+
+; --------------------------- PRINT-Screen nach 4Bit schreiben
+
+cnvscreen	lda #$00
+	ldx #$04		; $0400
+	sta char
+	stx char+1
+	ldx #$d8		; $d800
+	sta chrcol
+	stx chrcol+1
+	ldx #$40		; $4000
+	sta dst
+	stx dst+1
+
+	lda gmode		; Hires oder Multi?
+	beq txloop1
+	jmp multi		; Multi: Sprung
+
+txloop1	ldy #0
+	lda (chrcol),y
+	and #15
+	tax 
+	lda ghnib,x
+	sta hicol
+	lda glnib,x
+	sta locol
+	lda (char),y
+	sta chrset
+	lda #0
+	asl chrset
+	rol
+	asl chrset
+	rol
+	asl chrset
+	rol
+	clc 
+	adc #>(display)	; Startadresse Zeichensatz ($2000)
+	sta chrset+1
+	lda #14
+	sta (chrcol),y
+	lda #46
+	sta (char),y
+txl0	ldx #0
+	lda (chrset,x)
+	sta chrbyte
+	ldx #4
+txl1 	lda (dst),y
+	asl chrbyte
+	bcc txs1
+	and #15
+	ora hicol
+txs1	asl chrbyte
+	bcc txs2
+	and #$f0
+	ora locol
+txs2	sta (dst),y
+	iny 
+	dex 
+	bne txl1
+	inc chrset
+	cpy #32
+	bne txl0
+	inc char
+	inc chrcol
+	bne txs3
+	inc char+1
+	inc chrcol+1
+txs3 	lda dst
+	clc 
+	adc #32
+	sta dst
+	bcc txloop1
+	inc dst+1
+	lda dst+1
+	cmp #$bd
+	bne txloop1
+	rts
+
+; --------------------------- PRINT-Screen nach 4Bit schreiben (Multi)
+
+multi	ldx mcols+3	; Foreground (%11)
+	lda dnib,x
+	sta col3
+	ldx mcols+1	; M1 (%01)
+	lda dnib,x
+	sta col1
+	ldx mcols+2	; M2 (%10)
+	lda dnib,x
+	sta col2
+	ldx mcols		; BG (%00)
+	lda dnib,x
+	sta col0
+
+mlloop1	ldy #0		; Zeichendefinition holen
+	lda (char),y
+	sta chrset
+	lda #0
+	asl chrset
+	rol
+	asl chrset
+	rol
+	asl chrset
+	rol
+	clc 
+	adc #>(display)	; Offset zum Zeichen (ab $2000)
+
+	sta chrset+1	; Zeichen wird bearbeitet: markieren
+	lda #14
+	sta (chrcol),y
+	lda #46
+	sta (char),y
+
+mlc2	ldx #0		; Zeichensatzmuster holen (byteweise)
+	lda (chrset,x)
+	sta chrbyte
+	ldx #4		; vier Doppelbit (Multipixel)
+	stx cnt
+mlc1	lda #0
+	asl chrbyte	; je zwei Bit isolieren (ein Farbpixel)
+	rol 
+	asl chrbyte
+	rol 
+
+	beq mlc0		; Background: transparent (skip)
+
+	tax
+	lda col0,x	; sonst: Farbe holen (Doppel-4Bit-Pixel)
+	sta (dst),y	; und eintragen
+
+mlc0	iny		; 4Bit-Index weiterrücken
+	dec cnt		; Doppelbit-Zähler
+	bne mlc1
+	inc chrset	; nächstes Byte im Zeichen
+	cpy #32		; das Zeichen fertig?
+	bne mlc2		; nein, weiter bearbeiten
+
+	inc char		; weiter im Textpuffer
+	inc chrcol
+	bne mlc3
+	inc char+1
+	inc chrcol+1
+mlc3	lda dst		; weiter im 4Bit
+	clc
+	adc #32
+	sta dst
+	bcc mlloop1
+	inc dst+1
+	lda dst+1		; Ende erreicht?
+	cmp #$bd
+	bne mlloop1	; nein, Loop
+	rts
+
+; --------------------------- REM-Farben holen
+
+getcol	sec		; und Ziffern nach Zahlen wandeln
+	sbc #$30
+	bcc tpc
+	cmp #10
+	bcc cok
+	sec 
+	sbc #7
+	cmp #16
+	bcs tpc
+	cmp #10
+	bcc tpc
+cok	tax 
+	rts
+
+tpc	lda #$ff
+	tax 
+	rts 
+
+; --------------------------- Farbnibbles
+
+ghnib 	!by $00,$f0,$40,$c0
+	!by $50,$a0,$10,$d0
+	!by $60,$20,$90,$30 
+	!by $70,$e0,$80,$b0
+
+glnib	!by $00,$0f,$04,$0c
+	!by $05,$0a,$01,$0d
+	!by $06,$02,$09,$03 
+	!by $07,$0e,$08,$0b
+
+dnib	!by $00,$ff,$44,$cc,$55,$aa,$11,$dd
+	!by $66,$22,$99,$33,$77,$ee,$88,$bb
+
+; --------------------------- 4Bit löschen
+
+clrdata	lda #<(sy_4bit)	; $4000
+	ldx #>(sy_4bit)
+	sta dst
+	stx dst+1
+	ldy #$00
+	tya 
+clrl	sta (dst),y
+	iny 
+	bne clrl
+	inx 
+	stx dst+1
+	cpx #$bd
+	bne clrl
+	rts
+
+; --------------------------- Char-Puffer löschen
+
+clrbuffer	lda #<(display)	; $2000
+	ldx #>(display)
+	sta dst
+	stx dst+1
+	ldy #$00
+	tya 
+-	sta (dst),y
+	iny 
+	bne -
+	inx 
+	stx dst+1
+	cpx #>sy_4bit
+	bne -
+	rts
+
+; --------------------------- Farben für Multi ändern
+
+sevbgr	ldx #0
+	!by $2c
+sevmc1	ldx #1
+	!by $2c
+sevmc2	ldx #2
+	!by $2c
+sevfgr	ldx #3
+	lda gmode
+	bne scc0
+	clc
+	rts
+
+scc0	inc mcols,x
+scc1	lda mcols,x
+	and #15
+	sta mcols,x
+	sta sc_chgcol
+	lda #0
+	sta sc_loop
+	txa
+	asl
+	tay
+	lda tabigad,y
+	iny
+	ldx tabigad,y
+	jsr setpos
+	jsr gd_trim
+	jmp gd_fcol
+
+; --------------------------- Zeichensatz umkopieren
+
+sevgetfnt	ldy #<(display)	; Ziel: $2000
+	lda #>(display)
+	sty dst
+	sta dst+1
+	sty src
+	lda fontadd	; Quelle: $0800, $d000 oder $d800
+	sta src+1
+	sei
+	jsr chronoff
+	ldx #8		; 8 pages, .y ist 0
+gf0	lda (src),y
+	sta (dst),y
+	iny 
+	bne gf0
+	inc src+1
+	inc dst+1
+	dex 
+	bne gf0
+	jsr chronoff
+	cli
+	jsr ok
+
+cf3	lda fontis,x
+	sta nofnttx,x
+	beq cf2
+	inx
+	bne cf3
+cf2	lda #32
+	sta nofnttx,x
+	inx
+	cpx #16
+	bne cf2
+	jmp cf4
+
+; --------------------------- Grafikmodus auswählen
+
+sevgmode	jsr tgmode
+	ldx gmode		; Grafikmodus umschalten
+	beq gm0
+	ldx #$ff
+gm0	inx		; 0: Hires - 1: Multi
+	stx gmode
+	lda modex,x
+	tax
+	ldy #5
+gm1	lda modetx,x	; Text eintragen...
+	sta modeis,y
+	dex
+	dey
+	bpl gm1
+	lda #<(modegad)
+	ldx #>(modegad)
+	jsr setpos
+	jsr gd_trim
+	ldx #<(modeis-1)	; ...und ausgeben
+	ldy #>(modeis-1)
+	jsr gd_xtxout2
+
+gm4	ldx gmode		; ...und Hiliten/Ausgrauen
+	inx
+	inx		; Offset auf Farbe
+	txa
+	pha
+	lda #<(inactive)	; Beschriftungen umfärben
+	ldx #>(inactive)
+	jsr setpos
+	pla
+	tax
+	jmp gd_fcol	; und färben
+
+tgmode	lda #0		; Multianzeige...
+	sta sc_loop
+	lda #<(mcolgad)
+	ldx #>(mcolgad)
+	jsr setpos
+	jsr gd_initmove
+	jsr gd_invert	; ...invertieren
+	lda #3
+	sta cnt
+gm6	ldx cnt
+	jsr scc1		; Farbanzeige
+	dec cnt
+	bpl gm6
+	rts
+
+
+; --------------------------- Zeichensatz auswählen
+
+sevchsfnt	lda whfont
+	cmp #2
+	bne cf0
+	lda #$ff
+	sta whfont
+cf0	inc whfont
+	ldx whfont
+	lda fonts,x
+	sta fontadd
+	lda fontx,x
+	tax
+	ldy #9
+cf1	lda fonttx,x
+	sta fontis,y
+	dex
+	dey
+	bpl cf1
+	ldx #<(fontis-1)
+	ldy #>(fontis-1)
+	jmp gd_xtxout2
+
+; --------------------------- Zeichensatz anzeigen
+
+sevshow	jsr view		; Show graphics
+	jsr wait		; wait for click
+	jsr rp2		; restore requester
+	clc		; stay in module
+	rts
+
+; ------------------------------------------ Switch Graphics/Text
+
+view:	ldx #1
+	stx gr_redisp
+	lda gmode
+	beq hires
+
+	lda mcols
+	sta backgr
+	lda mcols+1
+	asl
+	asl
+	asl
+	asl
+	ora mcols+2
+	sta hcols
+	lda #$18
+	sta multreg
+	lda mcols+3
+	ldy #0
+-	sta cram,y
+	iny
+	bne -
+	inx
+	cpx #5
+	bne -
+
+hires:	ldy #251
+	lda hcols		; ink: lgrey, paper: black
+red0	sta $03ff,y
+	sta $04f9,y
+	sta $05f3,y
+	sta $06ed,y
+	dey
+	bne red0
+rp4:	lda #$1b		; hires graphics on
+	sta charreg
+	lda #$3b
+	sta grafreg
+	lda gr_redisp 	; leave if flag set
+	bne rp3
+
+rp2:	jsr tmode
+	ldx mlist		; Mainscreen aufbauen
+	ldy mlist+1
+	jsr gd_screen
+	ldx list		; Requester aufbauen
+	ldy list+1
+	jsr gd_screen
+	jsr gm4
+	lda gmode
+	beq rp3
+	jsr tgmode
+rp3:	clc
+	rts
+
+tmode:	ldx #$13		; back to text mode (graphics off)
+	lda #$1b
+	stx charreg
+	sta grafreg
+	lda #$08
+	sta multreg
+	lda #$f0
+	sta hcols
+	lda sc_maincolor
+	sta backgr
+	rts
+
+; ------------------------------------------ Wait for Key
+
+wait	lda #0
+	sta sc_keyprs
+	sta sc_stop
+kl	lda sc_stop
+	ora sc_keyprs	; wait for key
+	beq kl
+	rts
+
+; --------------------------- Kringel definieren
+
+makechr	ldx #7
+mk0	lda chschr,x
+	sta sc_undochar,x
+	dex
+	bpl mk0
+	rts
+
+; --------------------------- Gadgetposition setzen
+
+setpos	sta sc_screentab
+	stx sc_screentab+1
+	ldx #0
+	ldy #0
+cf5	jsr gd_setpos
+	cpx #4
+	bne cf5
+	rts
+
+; --------------------------- Multifarben vorbesetzen
+
+setmcols	ldx #3
+sm0	lda dmcols,x
+	sta mcols,x
+	dex
+	bpl sm0
+	stx mcflg
+	rts
+
+; --------------------------- Speicher öffnen
+
+chronoff	lda prozport
+	eor #4
+	sta prozport
+	rts
+
+; --------------------------- REM-Codes vorbesetzen
+
+txmini	lda #0		; linksbündig
+	sta align
+	lda #$31		; "1" (weiß)
+	sta ccol		; bcol: transparent
+	ldy #2
+	lda #$ff	
+til	sta txmodes,y	; Rest löschen
+	iny 
+	bne til
+	rts
+
+; --------------------------- Flags
+
+whfont	!by 0		; which sysfont (toggle)
+fonts	!by $08,$d0,$d8	; sysfont base address (hi)
+fontadd	!by $08		; current sysfont base address (hi)
+fontx	!by 9,19,29
+fonttx	!scr "GoDot Font"	; 9
+	!scr " C64 Upper"	; 19
+	!scr " C64 Lower"	; 29
+modex	!by 5,11
+modetx	!scr " Hires"	; 5
+	!scr " Multi"	; 11
+nofont	!scr " No Font loaded " ; 16
+mode	!by 1		; Replace / Overlay
+gmode	!by 0		; Hires / Multi
+hcols	!by $f0		; lgr, blk
+dmcols	!by 11,0,1,3	; default: dgr,blk,wht,cya
+mcols	!by 0,0,0,0	; Multifarben (bgr,mc1,mc2,fgr) 
+mcflg	!by 0		; Colors are set (if 1)
+prflg	!by 0		; PRINT found
+rmflg	!by 0		; REM found
+tabigad	!wo bgrgad	; 0
+	!wo mc1gad	; 2
+	!wo mc2gad	; 4
+	!wo fgrgad	; 6
+mlist	!wo 0		; Zeiger auf Mainlist
+chschr	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
+
+; --------------------------- Screenliste
+
+btxlist	!by 0
+	!by 2,11,18,21,$81,0,0
+	!scr "PRINT To 4Bit@"
+	!by 7,11,11,3,$c8,<(sevload),>(sevload)
+	!scr " Replace @"
+	!by 10,11,11,3,$c8,<(sevovl),>(sevovl)
+	!scr " Overlay @"
+	!by 13,11,5,3,$c8,<(sevgetfnt),>(sevgetfnt)
+	!scr "Get@"
+	!by 13,16,13,3,$cf,<(sevchsfnt),>(sevchsfnt)
+	!by 223
+fontis	!scr "GoDot Font@"
+	!by 16,11,9,3,$c8,<(sevldfont),>(sevldfont)
+	!scr "Ld Font@"
+modegad	!by 16,20,9,3,$cf,<(sevgmode),>(sevgmode)
+	!by 223
+modeis	!scr " Hires@"
+	!by 19,11,11,3,$c8,<(sevshow),>(sevshow)
+	!scr "Show Font@"
+	!by 19,22,7,3,$cf,<(cancel),>(cancel)
+	!scr "Leave@"
+bgrgad	!by 7,25,4,3,$cf,<(sevbgr),>(sevbgr)
+bgrtx	!scr "  @"
+mc1gad	!by 8,25,4,3,$cf,<(sevmc1),>(sevmc1)
+mc1tx	!scr "  @"
+mc2gad	!by 9,25,4,3,$cf,<(sevmc2),>(sevmc2)
+mc2tx	!scr "  @"
+fgrgad	!by 10,25,4,3,$cf,<(sevfgr),>(sevfgr)
+fgrtx	!scr "  @"
+	!by 7,25,4,6,$0f,0,0
+	!by $c0
+	!by 4,11,16
+nofnttx	!scr " No Font loaded @"
+	!by $c0,7,21,3
+	!scr "BGr@"
+	!by $c0,8,21,3
+	!scr "MC1@"
+	!by $c0,9,21,3
+	!scr "MC2@"
+	!by $c0,10,21,3
+	!scr "FGr@"
+	!by $80
+
+inactive	!by 8,22,3,4
+mcolgad	!by 8,26,2,4
+nofntgad	!by 5,12,16,1
+
+modend	!eof
