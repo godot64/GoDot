@@ -1,37 +1,54 @@
 
-!src "..\godotlib.lib"
-*= $c000
+	!src "..\godotlib.lib"	; Label-Library einbinden
+	*= $c000			; generelle Startadresse für alle Module
+	!ct pet			; Texte werden in PETSCII assembliert
 
 ; ----------------------------------------- 
-; svr.NuFLI
-;     Saver für New-Underlayed-FLI-Bilder
 ;
-; 1.00: 10.04.17, first release
+; svr.XXXXX
+;     Saver für XXXXX-Bilder
 ;
+; 1.00: 06.03.18, first release
+;
+; ----------------------------------------- 
+
+; -------------------------------------------------------------- Label-Definitionen
+
+	pport		= $01
+	offx		= ls_adrmisc
+	offy		= offx+1
+	; usw.
+
 ; -------------------------------------------------------------- Header
-;
- 	jmp start
-;
-	!by $40 			; $80=Lader, $40=Saver, $20=Modifier
-	!by 0			; Own-Requester-Flag für Lader (4 = present)
-	!by 1			; Dirty Flag (1 = dirty)
+
+ 	jmp start			; Jedes Modul beginnt hiermit
+
+	!by $40 			; $80=Lader, $40=Saver, $20=Modifier, $10=Device
+	!by 0			; Own-Requester-Flag (nur!) für Lader (4 = eigener Req)
+	!by 0			; Dirty Flag (1 = dirty, 0 = clean)
 	!wo modend		; Endadresse+1 des Moduls
-	!wo 0			; unbenutzt
-	!pet "NuFLI saver     "	; Beschreibung
-	!pet "1.00"		; Versionsnummer
-	!pet "10.04.17"		; Datum
-	!pet "A.Dettke        "	; Autor
-
-; -------------------------------------------------------------- Definitionen
-
-
+	!wo 0			; reserviert
+	!tx "xxxxx saver     "	; Beschreibung (16 Zeichen)
+	!tx "1.00"		; Versionsnummer (4 Zeichen)
+	!tx "06.03.18"		; Datum (8 Zeichen tt.mm.jj)
+	!tx "A.Dettke        "	; Autor (16 Zeichen)
 
 ; -------------------------------------------------------------- 
 
-start	ldx gr_nr		; Funktionsnummer testen
+; -------------------------------------------------------------- 
+; -------------------------------------------------------------- These lines mandatory!
+; -------------------------------------------------------------- 
+
+start	ldx gr_nr		; Funktionsnummer testen:
 	dex
-	bne st0		; Null, dann "Speichern"
-	jmp initinp	; eins, dann "Input"
+	bne saver		; Null, dann eigentlichen Saver aufrufen
+
+	jmp initinp	; eins, dann "Input" ausführen
+
+; -------------------------------------------------------------- 
+; -------------------------------------------------------------- 
+; -------------------------------------------------------------- 
+
 
 ; -------------------------------------------------------------- Main
 
@@ -39,36 +56,36 @@ sk12	jmp noreu
 
 ; -------------------------------------------------------------- 
 
-st0	lda ls_ramdrive	; REU angeschlossen?
+saver	lda ls_ramdrive	; Wenn gewünscht: REU angeschlossen?
 	and #15
 	cmp #9
 	beq sk12		; nein, gar kein Ram
-	cmp #7		; nur SuperRAM?
-	beq sk12		; ja, skip Rest
+	cmp #7		; nur SuperRAM? (ist noch nicht implementiert)
+	beq sk12		; ja, Ende
 	and #12
-	beq sk12		; kein REU, skip Rest
+	beq sk12		; kein REU, Ende
 
-	dummy		; 320x200 vorbesetzen
+	; dummy		; hier z.B. Zeiger vorbesetzen, Variablen initialisieren usw.
 
-	jsr requester	; display requester
-	lda used		; cancelled?
+	jsr requester	; Requester ausgeben
+	lda used		; dort Cancel geklickt?
 	cmp #3
-	bcs st12
+	bcs st12		; ja, Ende
 
-st11	jsr gd_sproff	; Sprites aus
-	lda gd_modswitch	; Slot retten
+st11	jsr gd_sproff	; Mauszeiger aus
+	lda gd_modswitch	; Memory Management
 	pha
 
 	lda ls_flen	; Filename wurde übergeben?
 	beq st1		; nein (Cancel)
 
 	sta wflen		; sonst: retten
-	jsr addnuf	; Namen erweitern
+	jsr addsig	; Namenskürzel anhängen
 	lda #1		; Counter für Activity setzen
 	sta adcnt
-	sta cntwert
+	sta cntwert	; cntwert hängt ab vom Schreibalgorithmus
 
-	lda #9		; Undo-Kommando vorbereiten
+	lda #9		; Undo-Kommando vorbereiten (wenn gebraucht)
 	sta getundo+1
 
 	jsr wopen		; Writefile öffnen
@@ -77,40 +94,47 @@ st11	jsr gd_sproff	; Sprites aus
 	jsr getname	; Filenamen sichern
 	ldx #12		; OPEN #12, out
 	jsr ckout
-	jsr gd_clrms	; Anzeige initialisieren
-	ldx #0		; Text eintragen
+	jsr gd_clrms	; Statusfenster initialisieren
+	ldx #0		; Anzeigetext #1 (Offset 0) eintragen und ausgeben
 	jsr tcopy
 
 	jsr write		; Bild speichern
 
-st2	jsr clrch		; Bus freigeben
+st2	jsr clrch		; danach Bus freigeben
 	lda #12		; Datei schließen
 	jsr close
-	jsr err9		; Floppystatus zeigen (kurz)
+	jsr err9		; Floppystatus zeigen (sehr kurz)
 	bne st1		; wenn fehlerfrei:
-	jsr setname	; Fileinfo aufbereiten
 
-st1	pla		; Modularea wieder setzen
+	jsr setname	; "Image Information"-Fenster aufbereiten
+
+st1	pla		; dann Memory Management
 	sta gd_modswitch
 
 st12	jsr canc
-	jsr gd_spron	; Sprites wieder an
-	sec		; Leave-Flag
+	jsr gd_spron	; Mauszeiger wieder an
+	sec		; Leave-Flag setzen
 	rts		; fertig
 
+
 ; --------------------------- 
-; --------------------------- Input Routines
+; --------------------------- Input Routines (erforderlich!)
+; --------------------------- 
 
 !src "..\input.inc"
 
 ; --------------------------- 
 ; --------------------------- 
+; --------------------------- 
 
-; --------------------------- Disk Access Routines
+
+; -------------------------------------------------------------------------
+; -------------------------------------------------------------- Disk Access Routines
+; -------------------------------------------------------------------------
 
 pw	!pet "w,p,"
-giftx	!pet "fun."
-giftxs	!scr "fun."
+sigtx	!pet "gis."
+sigtxs	!scr "gis."
 drinit	!pet "i0"
 wflen	!by 0
 used	!by $ff
@@ -138,7 +162,7 @@ wo1	lda pw,x
 	jsr copen
 	jmp err9
 ;
-inull	ldx #<drinit
+inull	ldx #<drinit	; Initialize Drive
 	ldy #>drinit
 	lda #2
 	jsr gd_sendcom
@@ -148,14 +172,16 @@ err9	jsr gd_xmess
 err8 	sec
 	rts
 
-; -------------------------------------------------------------- Activity
+; -------------------------------------------------------------------------
+; -------------------------------------------------------------- Activity Handler
+; -------------------------------------------------------------------------
 
 messout	ldx #<message	; Textausgabe
 	ldy #>message
 	jmp gd_xtxout2
 ;
-tcopy	ldy #0		; Text zur Ausgabe puffern
-tc0 	lda txt,x		; Offset in X!
+tcopy	ldy #0		; Informationstextauswahl (hinter Label "txt"), Offset auf Text in .x
+tc0 	lda txt,x
 	beq clrmess
 	sta message,y
 	inx
@@ -167,7 +193,7 @@ action 	dec adcnt		; Activity, nur bei 0
 	lda cntwert	; dann: Reload des Zählers
 	sta adcnt
 	ldy offy		; Offset auf Balkenende
-	cpy #22		; Ende erreicht?
+	cpy #25		; Ende erreicht? (Hier den gleichen Wert wie bei clrmess einsetzen!)
 	bne act0
 	jsr clrmess	; ja, re-Init
 act0	ldx offx		; Dicke des Balkenendstücks
@@ -194,13 +220,15 @@ cl0	sta mess,x
 
 filltab	!by 160,93,103,127,126,124,105,109
 cntwert	!by 1
-txt	!scr " NUF"
-	!by 0
-message	!fill 6,32	; 32 Zeichen für Activity
-mess	!fill 26,32
-	!by 0
+txt	!scr " XXX@"	; Offset 0, (das "@" entspricht dem Screencode $00, ist hier also Stringdelimiter)
+message	!fill 6,32	; 6 Zeichen für Infotext (kann geändert werden, dann "mess" anpassen)
+mess	!fill 26,32	; 26 Zeichen für Fortschrittsbalken, Länge von message und mess zusammen 32
+	!by 0		; Anzahl 26: bei Änderung "clrmess" und "action" anpassen (dort Wert minus 1)!
 
-; -------------------------------------------------------------- Image Info
+
+; -------------------------------------------------------------------------
+; -------------------------------------------------------------- Image Info Handler
+; -------------------------------------------------------------------------
 
 getname	ldx #0		; aktuellen Filenamen sichern
 si0	lda ls_lastname,x
@@ -229,24 +257,28 @@ si5	rts
 nbuf	!fill 16,32
 	!by 0
 
+; -------------------------------------------------------------------------
 ; ----------------------------------------- Requester management
+; -------------------------------------------------------------------------
 
-requester	ldx used
+requester	ldx used		; beim ersten Aufruf Requester ausgeben
 	bmi requ
+
+stay	clc		; sonst: nichts tun
 	rts
 
 ; ----------------------------------------- Startup requester
 
 requ 	inc used
-	ldx #<(sgiflst)
-	ldy #>(sgiflst)
-	jsr gd_xmloop
+	ldx #<(saverlst)
+	ldy #>(saverlst)
+	jmp gd_xmloop
 
 ; ----------------------------------------- Leave saver
 
-cn2 	lda #3
+cn2 	lda #3		; re-enter saver
 	!by $2c
-canc 	lda #$ff
+canc 	lda #$ff		; leave saver
 	sta used
 	sec
 	rts
@@ -276,18 +308,24 @@ gt0	jsr gd_setpos
 	jsr gd_trim
 	jmp gd_initmove
 
+; -------------------------------------------------------------------------
 ; ----------------------------------------- Screenlist
+; -------------------------------------------------------------------------
 
-sgiflst	!by 0
+saverlst	!by 0
 	!by 4,11,18,14,$81,0,0
-	!scr "Save GIF@"
-palgad	!by 9,11,18,3,$ca,<(evpalette),>(evpalette)
+	!scr "Save XXXXX@"
+palgad	!by 9,11,18,3,$ca
+	!wo stay
 paltx	!scr "  GoDot   @"
-areagad	!by 11,23,6,3,$ce,<evarea,>evarea
+areagad	!by 11,23,6,3,$ce
+	!wo stay
 areatx	!scr "Full@"
-	!by 13,11,18,3,$cb,<(evsavgif),>(evsavgif)
+	!by 13,11,18,3,$cb
+	!wo stay
 	!scr "Save Image@"
-	!by 15,11,18,3,$cb,<(cn2),>(cn2)
+	!by 15,11,18,3,$cb
+	!wo cn2
 	!scr "Cancel Save@"
 	!by $c0,7,12,15
 	!scr "Select Palette:@"
@@ -296,26 +334,10 @@ areatx	!scr "Full@"
 	!by $80
 
 ; -------------------------------------------------------------------------
-; -------------------------------------------------------------- Write GIF
+; -------------------------------------------------------------- Write File
 ; -------------------------------------------------------------------------
 
-write	ldx #0		; Header ausgeben
-wr0	lda gifheader,x
-	jsr bsout
-	inx
-	cpx #72
-	bne wr0
-;
-	lda #9		; Funktion "Undo ins Ram" setzen
-	sta getundo+1
-	jsr doundo	; automatisches Undo ausführen
-	jsr initgif	; Vektoren initialisieren
-	jsr scanlines	; packen und wegschreiben
-	jsr newcode	; letzten Block aufbereiten
-	jsr closefile	; Codierung abschließen
-	lda #8		; Funktion "Undo aus dem Ram" setzen
-	sta getundo+1
-	jsr doundo	; und ausführen
+write	; dummy
 	sec		; Leave-Flag
 	rts		; fertig
 
@@ -327,23 +349,23 @@ doundo	lda #<undo	; eigentliche Routine verschieben
 	ldx #>undo	; (weil das Modul ausgeblendet wird)
 	sta ls_vekta8
 	stx ls_vekta8+1
-	ldy #scanlines-undo
+	ldy #transend-undo
 sloop	lda (ls_vekta8),y
 	sta sy_global,y	; nach GLOBAL
 	dey
 	bpl sloop
-	jmp sy_global	; und dann ausführen
-;
+	jmp sy_global	; und dann dort ausführen:
+
 undo 	jsr gd_swapd	; Ram einblenden
 	ldx #10		; FirstInit
 	jsr rm_ramvec
-;
+
 	ldx #6		; Parameter setzen
 	lda #0
 md0	sta rm_werte,x
 	dex
 	bpl md0
-	lda #>table1	; 4Bit-Bereich im C64
+	lda #>sy_4bit	; 4Bit-Bereich im C64
 	sta rm_werte+1
 	lda #$10		; nach Undo4Bit im Ram
 	sta rm_werte+3
@@ -358,14 +380,18 @@ getundo	ldx #9		; und DoUndo
 	jsr rm_ramvec	
 	jmp gd_sproff	; und Sprite wieder aus, zurück
 
-; --------------------------------------------------------------Namen verlängern
+transend
 
-addnuf	pha		; Länge merken
+; -------------------------------------------------------------------------
+; -------------------------------------------------------------- Namen verlängern
+; -------------------------------------------------------------------------
+
+addsig	pha		; Länge merken
 	tay
 	dey
 	ldx #0
-ag4	lda ls_nambuf,y	; endet auf ".NUF"?
-	cmp nuftx,x
+ag4	lda ls_nambuf,y	; endet auf ".SIG"?
+	cmp sigtx,x
 	bne ag2		; nein
 	dey
 	inx
@@ -379,10 +405,10 @@ ag2	pla
 	cpy #13
 	bcs ag0		; ja, behandeln
 
-ag5	ldx #3		; nein, ".nuf" anhängen
-ag1	lda nuftx,x
+ag5	ldx #3		; nein, ".sig" anhängen
+ag1	lda sigtx,x
 ag3	sta ls_nambuf,y
-	lda nuftxs,x	; auch für Image Info
+	lda sigtxs,x	; auch für Image Info
 	sta ls_lastname,y
 	iny
 	dex
@@ -396,7 +422,7 @@ ag0	dey		; auf 12 verkürzen
 	bne ag0
 	beq ag5		; unbed. Sprung
 
-; ----------------------------------------------------- Screenlist für NO REU
+; ----------------------------------------------------- Warnings Handler
 
 noreu	ldx #<(warnlst)
 	ldy #>(warnlst)
@@ -416,5 +442,12 @@ warnlst	!by 0
 	!by $80
 
 ; ----------------------------------------------------- 
+
+; -------------------------------------------------------------------------
+; ----------------------------------------------------- Data
+; -------------------------------------------------------------------------
+
+adcnt	!by 0
+
 
 modend 	!eof
