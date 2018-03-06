@@ -1,0 +1,734 @@
+
+!src "..\godotlib.lib"
+*	= $c000
+
+; ----------------------------------------- 
+;
+; svr.PC-BMP
+;     Saver for Windows Bitmap Files (BMP)
+;
+; 1.00: 08.12.01, first release
+; 1.01: 28.11.16, korrektes Anfügen des Namenskürzels ".bmp"
+;                 drei Paletten eingefügt, eine weitere korrigiert
+;
+; ----------------------------------------- 
+
+; ----------------------------------------- Equates
+
+	src	= $30
+	src0	= $32
+	adcnt	= $34
+	offy	= $35
+	offx	= $36
+	lcnt8	= $39
+	lcnt	= $3a
+	tilecnt	= $3b
+	cntchars	= $3c
+	clpzl	= $3d
+	clpsp	= $3e
+	clpbr	= $3f
+	clpho	= $40
+	indent	= $41
+;
+; ----------------------------------------- Header
+
+header	jmp start
+	!by $40		; this is a saver
+	!by 0		; no ownreq (nur Lader)
+	!by 1		; dirty
+	!wo modend
+	!wo 0
+	!pet "Windows Bitmap  "
+version	!pet "1.01"
+	!pet "28.11.16"
+	!pet "A.Dettke        "
+;
+; ----------------------------------------- Input
+
+start	ldx gr_nr
+	dex
+	bne st0
+	jmp initinp
+;
+; ----------------------------------------- Main
+
+st0	ldx #0		; reset filelength
+	stx flength
+	stx flength+1
+
+	jsr requester	; display requester
+	lda used		; cancelled?
+	cmp #3
+	bne st11
+	jsr canc		; yes, leave
+	bcs st12
+
+st11	jsr gd_sproff	; Mauszeiger aus
+	lda gd_modswitch	; Modulmanagement
+	pha
+	lda ls_flen	; Datei ausgewählt?
+	beq st1		; nein, fertig
+
+st3	sta wflen
+	jsr addbmp	; add ".bmp" to name (length plus 4)
+	lda #1		; start Gauge right off
+	sta adcnt
+
+	jsr wopen		; open write file
+	bne st2		; error?
+
+	jsr getname	; no, store image file name
+	ldx #12		; OPEN 12,drv,12,"file,p,w"
+	jsr ckout
+	jsr gd_clrms	; clear gauge bar
+	ldx #0		; Message: "Bitmap"
+	jsr tcopy
+	jsr wrheader	; write BMP-Header
+	jsr writbmp	; write BMP-Data
+
+st2	jsr clrch		; CLOSE 12
+	lda #12
+	jsr close
+	jsr canc
+	jsr err9		; Fehler?
+	bne st1		; ja, sprung
+	jsr setname	; sonst: publish image name to GoDot
+
+st1	pla
+	sta gd_modswitch
+st12	jsr gd_spron	; Mauszeiger an
+	sec		; fertig
+	rts
+
+; --------------------------- 
+; --------------------------- Input Routines
+
+!src "..\input.inc"
+
+; --------------------------- 
+; --------------------------- 
+
+; ----------------------------------------- Disk Access
+
+pw	!pet "w,p,"
+drinit	!pet "i0"
+wflen	!by 0
+bmptx	!pet "pmb."
+bmptxs	!scr "pmb."
+;
+wopen	jsr inull
+	bne err8
+	ldy wflen
+	ldx #3
+wo1	lda pw,x
+	sta ls_nambuf,y
+	iny
+	dex
+	bpl wo1
+	sty wflen
+	lda #12
+	tay
+	ldx ls_drive
+	jsr filpar
+	lda wflen
+	ldx #<(ls_nambuf)
+	ldy #>(ls_nambuf)
+	jsr filnam
+	jsr copen
+	jmp err9
+;
+inull	ldx #<(drinit)
+	ldy #>(drinit)
+	lda #2
+	jsr gd_sendcom
+err9	jsr gd_xmess
+	lda ls_err2
+	and #15
+err8	sec
+	rts
+
+; --------------------------------------------------------------Namen verlängern
+
+addbmp	pha		; Länge merken
+	tay
+	dey
+	ldx #0
+ag4	lda ls_nambuf,y	; endet auf ".BMP"?
+	cmp bmptx,x
+	bne ag2		; nein
+	dey
+	inx
+	cpx #4
+	bcc ag4
+	pla		; ja, fertig
+	rts
+	
+ag2	pla
+	tay		; Name länger als 12 Zeichen?
+	cpy #13
+	bcs ag0		; ja, behandeln
+;
+ag5	ldx #3		; nein, ".bmp" anhängen
+ag1	lda bmptx,x
+ag3	sta ls_nambuf,y
+	lda bmptxs,x	; auch für Image Info
+	sta ls_lastname,y
+	iny
+	dex
+	bpl ag1
+	sty wflen		; neue Länge merken, fertig
+	sty ls_flen
+	rts
+;
+ag0	dey		; auf 12 verkürzen
+	cpy #12
+	bne ag0
+	beq ag5		; unbed. Sprung
+;
+; ----------------------------------------- 
+
+; ----------------------------------------- Activity gauge
+
+messout	ldx #<(message)
+	ldy #>(message)
+	jmp gd_xtxout2
+;
+tcopy	ldy #0
+tc0	lda txt,x
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+;
+action	dec adcnt
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts
+;
+clrmess	ldx #23
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0
+	ldx #7
+	sty offy
+	stx offx
+	rts
+;
+filltab	!by 160,93,103,127,126,124,105,109
+;
+cntwert	!by 50
+;
+txt	!scr " Bitmap@"
+;
+message	!fill 8,32
+mess	!fill 24,32
+	!by 0
+
+; ----------------------------------------- Store last filename
+
+getname	ldx #0
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+; ----------------------------------------- Publish new filename
+
+setname	lda #0
+	ldx #<(ls_picname)
+	ldy #>(ls_picname)
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+;
+nbuf	!fill 16,32
+	!by 0
+
+; ----------------------------------------- Startup requester
+
+requ	inc used
+	ldx #<(bmplst)
+	ldy #>(bmplst)
+	jsr gd_xmloop
+
+; ----------------------------------------- Requester management
+
+requester	ldx used
+	bmi requ
+	rts
+
+; ----------------------------------------- Leave saver
+
+cn2	lda #3
+	!by $2c
+canc	lda #$ff
+	sta used
+	sec
+	rts
+
+; ------------------------------------ Event: Choose Palette
+
+evpalette	lda palflag
+	cmp #7
+	bne dp0
+	lda #$ff
+	sta palflag
+dp0	inc palflag
+	jsr setpalette
+	ldx palflag
+	lda gadoffs,x
+	tax
+	ldy #9
+dpi1	lda paltxts,x
+	sta paltx,y
+	dex
+	dey
+	bpl dpi1
+	ldy #0
+dpi2	jsr settext
+	ldy #6
+	jmp gd_xtxout1
+
+; ------------------------------------ Event: Choose area
+
+evarea	lda areaflag
+	bmi ea0
+	lda #$fe
+	sta areaflag
+ea0	inc areaflag
+	beq ea1
+	ldx #3
+	!by $2c
+ea1	ldx #7
+	ldy #3
+ea2	lda areatxts,x
+	sta areatx,y
+	dex
+	dey
+	bpl ea2
+	ldy #2
+	bne dpi2
+
+; ------------------------------------ Output gadget text routines
+
+tabigad	!by <palgad, >palgad
+	!by <areagad,>areagad
+
+
+settext	lda #<tabigad
+	sta ls_vekta8
+	lda #>tabigad
+	sta ls_vekta8+1
+
+	lda (ls_vekta8),y
+	sta sc_screentab
+	iny
+	lda (ls_vekta8),y
+	sta sc_screentab+1
+	lda #0
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #3
+	bne gt0
+	stx sc_ho
+	jsr gd_trim
+	jmp gd_initmove
+
+; ----------------------------------------- Set palette values
+
+setpalette
+	ldx palflag	; 0: GoDot
+	bne spl01
+	lda #<palgodot
+	ldx #>palgodot
+	bne spl5
+spl01	dex		; 1: CoCo
+	bne spl1
+	lda #<palcoco
+	ldx #>palcoco
+	bne spl5
+spl1	dex		; 2: Pepto
+	bne spl2
+	lda #<palpepto
+	ldx #>palpepto
+	bne spl5
+spl2	dex		; 3: Deekay
+	bne spl3
+	lda #<paldeekay
+	ldx #>paldeekay
+	bne spl5
+spl3	dex		; 4: Brix
+	bne spl31
+	lda #<palbrix
+	ldx #>palbrix
+	bne spl5
+spl31	dex		; 5: Vice
+	bne spl0
+	lda #<palvice
+	ldx #>palvice
+	bne spl5
+spl0	dex		; 6: Wheels
+	bne spl41
+	lda #<palwheels
+	ldx #>palwheels
+	bne spl5
+spl41	lda #<palgray	; 7: Gray16
+	ldx #>palgray
+spl5	sta sc_pos
+	stx sc_pos+1
+	ldy #63
+spl6	lda (sc_pos),y
+	sta palette,y
+	dey
+	bpl spl6
+	rts
+
+; ----------------------------------------- Set Save BMP data parameters
+;
+evsavbmp	inc used
+	jsr setclip
+	jsr setvals
+	sec
+	rts
+
+; ---------------------------------------- Compute Start address of Clip
+
+setclip	lda #$40		; 4Bit starting from $4000
+	sta sc_texttab+1
+	ldy #0
+	sty sc_texttab
+	sty clpzl
+	sty clpsp
+	lda #40
+	sta clpbr
+	ldx #25 
+	stx clpho
+	lda areaflag 
+	bmi scp8
+
+stcl	lda sc_lastclpzl	; row
+	beq scp1		; is zero: skip
+	sta clpzl
+scp4	clc
+	lda sc_texttab+1	; else add 1280, "row" times
+	adc #5
+	sta sc_texttab+1
+	dec clpzl
+	bne scp4
+
+scp1	lda sc_lastclpsp	; column
+	beq scp5		; is zero: skip
+	sta clpsp
+scp6	clc
+	lda sc_texttab	; else add 32, "column" times
+	adc #$20
+	sta sc_texttab
+	bcc scp7
+	inc sc_texttab+1
+scp7	dec clpsp
+	bne scp6
+scp5	lda sc_lastclpbr
+	sta clpbr
+
+	ldx sc_lastclpho	; now move to the bottom of the clip
+	stx clpho
+scp8	dex 
+	stx clpzl
+scp51	clc
+	lda sc_texttab+1	; add 1280, "height"-1 times
+	adc #5
+	sta sc_texttab+1
+	dec clpzl
+	bne scp51
+	clc		; and add 1 block
+	lda sc_texttab
+	adc #28
+	sta sc_texttab
+	bcc scp9
+	inc sc_texttab+1
+
+scp9	rts
+
+; ----------------------------------------- Set file values 
+
+setvals	lda clpbr		; width
+	jsr convert	; convert to Word and write to file header
+	stx width
+	sta width+1
+
+	lda clpho		; height
+	jsr convert	; convert to Word and write to file header
+	stx height
+	sta height+1
+
+	lda clpbr		; compute filelength: width*4*height+header
+	asl
+	asl
+	tax
+ev54	clc
+	lda sc_pos
+	adc flength
+	sta flength
+	bcc ev55
+	lda sc_pos+1
+	adc flength+1
+	sta flength+1
+ev55	dex
+	bne ev54
+	clc		; add length of header (118 bytes)
+	lda flength
+	adc dstart
+	sta flength
+	bcc ev5
+	inc flength+1
+
+ev5	rts
+
+; ----------------------------------------- Convert to Word
+
+convert	sta sc_pos	; value times 8
+	sty sc_pos+1
+	clc
+	asl sc_pos
+	rol sc_pos+1
+	asl sc_pos
+	rol sc_pos+1
+	asl sc_pos
+	rol sc_pos+1
+	ldx sc_pos
+	lda sc_pos+1
+	rts
+
+; ----------------------------------------- Screenlist
+
+bmplst	!by 0
+	!by 4,11,18,13,$81,0,0
+	!scr "Save BMP@"
+palgad	!by 9,11,18,3,$ca,<(evpalette),>(evpalette)
+paltx	!scr "  GoDot   @"
+areagad	!by 11,23,6,3,$ce,<evarea,>evarea
+areatx	!scr "Full@"
+	!by 13,11,18,3,$cb,<(evsavbmp),>(evsavbmp)
+	!scr "Save Image@"
+	!by 15,11,18,3,$cb,<(cn2),>(cn2)
+	!scr "Cancel Save@"
+	!by $c0,7,12,15
+	!scr "Select Palette:@"
+	!by $c0,11,12,10
+	!scr "Save Area:@"
+	!by $80
+
+; ----------------------------------------- Variables
+
+used	!by $ff
+mode	!by 0
+
+; ----------------------------------------- Write BMP
+
+writbmp	lda sc_texttab	; set startaddress
+	ldx sc_texttab+1
+
+we0	sta src0
+	sta src
+	stx src0+1
+	stx src+1
+
+	lda clpho		; count y blocklines (25 on full screen)
+	sta lcnt8
+
+lnloop8	lda #8		; count 8 rasterlines
+	sta lcnt
+tloop8	lda clpbr		; count x tiles (40 on full screen)
+	sta tilecnt
+tloop	ldx #4		; count # of pixels per tileline (8)
+lnloop	ldy #0		; get value from image
+	lda (src),y
+	jsr bsout
+	inc src
+	bne lnl3
+	inc src+1
+lnl3	dex
+	bne lnloop
+	jsr action
+
+	lda src
+	clc
+	adc #28
+	sta src
+	bcc lnl0
+	inc src+1
+lnl0	dec tilecnt
+	bne tloop
+
+lnl01	lda src0
+	sec
+	sbc #4
+	sta src0
+	sta src
+	lda src0+1
+	sbc #0
+	sta src0+1
+	sta src+1
+	dec lcnt
+	bne tloop8
+
+	lda src0
+	sec
+	sbc #<1248
+	sta src0
+	sta src
+	lda src0+1
+	sbc #>1248
+	sta src0+1
+	sta src+1
+lnl2	dec lcnt8
+	bne lnloop8
+	rts
+
+; ----------------------------------------- File Header
+
+fheader 	!pet "bm"
+flength   !by 0,0,0,0
+	!by 0,0,0,0
+dstart    !by $76,0,0,0
+	!by $28,0,0,0
+width	!by 0,0,0,0
+height	!by 0,0,0,0
+planes	!by $01,0
+depth	!by $04,0
+comp	!by 0,0,0,0
+csize	!by 0,0,0,0
+haspect	!by 0,0,0,0
+vaspect	!by 0,0,0,0
+numcols	!by 16,0,0,0
+	!by 0,0,0,0
+palette   !by $00,$00,$00,$00 ; black
+	!by $aa,$00,$00,$00	; blue
+	!by $00,$44,$66,$00	; brown
+	!by $33,$33,$33,$00	; dark gray
+	!by $00,$00,$88,$00	; red
+	!by $cc,$44,$cc,$00	; purple
+	!by $55,$88,$dd,$00	; orange
+	!by $77,$77,$77,$00	; medium gray
+	!by $ff,$88,$00,$00	; light blue
+	!by $77,$77,$ff,$00	; light red
+	!by $55,$cc,$00,$00	; green
+	!by $bb,$bb,$bb,$00	; light gray
+	!by $ee,$ff,$aa,$00	; cyan
+	!by $77,$ee,$ee,$00	; yellow
+	!by $66,$ff,$aa,$00	; light green
+	!by $ff,$ff,$ff,$00	; white
+
+; ----------------------------------------- Achtung! B-G-R statt R-G-B!
+
+palgodot  !by $00,$00,$00,$00 ; black
+	!by $aa,$00,$00,$00	; blue
+	!by $00,$44,$66,$00	; brown
+	!by $33,$33,$33,$00	; dark gray
+	!by $00,$00,$88,$00	; red
+	!by $cc,$44,$cc,$00	; purple
+	!by $55,$88,$dd,$00	; orange
+	!by $77,$77,$77,$00	; medium gray
+	!by $ff,$88,$00,$00	; light blue
+	!by $77,$77,$ff,$00	; light red
+	!by $55,$cc,$00,$00	; green
+	!by $bb,$bb,$bb,$00	; light gray
+	!by $ee,$ff,$aa,$00	; cyan
+	!by $77,$ee,$ee,$00	; yellow
+	!by $66,$ff,$aa,$00	; light green
+	!by $ff,$ff,$ff,$00	; white
+
+palwheels	!by $00,$00,$00,$00, $ff,$00,$00,$00, $00,$4c,$99,$00, $33,$33,$33,$00	; # 1.01 ---
+	!by $00,$00,$ff,$00, $ff,$00,$ff,$00, $00,$80,$ff,$00, $77,$77,$77,$00
+	!by $ff,$99,$99,$00, $80,$80,$ff,$00, $00,$ff,$00,$00, $bb,$bb,$bb,$00
+	!by $ff,$ff,$00,$00, $00,$ff,$ff,$00, $99,$ff,$99,$00, $ff,$ff,$ff,$00	; # 1.01 ---
+
+palpepto	!by $00,$00,$00,$00, $79,$28,$35,$00, $00,$39,$43,$00, $44,$44,$44,$00
+	!by $2b,$37,$68,$00, $86,$3d,$6f,$00, $25,$4f,$6f,$00, $6c,$6c,$6c,$00
+	!by $b5,$5e,$6c,$00, $59,$67,$9a,$00, $43,$8d,$58,$00, $95,$95,$95,$00
+	!by $b2,$a4,$70,$00, $6f,$c7,$b8,$00, $84,$d2,$9a,$00, $ff,$ff,$ff,$00
+
+paldeekay	!by $00,$00,$00,$00, $92,$0c,$1a,$00, $00,$1e,$44,$00, $46,$46,$46,$00	; # 1.01 --- Palette korrigiert
+	!by $2b,$37,$68,$00, $9f,$3b,$a7,$00, $02,$4b,$a9,$00, $8b,$8b,$8b,$00
+	!by $d1,$91,$4d,$00, $74,$80,$d2,$00, $19,$ab,$4d,$00, $ba,$ba,$ba,$00
+	!by $a8,$cd,$65,$00, $53,$e3,$eb,$00, $8e,$f6,$8e,$00, $ff,$ff,$ff,$00	; # 1.01 ---
+
+palbrix	!by $00,$00,$00,$00, $c6,$42,$42,$00, $39,$63,$84,$00, $7b,$7b,$7b,$00
+	!by $4a,$52,$ad,$00, $bd,$6b,$bd,$00, $2f,$8e,$c8,$00, $94,$94,$94,$00
+	!by $f7,$9c,$9c,$00, $9c,$9c,$ff,$00, $73,$e7,$73,$00, $ce,$ce,$ce,$00
+	!by $f7,$f7,$73,$00, $7b,$ff,$ff,$00, $a5,$ff,$a5,$00, $ff,$ff,$ff,$00
+
+palgray	!by $00,$00,$00,$00, $11,$11,$11,$00, $22,$22,$22,$00, $33,$33,$33,$00
+	!by $44,$44,$44,$00, $55,$55,$55,$00, $66,$66,$66,$00, $77,$77,$77,$00
+	!by $88,$88,$88,$00, $99,$99,$99,$00, $aa,$aa,$aa,$00, $bb,$bb,$bb,$00
+	!by $cc,$cc,$cc,$00, $dd,$dd,$dd,$00, $ee,$ee,$ee,$00, $ff,$ff,$ff,$00
+
+palvice	!by $00,$00,$00,$00, $ae,$1b,$21,$00, $04,$33,$6a,$00, $40,$45,$42,$00	; # 1.01 ---
+	!by $24,$1a,$be,$00, $e2,$1a,$b4,$00, $04,$41,$b8,$00, $6f,$74,$70,$00
+	!by $fe,$53,$5f,$00, $57,$4a,$fe,$00, $1e,$d2,$1f,$00, $a2,$a7,$a4,$00
+	!by $c6,$e6,$30,$00, $0a,$d6,$df,$00, $59,$fe,$59,$00, $fc,$fe,$fd,$00	; # 1.01 ---
+
+palcoco	!by $00,$00,$00,$00, $c4,$39,$37,$00, $08,$38,$68,$00, $4d,$4d,$4d,$00	; # 1.01 ---
+	!by $29,$2a,$af,$00, $b6,$3f,$b0,$00, $1c,$59,$b6,$00, $84,$84,$84,$00
+	!by $e6,$7c,$70,$00, $6c,$74,$ea,$00, $4a,$c6,$4a,$00, $b5,$b6,$b6,$00
+	!by $cc,$d8,$62,$00, $4e,$ed,$e4,$00, $9e,$fa,$a6,$00, $ff,$ff,$ff,$00	; # 1.01 ---
+
+gadoffs	!by 9,19,29,39,49,59,69,79
+gadoffs2  !by 3,7
+palflag	!by 0
+areaflag	!by $ff
+
+paltxts	!scr "  GoDot   "	; 0
+	!scr "   CoCo   "	; 10	# 1.01 Community Colors
+	!scr "  Pepto   "	; 20
+	!scr "  Deekay  "	; 30
+	!scr "   Brix   "	; 40
+	!scr "   VICE   "	; 50	# 1.01
+	!scr "  Wheels  "	; 60	# 1.01
+	!scr "  Gray16  "	; 70
+areatxts	!scr "Full" ; 0
+	!scr "Clip" ; 4
+
+; ----------------------------------------- Write file header
+
+wrheader	ldy #0
+	lda #<fheader
+	sta src
+	lda #>fheader
+	sta src+1
+wrh1	lda (src),y
+	jsr bsout
+	iny
+	cpy dstart
+	bne wrh1
+	rts
+
+; ----------------------------------------- 
+
+modend	!eof

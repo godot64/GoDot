@@ -1,0 +1,496 @@
+
+!src "..\godotlib.lib"
+*	= $c000
+
+; ------------------------------------------------------------ 
+;
+;  ldr.Fonts
+;  Lader für GoDot-Clip-Fonts (bis zu einer Größe von 6x7 Kacheln pro Zeichen),
+;  arbeitet nur dann, wenn mod.Titler installiert ist
+;
+;    1.00, 23.01.17, first release
+;    1.01, 24.01.17, Versuch, Garbage in letzter Blockzeile zu verhindern (misslungen)
+;    1.02, 27.01.17, garbage in last blockline: fixed
+;
+; ------------------------------------------------------------ 
+
+; ----------------------------------------- Equates
+
+	posho		= $30
+	color		= $31
+	src		= $32		; /$33
+	dst		= $34		; /$35
+	bcnt		= $36
+	byte		= $37
+	width		= $38
+	hold		= $39		; /$3a
+	xbuf		= $3b
+	sprx		= $3c		; /$3d
+	spry		= $3e
+	wbit		= $3f
+	trow		= $40		; /$41
+	cwidth		= $42
+	tline		= $43
+	tbyte		= $44
+	current		= $45		; /$46
+	lcnt		= $47
+	l4cnt		= $48
+	lccnt		= $49
+	clast		= $4a
+
+	row		= sc_merk
+	column		= sc_merk+1
+
+	modul		= $c000
+	sprx0		= $d000
+	spry0		= $d001
+	spren		= $d015
+	modname		= $e00a
+	charbuf		= $e500		; Länge max. $620 (bis $eb1f)
+	rowbuf		= $eb20		; Länge $e0 (7*32 Bytes), dahinter pntrbuf bis $ec3f
+	linec		= $ec40		; Länge 28 Bytes (bis $ec5b)
+	line4		= $ec5c		; Länge 28 Bytes (bis $ec77)
+
+; ----------------------------------------- Header
+
+	jmp start
+	!by $80		; Lader
+	!by 4		; ownreq!
+	!by 0
+	!wo modend
+	!wo 0
+	!pet "Fonts Loader    "
+	!pet "1.01"
+	!pet "24.01.17"
+	!pet "A.Dettke        "
+	
+; ----------------------------------------- Einsprung von mod.Titler
+
+xentry	jmp comein
+
+; ----------------------------------------- Main
+
+start	lda #0
+	sta valid
+	jsr chkmod	; mod.Titler installiert?
+	lda valid
+	bmi cancel	; nein, Schluss
+	ldx #14		; ja, dann einblenden
+stt1	lda xroutine,x
+	sta ls_nambuf+16,x
+	dex
+	bpl stt1
+	jsr ls_nambuf+16	; und von dort aus ausführen
+
+cancel	sec
+	rts
+
+; ----------------------------------------- Aufruf von mod.Titler
+
+xroutine	ldx #$e0		; Slot 3 anwählen
+	jsr gd_xswap4k
+	jsr modul
+	ldx #$e0		; zurückschaufeln
+	jmp gd_xswap4k
+
+; ----------------------------------------- Check for Titler
+
+chkmod	sei
+	lda #$30
+	sta 1
+	ldx #11
+cm0	lda modname,x
+	cmp theader,x
+	bne nomod
+	dex
+	bpl cm0
+cm1	lda #$36
+	sta 1
+	cli
+	rts
+;
+nomod	jsr cm1
+	dec valid
+	ldx #<nottlst
+	ldy #>nottlst
+	jmp gd_xmloop
+
+; ----------------------------------------- Data
+
+theader	!pet "GoDot Titler"
+valid	!by 0
+
+; ----------------------------------------- Screenlist
+
+nottlst	!by 0
+	!by 5,11,18,15,$81,0,0
+	!scr "Font Loader@"
+	!by 17,15,9,3,$cc,<(cancel),>(cancel)
+	!scr " Leave @"
+	!by $c0,7,12,14
+	!scr "This Loader is@"
+	!by $c0,9,11,15
+	!scr "genuine part of@"
+	!by $c0,11,13,11
+	!scr "mod.Titler.@"
+	!by $c0,13,11,15
+	!scr "It doesn't work@"
+	!by $c0,15,13,11
+	!scr "on its own.@"
+	!by $80
+;
+	
+; ----------------------------------------- 
+; ----------------------------------------- Section 2 of Titler
+; ----------------------------------------- 
+
+
+section2:
+
+!pseudopc section2+$2000 {
+
+; ----------------------------------------- Distribution
+
+comein	dex
+	beq jgetcpos
+	dex
+	beq setchar
+	rts
+
+jgetcpos	jmp getcpos
+
+; ----------------------------------------- Set Character
+
+setchar	ldx color		; umfärben vorbereiten:
+	lda c64pal,x	; Farbe für...
+	tax
+	sta recols+2	; Doppelpixel
+	and #$f0
+	sta recols+1	; linkes Pixel
+	txa
+	and #$0f
+	sta recols	; rechtes Pixel
+
+	lda trow+1	; Zeichen im 4Bit anzeigen
+	ldx trow
+	sta hold+1	; trow retten
+	stx hold
+	lda #<charbuf	; Zeiger auf Char
+	sta current
+	lda #>charbuf
+	sta current+1
+	ldx width		; Offset auf nächste Char-Row holen
+	lda rloffs,x
+	sta cwidth
+	jsr get4b		; 4Bit-Row holen
+
+	iny		; .y=0 (Höhe des Zeichens in posho)
+	tya
+	sta lccnt		; .a=0, Counter für Rasterlinie in Char
+	lda #8		; Limit für Char-Rows setzen
+	sta clast
+	jsr cllines	; Puffer löschen
+	lda tline
+	sta l4cnt		; Counter für Rasterlinie in 4Bit
+
+sch2	lda lccnt		; Char-Linien durch?
+	cmp #8		; v1.02: bis 8 zählen (Char muss durchgezählt werden!)
+	bcc sch4
+	dec posho		; ja, Höhe (Char) herunterzählen
+	lda posho
+	bmi sch5		; alles fertig, wenn unter 0
+	bne sch9		; beim letzten Mal:
+	lda tline		; diese nur bis tline bearbeiten
+	beq sch9		; (wenn tline>0)
+	sta clast
+sch9	jsr addcw		; nächste Char-Row anpeilen
+	lda #0		; und Linienzähler auf 0
+	sta lccnt
+
+sch4	jsr getcline	; Rasterlinie aus Char holen
+
+sch6	lda l4cnt		; 4Bit-Blockzeile fertig?
+	cmp clast		; v1.02: im 4Bit beim letzen Mal nur bis tline zählen!
+	bcs sch3		; ja, nächste
+	jsr gather4b	; Rasterlinie aus 4Bit holen
+	jsr recolor	; Char gefärbt einarbeiten
+	lda l4cnt
+	jsr distrib	; Linie nach rowbuf zurückschreiben
+	inc lccnt		; Rasterlinie zählen (Char)
+	inc l4cnt		; Rasterlinie zählen (4Bit)
+	bne sch2		; nächste
+
+sch3	jsr put4b		; rowbuf zurück nach 4Bit
+	iny		; .y=0
+	sty l4cnt		; Counter für Rasterlinie (4Bit) auf 0
+	lda posho		; v1.02: letzte Blockzeile erreicht?
+	beq sch5		; v1.02: dann fertig
+	clc
+	lda hold		; nächste Kachelzeile anpeilen
+	sta dst
+	lda hold+1
+	adc #5
+	sta dst+1
+	sta hold+1
+	jsr get4b		; nächste Kachelzeile holen
+	beq sch6		; weitermachen
+sch5	rts
+
+; ----------------------------------------- Mausposition
+
+getcpos	lda column
+	sta sprx
+	lda row
+	sta spry
+
+ex1	lda #0		; 4bit-Adresse berechnen
+	sta trow		; init
+	sta trow+1
+	sta sprx+1
+	tay
+
+in4bit	lda spry
+	tax		; *1280
+	beq i40
+i41	clc
+	lda #5		; max. $78(00)
+	adc trow+1
+	sta trow+1
+	dex
+	bne i41
+
+i40	asl sprx		; *32
+	rol sprx+1
+	inx		; max. 1248
+	cpx #5
+	bne i40
+
+	clc		; 1 und 2 zusammenaddieren
+	lda trow
+	adc sprx
+	sta trow
+	sta current
+	lda trow+1	; trow zeigt auf die Kachel
+	adc sprx+1
+	adc #>sy_4bit	; plus 4Bit-Adresse
+	sta trow+1
+	sta current+1
+
+i44	lda spry0		; 3: Kachellinie
+	sec
+	sbc #50
+	and #7		; y and 7
+	sta tline
+	asl		; *4
+	asl		; max. 28
+	clc
+	adc current	; addieren, current zeigt jetzt auf die Pixelzeile
+	sta current
+	bcc l44
+	inc current+1
+
+l44	lda sprx0		; 4: 4Bit-Pixel isolieren
+	sec
+	sbc #24
+	pha
+	and #1		; gerade/ungerade?
+	tax
+	lda pmask,x	; dann: $f0/$0f
+	sta byte
+	pla
+	and #7		; bit = 7 - (x and 7)
+	eor #7		; (=0..7)
+	sta wbit
+	lsr wbit		; bit/2
+	sec		; (=0..3)
+	lda #3		; byte = 3 - bit
+	sbc wbit		; (=0..3)
+	sta tbyte		; Offset in Pixelzeile 
+	rts
+
+; ------------------------------------------------------------ Service Routines
+
+; ----------------------------------------- Get 4Bit Row - Put 4Bit Row
+
+get4b	ldy #$df		; 7 Kacheln
+stm0	lda (hold),y
+	sta rowbuf,y
+	dey
+	cpy #$ff
+	bne stm0
+	rts
+
+put4b	ldy #$df
+stm1	lda rowbuf,y
+	sta (hold),y
+	dey
+	cpy #$ff
+	bne stm1
+	rts
+
+; ----------------------------------------- Shift right Char-Line
+
+shiftr	lda #0		; Char um 1 4Bit-Pixel rechts shiften
+	sta xbuf
+	ldy #26		; vorletztes Byte von 28
+shr1	lda linec,y
+	pha
+	ldx #4
+shr0	lsr		; nach rechts shiften
+	ror xbuf
+	dex
+	bne shr0
+	lda xbuf
+	sta linec+1,y	; in letztes Byte schreiben
+	pla		; vorletztes zurück
+	sta xbuf
+	dey		; loop
+	bpl shr1
+	rts
+
+; ----------------------------------------- Get Char Line
+
+getcline	jsr gatherch
+	lda byte
+	bmi sch8
+	jsr shiftr
+sch8	rts
+
+addcw	clc		; nächste Linie anpeilen
+	lda current
+	adc cwidth
+	sta current
+	bcc adc0
+	inc current+1
+adc0	rts
+
+; ----------------------------------------- Gather 1 Rasterline
+
+gather4b	asl		; im .a: Block-Offset (tline) mal 4
+	asl
+	clc
+	adc #<rowbuf	; first: tline, then 0, last: 8 - tline
+	sta src
+	ldx #<line4
+	lda #>rowbuf
+	ldy #>line4
+	bne gth6
+
+gatherch	asl		; .a: Linie im Char mal 4
+	asl
+	clc
+	adc current
+	sta src		; SRC Lo setzen
+	lda #<linec
+	adc tbyte		; tbyte-Einrückung: jedesmal
+	tax		; .x: DST lo
+gth7	lda current+1	; .a: SRC hi
+	ldy #>linec	; .y: DST hi
+
+gth6	sta src+1
+	sty dst+1
+	stx dst
+	ldx #0		; hole width x 4 verteilte Bytes
+gth1	stx bcnt
+	lda rloffs,x
+	ldx #0
+	tay
+	lda #3
+	sta lcnt
+gth0	lda (src),y
+	sta (dst,x)	; und schreibe sie hintereinander weg
+	iny
+	inc dst
+	bne gth2
+	inc dst+1
+gth2	dec lcnt
+	bpl gth0
+	ldx bcnt
+	inx
+	cpx width
+;	beq gth1
+	bcc gth1
+	rts
+
+; ----------------------------------------- Distribute 1 Rasterline
+
+distrib	asl		; im .a: Block-Offset (tline) mal 4
+	asl
+	clc
+	adc #<rowbuf	; first: tline, then 0, last: 8 - tline
+	sta dst
+	lda #>rowbuf
+	sta dst+1
+	ldx #<line4	; komplettiere eine 4Bit-Rasterlinie
+	ldy #>line4
+	stx src
+	sty src+1
+
+	ldx #0		; hole width x 4 hintereinander liegende Bytes
+gth4	stx bcnt
+	lda rloffs,x
+	ldx #0
+	tay
+	lda #3
+	sta lcnt
+gth3	lda (src,x)
+	sta (dst),y	; und schreibe sie verteilt weg
+	iny
+	inc src
+	bne gth5
+	inc src+1
+gth5	dec lcnt
+	bpl gth3
+	ldx bcnt
+	inx
+	cpx width
+;	beq gth4
+	bcc gth4
+	rts
+
+; ----------------------------------------- Recolor Char
+
+recolor	ldy #0
+lch2	lda linec,y
+	beq lch6
+
+	cmp #$ff
+	bne lch7
+	lda recols+2
+	jmp lch9
+lch7	cmp #$f0
+	bne lch8
+	lda line4,y
+	and #$0f
+	ora recols+1
+	jmp lch9
+lch8	lda line4,y
+	and #$f0
+	ora recols
+lch9	sta line4,y
+
+lch6	iny
+	cpy #28
+	bne lch2
+	rts
+
+; ----------------------------------------- Clear line buffers
+
+cllines	ldy #55		; clear 28 Bytes at $ed80 & $ed9c
+	lda #0
+ili0	sta linec,y
+	dey
+	bpl ili0
+	rts
+
+; ----------------------------------------- Data
+
+c64pal	!by $00,$ff,$44,$cc,$55,$aa,$11,$dd
+     	!by $66,$22,$99,$33,$77,$ee,$88,$bb
+rloffs	!by $00,$20,$40,$60,$80,$a0,$c0,$e0
+recols	!by $0f,$f0,$ff			; Dummy-Einträge
+pmask	!by $f0,$0f
+
+}
+
+modend	!eof

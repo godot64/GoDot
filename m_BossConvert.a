@@ -1,0 +1,1620 @@
+
+	!src "..\godotlib.lib"
+	*= $c000
+
+; ------------------------------------------------------------ 
+;
+; mod.BossConvert
+; Module to convert Multi graphics to sprite clusters (Bosses)
+;
+;    1.00, 04.12.05, first release
+;    1.01, 27.07.08, bugfix, added: check for clashes
+;    1.02, 05.08.08, added: browse sprites right or down
+;    1.03, 14.08.08, added: Super Histogram, save requester
+;    1.04, 12.09.16, bugfix, sprite only one color? fixed
+;    1.05, 14.09.16, added: select sprite on graphics screen
+;    1.06, 22.05.17, added: save sprite pointer chunk (as $ad-bytes)
+;
+; ------------------------------------------------------------ 
+
+	adcnt		=$30
+	multable		=$31	; /$32
+	src		=$33	; /$34
+	dst		=$35	; /$36
+	therev1		=$37
+	therev2		=$38
+	therec		=$39
+	temp		=$3a
+	currspr		=$3b	; /$3c
+	btcnt		=$3d
+	lcnt		=$3e
+	mkbits		=$3f
+	allpresent	=$40
+	renderline	=$41	; /$42
+	max		=$43
+	mcount		=$44
+	cindex		=$45
+
+	status		=$90
+	colors		=$b2
+
+	vram2		=$ce0b
+	vram1		=$de0b
+	cstart		=$ee0b
+
+	sprite2		=$07fa
+	spr255		=$3fc0
+	spritex		=$d002
+	spritey		=$d003
+	sprpos2		=$d004
+	spritehi		=$d010
+	sprenable		=$d015
+	spryexpand	=$d017
+	sprmulti		=$d01c
+	sprxexpand	=$d01d
+	bordercol		=$d020
+	backcol		=$d021	; %00
+	sprcol0		=$d025	; %01
+	sprcol1		=$d026	; %11
+	sprcol2		=$d029	; %10
+	
+
+; --------------------------------------- Header
+
+header 	jmp start
+	!by $20
+	!by 0
+	!by 1		; dirty
+	!wo  modend
+	!wo  0
+	!pet "Boss Converter  "
+	!pet "1.06"
+	!pet "22.05.17"
+	!pet "A. Dettke       "
+
+; --------------------------------------- Main
+
+start 	ldx sc_screenvek
+	stx list
+	ldx sc_screenvek+1
+	stx list+1
+	lda sprcol1	; save sprite color 1
+	sta s1col
+	jsr defchar
+	stx sprtcol0
+	jsr chkmod
+	lda olap
+	bne st0
+	lda #<lcnts1
+	ldy #>lcnts1
+	bne st1
+st0	lda #<lcnts2
+	ldy #>lcnts2
+st1	sta renderline
+	sty renderline+1
+	jsr setcurr	; set start address of current sprite
+	jsr showreq	; display requester
+	jsr gd_eloop	; wait for clicks
+
+; --------------------------------------- Event: Exit
+
+evexit	jsr gd_spron
+	lda s1col		; restore sprite color 1
+	sta sprcol1
+evcancel	sec
+	rts
+
+; --------------------------------------- Event: Exchange fixed colors
+
+evxchnge	lda sprtcol0	; data valid?
+	bmi esv0		; yes, save
+	lda sprtcol0
+	ldx sprtcol1
+	sta sprtcol1
+	sta bosscols+3
+	stx sprtcol0
+	stx bosscols+1
+
+colsprdis	lda sprtcol0
+	ldy #20
+	jsr setcols
+	lda sprtcol1
+	ldy #22
+	
+setcols	sta sc_chgcol
+	jsr ed5
+	ldx #4
+	jmp gd_fcol
+
+; --------------------------------------- Event: Open Save Data Requester
+
+evsave	lda totnumber
+	beq esv0
+	lda sprtcol0	; data valid?
+	bpl esv1		; yes, save
+	jsr evcheck	; no, check data
+	lda cclash	; data valid? 
+	beq esv1		; yes, save
+esv0	jsr hs13		; no, alert and leave save
+	clc
+	rts
+
+esv1	ldx #<savelst
+	ldy #>savelst
+	jsr gd_screen
+	jsr colsprdis
+	jsr gd_eloop
+	jsr gd_spron
+	ldx list
+	ldy list+1
+	jsr gd_screen
+	jsr sr3
+	clc
+	rts
+
+; --------------------------------------- Event: Final Save
+
+evsavenow	jsr gd_sproff
+	clc
+	lda flen
+	adc #5
+	sta wflen
+	tay
+esn0	lda filename,y
+	sta ls_nambuf,y
+	dey
+	bpl esn0
+	jsr gaugeout
+	jsr wopen
+	bne esn1
+
+	ldx #12		; open file for output
+	jsr ckout
+	jsr gd_clrms	; clear message gadget
+	jsr write
+
+esn1	jsr clrch		; close file
+	lda #12
+	jsr close
+	jsr err9
+	jsr gd_spron
+
+	clc
+	rts
+
+; --------------------------------------- Event: Check for Color Faults
+
+evcheck	lda totnumber
+	beq esv0
+	lda order
+	pha
+	beq es3
+	jsr evdirct
+es3	lda curnumber
+	pha
+	jsr clrhisto
+	ldx #255
+	stx curnumber
+	inx
+	stx cclash
+es0	jsr evnext
+	jsr suphisto
+	lda togalert
+	cmp #$c0
+	bne es1
+	inc cclash
+es1	ldx maxnumber
+	cpx curnumber
+	bne es0
+	lda cclash
+	jsr gd_xcnvdez
+	sta clashes+1
+	sta clashtx+1
+	cpx #$30
+	bne es2
+	ldx #$20
+es2	stx clashes
+	stx clashtx
+	ldy #16
+	jsr ed5
+	jsr setcol01
+	pla
+	jsr ep2
+	pla
+	beq ep4
+	jmp evdirct
+
+; --------------------------------------- Events: Previous und Next
+
+evprev	ldx totnumber	; defined?
+	beq ep4		; no
+	ldx curnumber	; current sprite number = 0?
+	beq ep0		; yes, set to max
+	jsr substep	; no, minus step
+	bpl ep1
+ep0	ldx maxnumber	; yes, get max number
+	jmp ep1		; display
+
+evnext	ldx totnumber	; defined?
+	beq ep4		; no
+	ldx curnumber	; add step
+	jsr addstep
+	cpx totnumber	; sprite number = max?
+	bne ep1		; no, display
+	ldx #0		; yes, get zero
+
+ep1	txa
+	pha		; löscht Alert bei
+	jsr evnoalert	; Weiterklicken zum nächsten
+	pla		; Sprite
+ep2	sta curnumber
+	jsr gd_xcnvdez
+	sta curnum+1
+	sta cnumtx+1
+	cpx #$30
+	bne ep3
+	ldx #$20
+ep3	stx curnum
+	stx cnumtx
+	ldy #0
+	jsr ed5
+	jsr histospr
+	jsr getsprite
+	jsr display
+ep4	clc
+	rts
+
+; --------------------------------------- forward
+
+addstep	lda order		; which direction
+	beq plus1		; right?
+	cpx maxnumber	; no, down
+	beq plus1		; if max, inc to total (flag for zero)
+	txa
+	clc
+	adc width		; add to next row
+	cmp maxnumber
+	bcc as0
+	beq as0
+	sbc maxnumber	; if too far, next column
+as0	tax
+	rts
+plus1	inx
+	rts
+
+; --------------------------------------- back
+
+substep	lda order		; which direction
+	beq minus1	; left?
+	sec		; no, up
+	txa
+	beq ep4		; if zero, leave (flag for max)
+	sbc width		; subtract to previous row
+	bcs ss0
+	adc maxnumber	; if too far, previous column
+ss0	tax
+	rts
+minus1	dex
+	rts
+
+; --------------------------------------- Event: Input Filename
+
+evinpname	lda gd_modswitch
+	pha
+	ldy #12
+	sty ls_flen
+	jsr gd_xinput
+	ldy ls_flen
+ein0	dey
+	lda ls_nambuf,y
+	sta fname,y
+	sta nambuf,y
+	cmp #32
+	beq ein0
+	sty flen
+ein1	lda ls_nambuf,y
+	sta fname,y
+	sta nambuf,y
+	sta sc_movetab,y
+	dey
+	bpl ein1
+	jsr gd_cnvbc
+	ldy flen
+ein2	lda sc_movetab,y
+	sta fname,y
+	dey
+	bpl ein2
+	pla
+	sta gd_modswitch
+	clc
+	rts
+
+; --------------------------------------- Event: Set Direction
+
+evdirct	ldx order		; toggle value ($00 or $01)
+	beq edi0
+	ldx #$ff
+edi0	inx
+	stx order
+	lda dirtext,x	; show
+	sta dirtx
+	ldy #18
+	bne ed5
+
+; --------------------------------------- Event: Overlap
+
+do_olap	ldx olap		; 0: no/1: yes
+	beq ed0
+	ldx #$ff
+ed0	inx
+	stx olap
+	bne ed1
+	lda #<lcnts1	; line offsets
+	sta renderline
+	lda #>lcnts1
+	sta renderline+1
+	lda #9		; maxheight
+	ldy #5
+	bne ed4
+ed1	lda #<lcnts2
+	sta renderline
+	lda #>lcnts2
+	sta renderline+1
+	lda #10
+	ldy #2
+ed4	sta maxheight
+	ldx #2
+ed2	lda yesno,y
+	sta olaptx,x
+	dey
+	dex
+	bpl ed2
+	ldy #10
+ed5	jsr settab
+	jsr gettab
+ed3	ldy #6
+	jmp gd_xtxout1
+	
+; --------------------------------------- Event: Show Color Clash in Graphics
+
+evshow	lda spritex
+	pha
+	lda spritey
+	pha
+	lda width
+	pha
+	lda height
+	pha
+
+	ldy currx
+	ldx sprx,y
+	inx
+	stx spritex
+	ldy curry
+	lda olap
+	beq evs1
+	ldx spry1,y
+	bne evs2
+evs1	ldx spry0,y
+evs2	inx
+	stx spritey
+	jsr do_grafix
+	jsr gd_spron
+
+	pla
+	sta height
+	pla
+	sta width
+	pla
+	sta spritey
+	pla
+	sta spritex
+	jsr sr3		; ### 1.05: von hier ---
+
+	ldy totnumber	; defined?
+	beq evs3		; no
+
+	lda #0
+	ldy defdw
+	jsr htimes10
+	ldy currh
+	dey
+	cpy defdh
+	bpl evs3
+	lda (multable),y
+	sec
+	sbc defdw
+	ldy defdw
+	cpy currw
+	bmi evs3
+	clc
+	adc currw
+	tay
+	dey
+	tya		; = new curnumber
+	jsr ep2
+
+evs3	clc
+	rts		; ### --- bis hier
+
+; --------------------------------------- Switch Graphics/Text
+
+do_grafix	lda gr_redisp
+	pha
+	ldx #1
+	stx gr_redisp
+	dex
+	stx sc_stop
+	jsr redis
+	cli
+	jsr rp1
+	pla
+	sta gr_redisp	; restore auto render
+	jmp gd_spron
+
+; --------------------------------------- Events: Define (Overlap) Area
+
+evolap	jsr do_olap
+
+evdefine	jsr do_grafix
+	lda sc_stop
+	bne ed6
+	jsr ep2		; part of evnext
+	jmp showreq	; redisplay requester
+ed6	jmp sr3		; if stop don't recalculate
+
+; --------------------------------------- Event: Alert-Meldung löschen
+
+evnoalert	ldy #14
+	jsr ed5
+	clc
+	rts
+
+; --------------------------------------- Define new character
+
+defchar	ldx #7
+dc0	lda char223,x
+	sta sc_undochar,x
+	dex
+	bpl dc0
+	rts
+
+; --------------------------------------- Textout
+
+tabigad	!wo  cnumgad	; 0
+	!wo  totgad	; 2
+	!wo  sprwin	; 4
+	!wo  widgad	; 6
+	!wo  hgtgad	; 8
+	!wo  olapgad	; 10
+	!wo  alertgad	; 12
+	!wo  noalrtgad	; 14
+	!wo  clashgad	; 16
+	!wo  dirgad	; 18
+	!wo  spr0gad	; 20
+	!wo  spr1gad	; 22
+;
+settab	lda #<(tabigad)
+	sta sc_texttab
+	lda #>(tabigad)
+	sta sc_texttab+1
+	rts
+;
+gettab	lda (sc_texttab),y
+	sta sc_screentab
+	iny
+	lda (sc_texttab),y
+	sta sc_screentab+1
+	lda #0
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #4
+	bne gt0
+	jsr gd_trim
+	jmp gd_initmove
+
+; --------------------------------------- Show Requester
+
+showreq	lda height
+	sta defdh		; ### 1.04
+	jsr gd_xcnvdez
+	sta hgttx+1
+	cpx #$30
+	bne sr0
+	ldx #$20
+sr0	stx hgttx
+	lda width
+	sta defdw		; ### 1.04
+	jsr gd_xcnvdez
+	sta widtx+1
+	cpx #$30
+	bne sr1
+	ldx #$20
+sr1	stx widtx
+	jsr totals
+sr3	ldx #<(bosslst)	; display requester
+	ldy #>(bosslst)
+	jsr gd_screen
+	ldy #4		; colorize sprite window...
+	jsr settab
+	jsr gettab
+	jsr gd_invert
+	lda gr_fbkcol
+	sta sc_chgcol	; ...with original bg color (%00)
+	ldx #4
+	jsr gd_fcol
+	stx sc_loop
+
+display	lda writing
+	bne sr4
+	jsr transfer
+	stx sprite2	; $07fa = Spritebereich 255 ($3fc0)
+	ldx show
+	stx sprpos2
+	ldx show+1
+	stx sprpos2+1
+	lda cols+2	; colorize: mid gray (%10)
+	sta sprcol2
+	lda cols+1	; dark gray (%01)
+	sta sprcol0
+	lda cols+3	; light gray (%11)
+	sta sprcol1
+	ldx #4		; multi on for Sprite 2
+	stx sprmulti
+	ldx #0		; expand off
+	beq sa1
+
+
+transfer	ldx #63		; now activate preview sprite
+sr2	lda showspr,x	; get data
+	sta spr255,x
+	dex
+	bpl sr2
+sr4	rts
+
+; --------------------------------------- Activate Selector Sprite
+
+spract	ldx #63
+sa0	lda sprdata,x
+	sta spr255,x
+	dex
+	bpl sa0
+
+	stx sprite2	; $07fa = Spritebereich 255 ($3fc0)
+	jsr selpos
+	ldx gr_fbkcol	; if white turn selector black
+	dex
+	beq sa2
+	ldx #1
+sa2	stx sprcol2	; in weiß (bzw. schwarz)
+	ldx #0
+	stx sprmulti	; multi aus
+sa1	stx spryexpand	; normal großes Sprite
+	stx sprxexpand
+	ldx #7		; Zeiger bleibt an, Selector dazu
+	stx sprenable	; $d015
+	rts
+
+; --------------------------------------- Selector Position
+
+selpos	lda spritehi	; not > 255 in x
+	and #3
+	sta spritehi
+	bne sl9
+	ldy #$ff		; ja
+sl0	iny
+	ldx sprx,y
+	cpx spritex
+	bcc sl0
+	tya		; Zeiger am linken Rand?
+	beq sl4		; ja
+	cmp maxwidth	; Zeiger am rechten Rand?
+	bcc sl6		; nein
+sl9	ldy maxwidth
+sl6	sty width
+	dey
+sl4	lda sprx,y	; feste x-Position setzen
+	sta sprpos2
+
+	ldy #$ff
+sl1	iny
+	lda olap
+	beq sl11
+	ldx spry1,y
+	bne sl12
+sl11	ldx spry0,y
+sl12	cpx spritey
+	bcc sl1
+	tya		; Zeiger am oberen Rand?
+	beq sl7		; ja
+	cmp maxheight	; Zeiger am unteren Rand? (9/10)
+	bcc sl8		; nein
+	ldy maxheight
+sl8	sty height
+	dey
+sl7	lda olap
+	beq sl71
+	lda spry1,y
+	bne sl72
+sl71	lda spry0,y	; feste y-Position setzen
+sl72	sta sprpos2+1
+	
+sl3	rts
+
+; --------------------------------------- Set current sprite address
+
+setcurr	lda #$40
+	ldy #0
+	sty sc_pos+1
+	sty curry
+	sty currx
+	sty currspr
+	sta currspr+1
+	ldy curnumber
+	beq scp5
+
+	ldx width		; find DIV and MOD of curnumber
+	dex
+	stx sc_pos
+	jsr gd_mal10
+	ldx sc_pos
+	dex
+	tya		; .y = curnumber
+	ldy #$ff
+sc1	inx
+	iny
+	cmp multab,x	; DIV in .y
+	bcs sc1
+	sty curry		; Zeile des Sprites im 4Bit
+
+	dex
+;	lda curnumber
+	sec
+	sbc multab,x
+	bcs sc2
+	lda curnumber
+sc2	tax
+	stx currx		; Spalte des Sprites im 4Bit
+	
+stcl        lda curry
+	beq scp1
+	asl		; Zeile mal 2
+	tax		; als Index in Tabelle
+	lda olap		; Overlap?
+	bne sc3
+	lda adds1,x	; nein, Adresse holen
+	tay
+	inx
+	lda adds1,x
+	tax
+	bne sc4
+sc3	lda adds2,x	; Adresse bei Overlap
+	tay
+	inx
+	lda adds2,x
+	tax
+sc4	tya		; und zur Basis addieren
+	adc currspr
+	sta currspr
+	txa
+	adc currspr+1
+	sta currspr+1
+
+scp1        lda currx	; plus column * 96
+	beq scp5
+	sta temp
+scp6        clc
+	lda currspr
+	adc #$60
+	sta currspr
+	bcc scp7
+	inc currspr+1
+scp7        dec temp
+	bne scp6		; makes start address 
+
+scp5	lda currspr
+	ldy currspr+1
+	sta src
+	sty src+1
+	sta dst
+	sty dst+1
+
+	rts 
+
+; --------------------------------------- Convert one Sprite
+
+getsprite	jsr setcurr
+	lda #>showspr
+	ldy #<showspr
+	sty dst
+	sta dst+1
+
+	ldx #0		; must be $00!
+	ldy #3		; counts sprite block lines (3 or 4)
+
+prloop	tya
+	pha
+	sta temp
+	ldy curry
+	lda offs,y
+	clc
+	adc temp
+	tay
+	lda (renderline),y
+	beq gs7
+	sta lcnt		; counts remaining lines per tile 
+
+zloop	ldy #0
+
+bl0	stx btcnt		; count double pixels (4)
+
+bloop	lda (src),y	; get right pixel
+	and #15
+	tax
+	lda pal64,x
+gs2	ldx numcols
+gs20	cmp cols,x
+	beq gs21
+	dex
+	bpl gs20
+gs21	lda bits,x
+	rol
+	rol mkbits
+	rol
+	rol mkbits
+	iny		; next double pixel
+	inc btcnt
+	lda btcnt
+	cmp #4
+	bne bloop
+
+	ldx #0		; store result to sprite
+	lda mkbits
+	sta (dst,x)
+s64	inc dst		; next byte in sprite
+	bne gs5
+	inc dst+1
+
+gs5	tya		; proceed to next tile
+	clc
+	adc #28
+	tay
+	cmp #96		; third finished?
+	bcc bl0		; no, loop
+
+	lda src		; proceed to next line in tile, from left
+	clc
+	adc #4
+	sta src
+	bcc gs6
+	inc src+1
+gs6	dec lcnt		; lines left?
+	bne zloop		; yes
+
+	lda src		; no, proceed to next blockline ($4e0 ahead)
+	clc
+	adc #$e0
+	sta src
+	lda src+1
+	adc #$04
+	sta src+1
+
+gs7	pla		; start over three times
+	tay
+	dey
+	bpl prloop
+	
+	rts
+
+; --------------------------------------- Sprite histogram
+
+histospr	jsr setcurr
+	ldy #0
+	sty numcols
+	lda #$80
+	sta togalert
+
+	tya
+	ldy #15
+hs0	sta paltmp,y
+	sta cols,y
+	dey
+	bpl hs0
+	lda gr_fbkcol
+	sta cols
+	sta bosscols
+	sta backgnd
+
+
+	ldy #3		; counts sprite blocklines (3 or 4 times)
+
+hs01	tya
+	pha
+	sta temp
+	ldy curry
+	lda offs,y
+	clc
+	adc temp
+	tay
+	lda (renderline),y
+	beq hs02
+	sta lcnt		; counts remaining lines per tile
+
+hs5	lda #3		; sprite is 3 bytes wide
+	sta mkbits
+hs3	ldy #3
+hs1	lda (src),y	; get 4 double pixels per byte
+	and #15
+	tax
+	lda pal64,x
+	cmp cols
+	beq hs10
+	tax
+	inc paltmp,x
+hs10	dey
+	bpl hs1
+	lda src		; next byte of sprite
+	clc
+	adc #32
+	sta src
+	bcc hs2
+	inc src+1
+hs2	ror mkbits
+	bcs hs3
+
+	lda dst		; next line in tile
+	clc
+	adc #4
+	sta dst
+	sta src
+	lda dst+1
+	adc #0
+	sta dst+1
+	sta src+1
+
+hs4	dec lcnt		; blockline finished?
+	bne hs5		; no
+
+hs6	lda dst		; yes, next one
+	clc
+	adc #$e0
+	sta dst
+	sta src
+	lda dst+1
+	adc #4
+	sta dst+1
+	sta src+1
+
+hs02	pla
+	tay
+	dey
+	bpl hs01
+
+	ldy #1
+	ldx #0
+hs11	lda paltmp,x
+	beq hs9
+	txa
+	sta cols,y
+	iny
+hs9	inx
+	cpx #16
+	bne hs11
+	dey
+
+	cpy #4
+	bcc hs12
+hs13	lda #$c0
+	sta togalert
+	ldy #12		; display alert message
+	jsr ed5
+	ldy #3
+hs12	sty numcols
+	rts
+; --------------------------------------- superhistogram
+
+suphisto	ldy #1
+suh1	ldx cols,y
+	beq suh0
+	inc supercols,x
+suh0	iny
+	cpy #16
+	bne suh1
+	rts
+
+; --------------------------------------- Clear superhistogram
+
+clrhisto	ldx #0
+	txa
+ch0	sta supercols,x
+	inx
+	cpx #16
+	bne ch0
+	rts
+
+; --------------------------------------- Set fixed colors for all Sprites
+
+setcol01	ldx #$ff		; init max and passes
+	stx bosscols+2	; %10: Flag setzen
+	inx
+	stx max
+	stx mcount
+fb2	ldy #15		; check supercols for max
+fb1	ldx supercols,y
+	cpx max
+	bcc fb0
+	stx max		; store max...
+	sty cindex	; and color index
+fb0	dey
+	bpl fb1
+	inc mcount	; count passes
+	lda cindex	; store max color
+	ldx mcount
+	sta bosscols,x	; schreibt +1 und +3
+	cpx #1
+	bne fb3
+	sta backgnd+1	; also to file header (+1 und +2) 
+	beq fb4
+fb3	sta backgnd+2
+fb4	tay		; erase from histogram
+	lda #0
+	sta supercols,y
+	sta max
+	inc mcount
+	cpx #3		; find two colors
+	bne fb2
+	rts
+
+; --------------------------------------- Total number of Sprites
+
+totals	lda #$30		; Vorbesetzung: "00"
+	tax
+
+	ldy height	; Höhe = 0?
+	beq tt2		; dann Ergebnis auch 0
+	lda #0
+	sta totnumber	; ### 1.04
+	jsr htimes10	; ###
+	lda #$30		; Vorbesetzung: "00" ($30 auch in .x)
+	ldy width		; Breite = 0?
+	beq tt2		; dann Ergebnis auch 0
+	dey
+	lda (multable),y	; sonst Ergebis holen
+	sta totnumber	; merken
+	tax
+	dex
+	stx maxnumber
+	jsr gd_xcnvdez	; umwandeln
+
+tt2	sta totnum+1	; Ziffern eintragen
+	cpx #$30
+	bne tt1
+	ldx #$20
+tt1	stx totnum
+	rts
+
+; ----------------------------------------- Height times 10
+
+htimes10	sta sc_pos+1	; ### 1.04, von hier ---
+	dey
+	sty sc_pos
+	jsr gd_mal10	; Höhe mal 10
+	lda sc_pos
+	clc
+	adc #<multab
+	sta multable
+	lda #0
+	adc #>multab
+	sta multable+1
+	rts		; ### --- bis hier
+
+; ----------------------------------------- Gauge for Save
+
+gaugeout	ldx #<(gaugelst)
+	ldy #>(gaugelst)
+	jmp gd_screen
+
+; ---------------------------------------- Diskaccess
+
+wopen 	jsr inull
+	bne err8
+	ldy wflen
+	ldx #3
+wo1 	lda pw,x
+	sta ls_nambuf,y
+	iny
+	dex
+	bpl wo1
+	sty wflen
+	lda #12
+	tay
+	ldx ls_saveto
+	jsr filpar
+	lda wflen
+	ldx #<(ls_nambuf)
+	ldy #>(ls_nambuf)
+	jsr filnam
+	jsr copen
+	jmp err9
+;
+inull 	ldx #<(drinit)
+	ldy #>(drinit)
+	lda #2
+	jsr gd_sendcom
+err9 	jsr gd_xmess
+	lda ls_err2
+	and #15
+err8 	sec
+	rts
+
+; ---------------------------------------- Write Loop on Save
+
+write	ldx #0
+wr0	lda fheader,x
+	jsr onebyte	; ### 1.05: catch floppy err
+err7	bne err9		; ###
+	inx
+	cpx #14
+	bne wr0
+	stx writing
+
+	ldx totnumber	; ### 1.06: write sprite pointer chunk
+	lda #$ad		; (max. 80 bytes)
+-	jsr onebyte
+	bne err9
+	dex
+	bne -
+
+	lda order
+	pha
+	beq wr3
+	jsr evdirct
+wr3	lda curnumber
+	pha
+	ldx #255
+	stx curnumber
+
+wr1	jsr evnext
+	ldx numcols	; ### 1.04: what if numcols only 1
+	dex		; ###
+	bne wr10		; ###
+	lda #3
+	sta numcols
+wr10	ldy #1
+wr7	ldx #1
+wr6	lda sprtcol0,y
+	eor cols,x
+	bne wr5
+	sta cols,x
+wr5	inx
+	cpx #4
+	bne wr6
+	dey
+	bpl wr7
+wr8	dex
+	beq wr9
+	lda cols,x
+	beq wr8
+wr9	sta sprtcol2
+	sta bosscols+2
+	lda #<bosscols
+	ldx #>bosscols
+	sta gs20+1
+	stx gs20+2
+	jsr getsprite
+	lda #<cols
+	ldx #>cols
+	sta gs20+1
+	stx gs20+2
+	ldx #0
+wr2	lda showspr,x
+	jsr onebyte	; ### 1.05: catch floppy err
+err6	bne err7		; ###
+	inx
+	cpx #64
+	bne wr2
+	ldx maxnumber
+	cpx curnumber
+	bne wr1
+
+	lda #0
+	sta writing
+	pla
+	jsr ep2
+	pla
+	beq wr4
+	jsr evdirct
+wr4	lda #$ad
+	jsr onebyte	; ### 1.05: catch floppy err
+	bne err6		; ###
+	clc
+	rts
+
+; --------------------------------------- Write Data to Disk
+
+onebyte  jsr bsout
+         ldy status
+         rts 
+
+; --------------------------------------- File Header Variables
+
+fheader	!pet "god7"	; file signature
+width	!by 0
+height	!by 0
+mode	!by 1		; 0: hires, 1: multi
+olap	!by 0		; 0: no, 1: yes
+backgnd	!by 0		; screen backgnd color
+sprtcol0	!by $ff		; $d025 (pattern %01)
+sprtcol1	!by 0		; $d026 (pattern %11)
+order	!by 0		; 0: sideways, 1: downways
+comprs	!by 0		; 0: no, 1: yes
+frames	!by 0		; # of animframes (0: no anim)
+
+; --------------------------------------- Variables
+
+filename	!pet "sps."
+nambuf	!pet "Boss01          "	; 16 bytes space
+flen	!by 5		; length of filename
+wflen	!by 0		; length plus signature (plus 4)
+pw	!pet "w,p,"	; open PRG for write
+drinit	!pet "i0"		; initialize command
+writing	!by 0		; disk access flag
+maxwidth	!by 8		; more than 8 isn't possible
+maxheight	!by 9		; 9 (normal sprites) or 10 (overlap)
+stwidth	!by 0
+stheight	!by 0
+defdh	!by 0		; ### 1.05: height when defined
+defdw	!by 0		; ###       width when defined
+currh	!by 0		; ### current height on selector
+currw	!by 0		; ### current width on selector
+currx	!by 0
+curry	!by 0
+curnumber	!by 0
+totnumber	!by 0
+maxnumber	!by 0
+numcols	!by 0
+cclash	!by 0
+yesno	!scr "yes no"
+dirtext	!by 94,31		; Rechtspfeil, Abwärtspfeil
+s1col	!by 0
+list	!wo  0
+show	!by 112,122	; position of preview sprite
+
+; --------------------------------------- Tables and records
+
+sprx	!by 024,048,072,096,120,144,168,192         ; beyond: 216,240,008,032,056
+spry0	!by 050,071,092,113,134,155,176,197,218
+spry1	!by 050,069,088,107,126,145,164,183,202,221
+
+; --------------------------------------- Selector Sprite
+
+sprdata	!by %00000000,%00000000,%00000001	; 1	selector sprite
+	!by %00000000,%00000000,%00000001	; 2
+	!by %00000000,%00000000,%00000001	; 3
+	!by %00000000,%00000000,%00000001	; 4
+	!by %00000000,%00000000,%00000001	; 5
+	!by %00000000,%00000000,%00000001	; 6
+	!by %00000000,%00000000,%00000001	; 7
+	!by %00000000,%00000000,%00000001	; 8
+	!by %00000000,%00000000,%00000001	; 9
+	!by %00000000,%00000000,%00000001	; 10
+	!by %00000000,%00000000,%00000001	; 11
+	!by %00000000,%00000000,%00000001	; 12
+	!by %00000000,%00000000,%00000001	; 13
+	!by %00000000,%00000000,%00000001	; 14
+	!by %00000000,%00000000,%00000001	; 15
+	!by %00000000,%00000000,%00000001	; 16
+	!by %00000000,%00000000,%00000001	; 17
+	!by %00000000,%00000000,%00000001	; 18
+	!by %00000000,%00000000,%00000001	; 19
+	!by %00000000,%00000000,%00000001	; 20
+	!by %00011111,%11111111,%11111111	; 21
+
+showspr	!by %11111111,%11111111,%11111111	; 1	preview sprite
+	!by %11101010,%10101010,%10101010	; 2
+	!by %11100000,%00000000,%00000001	; 3
+	!by %11100000,%00000000,%00000001	; 4
+	!by %11100000,%00000000,%00000001	; 5
+	!by %11100000,%00000000,%00000001	; 6
+	!by %11100000,%00000000,%00000001	; 7
+	!by %11100000,%00000000,%00000001	; 8
+	!by %11100000,%00000000,%00000001	; 9
+	!by %11100000,%00000000,%00000001	; 10
+	!by %11100000,%00000000,%00000001	; 11
+	!by %11100000,%00000000,%00000001	; 12
+	!by %11100000,%00000000,%00000001	; 13
+	!by %11100000,%00000000,%00000001	; 14
+	!by %11100000,%00000000,%00000001	; 15
+	!by %11100000,%00000000,%00000001	; 16
+	!by %11100000,%00000000,%00000001	; 17
+	!by %11100000,%00000000,%00000001	; 18
+	!by %11100000,%00000000,%00000001	; 19
+	!by %11010101,%01010101,%01010101	; 20
+	!by %11010101,%01010101,%01010101	; 21
+sprtcol2	!by 0				; $d027... (invidual Spritecolor, pattern %10)
+
+multab	!by 01,02,03,04,05,06,07,08,09,10	; Multiplikationstabelle y*x
+	!by 02,04,06,08,10,12,14,16,18,20	; Wert = multab+(y-1)*10,(x-1)
+	!by 03,06,09,12,15,18,21,24,27,30
+	!by 04,08,12,16,20,24,28,32,36,40
+	!by 05,10,15,20,25,30,35,40,45,50
+	!by 06,12,18,24,30,36,42,48,54,60
+	!by 07,14,21,28,35,42,49,56,63,70
+	!by 08,16,24,32,40,48,56,64,72,80
+	!by 09,18,27,36,45,54,63,72,81,90
+	!by 10,20,30,40,50,60,70,80,90,100
+
+offs	!by 00,04,08,12,16,20,24,28,32,36	; Offsets in lcnts
+
+lcnts1	!by 0,5,8,8		; 0
+	!by 2,8,8,3		; 1
+	!by 0,7,8,6		; 2
+	!by 4,8,8,1		; 3
+	!by 1,8,8,4		; 4
+	!by 0,6,8,7		; 5
+	!by 3,8,8,2		; 6
+	!by 0,8,8,5		; 7
+	!by 0,5,8,8		; 8
+
+lcnts2	!by 0,5,8,8		; 0
+	!by 0,8,8,5		; 1
+	!by 3,8,8,2		; 2
+	!by 0,6,8,7		; 3
+	!by 1,8,8,4		; 4
+	!by 4,8,8,1		; 5
+	!by 0,7,8,6		; 6
+	!by 2,8,8,3		; 7
+	!by 0,5,8,8		; 8
+	!by 0,8,8,5		; 9
+
+adds1	!wo  $0000,$0a14,$1908,$231c,$3210,$4104,$4b18,$5a0c,$6900,$7314
+adds2	!wo  $0000,$0a0c,$1418,$2304,$2d10,$371c,$4608,$5014,$5f00,$690c,$7318
+
+char223	!by $ff,$ff,$ff,$ff,$ff,$00,$00,$00
+
+pal64	!by $00,$06,$09,$0b,$02,$04,$08,$0c	; conversion table
+	!by $0e,$0a,$05,$0f,$03,$07,$0d,$01
+
+paltmp	!by $00,$06,$09,$0b,$02,$04,$08,$0c	; histogram table
+	!by $0e,$0a,$05,$0f,$03,$07,$0d,$01
+
+cols	!by $00,$0b,$0c,$0f,$00,$00,$00,$00	; result table
+	!by $00,$00,$00,$00,$00,$00,$00,$00
+
+supercols	!by $00,$00,$00,$00,$00,$00,$00,$00	; histogram for all sprites
+	!by $00,$00,$00,$00,$00,$00,$00,$00
+
+bosscols	!by $00,$00,$00			; colors for the whole boss: 
+	!by $00				; %00, %01, %11 (%10) 
+
+bits	!by %00000000			; Zuordungsbits: backgnd 
+	!by %01000000			; Spritecolor 0 ($d025) 
+	!by %10000000			; Spritecolor 2 ($d027..) 
+	!by %11000000			; Spritecolor 1 ($d026) 
+
+; --------------------------------------- Screenlist for BossConvert
+
+bosslst	!by 0
+noalrtgad	!by 14,9,8,3,$d0,<(evnoalert),>(evnoalert)
+	!scr "------@"
+	!by 6,9,21,13,$91,0,0
+	!scr "BossConvert@"
+sprwin	!by 8,10,5,5,$e0,<evshow,>evshow
+	!by 160,160,160,0
+	!by 8,15,3,3,$c0,<(evnext),>(evnext)
+	!by 94,0
+	!by 10,15,3,3,$c0,<(evprev),>(evprev)
+	!by 91,0
+widgad	!by 8,26,4,3,$8f,0,0		; width
+widtx	!scr " 0@"
+hgtgad	!by 10,26,4,3,$8e,0,0		; height
+hgttx	!scr " 0@"
+totgad	!by 12,26,4,3,$8e,0,0		; total
+totnum	!scr " 0@"
+olapgad	!by 14,25,5,3,$ce,<evolap,>evolap	; overlap
+olaptx	!scr " no@"
+	!by 16,17,7,3,$c0,<evcheck,>evcheck	; check colors
+	!scr "Check@"
+dirgad	!by 16,24,6,3,$ce,<evdirct,>evdirct
+	!scr "Dir"
+dirtx	!by 94,0
+	!by 18,9,8,3,$c7,<evdefine,>evdefine
+	!scr "Define@"
+	!by 18,17,6,3,$cc,<evsave,>evsave
+	!scr "Save@"
+	!by 18,23,7,3,$ce,<evexit,>evexit
+	!scr "Leave@"
+
+	!by $c0,9,10,3
+	!by 160,160,160,0
+	!by $c0,10,10,3
+	!by 223,223,223,0
+	!by $c0,12,10,3
+	!scr "#"
+curnum	!scr " 0@"
+	!by $c0,8,18,7
+	!scr "Width :@"
+	!by $c0,10,18,7
+	!scr "Height:@"
+	!by $c0,12,18,7
+	!scr "Total :@"
+	!by $c0,14,9,6
+	!scr "------@"
+	!by $c0,14,17,7
+	!scr "Overlap@"
+	!by $c0,16,9,6
+clashes	!scr " 0 ccl@"
+togalert	!by $80
+	!by 14,9,6
+	!scr "Alert!@"
+	!by $80
+
+cnumgad	!by 12,10,5,3,0,0,0
+	!scr "#"
+cnumtx	!scr " 0@"
+alertgad	!by 14,9,8,3,0,0,0
+	!scr "Alert!@"
+clashgad	!by 16,9,4,3,0,0,0
+clashtx	!scr " 0@"
+
+; ------------------------------------------ Screenlist for Save
+
+savelst	!by 0
+	!by 18,9,21,5,$01,0,0
+
+spr0gad	!by 18,9,3,3,$84,0,0
+	!by 160,0
+
+spr1gad	!by 20,9,3,3,$87,0,0
+	!by 160,0
+
+	!by 18,12,4,3,$c5
+	!wo  evxchnge
+	!by 31,30,0
+
+	!by 18,16,7,3,$c5
+	!wo  evsavenow
+	!scr "Save @"
+
+	!by 18,23,7,3,$c6
+	!wo  evcancel
+	!scr "Leave@"
+
+	!by 20,16,14,3,$ce
+	!wo  evinpname
+fname	!scr "Boss01      @"
+
+	!by $c0,20,11,4
+	!scr "sps.@"
+
+	!by $80
+
+; ----------------------------------------- Screenlist for Save Gauge
+
+gaugelst	!by 0
+	!by 22,3,34,3,$42
+	!wo evexit
+	!by $80
+
+; ------------------------------------------ Display graphics
+
+chkmod	sei		; routine to determine where color data is
+	ldx #0
+	stx 1
+	stx allpresent
+	ldy #$03
+	sty dst
+	lda #$f0		; check upmem area
+	sta dst+1
+	jsr getwhere
+	lda #$c0		; check loader area
+	sta dst+1
+	jsr getwhere
+	lda #$d0		; check saver area
+	sta dst+1
+	jsr getwhere
+	lda #$e0		; check modifier area
+	sta dst+1
+	jsr getwhere
+	lda #$36
+	sta 1
+	cli
+	rts
+
+getwhere	lda (dst,x)
+	tay
+	and #$40		; $40 = saver (vram1)
+	beq chm0
+	jsr thereis
+	sta therev1
+	bne chm2
+chm0	tya
+	bpl chm1
+	jsr thereis	; $80 = loader (cram)
+	sta therec
+	bne chm2
+chm1	jsr thereis	; $20 = modifier (vram2)
+	sta therev2
+chm2	rts
+
+thereis	ora allpresent	; is one missing?
+	sta allpresent	; (No if result is $e0)
+	lda dst+1		; correct the address
+	ora #$0e
+	rts
+
+
+; ----------------------------------------- Counters
+
+count	inc sc_vekt20
+	bne cou5
+	inc sc_vekt20+1
+cou5	inc colors
+	bne cou6
+	inc colors+1
+cou6	lda ls_vekta8
+	bne cou7
+	dec ls_vekta8+1
+cou7	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	rts
+
+; ------------------------------------------ Redisplay routines
+
+redis	ldx gr_palette
+	stx bordercol
+	jsr setcolors
+	lda gr_cmode
+	beq rp4
+	lda #$18
+	sta $d016
+rp4	lda #$1b
+	sta $d018
+	lda #$3b
+	sta $d011
+	lda width
+	sta stwidth
+	lda height
+	sta stheight
+	jsr spract
+	lda gr_redisp 	; leave if flag set
+	bne rp3
+
+rp1	jsr selpos
+	lda sc_keyprs	; wait for stop key (or any other key)
+	ora sc_stop
+	beq rp1
+
+	lda width		; save position for selector
+	sta currw
+	lda height
+	sta currh
+	lda sc_stop	; if stop don't reset position
+	beq rp5
+	lda stwidth
+	sta width
+	lda stheight
+	sta height
+rp5	jsr getcolors
+	jsr tmode
+	ldx list
+	ldy list+1
+	jsr gd_screen
+rp3	clc
+	rts
+
+tmode	ldx #$13
+	lda #$1b
+	stx $d018
+	sta $d011
+	lda #$08
+	sta $d016
+	lda sc_maincolor
+	sta bordercol
+	sta backcol
+	rts
+; ------------------------------------------ 
+setcveks	sei
+	lda #$35
+	sta 1
+	lda therec
+	ldx #$d8
+	bne scv0
+; ------------------------------------------ 
+setbveks	lda therev1
+	ldx #4
+	dec 1
+scv0	stx colors+1
+	ldy #0
+	sty sc_merk
+	sty colors
+	dey
+; ------------------------------------------ 
+setlast	sty gr_bkcol
+	ldy #<(cstart)
+	sty sc_vekt20
+	sta sc_vekt20+1
+	lda #<(500)
+	sta ls_vekta8
+	lda #>(500)
+	sta ls_vekta8+1
+	ldy #0
+	rts
+; ------------------------------------------ 
+getcolors	jsr setcveks
+stco	lda (colors),y
+	sta sc_merk
+	inc colors
+	bne stc0
+	inc colors+1
+stc0	lda (colors),y
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	lda sc_merk
+	sta (sc_vekt20),y
+	jsr count
+	bne stco
+	jsr setbveks
+stc1	lda (colors),y
+	sta (sc_vekt20),y
+	jsr count
+	bne stc1
+	ldy gr_bkcol
+	bpl scv1
+	ldy #0
+	lda therev2
+	jsr setlast
+	beq stc1
+scv1	lda #$36
+	sta 1
+	cli
+	lda backcol
+	and #15
+	sta gr_bkcol
+	rts
+; ------------------------------------------ 
+setcolors	lda gr_bkcol
+	sta backcol
+	pha
+	jsr setcveks
+stc2	sty sc_merk
+	lda (sc_vekt20),y
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	sta (colors),y
+	inc colors
+	bne stc3
+	inc colors+1
+stc3	lda sc_merk
+	sta (colors),y
+	jsr count
+	bne stc2
+	jsr setbveks
+stc4	lda (sc_vekt20),y
+	sta (colors),y
+	jsr count
+	bne stc4
+	ldy gr_bkcol
+	bpl scv1
+	pla
+	tay
+	lda therev2
+	jsr setlast
+	beq stc4
+
+modend	!eof
+

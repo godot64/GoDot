@@ -1,0 +1,763 @@
+
+; ------------------------------------------------------------ 
+;
+; ldr.IFLI
+; loader for files of Interlaced Flexible Line Interchange mode
+; retrieves either images of FunpainterII (.fp2), Gunpaint
+; (.gun), Pixel Perfect (.pp/.ppp) or X-Ray (a PC based converter)
+;
+;    1.00, 23.02.95, first release (fp2 and gun)
+;    1.01, 07.07.05, added X-Ray format
+;    1.02, 29.10.16, added warning of X-Ray FLI files
+;    1.03, 23.04.17, added Pixel Perfect format (pp and ppp)
+;
+; ----------------------------------------- Equates
+;
+*= $c000
+!src "..\godotlib.lib"
+
+	sprite		= $d015
+
+	ptype		= $30
+	packed		= $31
+	count		= $32
+	pbyte		= $33
+	gbyte		= $34
+	dst0		= $35
+	dst		= $37
+	src		= $39
+	cntwert		= $3b
+	mx		= $3c
+	my		= $3d
+	adcnt		= $3e
+
+	status		= $90
+
+	offx		= $b2
+	offy		= offx+1
+
+	col0		= $c90f
+	col023		= col0-23
+	col015		= col0-15
+	cram		= $ca00
+	ctab		= cram
+;
+; ----------------------------------------- Header
+;
+	jmp start
+	!by $80
+	!wo $00
+	!wo modend
+	!by $00,$00
+	!pet "loader for IFLIs"
+	!pet "1.03"
+	!pet "23.04.17"
+	!pet "W.Kling/A.Dettke"
+
+; ----------------------------------------- Main
+;
+jerror	jmp error
+jfaila	jmp faila
+jfailb	jmp failb
+;
+start	jsr getname
+
+	jsr gd_xopen	; read start address
+
+	lda #200
+	jsr setcnt
+
+	jsr onebyte
+	bne jerror
+	sta ptype		; first byte $00, $01, $fc, $fe or $f0?
+	sta packed
+
+	jsr onebyte	; second byte $08, $3b, $3c, $3f or $40?
+	bne jerror
+	cmp #$3b		; $3b = Pixel Perfect gepackt ($3bfc)		# 1.03
+	beq gm0
+	cmp #$3c		; $3c = Pixel Perfect ungepackt ($3c00)		# 1.03
+	beq gm6
+	cmp #$3f		; $3f = Funpaint2 ($3ff0)
+	beq gm0
+	cmp #$40		; $40 = Gunpaint ($4000)
+	beq gm0
+	cmp #$08		; $08 = XRay64 ($0801, mit Player)
+	beq gm0
+	bne jfaila	; if not = fail, no IFLI
+
+gm6	sta ptype		; Flag=$3c: Pixel Perfect ungepackt	# 1.03
+gm0	jsr gd_clrms	; prepare message
+	stx count		; counter to $00
+	
+	lda ptype		; Gunpaint? ($00)
+	beq readifli	; yes, retrieve
+	cmp #$3c		; Pixel Perfect ungepackt?		# 1.03
+	beq readifli	; yes, retrieve
+	cmp #$f0 		; Funpainter? ($f0)
+	beq gm2		; yes, retrieve
+	cmp #$fe		; XRay without player? ($3ffe)
+	beq jfailb	; yes, fail, XRay FLI
+	cmp #$fc		; Pixel perfect gepackt?		# 1.03
+	beq gmb		; yes, retrieve
+	cmp #$01		; XRay64?
+	bne jfaila	; no, fail, no IFLI
+
+	jsr skipxray	; skip XRay64 header
+gm7	jsr basin		; skip border color
+	jsr basin		; get background color/pack indicator PP
+	jmp gm3
+	
+gmb	jsr basin
+	jsr basin
+	jmp gm7
+
+gm2	ldy #15		; Funpainter: skip header
+gm1	jsr basin
+	dey
+	bne gm1
+	sta packed	; $3ffe = packflag 
+gm5	jsr basin		; XRay: get backgr
+gm3	sta pbyte		; $3fff = pack indicator byte (Funpaint und Pixel Perfect)
+
+
+; ----------------------------------------- Read Gunpaint
+
+readifli	lda ptype		; PP? 				# 1.03
+	cmp #$fc		; gepackt?
+	beq gm8
+	cmp #$3c		; nein, ungepackt?
+	bne gm9
+gm8	jsr getcolorram	; ja, PP-Color-Ram holen
+
+gm9	ldx #0
+	jsr tcopy
+	lda #52		; set counter
+	jsr setcnt
+	lda #<($4000)	; get video rams 1
+	ldy #>($4000)
+	jsr getvr
+	
+	ldx #12
+	jsr tcopy
+	jsr scnt0		; prepare counter
+	
+	lda #<($4001)	; get bitmap 1
+	ldx #>($4001)
+	jsr getbm
+	
+	ldx #36
+	jsr tcopy
+	lda #2
+	jsr setcnt
+	
+	jsr getc0		; get background colors 1
+
+	lda ptype		; PP? 				# 1.03
+	cmp #$fc		; gepackt?
+	beq gma
+	cmp #$3c		; ungepackt?
+	beq gma		; ja, ColorRam schon eingelesen, skip it
+
+	jsr getcolorram
+	
+gma	ldx #0
+	jsr tcopy
+	lda #52
+	jsr setcnt
+	
+	lda #<($4002)	; get video rams 2
+	ldy #>($4002)
+	jsr getvr
+	
+	ldx #12
+	jsr tcopy
+	jsr scnt0
+	
+	lda #<($4003)	; get bitmap 2
+	ldx #>($4003)
+	jsr getbm
+	
+	jsr getc02	; get background colors 2
+	
+	ldx #48
+	jsr tcopy
+	lda #6
+	jsr setcnt
+	
+	jsr render	; render image to 4Bit
+	
+	ldx #60
+	jsr tcopy
+	lda #200
+	jsr setcnt
+	
+	jsr convcol	; convert colors
+	jmp break		; finished
+	
+; ----------------------------------------- Get 8 Video Rams
+
+getvr	sta dst0
+	sty dst0+1
+	ldx #8		; 8 rams counter
+l1	sta dst
+	sty dst+1
+	ldy #0
+l0	jsr unpack
+	sta (dst),y
+	jsr action
+	lda dst
+	clc
+	adc #32
+	sta dst
+	bcc l0
+	inc dst+1
+	lda dst+1
+	cmp #$bd		; until end of buffer
+	bcc l0
+;
+
+	ldy #0		; Gunpaint specific: 
+l2	jsr unpack	; at 1. ram get bgcolors
+	pha
+	cpx #8
+	bne skip1
+	lda ptype		; Gunpaint? 
+	bne skip1
+	and #$0f
+	sta col0+177,y
+skip1	pla
+	iny
+	cpy #24
+	bne l2
+;
+	lda dst0		; next blockline
+	clc
+	adc #4
+	sta dst0
+	ldy dst0+1
+	dex
+	bne l1
+	rts
+
+; ----------------------------------------- Get Bitmap
+
+getbm	sta dst
+	stx dst+1
+	ldy #0
+l3	jsr unpack
+	sta (dst),y
+	jsr action
+	lda dst
+	clc
+	adc #4
+	sta dst
+	bcc l3
+	inc dst+1
+	lda dst+1
+	cmp #$bd
+	bcc l3
+	rts
+
+; ----------------------------------------- Get BG colors 1
+
+getc0	lda ptype		; Gunpaint? 
+	beq gc0
+	cmp #1		; XRay?
+	beq gc0
+	and #15
+	cmp #$0c		; PP/PPP? 			# 1.03
+	beq gc0
+	lda #<col023	; no, Funpaint, store to $c8f8
+	ldy #>col023
+	bne gc1
+gc0	lda #<col015	; Gunpaint, PP, PPP or XRay, store to $c900
+	ldy #>col015
+gc1	sta ls_vekta8
+	sty ls_vekta8+1
+	ldy #0
+l4	jsr unpack
+	and #$0f
+	sta (ls_vekta8),y
+	jsr action
+	iny
+	cpy #192		; get 192 bytes
+	bne l4
+
+	lda ptype		; Hintergrundfarbe bei PP setzen	# 1.03
+	and #15
+	cmp #$0c		; PP/PPP? 
+	bne gca
+
+	ldy #0
+	lda col015+$3f	; $7f7f in PP
+gcb	sta (ls_vekta8),y
+	iny
+	bne gcb
+gca	rts
+
+; ----------------------------------------- Get Color RAM
+
+getcolorram
+	ldx #24 		; extra Routine			# 1.03
+	jsr tcopy
+	lda #7
+	jsr setcnt
+	
+getcr	lda ptype		; which filetype? Gunpaint?
+	beq gc2
+	and #15
+	cmp #$0c		; PP/PPP? 				# 1.03
+	beq gc2
+	lda #<(1000)	; Funpainter/X-Ray: 1000 bytes
+	ldy #>(1000)
+	bne gc3
+gc2	lda #<(1024)	; Gunpaint/Pixel Perfect: 1024 bytes
+	ldy #>(1024)
+gc3	sta ls_vekta8
+	sty ls_vekta8+1
+	lda #<(cram)
+	ldx #>(cram)
+	sta dst
+	stx dst+1
+	ldy #0
+l5	jsr unpack
+	and #$0f
+	sta (dst),y
+	jsr action
+	inc dst
+	bne gc5
+	inc dst+1
+gc5	lda ls_vekta8
+	bne gc4
+	dec ls_vekta8+1
+gc4	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	bne l5
+	rts
+
+; ----------------------------------------- Get BG colors 2
+
+getc02	ldy ptype		; Gunpaint? 
+	beq gc6
+	tya
+	dey		; XRay?
+	beq gc8
+	and #15
+	cmp #$0c		; PP/PPP? 				# 1.03
+	beq gc6
+
+	ldy #0		; nein, Funpaint
+gc7	jsr unpack
+	and #$0f
+	sta col0+100,y
+	iny
+	cpy #100
+	bne gc7
+gc6	rts
+
+gc8	lda pbyte		; XRay
+	and #$0f
+	ldy #0
+gc9	sta col0,y
+	iny
+	cpy #200
+	bne gc9
+	rts
+
+; ----------------------------------------- Render Image to 4Bit
+
+render	lda #0
+	sta linenr
+	lda #<($4000)
+	ldx #>($4000)
+	sta dst
+	stx dst+1
+	lda #<(cram)
+	ldx #>(cram)
+	sta src
+	stx src+1
+l8	lda #40
+	sta blcnt
+l10	lda #8
+	sta lcnt
+	jsr action
+l9	ldy #0
+	lda (src),y	; get color ram information
+	sta c31
+	asl
+	asl
+	asl
+	asl
+	sta c30
+	ldy linenr	; get bgcolor information
+	lda col0,y
+	sta c01
+	asl
+	asl
+	asl
+	asl
+	sta c00
+	ldy #0
+	lda (dst),y	; get video ram information
+	and #$f0
+	sta c10
+	lda (dst),y
+	asl
+	asl
+	asl
+	asl
+	sta c20
+	iny
+	lda (dst),y	; get bitmap information
+	sta bm1
+	iny
+	lda (dst),y
+	lsr
+	lsr
+	lsr
+	lsr
+	sta c11
+	lda (dst),y
+	and #$0f
+	sta c21
+	iny
+	lda (dst),y
+	sta bm2
+	jsr render1
+	inc linenr
+	lda dst
+	clc
+	adc #4
+	sta dst
+	bcc skip2
+	inc dst+1
+skip2	dec lcnt
+	bne l9
+	inc src
+	bne skip3
+	inc src+1
+skip3	lda linenr
+	sec
+	sbc #8
+	sta linenr
+	dec blcnt
+	bne l10
+	lda linenr
+	clc
+	adc #8
+	sta linenr
+	lda dst+1
+	cmp #$bd
+	bcs rok
+	jmp l8
+rok	rts
+
+; ----------------------------------------- Unpack algorithm
+
+unpack	lda packed	; packed at all?
+	beq no		; no
+	lda count		; yes, busy?
+	bne getit2	; yes
+	inc count		; no, get byte
+	jsr basin
+	cmp pbyte		; pack indicator byte?
+	bne getit1	; no
+	jsr basin		; yes, get counter
+	sta count
+	cmp #1		; Indikator selbst?
+	beq no		; ja, skip Test
+	lda ptype		; nein, Test auf PP
+	cmp #$fc
+	bne no
+	inc count		; ist PP: Zähler+1
+no	jsr basin		; get byte
+getit1	sta gbyte		; store it
+getit2	dec count		; and count repetitions
+	lda gbyte
+	rts
+
+; ----------------------------------------- Messages
+
+failb	ldx #104		; Error message: file is XRay FLI
+	!by $2c
+faila	ldx #72		; Error message: No IFLI file
+	ldy #0
+fl0	lda txt,x
+	sta message,y
+	inx
+	iny
+	cpy #32
+	bne fl0
+	jsr error
+	jsr gd_clrms
+	jsr messout
+	clc
+	rts
+
+; ----------------------------------------- Variables
+
+bm1	!by 0
+bm2	!by 0
+c00	!by 0
+c10	!by 0
+c20	!by 0
+c30	!by 0
+c01	!by 0
+c11	!by 0
+c21	!by 0
+c31	!by 0
+
+linenr	!by 0
+lcnt	!by 0
+blcnt	!by 0
+bbuf	!by 0
+
+gdcols	!by $00,$ff,$44,$cc	; convert C64 to GoDot palette
+	!by $55,$aa,$11,$dd
+	!by $66,$22,$99,$33
+	!by $77,$ee,$88,$bb
+
+; ----------------------------------------- Subroutines 1
+
+render1   ldy #0		; create IFLI "double" pixels
+l6	asl bm1
+	rol
+	asl bm1
+	rol
+	and #3
+	tax
+	lda c00,x
+	sta bbuf
+	asl bm2
+	rol
+	asl bm2
+	rol
+	and #3
+	tax
+	lda c01,x
+	ora bbuf
+	sta (dst),y
+	iny
+	cpy #4
+	bne l6
+	rts
+;
+convcol   ldy #0		; create IFLI color table 
+l11	tya
+	and #$0f
+	tax
+	lda gdcols,x
+	and #$0f
+	sta bbuf
+	tya
+	lsr
+	lsr
+	lsr
+	lsr
+	tax
+	lda gdcols,x
+	and #$f0
+	ora bbuf
+	sta ctab,y	; store at CTAB
+	iny
+	bne l11
+;
+	lda #<($4000)	; assign colors
+	ldx #>($4000)
+	sta dst
+	stx dst+1
+	ldy #0
+l12	lda (dst),y
+	tax
+	lda ctab,x
+	sta (dst),y
+	jsr action
+	iny
+	bne l12
+	inc dst+1
+	lda dst+1
+	cmp #$bd
+	bcc l12
+	rts
+
+; ----------------------------------------- End of Read
+
+break	jsr setinfo	; set image name
+	jsr gd_xmess	; get floppy message
+	jsr gd_xclose	; close file
+	jsr gd_spron	; get back mouse pointer
+	sec		; leave loader
+	rts
+
+; ----------------------------------------- Subroutines 2
+
+setcnt	sta cntwert	; set activity counter
+scnt0	lda #1
+	sta adcnt
+	rts
+
+onebyte   jsr basin		; retrieve one byte from disk
+	ldx $90
+	rts
+
+skipxray  lda #$d2		; skip 466 bytes of executable
+	ldy #$01
+	sta ls_vekta8
+	sty ls_vekta8+1
+sx1	jsr basin
+	lda ls_vekta8
+	bne sx2
+	dec ls_vekta8+1
+sx2	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	bne sx1
+	sta packed
+	rts
+	
+error	jsr gd_xclose	; error handler
+	jsr break
+	clc		; don't leave loader
+	rts
+
+; ----------------------------------------- Activity Message Routines
+
+messout   ldx #<(message)	; output message
+	ldy #>(message)
+	jmp gd_xtxout2
+;
+tcopy	ldy #0		; initialize message
+tc0	lda txt,x
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+;
+action	stx mx		; gauge handler
+	sty my
+	dec adcnt
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	cpy #22		; #1.03: Fensterrand erreicht?
+	bne act0
+	jsr clrmess	; ja, re-Init
+act0	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	ldx mx
+	ldy my
+	rts
+;
+clrmess   ldx #20		; clear message
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0
+	ldx #7
+	sty offy
+	stx offx
+	rts
+;
+filltab   !by 160,93,103,127,126,124,105,109
+;
+txt	!scr " VRams     @"			; vrams 0
+	!scr " BMap      @"			; bmap 12
+	!scr " CRam      @"			; cram 24
+	!scr " BGCols    @"			; col0 36
+	!scr " Render    @"			; render 48
+	!scr " Colors    @"			; colors 60
+	!scr "   ERROR: Not an IFLI file.     "	; Error1 72
+	!scr " ERROR: This XRay is a FLI file."	; Error2 104
+message   !fill 11,32	; 11 spaces
+mess	!fill 21,32 	; 21 chars (sum up to 32)
+	!by 0
+;
+; ----------------------------------------- Set image name 
+
+getname   ldx #0
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+;
+getdatac	lda ptype		; Gunpaint
+	beq gd01
+	cmp #1		; Xray
+	beq gd02
+	and #15
+	cmp #$0c		; PP/PPP? 		# 1.03
+	beq gd03
+	ldx #6		; Funpaint
+	!by $2c
+gd01	ldx #13
+	!by $2c
+gd02	ldx #20
+	!by $2c
+gd03	ldx #27
+	ldy #6
+sinfo0	lda dtextc,x
+	sta loader,y
+	dex
+	dey
+	bpl sinfo0
+	rts
+;
+setinfo   jsr getdatac
+	jsr setname
+	jsr setloader
+	jsr setmode
+	jmp setdata
+;
+setname   lda #0
+	ldx #<(ls_picname)
+	ldy #>(ls_picname)
+	bne si3
+setloader	lda #17
+	ldx #<(ls_iloader)
+	ldy #>(ls_iloader)
+	bne si3
+setmode   lda #25
+	ldx #<(ls_imode)
+	ldy #>(ls_imode)
+	bne si3
+setdata   lda #33
+	ldx #<(ls_idrive)
+	ldy #>(ls_idrive)
+si3	stx dst0
+	sty dst0+1
+	tax
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (dst0),y
+	inx
+	iny
+	bne si4
+si5	rts
+;
+nbuf	!fill 16,32
+	!by 0
+loader	!scr "IFLI   @"
+modetx	!scr "296x200@"
+datatype  !scr "Color@"
+dtextc	!scr "FP2    "
+	!scr "GunP   "
+	!scr "XRay   "
+	!scr "PPerfct"		; # 1.03
+
+modend	!eof

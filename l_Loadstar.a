@@ -1,0 +1,771 @@
+
+!src "..\godotlib.lib"
+*	= $c000
+
+; ---------------------------
+;
+;  ldr.Loadstar
+;  Loader for Loadstar splash screens, either hires or multi
+;
+;  1.00: 09.06.01, first release
+;  1.01: 16.12.01, bugfix: background color could be wrong
+;  1.02: 09.01.17, saves original bg color
+;  1.03: 02.05.17, added automatic retrieve of old spec files
+;
+; ---------------------------
+
+; ----------------------------------------- Equates
+
+	comprfl		= $30
+	counter		= $31	; /$32
+	gbyte		= $33
+	byte		= $34
+	gmode		= $35
+	vr		= $36	; /$37
+	cr		= $38	; /$39
+	vv		= $3a	; /$3b
+	height		= $3c
+	adcnt		= $3d
+	cnt		= $3e
+	hcol		= $3f
+	col0		= $40	; up to $43
+
+	status		= $90
+
+	offx		= $b2
+	offy		= offx+1
+
+	vrbuf		= $c600
+	crbuf		= vrbuf+1000
+
+; --------------------------- Header
+
+	jmp start
+	!by $80
+	!by $00,$00
+	!by <(modend),>(modend)
+	!by $00,$00
+	!pet "Loadstar Splash "
+	!pet "1.03"
+	!pet "02.05.17"
+	!pet "A.Dettke        "
+
+; --------------------------- Main
+;
+jerror	jmp error
+;
+start	ldx #0
+	stx counter	; clear byte counter 
+	stx counter+1
+	jsr getname	; store name
+
+stt2	jsr gd_xopen	; open file
+
+	jsr basin		; skip start address ($4000)
+	bcs jerror
+	jsr basin
+	bcs jerror
+
+	jsr basin		; get mode (hires/multi)
+	bcs jerror
+	sta gmode
+	tax		; Modus nach .x
+
+; # --- 1.03 ab hier
+
+	and #15		; alter Filetyp?
+	beq +++
+
+	jsr basin		; ja (old), height holen
+	sta height
+	cpx #$e8		; Multicolor?
+	bne +
+
+	jsr basin		; ja, Hintergrundfarbe holen
+	pha
+	jsr basin		; Kompressionsindikator holen
+	sta comprfl
+	pla
+	jmp stt4
+
++	ldx #$80		; sonst: Hires, neues Flag setzen
+
++++	jsr basin		; get compression indicator
+	bcs jerror
+	sta comprfl
+	lda gmode		; old mode?
+	and #$70
+	bne +		; skip height (already set)
+	lda #25		; neuer Filetyp: immer Höhe 25
+	sta height
+
+; # --- bis hier
+
++	txa		; mode= hires?
+	bpl stt3		; no, get bg color
+	jmp gethires	; yes, load hires
+
+; --------------------------- Get Multicolor Image
+
+stt3	jsr basin		; get background color (in multi mode)
+	bcs jerror
+stt4	and #15		; isolate color value
+	sta col0
+ 	sta gr_fbkcol	; v1.02: store original file background color
+
+	jsr gd_clrms	; clear message bar
+
+; --------------------------- First: Bitmap
+
+	lda #50		; activity counter to 50
+	sta cntwert
+	sta adcnt
+	ldx #30		; "Bitmap"
+	jsr tcopy
+
+	ldy height
+	lda hiblo,y	; count max. 8000 bytes (bitmap)
+	sta ls_vekta8
+	lda hibhi,y
+	sta ls_vekta8+1
+	ldx #0		; destination $4000
+	ldy #$40
+	stx sc_texttab
+	sty sc_texttab+1
+
+loop	jsr onebyte	; get bitmap
+	beq +
+	jmp error
++	sta byte
+	jsr action
+	ldy #0
+	ldx #4		; convert to 4bit indices
+bloop	lda #0
+	asl byte
+	rol
+	asl byte
+	rol
+	sta (sc_texttab),y
+	inc sc_texttab
+	bne sk
+	inc sc_texttab+1
+sk	dex
+	bne bloop
+
+	lda ls_vekta8	; count bytes
+	bne sk1
+	dec ls_vekta8+1
+sk1	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	beq +		; ready, proceed
+
+	lda status
+	beq loop
+
++	jsr video		; # -- v1.03
+	jsr color		; (re-organized)
+
+++	jsr gd_xclose	; close file
+	jmp conmul
+
+; --------------------------- Video RAM
+
+video	lda #7		; get multi mode colors
+	sta cntwert
+	sta adcnt
++	ldx #$00		; out: "Colors 1"
+	stx comprfl	; compression with $00
+	jsr tcopy
+
+	ldy height
+	lda hivlo,y	; count max. 1000 bytes (video RAM)
+	sta ls_vekta8
+	lda hivhi,y
+	sta ls_vekta8+1
+	lda #<(vrbuf)	; nach $c600
+	sta sc_texttab
+	lda #>(vrbuf)
+	sta sc_texttab+1
+
+loop1	ldy #0
+	jsr onebyte	; get video RAM (no conversion)
+	sta (sc_texttab),y
+	jsr action
+	inc sc_texttab
+	bne sk3
+	inc sc_texttab+1
+
+sk3	lda ls_vekta8	; count bytes
+	bne sk4
+	dec ls_vekta8+1
+sk4	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	beq sk21		; ready, proceed
+
+	jmp loop1
+
+sk21	rts
+
+; --------------------------- Color RAM
+
+color	lda #7
+	sta cntwert
+	sta adcnt
+
+; # --- v1.03 ab hier
+
+	lda gmode		; old mode?
+	and #$70
+	beq +
+-	jsr basin		; then search for #$ff
+	cmp #$ff
+	bne -
+	ldx #$d8		; and set #$d8 as indicator
+	!by $2c
++	ldx #$ff		; out: "Colors 2"
+
+; # --- bis hier
+
+	stx comprfl	; compression with $ff (new) or $d8 (old)
+	ldx #10
+	jsr tcopy
+
+	ldy height
+	lda hivlo,y	; count 1000 bytes (color RAM)
+	sta ls_vekta8
+	lda hivhi,y
+	sta ls_vekta8+1
+	lda #<(crbuf)	; nach $c9e8
+	sta sc_texttab
+	lda #>(crbuf)
+	sta sc_texttab+1
+
+loop2	ldy #0
+	jsr onebyte	; get color RAM (no conversion)
+	sta (sc_texttab),y
+	jsr action
+	inc sc_texttab
+	bne sk31
+	inc sc_texttab+1
+
+sk31	lda ls_vekta8	; count bytes
+	bne sk41
+	dec ls_vekta8+1
+sk41	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	beq +		; ready, proceed
+
+	jmp loop2
+
++	rts
+
+; --------------------------- Convert to 4Bit
+
+conmul	lda #<vrbuf	; convert to 4bit (set start addresses)
+	sta vr
+	lda #>vrbuf	; $c600
+	sta vr+1
+	lda #<crbuf
+	sta cr
+	lda #>crbuf	; $c9e8
+	sta cr+1
+	lda #<$4000
+	sta sc_texttab
+	lda #>$4000
+	sta sc_texttab+1	; $4000
+
+	lda #<1000	; count 1000
+	sta ls_vekta8
+	lda #>1000
+	sta ls_vekta8+1
+
+	lda #200
+	sta cntwert
+	sta adcnt
+	ldx #20
+	jsr tcopy		; .y=0
+
+loop3	lda (vr),y	; convert video RAM colors to 4bit (vr)
+	pha
+	lsr		; upper nibble
+	lsr
+	lsr
+	lsr
+	sta col0+1
+	pla		; lower nibble
+	and #$0f
+	sta col0+2
+	lda (cr),y	; convert color RAM colors to 4bit
+	and #$0f		; (bg color in col0)
+	sta col0+3
+
+	lda #32
+	sta cnt
+bloop1	jsr action
+	ldy #0		; reset .y to 0
+	lda (sc_texttab),y	; get values from 4bit (0-3)
+	tax
+	lda col0,x	; get color values from table
+	tax
+	lda dnib,x	; get conversion values to GoDot palette from table
+	sta (sc_texttab),y	; write back to 4bit (double nibbles)
+	inc sc_texttab	; advance
+	bne sk6
+	inc sc_texttab+1
+sk6	dec cnt		; one tile
+	bne bloop1
+
+	inc vr		; next tile
+	bne sk7
+	inc vr+1
+sk7	inc cr
+	bne sk8
+	inc cr+1
+
+sk8	lda ls_vekta8	; 1000 tiles
+	bne sk9
+	dec ls_vekta8+1
+sk9	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	bne loop3
+
+	jsr setmtext	; set image information texts
+
+; --------------------------- Close File
+
+sk11	ldx #30		; reset text to default ("Bitmap")
+	jsr tcopy
+	jsr setinfo	; set filename
+;
+sk10	jsr gd_xmess	; error message from drive
+	jsr gd_spron	; sprite pointer on
+	sec		; leave loader
+	rts
+
+; ---------------------------------------
+; --------------------------- get hires image
+; ---------------------------------------
+
+jerror2	jmp error
+
+gethires	jsr gd_clrms	; clear message bar
+
+; --------------------------- First: Bitmap
+
+	lda #50
+	sta cntwert
+	sta adcnt
+	ldx #30		; Text: "Bitmap"
+	jsr tcopy
+
+read1	lda #$00		; get bitmap
+	sta sc_texttab
+	lda #$a0
+	sta sc_texttab+1	; destination: $a000 (up to $bf3f)
+	ldy height
+	lda hiblo,y	; count max. 8000 bytes (bitmap)
+	sta ls_vekta8
+	lda hibhi,y
+	sta ls_vekta8+1
+	jsr rloop
+	bne jerror2
+
+; --------------------------- Video RAM
+
+	lda #7
+	sta cntwert
+	sta adcnt
+	ldx #0		; Text: "Colors 1"
+	jsr tcopy
+
+read2	lda #$00		; $00 is indicator
+	sta comprfl
+	sta sc_texttab
+	lda #>(vrbuf)	; to $c600
+	sta sc_texttab+1
+	ldy height
+	lda hivlo,y	; count max. 1000 bytes (video RAM)
+	sta ls_vekta8
+	lda hivhi,y
+	sta ls_vekta8+1
+	jsr rloop
+	bne jerror2
+
+	jsr gd_xclose	; close file
+
+; --------------------------- Convert to 4Bit
+
+conhir	lda #7
+	sta cntwert
+	sta adcnt
+	ldx #40		; Text: "Move"
+	jsr tcopy
+
+	ldx #4		; move colors 
+	stx cnt
+	lda #0		; from $c600 (vrbuf)
+	tax
+	tay
+	sta ls_vekta8
+	lda #>vrbuf
+	sta ls_vekta8+1
+	lda #<crbuf	; to $c9e8 (crbuf, up to $cdcf)
+	sta sc_texttab
+	lda #>crbuf
+	sta sc_texttab+1
+
+; # --- v1.03 ab hier
+
+ml2	lda (ls_vekta8),y	; verteile die Farben: z.B. .a=18
+	stx vv
+	asl		; oberes Nibble nach vv (ink)
+	rol vv		; unteres Nibble bleibt im Original bestehen
+	asl
+	rol vv
+	asl
+	rol vv
+	asl
+	rol vv
+	lda vv
+	sta (sc_texttab),y	; =01
+	tya
+	pha
+	jsr action
+	pla
+	tay
+	iny
+	cpy #250
+	bne ml2
+
+	clc
+	tya
+	adc ls_vekta8
+	sta ls_vekta8
+	bcc +
+	inc ls_vekta8+1
++	clc
+	tya
+	adc sc_texttab
+	sta sc_texttab
+	bcc +
+	inc sc_texttab+1
++	dec cnt		; 4 times 250
+	bne ml2
+
+; # --- bis hier
+
+; --------------------------- 
+
+hires	lda #50		; convert hires to 4bit
+	sta cntwert
+	sta adcnt
+	ldx #20		; Text: "Convert"
+	jsr tcopy
+
+	lda #<(8000)
+	sta ls_vekta8
+	lda #>(8000)
+	sta ls_vekta8+1
+	lda #0
+	tay
+	sta vr
+	sta cr
+	sta sc_texttab
+	lda #$a0		; vector cr to bitmap ($a000)
+	sta cr+1
+	asl		; vector to 4bit ($4000)
+	sta sc_texttab+1
+	lda #>vrbuf	; vector vr to hires colors 1 ($c600)
+	sta vr+1
+	lda #<crbuf
+	sta vv
+	lda #>crbuf	; vector vv to hires colors 2 ($c9e8)
+	sta vv+1
+
+hloop1	ldx #8		; 8 raster lines
+	stx cnt
+hilp	lda (cr),y	; get hires bitmap pixels
+	sta byte
+	jsr action
+
+	ldy #0
+	ldx #4		; one byte
+hl2	asl byte		; isolate pixel
+	bcc hl3		; set?
+	lda (vv),y	; yes, color from vv
+	!by $2c
+hl3	lda (vr),y	; no, color from vr
+	and #$0f
+	tay		; left 4bit pixel
+	lda dnib,y
+	and #$f0
+	sta hcol		; store
+	ldy #0
+	asl byte		; next pixel
+	bcc hl4		; set?
+	lda (vv),y	; yes, color from vv	
+	!by $2c
+hl4	lda (vr),y	; no, color from vr
+	and #$0f
+	tay		; right 4bit pixel
+	lda dnib,y
+	and #$0f
+	ora hcol		; combine left and right
+	ldy #0
+	sta (sc_texttab),y	; store to 4bit (2 pixels)
+	inc sc_texttab
+	bne lh5
+	inc sc_texttab+1
+lh5	dex		; four passes (8 pixels = 1 bitmap byte)
+	bne hl2
+
+	inc cr		; next bitmap byte
+	bne hl6
+	inc cr+1
+hl6	lda ls_vekta8	; count 8000
+	bne hl7
+	dec ls_vekta8+1
+hl7	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	beq hl9		; finished
+
+	dec cnt		; count for tile (up to 8, then next tile)
+	bne hilp
+
+	inc vr		; next tile vr
+	bne hl8
+	inc vr+1
+hl8	inc vv		; next tile vv
+	bne hloop1
+	inc vv+1
+	bne hloop1
+
+hl9	jsr sethtext	; set image information texts
+	jmp sk11		; close file
+
+; --------------------------- Hires: get data loop
+
+rloop	ldy #0
+	jsr onebyte
+	sta (sc_texttab),y
+	txa
+	and #$bf
+	bne rl3
+	jsr action
+	inc sc_texttab
+	bne rl1
+	inc sc_texttab+1
+rl1	lda ls_vekta8
+	bne rl2
+	dec ls_vekta8+1
+rl2	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	bne rloop
+rl3	rts
+
+; --------------------------- Set Image Data Information texts
+
+sethtext	ldx #6
+	!by $2c
+setmtext	ldx #13
+	ldy #6
+smt0	lda htext,x
+	sta modetx,y
+	dex
+	dey
+	bpl smt0
+	rts
+
+; --------------------------- 
+
+error	jsr gd_xclose
+	jsr sk10
+	clc
+	rts
+; --------------------------- 
+
+; compression: flag, counter, byte ; $00 counts 256
+
+; --------------------------- Decompress Image 
+
+onebyte	lda counter	; repeated byte?
+	ora counter+1
+	bne getit2	; yes, re-get value
+
+	inc counter	; no, counter to 1
+	jsr basin		; get 1 byte
+	cmp comprfl	; compression flag?
+	bne getit1	; no
+
+	jsr basin		; compressed: get counter
+	sta counter
+	beq rb2		; $00 equals 256 bytes
+	lda #0
+	beq rb3
+rb2	lda #1
+rb3	sta counter+1
+	jsr basin		; get byte to compress
+
+getit1	sta gbyte		; and store
+
+getit2	lda counter	; count repetition
+	bne rb4
+	dec counter+1
+rb4	dec counter
+	lda gbyte		; re-get byte
+	ldx status
+	rts
+
+; --------------------------- Activity Display
+
+messout	ldx #<(message)
+	ldy #>(message)
+	jmp gd_xtxout2
+
+tcopy	ldy #0
+tc0	lda txt,x
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+
+action	dec adcnt
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts
+
+clrmess	ldx #20
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0
+	ldx #7
+	sty offy
+	stx offx
+	rts
+
+filltab	!by 160,93,103,127,126,124,105,109
+
+cntwert	!by 50
+
+txt	!scr " Colors 1@"	; 0
+	!scr " Colors 2@"	; 10
+	!scr " Convert @"	; 20
+	!scr " Bitmap  @"	; 30
+	!scr " Move    @"	; 40
+
+message	!scr " Bitmap    "
+mess	!pet "....................."
+	!by 0
+
+; --------------------------- Palette Table for MC double pixels
+
+dnib	!by $00,$ff,$44,$cc,$55,$aa,$11,$dd
+	!by $66,$22,$99,$33,$77,$ee,$88,$bb
+
+hivlo	!by $ff,$28,$50,$78,$a0,$c8,$f0,$18
+	!by $40,$68,$90,$b8,$e0,$08,$30,$58
+	!by $80,$a8,$d0,$f8,$20,$48,$70,$98
+	!by $c0,$e8
+
+hivhi	!by $ff,$00,$00,$00,$00,$00,$00,$01
+	!by $01,$01,$01,$01,$01,$02,$02,$02
+	!by $02,$02,$02,$02,$03,$03,$03,$03
+	!by $03,$03
+
+hiblo	!by $ff,$40,$80,$c0,$00,$40,$80,$c0
+	!by $00,$40,$80,$c0,$00,$40,$80,$c0
+	!by $00,$40,$80,$c0,$00,$40,$80,$c0
+	!by $00,$40
+
+hibhi	!by $ff,$01,$02,$03,$05,$06,$07,$08
+	!by $0a,$0b,$0c,$0d,$0f,$10,$11,$12
+	!by $14,$15,$16,$17,$19,$1a,$1b,$1c
+	!by $1e,$1f
+
+; --------------------------- Save Filename
+
+getname	ldx #0
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+; --------------------------- Image Information
+
+getdatac	ldx #4
+	ldy #4
+sinfo0	lda dtextc,x
+	sta datatype,y
+	dex
+	dey
+	bpl sinfo0
+	rts
+
+setinfo	jsr getdatac
+	jsr setname
+	jsr setloader
+	jsr setmode
+	jmp setdata
+
+setname	lda #0
+	ldx #<(ls_picname)
+	ldy #>(ls_picname)
+	bne si3
+setloader	lda #17
+	ldx #<(ls_iloader)
+	ldy #>(ls_iloader)
+	bne si3
+setmode	lda #25
+	ldx #<(ls_imode)
+	ldy #>(ls_imode)
+	bne si3
+setdata	lda #33
+	ldx #<(ls_idrive)
+	ldy #>(ls_idrive)
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!fill 16,21
+	!by 0
+	!scr "Loadstr@"	; 17
+modetx	!scr "160x200@"	; 25
+datatype	!scr "Color@"	; 33
+
+htext	!scr "320x200"	; 46
+mtext	!scr "160x200"
+
+dtextc	!scr "Color"
+
+modend	!eof
