@@ -1,0 +1,215 @@
+	!src "..\godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ------------------------------------------------     
+;
+; mod.SetColorbase
+; Modul zum Ändern der RGB-Vorgabewerte für die Konversions-
+;   routinen der Lader GIF, IFF, PCX-VGA320 und PCXprep4IFLI
+;
+;   1.00, 14.03.18, first release
+;
+; ------------------------------------------------ 
+
+
+; ------------------------------------------------ Equates
+
+	src	= $30	; /$31
+
+	lbuf	= $c400
+	y2	= $d005
+
+; ------------------------------------------------ Header
+
+	jmp start
+	!by $20
+	!by $00
+	!by $00
+	!wo modend 
+	!wo 0
+	!pet "Set new RGB vals"
+	!pet "1.00"
+	!pet "14.03.18"
+	!pet "A.Dettke        "
+
+; ------------------------------------------------ Main
+
+start	jsr makech	; Kringel
+	jsr checkpals	; welche Palette ist gerade aktiv?
+
+	ldx #<scblst	; Screenlist ausgeben
+	ldy #>scblst
+	jsr gd_screen
+
+	jmp gd_eloop
+
+; ------------------------------------------------ Event: Set New RGB Values
+
+evsetpal	lda palnr
+	cmp #6
+	bcc +
+	lda #$ff
+	sta palnr
++	inc palnr
+	ldy palnr
+	jsr chngepal	; Namen eintragen und anzeigen
+	jsr movepal	; neue RGB-Werte aktivieren
+	ldy #0		; .y=0, Offset auf divgad-Vektor
+	jmp settext
+
+; ------------------------------------------------ 
+
+checkpals	ldx #<gr_rgb	; check which palette is active
+	lda #>gr_rgb
+	jsr addrgb
+	bcc chngepal
+
+; ------------------------------------------------ 
+
+	ldy #6		; if none or unknown ("none")
+chngepal	sty palnr
+	ldx paloffs,y
+	ldy #6
+-	lda palette,x
+	sta paltx,y
+	dex
+	dey
+	bpl -
+	rts
+
+; ------------------------------------------------ 
+
+movepal	lda palnr		; #6 ist "none"
+	cmp #6
+	beq +
+	asl
+	tax
+	lda paladds,x
+	sta src
+	inx
+	lda paladds,x
+	sta src+1
+	ldy #47
+-	lda (src),y
+	sta gr_rgb,y
+	dey
+	bpl -
++	rts
+
+; ------------------------------------------------ 
+
+addrgb	stx src
+	sta src+1
+	ldy #5
+	clc
+	lda #0
+-	adc (src),y
+	iny
+	cpy #10
+	bcc -
+	ldy #$ff
+-	iny
+	cpy #7
+	bcs +
+	cmp palrefs,y
+	bne -
+
+stay	clc
++	rts
+	
+; ------------------------------------------------ Event: Cancel
+
+evcancel	sec 
+	rts 
+
+; ------------------------------------------------ Text Handler
+
+gettext	!wo palgad
+
+; ------------------------------------------------ 
+
+settext	lda #<gettext
+	sta sc_texttab
+	lda #>gettext
+	sta sc_texttab+1
+	lda (sc_texttab),y
+	sta sc_screentab
+	iny 
+	lda (sc_texttab),y
+	sta sc_screentab+1
+	lda #0
+	tax 
+	tay 
+-	jsr gd_setpos
+	cpx #4
+	bne -
+	jsr gd_trim
+	jsr gd_initmove
+	ldy #6
+	jmp gd_xtxout1
+
+; ------------------------------------------------ Kringel
+
+makech	ldx #7
+-	lda char,x
+	sta sc_undochar,x
+	dex 
+	bpl -
+	rts 
+
+; ------------------------------------------------ 
+
+char	!by $00,$5c,$62,$72,$02,$02,$3c,$00
+
+palnr	!by 0		; Vorgabepalette ist "GoDot"
+palrefs	!by 56,35,45,48,42,44
+paloffs	!by 6,13,20,27,34,41,48
+paladds	!wo godot,pepto,deekay,vice,colodore,coco
+palette	!scr "GoDot  "	; 0
+	!scr "Pepto  "	; 7
+	!scr "Deekay "	; 14
+	!scr "Vice   "	; 21
+	!scr "Colodor"	; 28
+	!scr "CoCo   "	; 35
+	!scr "none   "	; 42
+
+cprefs	!by  15, 12, 11,  0,  1,  9, 10,  8,  4,  3,  2, 14,  6,  5, 13,  7	; C64 color index
+
+godot	!by $0b,$07,$03,$00,$0f,$06,$0f,$0d,$0c,$0a,$08,$00,$00,$00,$0a,$0e	; RGBs
+	!by $0b,$07,$03,$00,$0f,$04,$07,$08,$04,$0f,$00,$08,$00,$0c,$0f,$0e
+	!by $0b,$07,$03,$00,$0f,$00,$07,$05,$0c,$0e,$00,$0f,$0a,$05,$06,$07
+pepto	!by $09,$07,$04,$00,$0f,$04,$0a,$07,$07,$07,$07,$07,$03,$06,$0a,$0c
+	!by $09,$07,$04,$00,$0f,$04,$06,$05,$04,$0a,$03,$06,$03,$09,$0d,$0c
+	!by $09,$07,$04,$00,$0f,$00,$06,$02,$08,$0b,$03,$0b,$08,$06,$08,$07
+deekay	!by $0c,$08,$05,$00,$0f,$04,$0d,$0a,$0b,$07,$09,$05,$02,$05,$0a,$0f
+	!by $0c,$08,$05,$00,$0f,$03,$08,$05,$04,$0d,$02,$09,$01,$0c,$0f,$0f
+	!by $0c,$08,$05,$00,$0f,$02,$07,$00,$0a,$0b,$00,$0d,$09,$02,$0a,$06
+vice	!by $0a,$07,$04,$00,$0f,$07,$0f,$0c,$0b,$03,$0c,$06,$02,$02,$06,$0e
+	!by $0a,$07,$04,$00,$0f,$03,$05,$04,$02,$0e,$02,$05,$02,$0d,$0f,$0d
+	!by $0a,$07,$04,$00,$0f,$00,$05,$00,$0e,$0c,$02,$0f,$0b,$02,$06,$01
+colodore	!by $0b,$08,$05,$00,$0f,$05,$0c,$09,$09,$07,$08,$07,$03,$05,$0b,$0f
+	!by $0b,$08,$05,$00,$0f,$03,$07,$05,$04,$0d,$03,$07,$03,$0b,$0f,$0f
+	!by $0b,$08,$05,$00,$0f,$00,$07,$03,$09,$0d,$03,$0f,$0a,$05,$0a,$07
+coco	!by $0b,$08,$05,$00,$0f,$07,$0c,$09,$09,$07,$08,$07,$03,$05,$0b,$0f
+	!by $0b,$08,$05,$00,$0f,$04,$07,$05,$04,$0d,$03,$07,$03,$0b,$0f,$0f
+	!by $0b,$08,$05,$00,$0f,$01,$07,$03,$09,$0d,$03,$0f,$0a,$05,$0a,$07
+
+; ------------------------------------------------ Screenlist
+
+scblst	!by $00 
+	!by 7,18,11,9,$91,0,0
+	!scr "Colorbase@"
+palgad	!by 10,18,11,3,$ca
+	!wo evsetpal
+	!by $df,32
+paltx	!scr "GoDot  @"
+	!by 13,18,11,3,$c9
+	!wo evcancel
+	!scr " Leave@"
+	!by $80 
+
+; ------------------------------------------------ 
+
+modend	!eof
