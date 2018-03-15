@@ -7,7 +7,11 @@
 ;
 ; mod.SetColorbase
 ; Modul zum Ändern der RGB-Vorgabewerte für die Konversions-
-;   routinen der Lader GIF, IFF, PCX-VGA320 und PCXprep4IFLI
+;   routinen der Lader GIF, IFF, PCX-VGA320 und PCXprep4IFLI.
+;   Die Daten liegen $0380 (bis $03af) zu je 16 Bytes Rot,
+;   Grün und Blau. Die RGB-Werte müssen durch 16 geteilt sein,
+;   und dabei gerundet werden (das obere Nibble kommt ins untere,
+;   wobei ab $08 im unteren Nibble das obere aufgerundet wird).
 ;
 ;   1.00, 14.03.18, first release
 ;
@@ -17,9 +21,6 @@
 ; ------------------------------------------------ Equates
 
 	src	= $30	; /$31
-
-	lbuf	= $c400
-	y2	= $d005
 
 ; ------------------------------------------------ Header
 
@@ -56,7 +57,7 @@ evsetpal	lda palnr
 	ldy palnr
 	jsr chngepal	; Namen eintragen und anzeigen
 	jsr movepal	; neue RGB-Werte aktivieren
-	ldy #0		; .y=0, Offset auf divgad-Vektor
+	ldy #0		; .y=0, Offset auf gettext-Vektor
 	jmp settext
 
 ; ------------------------------------------------ 
@@ -68,7 +69,7 @@ checkpals	ldx #<gr_rgb	; check which palette is active
 
 ; ------------------------------------------------ 
 
-	ldy #6		; if none or unknown ("none")
+	ldy #6		; if none or unknown ("other")
 chngepal	sty palnr
 	ldx paloffs,y
 	ldy #6
@@ -81,7 +82,7 @@ chngepal	sty palnr
 
 ; ------------------------------------------------ 
 
-movepal	lda palnr		; (#6 ist "none")
+movepal	lda palnr		; (#6 ist "other")
 	cmp #6
 	beq +
 	asl
@@ -173,7 +174,7 @@ palette	!scr "GoDot  "	; 0
 	!scr "Vice   "	; 21
 	!scr "Colodor"	; 28
 	!scr "CoCo   "	; 35
-	!scr "none   "	; 42
+	!scr "other  "	; 42
 
 cprefs	!by  15, 12, 11,  0,  1,  9, 10,  8,  4,  3,  2, 14,  6,  5, 13,  7	; C64 color index
 
@@ -183,7 +184,7 @@ godot	!by $0b,$07,$03,$00,$0f,$06,$0f,$0d,$0c,$0a,$08,$00,$00,$00,$0a,$0e	; RGBs
 pepto	!by $09,$07,$04,$00,$0f,$04,$0a,$07,$07,$07,$07,$07,$03,$06,$0a,$0c
 	!by $09,$07,$04,$00,$0f,$04,$06,$05,$04,$0a,$03,$06,$03,$09,$0d,$0c
 	!by $09,$07,$04,$00,$0f,$00,$06,$02,$08,$0b,$03,$0b,$08,$06,$08,$07
-deekay	!by $0c,$09,$04,$00,$0f,$04,$0d,$0b,$0a,$06,$07,$05,$02,$05,$09,$0f
+deekay	!by $0c,$09,$04,$00,$0f,$04,$0d,$0b,$0a,$06,$07,$05,$02,$05,$09,$0f	; changed!
 	!by $0c,$09,$04,$00,$0f,$02,$08,$05,$04,$0d,$03,$09,$00,$0b,$0f,$0e
 	!by $0c,$09,$04,$00,$0f,$00,$07,$00,$0a,$0b,$03,$0d,$09,$02,$09,$05
 vice	!by $0a,$07,$04,$00,$0f,$07,$0f,$0c,$0b,$03,$0c,$06,$02,$02,$06,$0e
@@ -199,13 +200,13 @@ coco	!by $0b,$08,$05,$00,$0f,$07,$0c,$09,$09,$07,$08,$07,$03,$05,$0b,$0f
 ; ------------------------------------------------ Screenlist
 
 scblst	!by $00 
-	!by 7,18,11,9,$91,0,0
+	!by 6,16,11,9,$91,0,0
 	!scr "Colorbase@"
-palgad	!by 10,18,11,3,$ca
+palgad	!by 9,16,11,3,$ca
 	!wo evsetpal
 	!by $df,32
 paltx	!scr "GoDot  @"
-	!by 13,18,11,3,$c9
+	!by 12,16,11,3,$c9
 	!wo evcancel
 	!scr " Leave@"
 	!by $80 
