@@ -12,8 +12,10 @@
 ;    1.00, 23.01.17, first release
 ;    1.01, 24.01.17, Versuch, Garbage in letzter Blockzeile zu verhindern (misslungen)
 ;    1.02, 27.01.17, garbage in last blockline: fixed
-;    1.03, 17.03.18, double pixel on left after shifting right (when on odd position): fixed
+;    1.03, 18.07.17, added Image Information Preview 
+;    1.04, 17.03.18, double pixel on left after shifting right (when on odd position): fixed
 ;                    rightmost band of a wide char not displayed: fixed
+;    1.05, 17.03.18, single pixel on some positions lost: fixed
 ;
 ; ------------------------------------------------------------ 
 
@@ -63,7 +65,7 @@
 	!wo modend
 	!wo 0
 	!pet "Fonts Loader    "
-	!pet "1.03"
+	!pet "1.05"
 	!pet "17.03.18"
 	!pet "A.Dettke        "
 	
@@ -215,9 +217,9 @@ sch4	jsr getcline	; Rasterlinie aus Char holen
 sch6	lda l4cnt		; 4Bit-Blockzeile fertig?
 	cmp clast		; v1.02: im 4Bit beim letzen Mal nur bis tline zählen!
 	bcs sch3		; ja, nächste
-	inc width		; ### 1.03
+	inc width		; ### 1.04
 	jsr gather4b	; Rasterlinie aus 4Bit holen
-	dec width		; ### 1.03
+	dec width		; ### 1.04
 	jsr recolor	; Char gefärbt einarbeiten
 	lda l4cnt
 	jsr distrib	; Linie nach rowbuf zurückschreiben
@@ -336,12 +338,16 @@ stm1	lda rowbuf,y
 ; ----------------------------------------- Shift right Char-Line
 
 shiftr	ldx width		; Char um 1 4Bit-Pixel nach rechts shiften
-	ldy shiftofs,x	; ### 1.03
+	clc		; ### 1.05
+	lda tbyte
+	adc shiftofs,x
+	tay
 	lda linec+1,y	; letztes Pixel retten
 	asl
 	asl
 	asl
 	asl
+	sta linec+2,y
 	sta xbuf
 shr1	lda linec,y	; vorletztes Byte von max. 28
 	pha
@@ -350,14 +356,14 @@ shr0	lsr		; nach rechts shiften
 	ror xbuf
 	dex
 	bne shr0
-	tax		; ### 1.03
+	tax		; ### 1.04
 	lda xbuf
 	sta linec+1,y	; in letztes Byte schreiben
 	pla		; vorletztes zurück
 	sta xbuf
 	dey		; loop
 	bpl shr1
-	stx linec		; ### 1.03, erstes Pixel auffüllen
+	stx linec		; ### 1.04, erstes Pixel auffüllen
 	rts
 
 ; ----------------------------------------- Get Char Line
@@ -456,7 +462,7 @@ gth5	dec lcnt
 	ldx bcnt
 	inx
 	cpx width
-	beq gth4		; ### 1.03, einmal mehr als width
+	beq gth4		; ### 1.04, einmal mehr als width
 	bcc gth4
 	rts
 
