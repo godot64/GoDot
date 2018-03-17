@@ -1,0 +1,194 @@
+; ---------------------------
+;
+; GoDot System Variables for kernal file
+;
+; ---------------------------
+
+ls_len         = $1c   ; length of filename for savers/filecopy
+sy_oldposx     = $1d   ; mouse, can't be altered
+sy_oldposy     = $1e   ; mouse, can't be altered
+ls_loadsave    = $1f   ; flag: SAVE if 0, LOAD if not
+sc_vekt20      = $20   ; /$21, pointer to screen address
+sc_descriptor  = $22   ; Gadget descriptor: 
+sc_zl          = $22   ;   row in tiles
+sc_sp          = $23   ;   column
+sc_br          = $24   ;   width
+sc_ho          = $25   ;   height
+ls_lines       = $26   ; amount of files currently in filerequester
+rm_reusize     = $27   ; encoded size of attached REU (none if 0, see section "values" below))
+ls_found       = $28   ; flag: files of current type existing
+ls_dlines		= $29	; max. entries in directory window
+
+;                $2a to $2f: reserved
+;                $30 up to $53: free for programmer
+
+sy_soffx       = $7a   ; x-offset of mouse pointer to its hotspot
+sy_soffy       = $7b   ; y-offset dito
+
+sc_pos         = $a4   ; /$a5, variously usable vector
+sc_loop        = $a6   ; flag: target address textram if 0, colorram if not
+ls_temp        = $a7   ; variously usable
+ls_vekta8      = $a8   ; /$a9, variously usable, mainly used as 16 bit counter
+gr_nr          = $aa   ; contains number of function for render routines
+sc_screentab   = $ab   ; /$ac, pointer to screenlists or gadget descriptors
+gd_modswitch   = $ad   ; stores highbyte of modules when exchanging them
+sc_texttab     = $ae   ; /$af, pointer for text outputs
+sc_merk        = $b0   ; /$b1, variously usable
+ls_adrmisc     = $b2   ; /$b3, target load address when LS_DIRMASK set to 8
+sc_flags       = $b4   ; text appearance flag
+
+;                $b5/$b6      : unused
+
+sc_keyprs      = $c6   ; key currently pressed
+
+;                $f7 up to $ff: unused (except $ff e.g. in mod..FileCopy)
+
+sy_numbers     = $0100 ; space for converting bytes to digits (16 bytes)
+ls_nambuf      = $0200 ; buffer for filenames (16 bytes)
+
+sy_area1       = $0220 ; 46 bytes temporarily used by ldr..SnapShot
+rm_sram        = $0254 ; size of SuperRAM
+ls_cmdtypes    = $0255 ; drive types for attached units if CMD drives ("H", "F", or "R")
+sy_tbuffer     = $0277 ; buffer for keys pressed
+sy_area2       = $0293 ; 11 bytes temporarily used by ldr.GIF
+gr_ctr         = $02a7 ; current value of contrast 
+gr_brt         = $02a8 ; current value of brightness
+rm_nextram     = $02a9 ; next free directory entry in ram device (number)
+rm_rlen        = $02aa ; length of filename for ram device
+rm_ramundo     = $02ab ; flag: undo performed (0 if not)
+ls_bootdrive   = $02ac ; drive where GoDot booted from
+rm_cntlns      = $02ad ; amount of files in file requester (ram device)
+gr_qlock       = $02ae ; flag: quantization locked if 0 (unused yet)
+rm_tmpsaved    = $02af ; flag: temp area filled
+gr_basepal     = $02b0 ; base palette (16 bytes)
+sc_pointer     = $02c0 ; definition of mouse pointer (63 bytes)
+
+sc_shadow      = $0334 ; gadget colors: right and bottom edges
+sc_light       = $0335 ; left and top edges
+sc_normtext    = $0336 ; textcolor
+sc_hilite      = $0337 ; highlighted text color
+sc_chgcol      = $0338 ; used to exchange colors
+
+ls_showfiles   = $0339 ; flag: show *all* files in filerequester if not 0
+rm_combuf      = $033a ; carries REU command (dev.REU)
+sc_iflag       = $033b ; flag: amount of permitted input chars (-1) if not 0
+sc_lastclpzl   = $033c ; row of last clip
+sc_lastclpsp   = $033d ; column 
+sc_lastclpbr   = $033e ; width
+sc_lastclpho   = $033f ; height
+
+gr_orderedpat  = $0340 ; definition of Ordered Pattern, 64 bytes
+gr_rgb         = $0380 ; definition of C64 colors, 48 bytes
+gr_btab        = $03b0 ; table of balancing (16 bytes)
+gr_defpals     = $03c0 ; definition of the 14 different default palettes (28 bytes)
+ls_lastname    = $03dc ; name of current picture in buffer, 16 bytes
+rm_swapw       = $03ec ; buffer for swap values (ram device, 7 bytes)
+rm_werte       = $03f3 ; buffer for REU register values (ram device, 7 bytes)
+
+ls_sysdrive    = $03fa ; current system drive (bootdrive or unit ram)
+rm_ramvec      = $03fd ; vector to ram device (contains "JMP $cab0" if active)
+sy_versioninit = $03fb ; /$03fc: version of GoDot Launcher (in decimal mode)
+
+gr_qtab        = $0ee0 ; table of quantization, 16 bytes
+sc_undochar    = $0ef8 ; definition of multipurpose char 223, 8 bytes
+gr_pattern     = $0f00 ; definition of System Pattern, 128 bytes
+
+sc_screenvek   = $0f88 ; /$0f89: vector to current screenlist
+sy_event       = $0f8a ; /$0f8b: vector to module's current event routine
+sy_irqalt      = $0f8c ; /$0f8d: vector to pre-GoDot IRQ
+
+sc_maincolor   = $0f8e ; color of border and background
+rm_ramfunc     = $0f8f ; number of current ram function
+rm_nextentry   = $0f90 ; next directory entry in ram device (number)
+sy_newposx     = $0f91 ; mouse, can't be altered
+sy_newposy     = $0f92 ; mouse, can't be altered
+sc_scvek2      = $0f93 ; /$0f94: buffer for SC_SCREENVEK
+gr_cmode       = $0f95 ; current graphics mode (0 = hires; 2 = multicolor)
+gr_howmany     = $0f96 ; current amount of grays to be rendered (2 to 16)
+gr_picked      = $0f97 ; current palette color (msb set if inactive)
+gr_palette     = $0f98 ; current palette (16 bytes)
+
+ls_drive       = $0fa8 ; current drive (8 - 12, 5 bytes)
+ls_dirmask     = $0fa9 ; type of file/data to be loaded (see "values" section below)
+ls_units       = $0faa ; flags: drivetype and presence (5 bytes)
+ls_ramdrive    = $0fae ; last of LS_UNITS is flag for RAM ("drive" 12)
+ls_track       = $0faf ; current track on disk
+ls_sector      = $0fb0 ; current sector
+ls_index       = $0fb1 ; offset into current dirblock
+sy_framecount  = $0fb2 ; /$0fb3: not used yet
+gr_fbkcol      = $0fb3 ; multicolor file's own background color
+ls_err1        = $0fb4 ; first digit of floppy error message (unused but always set)
+ls_err2        = $0fb5 ; second digit
+ls_cblocks     = $0fb6 ; amount of directory blocks in filerequester
+sc_clicked     = $0fb7 ; counter for doubleclick
+sc_ticks       = $0fb8 ; starting value of SC_CLICKED
+ls_flen        = $0fb9 ; length of filename
+ls_flen2       = $0fba ; length of filename without signature (ls_flen-4)
+ls_first       = $0fbb ; first directory sector
+
+gr_dither      = $0fbc ; current dither type
+gr_redisp      = $0fbd ; flag: graphics must be rendered on "Display" (if not 0)
+sc_clipzl      = $0fbe ; row of current clip
+sc_clipsp      = $0fbf ;   column
+sc_clipbr      = $0fc0 ;   width
+sc_clipho      = $0fc1 ;   height
+sc_clipped     = $0fc2 ; flag: clip set and active if not 0
+ls_saveto      = $0fc3 ; drive where currently to save to
+ls_loadfrom    = $0fc4 ; drive where currently to load from
+sc_stop        = $0fc5 ; flag: STOP pressed if not 0 (must be initialized by 0)
+gr_bkcol       = $0fc6 ; background color for multicolor mode
+rm_vdcflag     = $0fc7 ; status of VDC ram
+sc_movetab     = $0fd8 ; text/textcolor output buffer, 39 bytes plus $00 (40 bytes)
+
+; -------------------------------------------------- Kernal addresses skipped
+
+sy_global      = $3f40 ; buffer for various purposes (192 bytes)
+sy_4bit        = $4000 ; start of 4bit image data
+sy_bigbuffer   = $bd00 ; buffer for various purposes (768 bytes)
+
+intout         = $bdcd ; convert word value to digits
+
+spritex        = $d002 ; mouse Pointer x-position
+spritey        = $d003 ; mouse Pointer y-position
+spritehi       = $d010 ; mouse Pointer high byte of x-position
+
+potx           = $d419 ; mouse move x register
+poty           = $d41a ; mouse move y register
+
+joy            = $dc00 ; joystick status register
+reubase        = $df00 ; base address of REU
+reucom         = $df01 ; command register of REU
+
+irqend         = $ea7e ; standard finish of IRQ
+reset          = $fce2 ; reset vector
+
+checkkeyb      = $ff9f ; vector: check keyboard 
+filpar         = $ffba ; set file parameters
+filnam         = $ffbd ; set filename parameters
+copen          = $ffc0 ; open 
+close          = $ffc3 ; close
+chkin          = $ffc6 ; set input device
+ckout          = $ffc9 ; set output device
+clrch          = $ffcc ; clear channel
+basin          = $ffcf ; retrieve one byte
+bsout          = $ffd2 ; send one byte
+
+
+; ---------------------------
+; ---------- values
+; --------------------------- 
+
+; dm_graphics    = 0     ; dirmask: graphics data (destination $4000)
+; dm_ldr         = 1     ; loader data (dest. $c000)
+; dm_svr         = 2     ; saver data (dest. $d000)
+; dm_mod         = 4     ; module data (dest. $e000)
+; dm_misc        = 8     ; miscellaneous data (dest. in LS_ADRMISC)
+
+; rs_128k        = 3     ; Size of REU is 128KB
+; rs_256k        = 4     ; ... is 256KB
+; rs_512k        = 5     ; ... is 512KB
+; rs_1m          = 6     ; ... is 1 Meg
+; rs_15m         = 7     ; ... is 1.5 Meg
+; rs_2m          = 8     ; ... is 2 Meg
+; rs_4m          = 9     ; ... is 4 Meg
+
