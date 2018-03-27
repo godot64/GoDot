@@ -1,75 +1,76 @@
-;         
-;
-; ---------------------------
+
+	!src "..\godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; --------------------------------------
 ;
 ;    ldr.ZX-Spectrum
-;    Lader für Sinclair ZX Spectrum SCR-Bilder
-;    liefert Hires 256x192
+;    Lader für Screen-Dumps des ZX-Spectrum,
+;    Format 256x192, Kürzel ".scr"
 ;
-;    1.00: 27.09.00, first release
-;    1.01: 13.10.16, bugfix: "EnTile" not displayed
-;                          : Color conversion in ink
+;    1.00, 27.09.00, first release
+;    1.01, 13.10.16, bugfix, section deint didn't display activity
 ;
-; ---------------------------
+; --------------------------------------
 
-!src "..\godotlib.lib"
-*=$c000
+; -------------------------------------- Equates
 
-; --------------------------- Equates
+	ftype		= $30
+	counter		= $31
+	gbyte		= $32
+	byte		= $33
+	press		= $34
+	cnt		= $35
+	src		= $36
+	dest		= $38
+	dest0		= $3a
+	blcnt		= $3c
+	lncnt		= $3d
+	thirds		= $3e
+	cntmerk		= $3f
+	adcnt		= $40
+	vr		= $45
+	cr		= $47
 
-            status		= $90
-            sprite		= $d015
+	vv		= sc_merk
+	offx		= ls_adrmisc
+	offy		= offx+1
 
-            ftype		= $30
-            gbyte		= $32
-            byte		= $33
-            press		= $34
-            cnt		= $35
-            src		= $36
-            dest		= $38
-            dest0		= $3a
-            blcnt		= $3c
-            lncnt		= $3d
-            thirds		= $3e
-            count		= $40
-            vr		= $45
-            cr		= $47
+	bmbuffer		= $6000
+	buildbuf		= $a000
+	vrbuf		= $c600
+	crbuf		= vrbuf+$0400
+	col0		= vrbuf+$0800
 
-            cntmerk		= $aa
-            vv		= $b0
-            offx		= $b2
-            offy		= offx+1
-
-            vrbuf		= $c600
-            crbuf		= vrbuf+$0400
-            col0		= vrbuf+$0800
-
-;
-; --------------------------- Header
+; -------------------------------------- Header
 
 	jmp start
 	!by $80
 	!by $00,$00
-	!by <(modend),>(modend)
+	!wo modend
 	!by $00,$00
-	!pet "load ZX-Spectrum"
-	!pet "1.01"
-	!pet "13.10.16"
-	!pet "A.Dettke        "
-;
-; --------------------------- 
+	!tx "ZX-Spectrum.scr "
+	!tx "1.01"
+	!tx "13.10.16"
+	!tx "A.Dettke        "
+
+; -------------------------------------- Main
 
 jerror	jmp error
 
-; --------------------------- Main
+; -------------------------------------- 
 
-start	lda #52		; Gauge-Zähler setzen
+start	lda #52		; Activity vorbereiten
 	sta cntwert
-	sta count
+	sta adcnt
 	jsr getname	; Filenamen merken
 
 stt2	jsr gd_xopen	; File öffnen
 	jsr gd_clrms	; Gauge vorbereiten
+
+; -------------------------------------- 
 
 	ldx #18		; Text anwählen ("Bitmap")
 	jsr tcopy
@@ -79,64 +80,66 @@ read1	lda #0		; $1800 nach ls_vekta8 (Zähler=6144)
 	sta ls_vekta8
 	lda #$18
 	sta ls_vekta8+1
-	lda #$a0		; $a000 nach sc_texttab (Zielbereich)
+	lda #>buildbuf	; $a000 nach sc_texttab (Zielbereich)
 	sta sc_texttab+1
-
 	jsr rloop		; read 6144 Bytes (Bitmap)
 	bne jerror	; bei Fehler: Ende
-;
-	lda #7
+
+; -------------------------------------- 
+
+	lda #5
 	sta cntwert
-	sta count
+	sta adcnt
 	ldx #0		; nächsten Text anwählen ("Colors")
 	jsr tcopy
-;
-read2	lda #0		; neuen Zähler ($300=768)
+
+read2	lda #0		; neuen Zähler setzen ($300=768)
 	sta ls_vekta8
 	sta sc_texttab
 	lda #3
 	sta ls_vekta8+1
-	lda #>(vrbuf)	; neues Ziel ($c600) für Videoram
+	lda #>vrbuf	; neues Ziel ($c600) für Videoram
 	sta sc_texttab+1
-
 	jsr rloop		; read 768 Bytes
 	bne jerror	; bei Fehler Ende
 
-	jsr gd_xclose	; File schließen
+; -------------------------------------- 
 
+	jsr gd_xclose	; File schließen
 	jsr prepcols	; prepare for color conversion
 	jsr deint		; Daten de-interleaven
-	jsr conhir	; konvertieren nach GoDot-Hires (Nibbles tauschen)
+	jsr conhir	; GoDot-Hires vorbereiten (Nibbles tauschen)
 	jsr hires		; in Hires wandeln
-;
-sk11	ldx #18		; Text resetten ("Bitmap")
+
+; -------------------------------------- Abschluss
+
+sk11	ldx #18		; Re-Init der Messages ("Bitmap")
 	jsr tcopy
-;
-sk10	jsr gd_xmess
-	jsr setinfo
-	lda #$03
-	sta sprite
-	sec
+
+sk10	jsr gd_xmess	; Floppy-Meldung
+	jsr setinfo	; Image Information
+	jsr gd_spron	; Mauszeiger an
+	sec		; fertig, File-Requester verlassen
 	rts
-;
-; --------------------------- Error-Handling
+
+; -------------------------------------- Fehler beim Einlesen
 
 error	jsr gd_xclose
 	jsr sk11
 	clc
 	rts
-;
-; ---------------------------
+
+; -------------------------------------- Read Bitmap
 
 rloop	jsr basin		; 1 Byte einlesen
-	sta (sc_texttab),y	; merken
+	sta (sc_texttab),y	; puffern
 	lda status	; Statusbyte:
 	and #$bf		; was anderes als EOF?
 	bne rl3		; ja, skip den Rest
+	jsr action	; Activity (ändert .y)
 
-	jsr action	; Activity
-	ldy #0		; Y wieder auf 0
-	inc sc_texttab	; Zeiger weiterstellen
+	ldy #0		; .y wieder auf 0
+	inc sc_texttab	; Zeiger vorrücken
 	bne rl1
 	inc sc_texttab+1
 rl1	lda ls_vekta8	; Zähler herunterzählen
@@ -147,17 +150,17 @@ rl2	dec ls_vekta8
 	ora ls_vekta8+1
 	bne rloop
 rl3	rts
-;
-; ---------------------------
 
-deint	lda #2
+; -------------------------------------- De-Interleave SCR Data
+
+deint	lda #39
 	sta cntwert
-	sta count
-	ldx #27		; nächsten Text anwählen ("EnTile")
+	sta adcnt
+	ldx #27		; nächster Text ("EnTile")
 	jsr tcopy
-;
-	ldx #32		; erase buffer at $6000
-	lda #$60
+
+	ldx #32		; erase buffer at $6000 (32 pages)
+	lda #>bmbuffer
 	ldy #0
 	sty dest
 	sta dest+1
@@ -167,12 +170,12 @@ dei0	sta (dest),y
 	bne dei0
 	inc dest+1
 	dex 
-	bne dei0		; Y=0
+	bne dei0
 
-	lda #$60
-	sta dest+1
+	lda #>bmbuffer	; .y=0, tranfer from $a000 to $6000
+	sta dest+1	; and re-organize to c64 tiles
 	sta dest0+1
-	lda #$a0
+	lda #>buildbuf
 	sta src+1
 	sty dest
 	sty dest0
@@ -187,9 +190,15 @@ lpf	lda #8		; 8 Mal pro blockline
 lp6	lda #8		; 8 blocklines
 	sta blcnt
 
-lp3	ldx #32		; 1 Line
+lp3	ldx #32		; 1 pixel line (256 pixels)
 lp0	lda (src),y
 	sta (dest),y
+	txa
+	pha
+	jsr action
+	pla
+	tax
+	ldy #0
 	inc src
 	bne lp4
 	inc src+1
@@ -202,18 +211,13 @@ lp4	clc
 lp1	dex
 	bne lp0
 
-	clc		; next Blockline
+	clc		; next blockline
 	lda dest
-	adc #$40
+	adc #$40		; skip rest of line (64 bytes)
 	sta dest
 	bcc lp2
 	inc dest+1
-lp2	tya
-	pha
-	jsr action
-	pla
-	tay
-	dec blcnt
+lp2	dec blcnt
 	bne lp3
 
 	inc dest0		; 8 lines per blockline
@@ -226,7 +230,7 @@ lp5	lda dest0
 	dec lncnt
 	bne lp6
 
-	clc		; next third
+	clc		; next third (advance $a00 bytes)
 	lda dest0
 	adc #$f8
 	sta dest0
@@ -238,15 +242,16 @@ lp5	lda dest0
 	dec thirds
 	bne lpf
 	
+; -------------------------------------- 
 
-	lda #$a0		; write back bitmap
+	lda #>buildbuf	; write back to $a000 as c64 bitmap
 	sta dest+1
-	lda #$60
+	lda #>bmbuffer
 	sta src+1
 	sty dest
 	sty src
 
-	ldx #32
+	ldx #32		; 32 pages nach $a000
 lp7	lda (src),y
 	sta (dest),y
 	iny
@@ -256,28 +261,29 @@ lp7	lda (src),y
 	dex 
 	bne lp7
 
-	lda #24		; now the colors
+	lda #24		; now the colors, 24 blocklines
 	sta lncnt
-	lda #$60
+
+	lda #>bmbuffer	; from $c600 to $6000
 	sta dest+1
-	lda #>(vrbuf)
+	lda #>vrbuf
 	sta src+1
 	sty dest
 	sty src
 
-	ldx #4		; first clear buffer
-	tya
+	ldx #4		; first clear buffer (4 pages)
+	tya		; .y=0
 lpe	sta (dest),y
 	iny
 	bne lpe
 	inc dest+1
 	dex
 	bne lpe
-	lda #$60
+	lda #>bmbuffer
 	sta dest+1
 
-lpc	ldx #32
-lpa	lda (src),y
+lpc	ldx #32		; .y=0, build transfer buffer
+lpa	lda (src),y	; transfer 32 bytes
 	sta (dest),y
 	inc src
 	bne lp8
@@ -288,24 +294,19 @@ lp8	inc dest
 lp9	dex
 	bne lpa
 
-	clc
+	clc		; and skip 8 bytes (right border)
 	lda dest
 	adc #8
 	sta dest
 	bcc lpb
 	inc dest+1
-lpb	tya
-	pha
-	jsr action
-	pla
-	tay
-	dec lncnt
+lpb	dec lncnt
 	bne lpc
 
-	ldx #4
-	lda #>(vrbuf)
+	ldx #4		; transfer 4 pages to $c600
+	lda #>vrbuf
 	sta dest+1
-	lda #$60
+	lda #>bmbuffer
 	sta src+1
 	sty dest
 	sty src
@@ -318,11 +319,17 @@ lpd	lda (src),y
 	dex
 	bne lpd
 
-	rts
+	rts		; fertig, Bitmap und Farben gepuffert
 
-; ---------------------------
+; -------------------------------------- Farben umorganisieren
+;
+; Aufbau: Bit: Inhalt
+;           7: Blinken
+;           6: Brightness
+;         5-3: Ink
+;         2-0: Paper
 
-prepcols  lda #>(vrbuf)	; video buffer at $c600
+prepcols	lda #>vrbuf	; videobuffer at $c600
 	sta src+1
 	ldy #0
 	sty src
@@ -336,7 +343,7 @@ pc0	lda (src),y	; get color byte
 	sta byte		; store
 	pla		; re-get byte
 	pha
-	and #$40		; isolate bright bit
+	and #$40		; => isolate brightness bit
 	asl
 	sta gbyte		; store
 	bpl pc1
@@ -344,12 +351,12 @@ pc0	lda (src),y	; get color byte
 	ora byte
 	sta byte
 pc1	pla		; re-get byte
-	and #7		; isolate paper color
-	asl		; to the upper nibble
+	and #7		; => isolate paper color
+	asl		; shift to upper nibble
 	asl
 	asl
 	asl
-	ora gbyte		; enter bright bit
+	ora gbyte		; enter brightness bit
 	ora byte		; enter ink color
 	sta (src),y	; store color byte back to buffer
 	iny
@@ -359,12 +366,12 @@ pc1	pla		; re-get byte
 	bne pc0
 	rts
 
-; --------------------------- Messages
+; -------------------------------------- Message Handler
 
-messout   ldx #<(message)
-	ldy #>(message)
+messout	ldx #<message
+	ldy #>message
 	jmp gd_xtxout2
-;
+
 tcopy	ldy #0
 tc0	lda txt,x
 	beq clrmess
@@ -372,13 +379,16 @@ tc0	lda txt,x
 	inx
 	iny
 	bne tc0
-;
-action	dec count
+
+action	dec adcnt
 	bne ld4
 	lda cntwert
-	sta count
+	sta adcnt
 	ldy offy
-	ldx offx
+	cpy #20		; Wert wie bei clrmess
+	bne act0
+	jsr clrmess
+act0	ldx offx
 	lda filltab,x
 	sta mess,y
 	jsr messout
@@ -388,8 +398,8 @@ action	dec count
 	lda #7
 	sta offx
 ld4	rts
-;
-clrmess   ldx #20
+
+clrmess	ldx #20
 	lda #32
 cl0	sta mess,x
 	dex
@@ -399,15 +409,29 @@ cl0	sta mess,x
 	sty offy
 	stx offx
 	rts
-;
-; --------------------------- Convert Hires to 4Bit
+
+filltab	!by 160,93,103,127,126,124,105,109
+
+cntwert	!by 50
+
+txt	!scr " Colors @"
+	!scr " Convert@"
+	!scr " Bitmap @"
+	!scr " EnTile @"
+	!scr " Move   @"
+
+message	!scr " Bitmap    "
+mess	!fill 21,32
+	!by 0
+
+; -------------------------------------- Convert to GoDot Hires
 
 hires	lda #50
 	sta cntwert
-	sta count
+	sta adcnt
 	ldx #9		; nächster Text ("Convert")
 	jsr tcopy
-;
+
 	lda #<(8000)	; Zähler für 8000 Bytes
 	sta ls_vekta8
 	lda #>(8000)
@@ -418,20 +442,21 @@ hires	lda #50
 	sta cr
 	sta sc_texttab
 	sta vv
-	lda #$a0		; Quelldaten in $a000
+	lda #>buildbuf	; Quelldaten in $a000
 	sta cr+1
 	asl		; Ziel in $4000
 	sta sc_texttab+1
-	lda #>(vrbuf)	; Videoram in $c600
+	lda #>vrbuf	; Videoram in $c600
 	sta vr+1
-	lda #>(crbuf)
+	lda #>crbuf
 	sta vv+1
-;
-hloop1	ldx #8		; 8 Mal
+
+hloop1	ldx #8		; 8 Mal (eine Kachel)
 	stx cntmerk
-hilp	lda (cr),y	; hol Bitmap-Byte
+hilp	lda (cr),y	; hol Byte aus Bitmap
 	sta byte
 	jsr action
+
 	ldy #0		; wandeln nach 4Bit
 	ldx #4
 hl2	asl byte
@@ -441,7 +466,7 @@ hl2	asl byte
 hl3	lda (vr),y
 	and #$0f
 	tay
-	lda dnib,y	; Farbe zuweisen (lo)
+	lda dnib,y	; Farbe zuweisen (Pixel links)
 	and #$f0
 	sta col0
 	ldy #0
@@ -452,54 +477,57 @@ hl3	lda (vr),y
 hl4	lda (vr),y
 	and #$0f
 	tay
-	lda dnib,y	; Farbe zuweisen
+	lda dnib,y	; Farbe zuweisen (Pixel rechts)
 	and #$0f
 	ora col0
 	ldy #0
 	sta (sc_texttab),y	; speichern
-;
 	inc sc_texttab	; nächstes Byte
 	bne lh5
 	inc sc_texttab+1
 lh5	dex
 	bne hl2
-	inc cr
+
+	inc cr		; vorrücken in der Bitmap
 	bne hl6
 	inc cr+1
-hl6	lda ls_vekta8
+hl6	lda ls_vekta8	; zählen
 	bne hl7
 	dec ls_vekta8+1
 hl7	dec ls_vekta8
-	dec cntmerk
-	bne hilp
-	inc vr
+
+	dec cntmerk	; Kachel durch?
+	bne hilp		; nein, Loop
+
+	inc vr		; dann vorrücken in den Farben
 	bne hl8
 	inc vr+1
 hl8	inc vv
 	bne hl9
 	inc vv+1
-hl9	lda ls_vekta8
+hl9	lda ls_vekta8	; 8000 Bytes durch?
 	ora ls_vekta8+1
-	bne hloop1
+	bne hloop1	; nein, von vorn
+
 	rts
-;
-; ---------------------------
+
+; -------------------------------------- 
 
 conhir	lda #7
 	sta cntwert
-	sta count
-	ldx #36		; nächster Text ("Move")
+	sta adcnt
+	ldx #36		; nächster Text (Move")
 	jsr tcopy
-;
+
 	ldx #4		; 4 Pages (1024 Bytes):
 	stx cntmerk
 	lda #0
 	tay
 	sta ls_vekta8
 	sta sc_texttab
-	lda #>(vrbuf)	; Vektor auf Videoram setzen
+	lda #>vrbuf	; Vektor auf Videoram setzen
 	sta ls_vekta8+1
-	lda #>(crbuf)
+	lda #>crbuf
 	sta sc_texttab+1	; Vektor auf (leeres) Colorram setzen
 ml2	lda (ls_vekta8),y	; Videoram holen
 	sty vv
@@ -512,7 +540,7 @@ ml2	lda (ls_vekta8),y	; Videoram holen
 	asl
 	rol vv
 	ora vv
-	sta (sc_texttab),y	; zurückspeichern
+	sta (sc_texttab),y	; zurückspeichern ins Colorram
 	tya
 	pha
 	jsr action	; Activity
@@ -520,34 +548,21 @@ ml2	lda (ls_vekta8),y	; Videoram holen
 	tay
 	iny
 	bne ml2
-	inc ls_vekta8+1
+
+	inc ls_vekta8+1	; nächste Page
 	inc sc_texttab+1
-	dec cntmerk	; bis alle durch (768)
+	dec cntmerk	; bis alle durch
 	bne ml2
 	rts
-;
-;
-; ---------------------------
 
-filltab   !by 160,93,103,127,126,124,105,109
-;
-cntwert   !by 50
-;
-txt	!scr " Colors @"	; 0
-	!scr " Convert@"	; 9
-	!scr " Bitmap @"	; 18
-	!scr " EnTile @"	; 27
-	!scr " Move   @"	; 36
-;
-message   !scr " Bitmap    "
-mess	!fill 21,32
-	!by 0
-;
+; -------------------------------------- Spectrum-Farbzuweisung
+
 dnib	!by $00,$11,$44,$55,$aa,$cc,$dd,$bb
 	!by $00,$11,$99,$55,$ee,$cc,$dd,$ff
 
-;
-getname   ldx #0
+; -------------------------------------- Image Information Handler 
+
+getname	ldx #0
 si0	lda ls_lastname,x
 	beq si1
 	sta nbuf,x
@@ -555,10 +570,10 @@ si0	lda ls_lastname,x
 	cpx #16
 	bcc si0
 si1	rts
-;
-getdatac  ldx #4
+
+getdatac	ldx #4
 	!by $2c
-getdatag  ldx #9
+getdatag	ldx #9
 	ldy #4
 sinfo0	lda dtextc,x
 	sta datatype,y
@@ -566,26 +581,26 @@ sinfo0	lda dtextc,x
 	dey
 	bpl sinfo0
 	rts
-;
-setinfo   jsr getdatac
+
+setinfo	jsr getdatac
 	jsr setname
 	jsr setloader
 	jsr setmode
 	jmp setdata
-;
-setname   lda #0
+
+setname	lda #0
 	ldx #<(ls_picname)
 	ldy #>(ls_picname)
 	bne si3
-setloader lda #17
+setloader	lda #17
 	ldx #<(ls_iloader)
 	ldy #>(ls_iloader)
 	bne si3
-setmode   lda #25
+setmode	lda #25
 	ldx #<(ls_imode)
 	ldy #>(ls_imode)
 	bne si3
-setdata   lda #33
+setdata	lda #33
 	ldx #<(ls_idrive)
 	ldy #>(ls_idrive)
 si3	stx sc_texttab
@@ -599,18 +614,19 @@ si4	lda nbuf,x
 	iny
 	bne si4
 si5	rts
-;
+
 nbuf	!fill 16,32
 	!by 0
-	!scr "ZX-Spec@"
+	!scr "SpecSCR@"
 	!scr "256x192@"
-datatype  !scr "Color@"
+datatype	!scr "Color@"
+
 ttext	!scr "Text   "
 htext	!scr "256x192"
 mtext	!scr "160x200"
 dtextc	!scr "Color"
 dtextg	!scr "Grey "
 
-; ---------------------------
+; --------------------------------------
 
 modend	!eof

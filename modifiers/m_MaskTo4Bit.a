@@ -1,0 +1,236 @@
+	!src "..\godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ------------------------------------------------------------ 
+;
+; mod.MaskTo4Bit
+; Module to convert a monochrome bitmap in the display area at $2000 to 4bit
+;
+;   1.00, 02.11.03: first release
+;
+; ------------------------------------------------------------ 
+
+; --------------------------------------- Equates
+
+	cpu		= $01
+
+	color		= $30
+	farbe		= $32
+	bitmap		= $34
+	fourbit		= $36
+	backc		= $38
+	hinten		= $39
+	vorne		= $3a
+	oben		= $3b
+	bytcnt		= $3c
+	blkcnt		= $3d
+	byte		= $3e
+	merkbyte		= $3f
+	yps		= $40
+	merk		= $41
+	dest1		= $42
+	adcnt		= $44
+
+	sprptr		= $07f8
+	spr255		= $3fc0
+
+	vram		= $cc17	; colors up to $cfff
+	vram1		= $cc16
+
+	x2		= $d004
+	y2		= x2+1
+	spren		= $d015
+	sprxe		= $d01d
+	sprcol2		= $d029
+
+; --------------------------------------- Header
+
+	jmp start
+	!by $20
+	!by $00,$00
+	!wo modend
+	!by $00,$00
+	!tx "Bitmap To 4Bit  "
+	!tx "1.00"
+	!tx "02.11.03"
+	!tx "A.Dettke        "
+
+; --------------------------------------- Main
+
+start	jsr initad	; init activity display
+	jsr makevram	; preset colors to b&w
+
+	lda #<vram1	; set vectors: colors
+	ldx #>vram1
+	sta farbe
+	stx farbe+1
+	lda #<($1fff)	; bitmap
+	ldx #>($1fff)
+	sta bitmap
+	stx bitmap+1
+	lda #<($4000)	; 4bit
+	ldx #>($4000)
+	sta fourbit
+	stx fourbit+1
+
+	jsr doithi	; convert monochrome bitmap to 4Bit
+
+	jsr exit		; restore mouse pointer
+	clc
+	rts
+
+; ---------------------------------------
+
+dnib	!by $00,$ff,$44,$cc
+	!by $55,$aa,$11,$dd
+	!by $66,$22,$99,$33
+	!by $77,$ee,$88,$bb
+
+; --------------------------------------- Make fake Video RAM
+
+makevram	ldy #0
+	lda #$10		; weiß auf schwarz
+vloop	sta vram,y
+	sta vram+250,y
+	sta vram+500,y
+	sta vram+750,y
+	iny
+	cpy #250
+	bne vloop
+	rts
+
+; --------------------------------------- Convert to Hires
+
+doithi	ldy #0
+	lda #$80		; Maske
+	sta bytcnt
+	sty yps
+tr0	sta blkcnt
+	inc farbe		; fake Farbram anwählen
+	bne tr1
+	inc farbe+1
+tr1	lda farbe+1	; bis Ende erreicht ($d000)
+	cmp #$d0
+	beq trready
+
+	lda (farbe),y	; Farbdoppelnibble vorbesetzen (4Bit-Werte für die monochromen Pixel)
+	pha
+	lsr
+	lsr
+	lsr
+	lsr
+	tax
+	lda dnib,x	; linke Farbe (Vordergrund, Schreibfarbe, immer weiß)
+	sta vorne
+	pla
+	and #15
+	tax
+	lda dnib,x	; rechte Farbe (Hintergrund, immer schwarz)
+	sta hinten
+
+bytes8	ldy #0		; Bitmap anwählen
+	inc bitmap
+	bne tr2
+	inc bitmap+1
+tr2	lda (bitmap),y	; Pixel holen
+	sta byte
+
+	ldy yps
+pixels8	asl byte		; pixelweise monochromes Hires nach 4Bit konvertieren
+	rol
+	and #1
+	tax
+	lda hinten,x
+	tax
+	stx merkbyte	; Farbzuweisung merken
+
+	lda #$aa		; %10101010 mit Maske (%10000000, wandert nach unten) abgleichen
+	and bytcnt
+	beq tr4
+	txa
+	and #$f0		; %1: linkes 4Bit-Pixel auswählen
+	sta (fourbit),y
+	jmp tr6
+tr4	lda merkbyte	; %0: rechtes 4BitPixel dazu-odern
+	and #15
+	ora (fourbit),y
+	sta (fourbit),y
+	iny
+tr6	lsr bytcnt	; Maske weiterrücken (8mal, ein monochromes Byte durch)
+	bcc pixels8
+
+	lda #$80		; Maske resetten
+	sta bytcnt
+	sty yps
+	lsr blkcnt	; Kachellinienzähler erhöhen (ebenfalls 8mal)
+	bcc bytes8
+
+	clc		; bis Kachel fertig, dann nächste ansteuern
+	lda fourbit	; im Zielspeicher (4Bit)
+	adc #32
+	sta fourbit
+	bcc doithi
+	inc fourbit+1
+
+	dec adcnt		; Activity anzeigen
+tr5	bne doithi
+	inc y2
+	inc y2+2
+	lda #3
+	sta adcnt
+	bne tr5		; von vorn
+trready	rts
+
+; ---------------------------------------
+
+;   sprite activity display
+
+; ---------------------------------------
+
+exit	lda spren
+	and #243
+	sta spren
+	lda spritehi
+	and #243
+	sta spritehi
+	lda #1
+	sta gr_redisp
+	clc
+	rts
+
+initad	ldy #60
+	lda #0
+adl0	sta spr255+3,y
+	dey
+	bpl adl0
+	sty spr255
+	sty spr255+1
+	sty spr255+2
+	lda #15
+	sta sprcol2
+	sta sprcol2+1
+	lda sprxe
+	ora #12
+	sta sprxe
+	lda spritehi
+	ora #12
+	sta spritehi
+	lda #8
+	sta x2
+	lda #32
+	sta x2+2
+	lda #146
+	sta y2
+	sta y2+2
+	sty sprptr+2
+	sty sprptr+3
+	lda spren
+	ora #12
+	sta spren
+	lda #3
+	sta adcnt
+	rts
+
+modend	!eof

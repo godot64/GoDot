@@ -26,6 +26,7 @@
 ;   1.34, 14.02.18: solved problem with mouse pointer set to wrong tile
 ;   1.35, 14.02.18: really solved the problem (was use of CTRL instead of CBM key!)
 ;   1.36, 03.03.18: changed navigation icons
+;   1.37, 25.03.28: activate optimal grid color on start
 ;
 ; ------------------------------------------------------------ 
 
@@ -87,8 +88,8 @@
 	!wo (modend)
 	!wo 0
 	!pet "Edit 4bit pixels"
-	!pet "1.36"
-	!pet "03.03.18"
+	!pet "1.37"
+	!pet "25.03.18"
 	!pet "AD/ H.McMenamin "
 
 ; ------------------------------------------ Main
@@ -309,9 +310,9 @@ bc0:	lda bestcolor,y	; get new color
 	inx
 	cpx #4
 	bne bc0
-	lda sc_light
+	lda sc_hilite
 	sta grclr
-	rts
+	jmp gridcl	; ### 1.37, activate grid color
 
 ; ------------------------------------------ Fill screen with new character
 

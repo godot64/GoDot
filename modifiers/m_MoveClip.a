@@ -646,7 +646,7 @@ sh1	lda togg		; finish
 	lda spritex+2	; set correct selector position
 	sta spritex
 	lda spritey+2	; ### 1.09
-	sta spritey
+	sta spritey-2
 	jsr getpos	; get selector position for transport
 	lda spritehi	; leave only pointer
 	and #3
