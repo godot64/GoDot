@@ -1,11 +1,13 @@
 
-!src "..\godotlib.lib"
-*	= $c000
+	!src "..\godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
 
 ; ---------------------------
 ;
 ;    mod.PrintTo4Bit (formerly: ldr.BasicTxt)
-;    Lader für Basic-Text-Screens
+;    Lader für Basic-PRINT-Screens
 ;
 ;    0.99: 14.04.93, first release
 ;    1.00: 16.10.16, many bugfixes
@@ -19,12 +21,14 @@
 ;    1.08: 12.02.18, added Clear Char Buffer before load
 ;                    fixed wrong buffer address after adding Show Font routines
 ;    1.09: 04.03.18, bugfix: last byte of file got lost
+;    1.10: 28.03.18, added SPC and TAB (including Comma-Tabs)
 ;
 ; --------------------------- 
 
 ; --------------------------- Equates
 
 	prozport	= $01
+	int	= $14
 
 	dst	= $35
 	src	= $37
@@ -78,8 +82,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "basic text rem/?"
-	!pet "1.09"
-	!pet "04.03.18"
+	!pet "1.10"
+	!pet "28.03.18"
 	!pet "W.Kling/A.Dettke"
 
 ; --------------------------- 
@@ -336,6 +340,7 @@ ldl0	jsr basin
 	jmp failf
 
 jnofile	jmp nofile
+jfaila	jmp faila
 
 jfaile	jsr errnf
 	pha
@@ -362,10 +367,10 @@ cf4	lda #<(nofntgad)	; Fontnamen ansteuern
 
 getlines	jsr basin
 	cmp #$01		; $0801 (Basic?)
-	bne faila
+	bne jfaila
 	jsr basin
 	cmp #$08
-	bne faila
+	bne jfaila
 	beq lineloop
 
 cr	lda #13
@@ -384,12 +389,32 @@ lineloop	jsr basin		; Link lo
 	stx lnr
 	sta lnr+1
 
-	jsr basin		; BASIC command
+	jsr basin		; get BASIC command
 	tax 
-ll0	jsr basin
-	cmp #" "
-	beq ll0
-	cmp #$22		; next: quote?
+ll0	jsr basin		; get follower
+	beq cr		; just PRINT, then end of line?		; yes
+	cmp #" "		; Space?
+	beq ll0		; yes, skip
+ll2	cmp #$a3		; ### 1.10, ab hier: TAB?
+	bne +
+	jsr tabs
+	bne ll0
++	cmp #$a6		; SPC?
+	bne +
+	jsr tabs
+	bne ll0
++	cmp #$2c		; Comma?
+	bne +
+	lda $d3		; get column
+	sec
+-	sbc #10
+	bcs -
+	eor #$ff
+	adc #1
+	jsr tab10		; ### 1.10, bis hier
+	bne ll0
+
++	cmp #$22		; leading quote?
 	bne failb		; no, error
 
 	cpx #$8f		; REM?
@@ -400,15 +425,17 @@ ll0	jsr basin
 ; --------------------------- PRINT
 
 	stx prflg
-print	jsr basin		; PRINT ausführen
-	beq cr
+
+print	jsr basin		; PRINT ausführen, nächstes Zeichen holen
+	beq cr		; Zeilenende?
 	cmp #$22		; End-Quote?
 	bne ll1
-	jsr basin
-	beq cr
-	cmp #";"
+	jsr basin		; nein, danach folgt:
+	beq cr		; End of Line?
+	cmp #";"		; Semikolon?
 	beq nocr
-ll1	jsr bsout
+	jmp ll2		; und sonst?
+ll1	jsr bsout		; nein, Zeichen ausgeben
 	jmp print
 
 ; --------------------------- Abschluss
@@ -1132,6 +1159,65 @@ txmini	lda #0		; linksbündig
 til	sta txmodes,y	; Rest löschen
 	iny 
 	bne til
+	rts
+
+; -------------------------------------- TAB / SPC / Comma
+
+tabs	jsr gword
+	beq +
+tab10	tax
+	lda #$1d		; CRSR right
+-	jsr bsout
+	dex
+	bne -
++	ldx #$99		; remember BASIC command
+	rts
+
+; -------------------------------------- Convert Digits to Word (or just Byte in INT)
+
+gword	ldy #0
+	sty int
+	sty int+1		; jetzt auf erste Ziffer vorrücken:
+
+-	jsr basin
++	cmp #$20
+	beq -
+
+	cmp #$3a
+	bcs +
+	sec 
+	sbc #$30
+	sec 
+	sbc #$d0
+	bcs +
+	sbc #$2f
+	sta sc_merk
+	lda int+1
+	sta ls_temp
+	cmp #$19		; delimit value to max. 63999 (next pass would exceed 64K)
+	bcs +
+
+	lda int		; value times 10:
+	asl
+	rol ls_temp
+	asl
+	rol ls_temp
+	adc int
+	sta int
+	lda ls_temp
+	adc int+1
+	sta int+1
+	asl int
+	rol int+1
+	lda int
+	adc sc_merk
+	sta int
+	bcc -
+	inc int+1
+	bne -
+
+gw0
++	lda int		; result in INT and INT+1
 	rts
 
 ; --------------------------- Flags
