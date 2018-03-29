@@ -1,0 +1,524 @@
+
+	!src "..\godotlib.lib"	; Label-Library einbinden
+	*= $c000			; generelle Startadresse für alle Module
+	!ct pet			; Texte werden in PETSCII assembliert
+;	!sl "labels.txt"
+
+; ----------------------------------------- 
+;
+; svr.Phantasm, wird mal: svr.MultiClp
+;     Saver für Bilder des unvollendeten Adventurespiels
+;     Phantasm&Fantasy von Todd Elliott, USA
+;     http://csdb.dk/release/?id=13562&show=notes
+;     Nimmt die linke obere Clip-Ecke als Anfang des
+;     Speicher-Ausschnitts.
+;     Format: Koala, aber feste Größe von 12x12 Kacheln
+;             (zuerst Bitmap, dann Videoram, dann Farbram,
+;             dann 1 Byte Hintergrundfarbe,
+;             Namenskürzel: ".pix", Datei: 6 Blocks groß)
+;
+; 1.00: 01.02.98, first release
+; 1.01: 28.03.18, changed: opportunity to switch to variable width and height
+;
+; ----------------------------------------- 
+
+	pfclp	= 12		; Konstante
+
+	pport	= $01
+
+	lcnt	= $30
+	leftoff	= $32
+	src	= $34
+	adcnt	= $3e
+
+	offx	= ls_adrmisc
+	offy	= offx+1
+
+	colors	= $c82f
+	vid1	= colors
+	vid2	= $ca23
+	colram	= $cc17
+	videoram1	= $ce0b
+	videoram2	= $ee0b
+	colorram	= $de0b
+	back	= $cfff
+
+; ----------------------------------------- 
+
+header	jmp start
+	!by $40
+	!by 0
+	!by 1
+	!wo modend
+	!wo 0
+	!tx "Phantasm&Fantasy"
+	!tx "1.01"
+	!tx "28.03.18"
+	!tx "A.Dettke        "
+
+; ----------------------------------------- 
+
+start	ldx gr_nr
+	dex 
+	bne st0
+	jmp initinp
+
+; ----------------------------------------- 
+
+st0	jsr gd_sproff	; Mauszeiger aus
+	lda gd_modswitch	; Modul-Handling
+	pha 
+
+	lda ls_flen	; File ausgewählt?
+	beq st1		; nein, Ende
+
+st3	sta wflen		; Länge merken
+	jsr addsig	; Kürzel anhängen (.pix)
+	lda #1		; Activity vorbereiten
+	sta adcnt
+	lda #8
+	sta cntwert
+
+	jsr getpic	; gerenderte Farben puffern
+
+	jsr wopen		; Datei zum Schreiben öffnen
+	bne st2
+
+	jsr getname	; Namen merken
+	ldx #12
+	jsr ckout
+	jsr gd_clrms	; Füllstandsanzeige vorbereiten
+	ldx #0		; 1. Infotext ausgeben
+	jsr tcopy
+
+	jsr write		; Datei speichern
+
+st2	jsr clrch		; Datei schließen
+	lda #12
+	jsr close
+	jsr err9		; Floppymeldung (kurz)
+	bne st1
+
+	jsr setname	; wenn, fehlerfrei: Namen veröffentlichen
+
+st1	pla 		; Modul-Handling
+	sta gd_modswitch
+
+	jsr gd_spron	; Mauszeiger an
+	sec 		; Modul verlassen
+	rts 
+
+; --------------------------- 
+; --------------------------- Input Routines (erforderlich!)
+; --------------------------- 
+
+!src "..\input.inc"
+
+; --------------------------- 
+; --------------------------- 
+; --------------------------- 
+
+; ----------------------------------------- Open File
+
+pw	!tx "w,p,"
+drinit	!tx "i0"
+wflen	!by 0
+sigtx	!tx "xip."
+sigtxs	!scr "xip."
+nname	!fill 16,32
+
+wopen	jsr inull
+	bne err8
+	ldy wflen
+	ldx #3
+wo1	lda pw,x
+	sta ls_nambuf,y
+	iny 
+	dex 
+	bpl wo1
+	sty wflen
+	lda #12
+	tay 
+	ldx ls_drive
+	jsr filpar
+	lda wflen
+	ldx #<ls_nambuf
+	ldy #>ls_nambuf
+	jsr filnam
+	jsr copen
+	jmp err9
+
+inull	ldx #<drinit
+	ldy #>drinit
+	lda #2
+	jsr gd_sendcom
+err9	jsr gd_xmess
+	lda ls_err2
+	and #15
+err8	sec 
+	rts 
+
+; ----------------------------------------- Activity Handler
+
+messout	ldx #<message
+	ldy #>message
+	jmp gd_xtxout2
+
+tcopy	ldy #0		; Infotext ausgeben
+tc0	lda txt,x
+	beq clrmess
+	sta message,y
+	inx 
+	iny 
+	bne tc0
+
+action	dec adcnt		; Füllstandsbalken ausgeben
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy		; Offset auf Balkenende
+	cpy #23		; Ende erreicht? (Hier den gleichen Wert wie bei clrmess einsetzen!)
+	bne act0
+	jsr clrmess	; ja, re-Init
+act0	ldx offx		; Dicke des Balkenendstücks
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts 
+
+clrmess	ldx #23		; Infozeile löschen
+	lda #32
+cl0	sta mess,x
+	dex 
+	bpl cl0
+	ldy #0		; Zähler vorbereiten
+	ldx #7
+	sty offy
+	stx offx
+	rts 
+
+filltab	!by 160,93,103,127,126,124,105,109
+cntwert	!by 50
+
+txt	!scr " Bitmap@"
+	!scr " Colors@"
+
+message	!fill 8,32
+mess	!fill 24,32
+	!by 0
+
+; ----------------------------------------- Image Information Handler
+
+getname	ldx #0
+si0	lda ls_lastname,x	; Namen vormerken
+	beq si1
+	sta nbuf,x
+	inx 
+	cpx #16
+	bcc si0
+si1	rts 
+
+setname	lda #0
+	ldx #<(ls_picname)	; Namen veröffentlichen
+	ldy #>(ls_picname)
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax 
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx 
+	iny 
+	bne si4
+si5	rts 
+
+nbuf	!fill 16,32
+	!by 0
+
+; ----------------------------------------- Namenssignatur anhängen
+
+addsig	pha		; Länge merken
+	tay
+	dey
+	ldx #0
+ag4	lda ls_nambuf,y	; endet auf ".SIG"?
+	cmp sigtx,x
+	bne ag2		; nein
+	dey
+	inx
+	cpx #4
+	bcc ag4
+	pla		; ja, fertig
+	rts
+	
+ag2	pla
+	tay		; Name länger als 12 Zeichen?
+	cpy #13
+	bcs ag0		; ja, behandeln
+
+ag5	ldx #3		; nein, ".sig" anhängen
+ag1	lda sigtx,x
+ag3	sta ls_nambuf,y
+	lda sigtxs,x	; auch für Image Info
+	sta ls_lastname,y
+	iny
+	dex
+	bpl ag1
+	sty wflen		; neue Länge merken, fertig
+	sty ls_flen
+	rts
+
+ag0	dey		; auf 12 verkürzen
+	cpy #12
+	bne ag0
+	beq ag5		; unbed. Sprung
+
+; ----------------------------------------- Retrieve GoDot's colors
+
+getpic	lda #<videoram1	; Videoram, part 1
+	sta sc_texttab
+	lda #<vid1
+	ldx #>vid1
+	ldy #>videoram1
+	jsr move
+	lda #<videoram2	; Videoram, part 2
+	sta sc_texttab
+	lda #<vid2
+	ldx #>vid2
+	ldy #>videoram2
+	jsr move
+	lda #<colorram	; Colorram
+	sta sc_texttab
+	lda #<colram
+	ldx #>colram
+	ldy #>colorram
+	jsr movec
+	lda gr_bkcol	; Background Color
+	sta back
+	rts 
+
+; ----------------------------------------- Move 500 Bytes
+
+move	sty sc_texttab+1	; set vectors
+	sta sc_vekt20
+	stx sc_vekt20+1
+	lda #<(500)	; set counter
+	ldx #>(500)
+	sta ls_vekta8
+	stx ls_vekta8+1
+	sei 
+	lda #$30		; C64 completely RAM
+	sta pport
+	ldy #0
+mv0	lda (sc_texttab),y	; move
+	sta (sc_vekt20),y
+	jsr count
+	bne mv0
+	lda #$36		; GoDot on again
+	sta pport
+	cli 
+	rts 
+
+; ----------------------------------------- Move Colorram
+
+movec	sty sc_texttab+1	; set vectors
+	sta sc_vekt20
+	stx sc_vekt20+1
+	lda #<(500)	; set counter
+	ldx #>(500)
+	sta ls_vekta8
+	stx ls_vekta8+1
+	sei 
+	lda #$30		; C64 completely RAM
+	sta pport
+	ldy #0
+mv1	sty sc_merk
+	lda (sc_texttab),y	; decompress color data
+	lsr 
+	rol sc_merk
+	lsr 
+	rol sc_merk
+	lsr 
+	rol sc_merk
+	lsr 
+	rol sc_merk
+	sta (sc_vekt20),y	; move
+	inc sc_vekt20
+	bne mv2
+	inc sc_vekt20+1
+mv2	lda sc_merk
+	sta (sc_vekt20),y
+	jsr count
+	bne mv1
+	lda #$36		; GoDot on again
+	sta pport
+	cli 
+	rts 
+
+; ----------------------------------------- Counter
+
+count	inc sc_vekt20	; advance
+	bne cou5
+	inc sc_vekt20+1
+cou5	inc sc_texttab
+	bne cou6
+	inc sc_texttab+1
+cou6	lda ls_vekta8	; countdown to 0
+	bne cou7
+	dec ls_vekta8+1
+cou7	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	rts 
+
+; ----------------------------------------- Write File
+
+write	lda #0		; Write Startaddresse $9a00
+	jsr bsout
+	lda #$9a
+	jsr bsout
+
+	lda height	; 12 Blockzeilen Bitmap
+	sta lcnt
+	lda #0		; Quellbereich: $2000
+	ldx #$20
+	jsr setsrc
+	jsr toff1		; Clipzeile berechnen (Pixel)
+	jsr loff		; Clipspalte berechnen (Pixel)
+
+bmloop	jsr addoff	; Linke Einrückung berechnen
+wr1	lda width		; 96 Bytes zählen (12 Kacheln)
+	asl
+	asl
+	asl
+	sta ls_vekta8
+	ldx #0
+	stx ls_vekta8+1
+	jsr wloop		; ausgeben (1 Blockzeile)
+	ldy #1		; nächste Zeile
+	jsr tf1
+	dec lcnt		; bis alle 12 durch
+	bne bmloop
+
+	ldx #8		; jetzt die Farben
+	jsr tcopy		; .y=0
+	lda #2
+	sta cntwert
+	lda sc_lastclpsp	; linke Einrückung (Kacheln)
+	sta leftoff
+
+	lda height	; 12 Zeilen Farbram
+	sta lcnt
+	lda #<colram
+	ldx #>colram
+	jsr setsrc
+	jsr toff2		; Offset von oben; .y=0
+	jsr cmloop	; ausgeben
+
+	lda height	; 12 Zeilen Videoram
+	sta lcnt
+	lda #<vid1
+	ldx #>vid1
+	jsr setsrc
+	jsr toff2		; Offset von oben; .y=0
+	jsr cmloop	; ausgeben
+
+	lda #<colors	; GoDots Farbram rekonstruieren
+	sta sc_texttab
+	lda #<videoram1
+	ldx #>videoram1
+	ldy #>colors
+	jsr move
+	sec 		; fertig
+	rts 
+
+; ----------------------------------------- Set Source
+
+setsrc	sta src
+	stx src+1
+	rts 
+
+; ----------------------------------------- Add left offset
+
+addoff	clc 
+	lda src
+	adc leftoff
+	sta sc_texttab
+	lda src+1
+	adc #0
+	sta sc_texttab+1
+	rts 
+
+; ----------------------------------------- Farben schreiben
+
+cmloop	jsr addoff
+	lda width		; 12 Kacheln
+	sta ls_vekta8
+	jsr wloop
+	ldy #1		; und 12 Zeilen
+	jsr tf2
+	dec lcnt
+	bne cmloop
+	rts 
+
+; ----------------------------------------- Add top offset bitmap
+
+toff1	ldy sc_lastclpzl
+tf1	lda #<320
+	ldx #>320
+	jsr nextline
+	dey 
+	bne tf1
+	rts 
+
+; ----------------------------------------- Add top offset colorrams
+
+toff2	ldy sc_lastclpzl
+tf2	lda #<40
+	ldx #>40
+	jsr nextline
+	dey 
+	bne tf2
+	rts 
+
+; ----------------------------------------- Bitmap schreiben
+
+wloop	ldy #0
+	lda (sc_texttab),y
+	jsr bsout
+	jsr action
+	jsr cou5
+	bne wloop
+	rts 
+
+; ----------------------------------------- 
+
+nextline	clc 
+	adc src
+	sta src
+	txa 
+	adc src+1
+	sta src+1
+	rts 
+
+; ----------------------------------------- 
+
+loff	lda sc_lastclpsp
+	asl 
+	asl 
+	asl 
+	sta leftoff
+	rts 
+
+; ----------------------------------------- 
+
+width	!by pfclp
+height	!by pfclp
+
+modend	!eof 
