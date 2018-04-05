@@ -1,7 +1,7 @@
 
 	!src "..\godotlib.lib"
 	*= $c000
-	!sl "labels.txt"
+;	!sl "labels.txt"
 
 ; -------------------------------------------------- 
 
@@ -11,6 +11,7 @@
 ;   1.01, 16.03.02, changed: graphics mode info
 ;   1.02, 31.05.17, bugfix: adapted to latest ldr.GIF
 ;   1.03, 25.03.18, more exact rgb conversion
+;   1.04, 05.04.18, bugfix: flush bottommost line
 ; 
 ; -------------------------------------------------- 
 
@@ -84,8 +85,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "gif: LoadSection"
-	!pet "1.03"
-	!pet "25.03.18"
+	!pet "1.04"
+	!pet "05.04.18"
 	!pet "A.Dettke/W.Kling"
 addtxt	!pet "viva D. Jansen!!"
 	!by 0
@@ -173,7 +174,7 @@ adinc	dec adcnt
 	lda cntwert
 	sta adcnt
 	ldy offy
-	cpy #22		; #1.02: catch Gauge Overflow
+	cpy #24		; #1.02: catch Gauge Overflow
 	bne act0
 	jsr clrmess
 act0	ldx offx
@@ -536,6 +537,7 @@ dc1	sta convmode	; set routine entries accordingly
 	jsr init		; init vectors and counters
 	jsr initread	; init skip counters
 	jsr readgif	; retrieve GIF data (image) to RAM
+	jsr crunch	; ### 1.04, flush read buffer
 	jsr doundo	; Re-get from RAM (to $4000)
 	jsr decrunch	; convert to card graphics
 	lda mundo
@@ -599,7 +601,8 @@ decdloop	jsr makebytes
 gg4	cmp eoicode
 	bne gg5
 	cpy eoicode+1
-	beq gg5		; ??? gg6?
+	beq gg5		; ??? gg5 ???
+
 gg5	jsr maketabs
 	lda code
 	sec
@@ -844,7 +847,7 @@ csizepl1	!by 0
 
 ; -------------------------------------- 
 
-render	tay		; save code byte to .Y
+render	tay		; save code byte to .y
 again	lda tskip		; skip at the top?
 	ora tskip+1
 	beq lread		; no, branch
@@ -1002,14 +1005,14 @@ s52	rts
 ; -------------------------------------- 
 
 write2undo
-	lda #$90		; Stash
+	lda #$90		; Stash 160 bytes
 	jsr gd_reu
 	clc
 	lda rm_werte+2
 	adc #160
 	sta rm_werte+2
 	bcc w2u0
-	inc rm_werte+3	; Bank (+4) doesn't get exceeded
+	inc rm_werte+3	; Bank (+4) doesn't ever get exceeded
 w2u0	rts
 
 ; -------------------------------------- 
