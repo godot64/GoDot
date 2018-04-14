@@ -11,6 +11,7 @@
 ;  1.01: 16.12.01, bugfix: background color could be wrong
 ;  1.02: 09.01.17, saves original bg color
 ;  1.03: 02.05.17, added automatic retrieve of old spec files
+;  1.04: 12.04.18, bugfix: care for max. activity
 ;
 ; ---------------------------
 
@@ -78,7 +79,11 @@ stt2	jsr gd_xopen	; open file
 
 	jsr basin		; ja (old), height holen
 	sta height
-	cpx #$e8		; Multicolor?
+	cmp #26		; mehr als 25?
+	bcc +
+	jmp error		; ja, evtl. falsches Format, Fehler
+
++	cpx #$e8		; Multicolor?
 	bne +
 
 	jsr basin		; ja, Hintergrundfarbe holen
@@ -641,7 +646,10 @@ action	dec adcnt
 	lda cntwert
 	sta adcnt
 	ldy offy
-	ldx offx
+	cpy #20		; this value must be the same as at CLRMESS
+	bne act0
+	jsr clrmess
+act0	ldx offx
 	lda filltab,x
 	sta mess,y
 	jsr messout
