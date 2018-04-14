@@ -20,4 +20,6 @@ $RECYCLE.BIN/
 # Editor Backup
 /$pfebk
 
+# Project Files
 /.project
+/build
