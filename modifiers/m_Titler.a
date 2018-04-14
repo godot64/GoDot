@@ -1,6 +1,7 @@
 
-!src "..\godotlib.lib"
-*	= $c000
+	!src "..\godotlib.lib"
+	*= $c000
+;	!sl "labels.txt"
 
 ; ------------------------------------------------------------ 
 ;
@@ -16,6 +17,7 @@
 ;    1.03: 18.07.17, added 4Bit-Preview
 ;    1.04: 25.02.18, bugfixes: chars smaller than 1 tile
 ;    1.05: 12.03.18, bugfix: letter narrower than 3 tiles
+;    1.06: 14.04.18, bugfix: could crash when loading fnt-file
 ;
 ; ------------------------------------------------------------ 
 
@@ -89,8 +91,8 @@
 	!wo modend
 	!wo 0
 	!pet "GoDot Titler    "
-	!pet "1.05"
-	!pet "12.03.18"
+	!pet "1.06"
+	!pet "14.04.18"
 	!pet "A.Dettke        "
 ;
 ; ----------------------------------------- Main
@@ -801,7 +803,7 @@ rf5	sta (ls_adrmisc),y
 
 ; ------------------------------------------------ Event: Load Font
 
-evldfnt	jsr chgdrv	; don't start with drive 12
+evldfnt	jsr chgdrv
 	lda #0
 	sta ls_flen
 	sta pactive
@@ -1210,11 +1212,11 @@ lddir	lda #<(fnt)
 	jmp gd_xloadm
 
 chgdrv	lda ls_sysdrive
-	ldx ls_loadfrom
-	sta ls_loadfrom
+	ldx ls_bootdrive	; ### 1.06
+	sta ls_bootdrive
 	stx ls_sysdrive
-	rts 
-;
+	rts
+	
 ; ----------------------------------------- Read Floppy File/decompress
 
 read	lda counter	; repeated byte?
