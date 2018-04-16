@@ -1,0 +1,309 @@
+;	!src "..\godotlib.lib"	; library nicht erforderlich
+	*=$c000
+
+; ------------------------------------------------ 
+;
+; GoDot Modifier OutlineMono (LineArt)
+; -> Konvolution: Kantenerkennung in 3x3-Matrix
+;
+; 1.00, 26.03.93
+;
+; reworked on 16.04.2018
+;
+; ------------------------------------------------ 
+
+; -------------------------------------------------------------- Declarations
+
+	lcnt		= $30
+	adcnt		= $31
+	dst		= $35
+	src		= $37
+	tcnt		= $3a
+	merk		= $3b
+
+	gr_redisp		= $0fbd
+
+	buf_o 		= $c600
+	buf_m 		= $c800
+	buf_u 		= $ca00
+	buf_r 		= $cc00
+
+; -------------------------------------------------------------- Header
+
+	jmp start
+
+	!by $20		; Modifier
+	!by 0
+	!by 0
+	!wo modend
+	!wo 0		; reserved
+	!pet "3x3 outline mono"
+	!pet "1.00"
+	!pet "26.03.93"
+	!pet "W.Kling         "
+
+; ------------------------------------------------ Main
+
+start	jsr init_sa
+	lda #0		; ab Rasterzeile 0
+	sta lcnt
+	jsr puffern	; drei Zeilen puffern
+	jsr umlagern
+
+-	jsr umlagern
+	inc lcnt
+	jsr puffern
+	jsr konvol	; und bearbeiten
+
+	dec lcnt
+	jsr w_ergeb	; abspeichern
+	jsr adinc
+
+	inc lcnt		; bis alle Zeilen durch (200)
+	lda lcnt
+	cmp #199
+	bne -
+
+	jsr puffern	; letzte bearbeiten (Rand!)
+	jsr umlagern
+	jsr konvol
+	jsr w_ergeb
+
+	jmp abschl	; fertig
+
+; ------------------------------------------------ Konvolution
+
+konvol	ldy #0		; erste Hälfte bearbeiten
+
+-	lda buf_m,y	; Zentrum der Matrix mal 4
+	asl
+	asl
+	sec
+	sbc buf_o,y	; Matrixperipherie einarbeiten (4 Werte)
+	sbc buf_m-1,y
+	sbc buf_m+1,y
+	sbc buf_u,y
+	beq ++		; 0: nichts ändern (schwarz)
+	bcc +		; neg: schwarz
+	lda #15		; pos: weiß
+	bne ++
++	lda #0		; oder schwarz setzen
+++	sta buf_r,y
+
+	lda buf_m+160,y	; zweite Hälfte dito
+	asl
+	asl
+	sec 
+	sbc buf_o+160,y
+	sbc buf_m+159,y
+	sbc buf_m+161,y
+	sbc buf_u+160,y
+	beq ++		; 0: nichts ändern (schwarz)
+	bcc +		; neg: schwarz
+	lda #15		; pos: weiß
+	bne ++
++	lda #0		; oder schwarz setzen
+++	sta buf_r+160,y
+
+	iny 		; bis alle 320 Pixel durch
+	cpy #160
+	bne -
+	rts 
+
+; ------------------------------------------------ Activity
+
+adinc	dec adcnt
+	bne +
+	inc $d005
+	inc $d007
+	lda #5
+	sta adcnt
++	rts 
+
+; ------------------------------------------------ Puffer umlagern
+
+umlagern	ldy #0		; von unten nach oben schieben
+-	lda buf_m-1,y
+	sta buf_o-1,y
+	lda buf_m+160,y
+	sta buf_o+160,y
+	lda buf_u-1,y
+	sta buf_m-1,y
+	lda buf_u+160,y
+	sta buf_m+160,y
+	iny 
+	cpy #161
+	bne -
+	rts 
+
+; ------------------------------------------------ Puffer füllen
+
+puffern	lda lcnt		; aktuelle Rasterzeile
+	pha 
+	lsr		; durch 8
+	lsr
+	lsr
+	tax 
+	pla 
+	and #$07		; (rz and 7) * 4
+	asl
+	asl
+	sta src		; nach Quelle
+	lda hi_rows,x
+	sta src+1
+	lda #<buf_u	; Ziel
+	ldx #>buf_u
+	sta dst
+	stx dst+1
+
+	ldx #0
+	lda #40		; 40 Bytes in Einzelpixel wandeln
+	sta tcnt
+
+--	ldy #0
+-	lda (src),y	; Pixel links
+	pha 
+	lsr
+	lsr
+	lsr
+	lsr
+	sta (dst,x)	; puffern
+	inc dst
+	bne +
+	inc dst+1
++	pla 		; Pixel rechts
+	and #$0f
+	sta (dst,x)	; puffern
+	inc dst
+	bne +
+	inc dst+1
++	iny 
+	cpy #4		; 4mal (eine Kachel)
+	bne -
+
+	lda src		; nächste Kachel
+	clc 
+	adc #32
+	sta src
+	bcc +
+	inc src+1
++	dec tcnt		; 40 mal
+	bne --
+
+	lda buf_u		; für definierten Rand sorgen
+	sta buf_u-1
+	lda buf_u+319
+	sta buf_u+320
+	rts 
+
+; ------------------------------------------------ Ergebnis nach 4Bit
+
+w_ergeb	lda lcnt
+	pha 
+	lsr
+	lsr
+	lsr
+	tax 
+	pla 
+	and #$07
+	asl
+	asl
+	sta src		; Ziel: 4Bit
+	lda hi_rows,x
+	sta src+1
+	lda #<buf_r	; Quelle: Result Buffer
+	ldx #>buf_r
+	sta dst
+	stx dst+1
+
+	ldx #0		; wie oben
+	lda #40
+	sta tcnt
+--	ldy #0
+-	lda (dst,x)	; Pixel wieder zusammenführen
+	asl
+	asl
+	asl
+	asl
+	inc dst
+	bne +
+	inc dst+1
++	ora (dst,x)
+	inc dst
+	bne +
+	inc dst+1
++	sta (src),y	; und speichern
+	iny 
+	cpy #4
+	bne -
+
+	lda src
+	clc 
+	adc #32
+	sta src
+	bcc +
+	inc src+1
++	dec tcnt
+	bne --
+	rts 
+
+; -------------------------------------------------------------- 
+; --- 4bit-high-adressen der kachelzeilen
+
+hi_rows 
+	!by $40, $45, $4a, $4f, $54, $59, $5e, $63
+	!by $68, $6d, $72, $77, $7c, $81, $86, $8b
+	!by $90, $95, $9a, $9f, $a4, $a9, $ae, $b3, $b8 
+
+; ------------------------------------------------ Abschluss Activity
+
+abschl	lda $d015		; Wanderbalken aus
+	and #$f3
+	sta $d015
+	lda $d010
+	and #$f3
+	sta $d010
+	lda #$ff		; Grafik verändert
+	sta gr_redisp
+	clc 		; fertig
+	rts 
+
+; ------------------------------------------------ Init Activity
+
+init_sa	ldy #60
+	lda #0
+-	sta $3fc3,y	; Spriteblock 255 vorbereiten
+	dey 
+	bpl -
+	lda #$ff
+	sta $3fc0		; dünner Strich
+	sta $3fc1
+	sta $3fc2
+	lda #$0f		; in hellgrau
+	sta $d029
+	sta $d02a
+	lda $d01d		; doppelt breit
+	ora #$0c
+	sta $d01d
+	lda $d010
+	ora #$0c
+	sta $d010
+	lda #$08		; im Image Information Fenster
+	sta $d004
+	lda #$20
+	sta $d006
+	lda #$92
+	sta $d005
+	sta $d007
+	sty $07fa		; Sprite 255
+	sty $07fb
+	lda $d015
+	ora #$0c
+	sta $d015
+	lda #5
+	sta adcnt
+	rts
+
+; ------------------------------------------------ 
+
+modend	!eof
