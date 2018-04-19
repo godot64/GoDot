@@ -1,0 +1,369 @@
+
+	!src "godotlib.lib"		; Label-Library einbinden
+	*= $c000			; generelle Startadresse für alle Module
+	!ct pet			; Texte werden in PETSCII assembliert
+;	!sl "labels.txt"
+
+; ----------------------------------------- 
+;
+; svr.4BitGoDot
+;     Saver für GoDots 4Bit-Bilder
+;
+; 1.05: 09.03.93, slightly changed
+; 1.06: 19.04.18, added: automatical file suffix
+;
+; ----------------------------------------- 
+
+; -------------------------------------------------------------- Label-Definitionen
+
+	indicator		= $ad
+
+	pport		= $01
+	offx		= ls_adrmisc
+	offy		= offx+1
+
+	cnt		= $31	; /$32
+	byte		= $33
+	adcnt		= $3e
+
+; -------------------------------------------------------------- Header
+
+ 	jmp start			; Jedes Modul beginnt hiermit
+
+	!by $40 			; $80=Lader, $40=Saver, $20=Modifier, $10=Device
+	!by 0			; Own-Requester-Flag (nur!) für Lader (4 = eigener Req)
+	!by 0			; Dirty Flag (1 = dirty, 0 = clean)
+	!wo modend		; Endadresse+1 des Moduls
+	!wo 0			; reserviert
+	!tx "4Bit GoDotFormat"	; Beschreibung (16 Zeichen)
+	!tx "1.06"		; Versionsnummer (4 Zeichen)
+	!tx "19.04.18"		; Datum (8 Zeichen tt.mm.jj)
+	!tx "A.Dettke        "	; Autor (16 Zeichen)
+
+; -------------------------------------------------------------- 
+
+; -------------------------------------------------------------- 
+; -------------------------------------------------------------- These lines mandatory!
+; -------------------------------------------------------------- 
+
+start	ldx gr_nr		; Funktionsnummer testen:
+	dex
+	bne saver		; Null, dann eigentlichen Saver aufrufen
+
+	jmp initinp	; eins, dann "Input" ausführen
+
+; -------------------------------------------------------------- 
+; -------------------------------------------------------------- 
+; -------------------------------------------------------------- 
+
+saver	jsr gd_sproff	; Maus aus
+	lda gd_modswitch	; Speichermanagement
+	pha
+	lda ls_flen	; Filenamen angegeben?
+	beq st1		; nein, Ende
+
+	sta wflen		; sonst: Namenslänge merken
+	jsr addsig
+	lda #1		; Activity vorbereiten
+	sta adcnt
+	lda #200
+	sta cntwert
+	jsr wopen		; Schreibdatei öffnen
+	bne st2		; wenn Fehler: Ende
+
+	jsr getname	; Dateinamen retten
+	ldx #12		; out 12,dr,12
+	jsr ckout
+	jsr gd_clrms	; init gauge
+	ldx #0
+	jsr tcopy
+
+	jsr write		; write file
+
+st2	jsr clrch		; danach Bus freigeben
+	lda #12		; Datei schließen
+	jsr close
+	jsr err9		; Floppystatus zeigen (sehr kurz)
+	bne st1		; wenn fehlerfrei:
+
+	jsr setname	; "Image Information"-Fenster aufbereiten
+
+st1	pla		; dann Memory Management
+	sta gd_modswitch
+
+	jsr gd_spron	; Mauszeiger wieder an
+	sec		; Leave-Flag setzen
+	rts		; fertig
+
+; --------------------------- 
+; --------------------------- Input Routines (erforderlich!)
+; --------------------------- 
+
+!src "input.inc"
+
+; --------------------------- 
+; --------------------------- 
+; --------------------------- 
+
+
+; -------------------------------------------------------------------------
+; -------------------------------------------------------------- Disk Access Routines
+; -------------------------------------------------------------------------
+
+pw	!tx "w,p,"
+sigtx	!tx "tb4."
+sigtxs	!scr "tb4."
+drinit	!tx "i0"
+wflen	!by 0
+
+; -------------------------------------------------------------- Filehandling
+
+wopen	jsr inull		; Initialize
+	bne err8
+	ldy wflen		; ",p,w" anhängen
+	ldx #3
+wo1	lda pw,x
+	sta ls_nambuf,y
+	iny
+	dex
+	bpl wo1
+	sty wflen
+	lda #12		; OPEN 12,drive,12,"name,p,w"
+	tay
+	ldx ls_drive
+	jsr filpar
+	lda wflen
+	ldx #<ls_nambuf
+	ldy #>ls_nambuf
+	jsr filnam
+	jsr copen
+	jmp err9
+
+inull	ldx #<drinit	; Initialize Drive
+	ldy #>drinit
+	lda #2
+	jsr gd_sendcom
+err9	jsr gd_xmess
+	lda ls_err2
+	and #15
+err8 	sec
+	rts
+
+; -------------------------------------------------------------------------
+; -------------------------------------------------------------- Activity Handler
+; -------------------------------------------------------------------------
+
+messout	ldx #<message	; Textausgabe
+	ldy #>message
+	jmp gd_xtxout2
+
+tcopy	ldy #0		; Informationstextauswahl (hinter Label "txt"), Offset auf Text in .x
+tc0 	lda txt,x
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+
+action 	dec adcnt		; Activity, nur bei 0
+	bne ld4
+	lda cntwert	; dann: Reload des Zählers
+	sta adcnt
+	ldy offy		; Offset auf Balkenende
+	cpy #23		; Ende erreicht? (Hier den gleichen Wert wie bei clrmess einsetzen!)
+	bne act0
+	jsr clrmess	; ja, re-Init
+act0	ldx offx		; Dicke des Balkenendstücks
+	lda filltab,x
+	sta mess,y
+	jsr messout	; Balken ausgeben
+	dec offx		; Endstück nächstes Mal dicker
+	bpl ld4		; bis gefüllt
+	inc offy		; dann Balken selbst verlängern
+	lda #7		; Endstück wieder dünn
+	sta offx
+ld4 	rts
+
+clrmess	ldx #23		; Puffer für Balken löschen
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0		; Balkenlänge 0 
+	ldx #7		; Dicke am Ende 0
+	sty offy
+	stx offx
+	rts
+
+filltab	!by 160,93,103,127,126,124,105,109
+cntwert	!by 50
+txt	!scr " Bitmap @"	; Offset 0, (das "@" entspricht dem Screencode $00, ist hier also Stringdelimiter)
+message	!fill 8,32	; 8 Zeichen für Infotext (kann geändert werden, dann "mess" anpassen)
+mess	!fill 24,32	; 24 Zeichen für Fortschrittsbalken, Länge von message und mess zusammen 32
+	!by 0		; Anzahl: bei Änderung "clrmess" und "action" anpassen (dort Wert minus 1)!
+
+; -------------------------------------------------------------------------
+; -------------------------------------------------------------- Image Info Handler
+; -------------------------------------------------------------------------
+
+getname	ldx #0		; aktuellen Filenamen sichern
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+setname	lda #0		; Namen in Image Info eintragen
+	ldx #<ls_picname
+	ldy #>ls_picname
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+;
+nbuf	!fill 16,32
+	!by 0
+
+; ------------------------------------------------ Counters
+
+count	inc sc_vekt20
+	bne cou5
+	inc sc_vekt20+1
+cou5	inc sc_texttab
+	bne cou6
+	inc sc_texttab+1
+cou6	lda ls_vekta8
+	bne cou7
+	dec ls_vekta8+1
+cou7	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	rts
+
+; -------------------------------------------------------------------------
+; -------------------------------------------------------------- Write File
+; -------------------------------------------------------------------------
+
+write	lda #$47		; "G" (Header: "GOD0")
+	jsr bsout
+	lda #$4f		; "O"
+	jsr bsout
+	lda #$44		; "D"
+	jsr bsout
+	lda #$30		; "0"
+	jsr bsout
+
+	lda #<32000	; count 32000 bytes
+	ldx #>32000
+	sta ls_vekta8
+	stx ls_vekta8+1
+	lda #<sy_4bit	; from $4000
+	ldx #>sy_4bit
+	sta sc_texttab
+	stx sc_texttab+1
+	sta byte		; .a=0
+	sta cnt		; init pack counter
+	sta cnt+1
+
+wr0	ldy #0
+	lda (sc_texttab),y
+	jsr pack
+	jsr action
+	jsr cou5
+	bne wr0
+
+	lda byte		; flush compress buffer
+	eor #$ff
+	jsr pack
+	lda #$ad		; signature ("$ad")
+	jsr bsout
+	sec		; Leave-Flag
+	rts		; fertig
+
+; ------------------------------------------------ Compress
+
+pack	cmp byte
+	beq incr
+p256	pha
+	lda cnt+1
+	bne wl0
+	lda cnt
+	beq wl1
+	cmp #4
+	bcs wl0
+	lda byte
+	cmp #indicator
+	bne wl2
+wl0	lda #indicator
+	jsr bsout
+	lda cnt
+	jsr bsout
+	lda #1
+	sta cnt
+	lda #0
+	sta cnt+1
+wl2	lda byte
+	jsr bsout
+	dec cnt
+	bne wl2
+wl1	pla
+	sta byte
+incr	inc cnt
+	bne wl3
+	inc cnt+1
+wl4	jsr p256
+	dec cnt
+wl3	rts
+
+; -------------------------------------------------------------------------
+; -------------------------------------------------------------- Namen verlängern
+; -------------------------------------------------------------------------
+
+addsig	pha		; Länge merken
+	tay
+	dey
+	ldx #0
+ag4	lda ls_nambuf,y	; endet auf ".4bt"?
+	cmp sigtx,x
+	bne ag2		; nein
+	dey
+	inx
+	cpx #4
+	bcc ag4
+	pla		; ja, fertig
+	rts
+	
+ag2	pla
+	tay		; Name länger als 12 Zeichen?
+	cpy #13
+	bcs ag0		; ja, behandeln
+
+ag5	ldx #3		; nein, ".4bt" anhängen
+ag1	lda sigtx,x
+ag3	sta ls_nambuf,y
+	lda sigtxs,x	; auch für Image Info
+	sta ls_lastname,y
+	iny
+	dex
+	bpl ag1
+	sty wflen		; neue Länge merken, fertig
+	sty ls_flen
+	rts
+
+ag0	dey		; auf 12 verkürzen
+	cpy #12
+	bne ag0
+	beq ag5		; unbed. Sprung
+
+; ------------------------------------------------ 
+
+modend 	!eof
