@@ -1,0 +1,283 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ------------------------------------------------------------ 
+;
+;  mod.ScanDrives
+;
+;  Module to re-scan attached devices and drive types, important for 
+;  use with CMD drives which are able to change their types at runtime
+;  or if you attach one more drive at runtime
+;
+;  1.00: 19.07.01, first release
+;  1.01: 13.08.01, added message window
+;
+; ------------------------------------------------------------ 
+
+; ------------------------------------------------------------ Declarations
+
+	cntreads		= $30
+	merk		= $b0
+	namelen		= $b7
+	namepos		= $bb
+
+	devs		= $0fa2
+	sendcom1		= $148e
+	filtype		= $1d29
+	iecin		= $ffa5
+	untalk		= $ffab
+
+; ------------------------------------------------------------ Header
+
+modul	jmp start
+	!by $20
+	!by $00,$00
+	!wo modend
+	!by $00,$00
+	!tx "Re-Scan Drives  "
+	!tx "1.01"
+	!tx "13.08.01"
+	!tx "A.Dettke        "
+
+; ------------------------------------------------------------ Drivetest
+; ------------------------------------------------------------ Main
+
+start	jsr messout
+	jsr gd_which	; welche sind angeschlossen?
+
+	lda ls_drive	; alle ab 8 (bis 11) checken
+	pha
+	ldx #$08
+wh2	lda #$02		; Zähler für Bytes
+	sta cntreads
+
+	ldy #$00		; Drive da?
+	lda devs,x
+	and #$0f
+	beq whw		; nein, skip
+
+	sta devs,x	; M-R senden (Einschaltmeldung holen)
+	ldy #$05
+wh4	lda mess,y
+	sta sc_movetab,y
+	dey
+	bpl wh4
+
+; ------------------------------------------------------------ 
+;		  dieser Teil wird mehrfach verwendet
+; ------------------------------------------------------------ 
+
+wh3	lda #<(sc_movetab)	
+	sta namepos
+	lda #>(sc_movetab)
+	sta namepos+1
+wh32	lda #$06		; #$06 wird modifiziert
+	sta namelen
+	txa
+	jsr sendcom1	; Kommando an Drive senden
+	txa
+	ldy #$6f
+	jsr gd_talk
+	jsr iecin		; Antwort holen
+	sta merk
+	jsr iecin
+	sta merk+1
+wh31	jsr untalk	; JSR wird modifiziert
+
+; ------------------------------------------------------------ 
+;				  bis hierhin
+; ------------------------------------------------------------ 
+
+	lda merk		; Zahl? (aus 1541, 71, 70): 7 oder 4
+	and #$f0
+	cmp #$30
+	beq wh5
+	jmp w1581		; nein, dann anderer Floppytyp
+
+wh5	lda merk		; "7"?
+	and #$0f
+	cmp #$07
+	bne wh1		; nein, dann "4" oder "8"
+	lda merk+1	; "70" oder "71"?
+wh1	asl		; ins obere Nibble
+	asl
+	asl
+	asl
+	tay
+	ora devs,x	; eintragen
+	sta devs,x
+	bmi fd81		; 8 war 1581
+
+	cpy #$20		; CMD?
+	bne whw
+	lda #34		; ja, T1, S34 eintragen (Directory)
+	ldy #1
+	bne setts
+fd81	lda #3		; sonst: T40, S3 (1581)
+	ldy #40
+	bne setts
+whw	lda #1		; oder:  T18, S1 (15xx)
+	ldy #18
+setts	sta ls_ftabs-8,x
+	tya
+	sta ls_ftabt-8,x
+
+	inx		; durch alle Drives
+	cpx #$0c
+	beq whw31
+	jmp wh2
+
+whw31	ldx #8		; "U0>M1" an 1571 schicken
+whw3	ldy #4
+whw0	lda m1571,y
+	sta sc_movetab,y
+	dey
+	bpl whw0
+whw1	lda devs,x
+	and #$10
+	beq whw2
+	txa
+	sta ls_drive
+	pha
+	jsr sendcom1
+	jsr ld10
+	pla
+	tax
+whw2	inx
+	cpx #12
+	bne whw3
+
+whx	pla
+	sta ls_drive
+
+; ------------------------------------------------------------ Wait for Click
+
+	inc messg		; Message "Done."
+	lda messg
+	ldx messg+1
+	ldy messg+2
+	inx
+	dey
+	dey
+	jsr gd_setpar
+	dec messg
+	jsr gd_clrline
+	ldx #<done
+	ldy #>done
+	jsr gd_xtxout2
+	jsr gd_eloop	; wait...
+evleave	sec
+	rts
+
+; ------------------------------------------------------------ CMD Detect
+
+w1581	dec cntreads	; Fremdhersteller?
+	beq none		; ja, als 1541 eintragen
+
+	lda #$a4		; CMD-Drive checken
+	sta sc_movetab+3
+	lda #$fe
+	sta sc_movetab+4
+	lda #$4c		; Code für JMP
+	sta wh31		; modifizieren
+	jsr wh3
+
+	lda merk		; Drivetypen merken
+	sta ls_cmdtypes-8,x
+	cmp #$48		; "H" für HD
+	beq setcmd
+	cmp #$46		; "F" für FD
+	beq setcmd
+	cmp #$52		; "R" für RAMLink
+	bne n81
+
+setcmd	lda cmdoff-8,x	; CMD-Drive kennzeichnen mit ">"
+	tay
+	lda #$3e
+	sta filtype,y
+
+	lda #"g"		; "g-p" ausführen (Partitionstyp holen)
+	sta sc_movetab
+	lda #"p"
+	sta sc_movetab+2
+	lda #3
+	sta wh32+1
+	jsr wh3
+
+	lda #6		; und auswerten:
+	sta wh32+1
+	ldy merk		; null= foreign
+	beq none
+	dey		; eins= Native
+	beq natv
+	dey		; zwei= 1541
+	beq none
+	lda #1		; drei= 1571 
+	dey
+	sta merk+1
+	beq none
+	dey		; vier= 1581
+	beq f81
+
+none	lda #4		; entsprechende Typen eintragen
+	!by $2c
+natv	lda #2
+	!by $2c
+f81	lda #8
+	sta merk
+	lda #$20		; Code für JSR
+	sta wh31		; Modifikation rückgängig machen
+	jmp wh5		; weiter im Drivecheck
+
+; ------------------------------------------------------------ 
+
+n81	lda #$e9		; Position für 1581-Meldung: $a6e9
+	sta sc_movetab+3
+	lda #$a6
+	sta sc_movetab+4
+	lda #$20		; Code für JSR
+	sta wh31		; Modifikation rückgängig machen
+	jmp wh3
+
+; ------------------------------------------------------------ Message
+
+messout	ldx #<messlst
+	ldy #>messlst
+	jmp gd_screen
+
+; ------------------------------------------------------------ 
+
+mess	!by $4d,$2d,$52,$c6,$e5,$02 	; "m-r" 2 bytes from $e5c6
+m1571	!tx "u0>m1"		; 1571 auf doppelseitig schalten
+
+; ------------------------------------------------------------ 
+
+cmdoff	 !by 34,41,49,57,66	; Positionen für ">"
+
+; ------------------------------------------------------------ Check Command Channel
+
+ld10	jsr gd_xmess
+	lda ls_err2
+	and #15		; returns .z not set if error
+	rts
+
+; ------------------------------------------------------------ Message
+
+done	!scr "  Done. (Click here to leave.)@"
+
+; ------------------------------------------------------------ Screenlist für Message
+
+messlst	!by 0
+messg	!by 22,3,34,3	; Position: Execute-Gadget im Mainscreen
+	!by $c2
+	!wo evleave
+	!scr "Working...@"
+	!by $80
+
+; ------------------------------------------------------------ 
+
+modend	 !eof 
+
