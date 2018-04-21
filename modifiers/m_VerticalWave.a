@@ -1,0 +1,251 @@
+
+;	!src "godotlib.lib" (nicht erforderlich)
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ------------------------------------------------ 
+;
+; Modifier VerticalWave
+;  Modifier to horizontally distort the image to look like "wobbled"
+;
+; 0.99, 19.06.92, first release
+; 1.00, 21.04.18, reorganized
+;
+; ------------------------------------------------ 
+
+; ------------------------------------------------ Equates
+
+	gr_redisp		= $0fbd
+
+	adcnt		= $30
+	src		= $35
+	dst		= $37
+	linenr		= $39
+	xoff		= $3a
+	blcnt		= $3b
+
+	sprptr		= $07f8
+	spr255		= $3fc0
+
+	lbuf		= $c400
+
+; ------------------------------------------------ Header
+
+	jmp start
+	!by $20
+	!by $00,$00
+	!wo modend
+	!by $00,$00
+	!tx "sinus line shift"
+	!tx "1.00"
+	!tx "21.04.18"
+	!tx "W.Kling/$AD     "
+
+; ------------------------------------------------ Main
+
+start	jsr initad	; prepare activity
+	jsr clrbuf	; prepare buffer
+
+	lda #0		; start from rasterline 0
+	sta linenr
+
+loop00	pha 		; compute 4bit address
+	lsr 
+	lsr 
+	lsr 
+	tax 
+	pla 
+	and #$07
+	asl 
+	asl 
+	sta dst
+	lda line8,x
+	sta dst+1
+
+	lda #<lbuf	; transfer line straight to buffer
+	ldx #>lbuf
+	sta src
+	stx src+1
+	ldx #0
+	lda #40		; 40 tiles
+	sta blcnt
+loop0	ldy #0
+loop1	lda (dst),y	; separate pixels
+	pha 
+	lsr 
+	lsr 
+	lsr 
+	lsr 
+	sta (src,x)	; store to buffer
+	inc src
+	bne skip0
+	inc src+1
+skip0	pla 
+	and #$0f
+	sta (src,x)
+	inc src
+	bne skip1
+	inc src+1
+skip1	iny 
+	cpy #4
+	bne loop1
+	lda dst		; next tile
+	clc 
+	adc #32
+	sta dst
+	bcc skip2
+	inc dst+1
+skip2	dec blcnt		; 40 times
+	bne loop0
+
+	lda linenr	; recompute 4bit address of current line
+	pha 
+	lsr 
+	lsr 
+	lsr 
+	tax 
+	pla 
+	and #$07
+	asl 
+	asl 
+	sta dst
+	lda line8,x
+	sta dst+1
+
+	ldx linenr	; index into table of sinus indents
+	lda #<lbuf
+	sec 
+	sbc sin200,x	; subtract from buffer address
+	sta src
+	lda #>lbuf
+	sbc #0
+	sta src+1		; set as source address for retransfer (thus indented!)
+	ldx #0
+	lda #40		; 40 tiles
+	sta blcnt
+loop2	ldy #0
+loop3	lda (src,x)	; re-gather pixels
+	asl 
+	asl 
+	asl 
+	asl 
+	inc src
+	bne skip3
+	inc src+1
+skip3	ora (src,x)
+	inc src
+	bne skip4
+	inc src+1
+skip4	sta (dst),y	; store to 4bit
+	iny 
+	cpy #4
+	bne loop3
+	lda dst		; next tile
+	clc 
+	adc #32
+	sta dst
+	bcc skip5
+	inc dst+1
+skip5	dec blcnt		; 40 times
+	bne loop2
+
+	inc linenr	; next rasterline
+	jsr adinc		; activity
+
+	lda linenr	; all rasterlines?
+	cmp #200
+	beq exit
+	jmp loop00	; no, loop
+
+; ------------------------------------------------ Clear Line Buffer (Indent Part)
+
+clrbuf	ldy #0
+	tya 
+clrloop	sta lbuf-$100,y	; clear the area "left" of the buffer to $00 (black)
+	iny 
+	bne clrloop
+	rts 
+
+; ------------------------------------------------ Activity
+
+adinc	dec adcnt
+	bne +
+	inc $d005
+	inc $d007
+	lda #5
+	sta adcnt
++	rts 
+
+; ------------------------------------------------ Abschluss Activity
+
+exit	lda $d015		; Wanderbalken aus
+	and #$f3
+	sta $d015
+	lda $d010
+	and #$f3
+	sta $d010
+	lda #$ff		; Grafik verändert
+	sta gr_redisp
+	clc 		; fertig
+	rts 
+
+; ------------------------------------------------ Init Activity
+
+initad	ldy #60
+	lda #0
+-	sta $3fc3,y	; Spriteblock 255 vorbereiten
+	dey 
+	bpl -
+	lda #$ff
+	sta $3fc0		; dünner Strich
+	sta $3fc1
+	sta $3fc2
+	lda #$0f		; Farbe hellgrau
+	sta $d029
+	sta $d02a
+	lda $d01d		; doppelt breit
+	ora #$0c
+	sta $d01d
+	lda $d010
+	ora #$0c
+	sta $d010
+	lda #$08		; im Image Information Fenster
+	sta $d004
+	lda #$20
+	sta $d006
+	lda #$92
+	sta $d005
+	sta $d007
+	sty $07fa		; Sprite 255
+	sty $07fb
+	lda $d015
+	ora #$0c
+	sta $d015
+	lda #5
+	sta adcnt
+	rts
+
+; ------------------------------------------------ Tables
+
+line8	!by $40,$45,$4a,$4f,$54
+	!by $59,$5e,$63,$68,$6d
+	!by $72,$77,$7c,$81,$86
+	!by $8b,$90,$95,$9a,$9f
+	!by $a4,$a9,$ae,$b3,$b8
+
+	; Vorschrift: x=sin(1/20*y)*10+10
+sin200	!by 10,11,11,12,12,13,13,14,14,15,15,15,16,16,17,17,18,18,18,19	; Periode  : 100
+	!by 19,19,19,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20	; Amplitude:  20
+	!by 20,19,19,19,18,18,18,17,17,17,16,16,15,15,14,14,14,13,13,12	; 200 Einrückwerte
+	!by 11,11,10,10,9,9,8,8,7,7,6,6,5,5,4,4,4,3,3,2
+	!by 2,2,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+	!by 0,0,0,1,1,1,1,2,2,2,3,3,3,4,4,5,5,6,6,7
+	!by 7,8,8,9,9,10,10,11,11,12,12,13,13,14,14,15,15,16,16,16
+	!by 17,17,18,18,18,19,19,19,19,20,20,20,20,20,20,20,20,20,20,20
+	!by 20,20,20,20,20,20,19,19,19,19,18,18,18,17,17,17,16,16,15,15
+	!by 14,14,13,13,12,12,11,11,10,10,9,9,8,8,7,7,6,6,5,5
+
+; ------------------------------------------------ 
+
+modend	!eof 
