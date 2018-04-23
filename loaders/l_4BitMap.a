@@ -1,6 +1,8 @@
 
-!src "..\godotlib.lib"
-*	= $c000
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
 
 ; ----------------------------------------- 
 ;
@@ -15,6 +17,7 @@
 ; 1.05, 18.07.17, added Preview
 ; 1.06, 13.12.17, bugfix: missing mouse pointer/open files
 ;                 when accessing bad files
+; 1.07, 23.04.18, bugfix: couldn't change sources after Preview anymore
 ;
 ; ----------------------------------------- 
 
@@ -56,8 +59,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "4Bit&Alpha&Add  "
-	!pet "1.06"
-	!pet "13.12.17"
+	!pet "1.07"
+	!pet "23.04.18"
 	!pet "A.Dettke/W.Kling"
 ; ----------------------------------------- Leave
 cancel	lda #$ff
@@ -68,8 +71,7 @@ cn2	sec
 jrequ	jmp requ
 jerror	jmp error
 ; ----------------------------------------- Main
-start	ldx #0
-	stx sc_texttab+1
+start	jsr setrplc	; ### 1.07, init distributor
 	ldx used
 	bmi jrequ
 	beq cancel
@@ -141,11 +143,9 @@ ob52	cmp #2
 ob53	jsr setorigin	; 3: to Origin
 
 ob5	ldx which		; Modus:
-	bne ld62		; Replace? 
-	ldx #<(pureraw)
-	ldy #>(pureraw)
-	jsr setdoit
-	jsr getname
+	bne ld62		; Replace? (which=0)
+	jsr setrplc	; ### 1.07 Distributor auf Replace setzen
+	jsr getname	; Filenamen merken
 
 ld62	jsr gd_clrms	; Messages und Activity initialisieren
 	stx offy
@@ -228,7 +228,7 @@ ld3	lda flag4		; RAM-Erweiterung?
 	lda wclip		; loading to Clips?			# 1.04
 	bne ld5		; yes, don't create Image Info
 	lda (doit,x)	; check for Replace/Compose
-	cmp #$60		; Replace?
+	cmp #$60		; Replace? (Code for RTS)
 	bne ld5		; no, don't create Image Info 	# -- bis hier
 	jsr setinfo
 
@@ -270,7 +270,7 @@ ramtype	!by 0
 abuf	!by 0
 bbuf	!by 0
 byte	!by 0
-; doit	!wo 0
+textoff	!by 0		; ### 1.07 Offset für Source-Textausgabe
 list	!wo 0
 clpzl	!by 0
 clpsp	!by 0
@@ -285,7 +285,7 @@ used	!by $ff
 which	!by 0
 wclip	!by 0
 clipoffs	!by 8,17,26,35
-posneg	!by 14,5,7,16,15,19
+posneg	!scr "negpos"
 ratenum	!pet " 25 50100"
 wcliptx	!scr " to Full  to Clip into Clipto Origin"
 fromwhich	!scr "ClipDiskTempUndoVDC2"
@@ -343,6 +343,10 @@ modify	ldx #<(modlst)
 	jmp filereq
 rq2	jmp gaugeout
 ;
+; ----------------------------------------- 
+setrplc	ldx #<(pureraw)	; ### 1.07 Distributor zugefügt
+	ldy #>(pureraw)
+	bne setdoit	; ### bis hier
 ; ----------------------------------------- 
 sevadd	ldx #<(add)
 	ldy #>(add)
@@ -837,7 +841,7 @@ sev4from	lda ls_drive+6
 	tay
 	lda banks,y
 	sta bank
-	cmp #9
+	cpy #9		; ### 1.07 bugfix
 	beq ok
 next	lda flag4
 	cmp #3
@@ -885,8 +889,12 @@ next1	beq next
 ;
 srt1	jsr srt4
 	ldx #7
-text4	lda sc_texttab+1
-	bne ok
+text4	stx textoff	; ### 1.07, ab hier --
+	ldx #0		; check for being in Modify Mode 
+	lda (doit,x)
+	cmp #$60		; ### $60 is code for RTS ; bis hier --
+	bne ok		; if .a=$60: we are in Replace Mode, leave 
+	ldx textoff
 	ldy #3
 srt6	lda fromwhich,x
 	sta fromtx4,y
