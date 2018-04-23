@@ -1,5 +1,7 @@
-	!src "..\godotlib.lib"	; library nicht erforderlich
+	!src "godotlib.lib"
 	*= $c000
+	!ct pet
+;	!sl "labels.txt"
 
 ; ------------------------------------------------ 
 ;
@@ -9,7 +11,8 @@
 ;
 ; 0.99, 08.07.93, first release
 ; 1.00, 19.12.93, bug im VDC-Treiber: fixed
-;                 present flag (header+8) added on 14.07.17
+; 1.01, 23.04.18, neu: present flag (header+8), added on 14.07.17 (für dev.REU)
+;                 bug in Overwrite, liefert falsches Flag zurück: fixed
 ; 
 ; ------------------------------------------------ 
 
@@ -39,11 +42,12 @@ header	jmp start
 	!by 0
 	!by 1
 	!wo modend
-	!wo $0040			; svr.Temp present
+	!wo $0040			; ### 1.01: svr.Temp present
 	!pet "TEMP for all Ram"
-	!pet "1.00"
-	!pet "19.12.93"
+	!pet "1.01"
+	!pet "23.04.18"
 	!pet "A.Dettke        "
+
 addtxt	!pet "Offset: $8300 in"
 	!pet "last RAM-Bank   "
 	!by 0
@@ -75,7 +79,7 @@ st2	php
 ; --------------------------- 
 ; --------------------------- Input Routines
 
-!src "..\input.inc"
+!src "input.inc"
 
 ; --------------------------- 
 ; --------------------------- 
@@ -231,7 +235,8 @@ ow0	clc
 
 ; ---------------------------------------- Overwrite Temp
 
-sevowr	sty tmpmk
+sevowr	lda rm_tmpsaved	; Flag retten	### 1.01
+	sta tmpmk
 	lda #0
 	sta rm_tmpsaved	; clear temp flag
 	sta txflag
@@ -338,8 +343,7 @@ svdc	lda rm_tmpsaved	; temp in use?
 
 	jsr failh
 	lda #$40
-	ldy #0		; pointer off
-	sty $d015
+	jsr gd_sproff	; pointer off
 	sta sc_vekt20+1
 	sty sc_vekt20
 	sei		; init VDC registers ### 1.00
@@ -367,8 +371,7 @@ wv1	dec ls_vekta8
 	cli		; finished	### 1.00
 	lda #2		; set temp flag
 	jsr tmpup
-	lda #3		; pointer on
-	sta $d015
+	jsr gd_spron	; pointer on
 	jmp faile		; message
 
 ; ---------------------------------------- 
