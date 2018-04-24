@@ -1,6 +1,8 @@
 
-!src "..\godotlib.lib"
-*	= $c000
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
 
 ; ---------------------------
 ;
@@ -15,6 +17,7 @@
 ;    1.05: 18.07.17, added Preview
 ;    1.06: 13.12.17, bugfix: missing mouse pointer/open files
 ;                    when accessing bad files
+;    1.07, 24.04.18, bugfix: couldn't change Source after Preview anymore
 ;
 ; ---------------------------
 
@@ -55,8 +58,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "4Bit&sub/mul/dif"
-	!pet "1.06"
-	!pet "13.12.17"
+	!pet "1.07"
+	!pet "24.04.18"
 	!pet "A.Dettke/W.Kling"
 ;
 ; ----------------------------------------- Main
@@ -69,8 +72,7 @@ cn2	sec
 jrequ	jmp requ
 jerror	jmp error
 ;
-start	ldx #0
-	stx sc_texttab+1
+start	jsr setrplc	; ### 1.07, init distributor
 	ldx used
 	bmi jrequ
 	beq cancel
@@ -140,9 +142,7 @@ ob53	jsr setorigin	; 3: to Origin
 
 ob5	ldx which
 	bne ld62
-	ldx #<(pureraw)
-	ldy #>(pureraw)
-	jsr setdoit
+	jsr setrplc	; ### 1.07 Distributor auf Replace setzen
 
 ld62	jsr gd_clrms
 	stx offy
@@ -271,7 +271,7 @@ ramtype	!by 0
 abuf	!by 0
 bbuf	!by 0
 byte	!by 0
-; doit	!wo 0		; # 1.04
+textoff	!by 0		; ### 1.07 Offset für Source-Textausgabe
 list	!wo 0
 ymerk	!by 0
 clpzl	!by 0
@@ -345,6 +345,9 @@ modify	ldx #<(modlst)
 
 rq2	jmp gaugeout
 ;
+setrplc	ldx #<(pureraw)	; ### 1.07 Distributor zugefügt
+	ldy #>(pureraw)
+	bne setdoit	; ### bis hier
 sevsub	ldx #<(sub)
 	ldy #>(sub)
 	bne setdoit
@@ -877,8 +880,12 @@ next1	beq next
 ;
 srt1	jsr srt4
 	ldx #7
-text4	lda sc_texttab+1
-	bne ok
+text4	stx textoff	; ### 1.07, ab hier --
+	ldx #0		; check for being in Modify Mode 
+	lda (doit,x)
+	cmp #$60		; $60 is code for RTS
+	bne ok		; if .a=$60: we are in Replace Mode, leave 
+	ldx textoff	; ### bis hier --
 	ldy #3
 srt6	lda fromwhich,x
 	sta fromtx4,y
