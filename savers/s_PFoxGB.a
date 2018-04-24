@@ -1,4 +1,4 @@
-	!src "..\godotlib.lib"
+	!src "godotlib.lib"
 	*= $c000
 	!ct pet
 ;	!sl "labels.txt"
@@ -100,7 +100,7 @@ st1	pla
 ; --------------------------- 
 ; --------------------------- Input Routines
 
-!src "..\input.inc"
+!src "input.inc"
 
 ; --------------------------- 
 ; --------------------------- 
@@ -570,3 +570,4 @@ gbend	!by $bf,$20,$00,$9b		; end signature
 ; ---------------------------------------- 
 
 modend	!eof
+

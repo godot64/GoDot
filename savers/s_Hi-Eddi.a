@@ -1,6 +1,6 @@
 
 	*= $c000
-	!src "..\godotlib.lib"
+	!src "godotlib.lib"
 	!ct pet
 
 ; ----------------------------------- 
@@ -95,7 +95,7 @@ st3	rts
 ; --------------------------- 
 ; --------------------------- Input Routines
 
-!src "..\input.inc"
+!src "input.inc"
 
 ; --------------------------- 
 ; --------------------------- 
@@ -331,3 +331,4 @@ mv0	lda (sc_texttab),y
 	rts
 
 modend	!eof
+

@@ -1,5 +1,5 @@
 
-!src "..\godotlib.lib"
+!src "godotlib.lib"
 *= $c000
 
 ; ----------------------------------------- 
@@ -110,7 +110,7 @@ st1	pla		; restore module handler
 ; --------------------------- 
 ; --------------------------- Input Routines
 
-!src "..\input.inc"
+!src "input.inc"
 
 ; --------------------------- 
 ; --------------------------- 
@@ -549,4 +549,5 @@ a32k	lda reudata+4	; bank in REU
 	rts
 
 modend	!eof
+
 

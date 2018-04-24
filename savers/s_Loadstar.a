@@ -1,6 +1,6 @@
 
 	*= $c000
-	!src "..\godotlib.lib"
+	!src "godotlib.lib"
 	!ct pet
 
 ; ----------------------------------------- 
@@ -110,7 +110,7 @@ st12	jsr gd_spron
 ; --------------------------- 
 ; --------------------------- Input Routines
 
-!src "..\input.inc"
+!src "input.inc"
 
 ; --------------------------- 
 ; --------------------------- 
@@ -570,3 +570,4 @@ writeit	ldy #0		; get byte to write to file
 	rts
 
 modend	!eof
+

@@ -1,5 +1,5 @@
 
-	!src "..\godotlib.lib"	; Label-Library einbinden
+	!src "godotlib.lib"	; Label-Library einbinden
 	*= $c000			; generelle Startadresse für alle Module
 	!ct pet			; Texte werden in PETSCII assembliert
 ;	!sl "labels.txt"
@@ -112,7 +112,7 @@ st1	pla 		; Modul-Handling
 ; --------------------------- Input Routines (erforderlich!)
 ; --------------------------- 
 
-!src "..\input.inc"
+!src "input.inc"
 
 ; --------------------------- 
 ; --------------------------- 
@@ -522,3 +522,4 @@ width	!by pfclp
 height	!by pfclp
 
 modend	!eof 
+
