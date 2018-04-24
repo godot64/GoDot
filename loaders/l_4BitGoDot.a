@@ -1,6 +1,8 @@
 
-!src "..\godotlib.lib"
-*	= $c000
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
 
 ; ------------------------------------------------------------ 
 ;
@@ -8,7 +10,7 @@
 ; loader for the genuine GoDot 4Bit graphics format
 ; retrieves either images (320x200) or clips (up to 2040x2040; 
 ; note: clips larger than 320x200 aren't yet supported by GoDot
-; itself and crash it on load)
+; itself, it can't produce them yet)
 ; Images may be retrieved to certain places within the current
 ; image, depending on which setting you choose concerning Clips
 ;
@@ -23,6 +25,7 @@
 ;    1.16, 18.07.17, added Preview
 ;    1.17, 13.12.17, bugfix: missing mouse pointer/open files
 ;                    when accessing bad files
+;    1.18, 24.04.18, bugfix: couldn't change Source after Preview anymore
 ;
 ; ------------------------------------------------------------ 
 
@@ -59,8 +62,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "native 4Bit ldr "
-	!pet "1.17"
-	!pet "13.12.17"
+	!pet "1.18"
+	!pet "24.04.18"
 	!pet "A.Dettke/W.Kling"
 ; ----------------------------------------- Leave Module
 cancel	lda #$ff
@@ -71,8 +74,7 @@ cn2	sec
 jrequ	jmp requ
 jerror	jmp error
 ; ----------------------------------------- Main
-start	ldx #0
-	stx sc_texttab+1
+start	jsr setrplc	; ### 1.18, init distributor
 	jsr mchar		; define listbox char
 	ldx used		; first call?
 	bmi jrequ		; yes, pre-requester
@@ -146,9 +148,7 @@ ob53	jsr setorigin	; when 3: "to Origin"
 
 ob5	ldx which		; Replace/Compose?
 	bne ld62
-	ldx #<(pureraw)	; set vector for Replace
-	ldy #>(pureraw)
-	jsr setdoit
+	jsr setrplc	; ### 1.18 Distributor auf Replace setzen
 
 ld62	jsr gd_clrms	; prepare Activity display
 	stx offy
@@ -271,7 +271,7 @@ ramtype	!by 0
 abuf	!by 0
 bbuf	!by 0
 byte	!by 0
-; doit	!wo 0
+textoff	!by 0		; ### 1.18 Offset für Source-Textausgabe
 list	!wo 0
 clpzl	!by 0
 clpsp	!by 0
@@ -351,6 +351,10 @@ compose	ldx #<(complst)	; build new requester
 	jmp filereq
 ; ----------------------------------------- Gauge (Third Requester)
 rq2	jmp gaugeout	; when RAM
+; ----------------------------------------- Prepare vector
+setrplc	ldx #<(pureraw)	; ### 1.18 Distributor zugefügt
+	ldy #>(pureraw)
+	bne setdoit	; ### bis hier
 ; ----------------------------------------- Option 'Mix'
 sevmerge	ldx #<(merge)	; set vector to routine
 	ldy #>(merge)
@@ -452,7 +456,7 @@ mg0	jsr bewerten	; mix both values
 mg1	jsr bewerten	; mix values
 	ora byte
 ; ----------------------------------------- Replace: Routine
-pureraw     rts		; no processing
+pureraw	rts		; no processing
 ; ----------------------------------------- belongs to Mix
 bewerten	ldx mflag 	; get flag
 	beq bwt0
@@ -862,8 +866,12 @@ next1	beq next		; no, proceed
 srt1	jsr srt4		; REU to Standard
 	ldx #7		; enter text 'Disk'
 ; ----------------------------------------- 
-text4	lda sc_texttab+1	; enter Text 
-	bne ok		; but only in first requester
+text4	stx textoff	; ### 1.18, ab hier --
+	ldx #0		; check for being in Modify Mode 
+	lda (doit,x)
+	cmp #$60		; $60 is code for RTS
+	bne ok		; if .a=$60: we are in Replace Mode, leave 
+	ldx textoff	; ### bis hier --
 
 	ldy #3 
 srt6	lda fromwhich,x
