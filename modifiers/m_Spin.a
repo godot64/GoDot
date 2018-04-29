@@ -1,0 +1,1322 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ----------------------------------------- 
+
+; ----------------------------------------- 
+
+; ----------------------------------------- Equates
+
+	pport		= $01
+
+	dst		= $30
+	src		= $32
+	filltab		= $34
+	ymrk		= $36
+	bmrk		= $37
+	adcnt		= $38
+
+	quads		= $2000
+	table1		= sy_bigbuffer
+	table2		= table1+$100
+
+	mousex		= $d000
+	mousey		= $d001
+	spr2x		= $d004
+	spr2y		= $d005
+	spr3x		= $d006
+	spr3y		= $d007
+	grafreg		= $d011
+	spronoff		= $d015
+	multreg		= $d016
+	charreg		= $d018
+	sprxxp		= $d01d
+	border		= $d020
+	backgr		= $d021
+	spr2c		= $d029
+	spr3c		= $d02a
+	nvicspeed		= $d030
+	
+
+; ----------------------------------------- 
+
+	jmp start
+	!by $20
+	!by $00
+	!by $01
+	!wo modend
+	!wo $00
+	!tx "Spin positive   "
+	!tx "1.01"
+	!tx "22.11.98"
+	!tx "Martin Bohnet   "
+
+; ----------------------------------------- Main
+
+start	lda gd_modswitch
+	sta memman
+	lda sc_iflag
+	sta inputflg
+	lda #0
+	sta tabelle
+	ldx #<spinlst
+	ldy #>spinlst
+	jsr gd_screen
+	jmp gd_eloop
+
+; ----------------------------------------- 
+
+finish 	jsr baroff	; switch activity bar off
+	jsr speedoff	; return to normal speed, screen on
+	lda #1
+	sta gr_redisp
+
+; ----------------------------------------- 
+
+ev_cancel	lda memman
+	sta gd_modswitch
+	lda inputflg
+	sta sc_iflag
+	sec 
+	rts 
+
+; ----------------------------------------- Event: Execute
+
+ev_exect	jsr speedon	; Speed if possible (and wanted)
+	jsr initad	; init activity
+	ldx #1
+	stx passes
+	dex
+	stx dst
+	stx src
+	lda dradius
+	sta cradius
+	jsr mktable	; Starttabelle erzeugen
+
+xloop 	dec cradius	; Radius auf 0?
+	beq finish	; dann fertig
+
+	jsr adinc		; Activity
+	jsr movetable	; table1 nach table2 kopieren
+	lda #>table1	; re-init table address
+	sta dst+1
+	jsr mktable	; nächste table1-Version erzeugen
+
+	jsr setq4		; Init Quadranten
+	lda quadadd
+	sta ymrk
+	lda quadadd+1
+	sta src+1		; Lowbyte: 0
+	jsr setpixel1
+	lda passes
+	bne +
+
+	lda #>table2
+	sta dst+1
+	jsr setq4
+	lda #0
+	sta ymrk
+	lda #$24		; Buffer2: $2400
+	sta src+1
+	jsr setpixel2
+
++	lda #0
+	sta passes
+	jsr movequads
+	beq xloop
+
+; ----------------------------------------- Set New Pixel
+
+setpixel1	jsr newpos
+	jsr comp4bt
+	ldy #0
+	lda tabval
+	and #1
+	beq +
+
+	lda (filltab),y	; Lower Nibble
+	and #$0f
+	jmp stpx0
+
++	lda (filltab),y	; Upper Nibble
+	lsr
+	lsr
+	lsr
+	lsr
+
+stpx0	ldy ymrk
+	sta (src),y	; Pixel setzen
+	jsr buf1inc	; Pufferzeiger erhöhen
+	jsr getquad
+	bcc setpixel1
+	rts 
+
+; ----------------------------------------- 
+
+setpixel2	ldy ymrk
+	lda (src),y
+	sta bmrk
+	jsr buf2inc
+
+	jsr newpos
+	jsr comp4bt
+	ldy #0
+	lda tabval
+	and #1
+	beq +
+
+	lda (filltab),y
+	and #$f0
+	jmp stpx1
+
++	lda bmrk
+	asl
+	asl
+	asl
+	asl
+	sta bmrk
+	lda (filltab),y
+	and #$0f
+
+stpx1	ora bmrk
+	sta (filltab),y
+	jsr getquad
+	bcc setpixel2
+	rts 
+
+; ----------------------------------------- 
+
+buf1inc	inc ymrk		; .y erhöhen
+	bne +		; bis wieder 0
+	inc src+1		; dann Target-Hi erhöhen (im Puffer1)
+	lda src+1
+	cmp #$24		; bis $2400 erreicht
+	bne +
+	lda #$20		; dann zurück auf $2000
+	sta src+1
++	rts 
+
+; ----------------------------------------- 
+
+buf2inc	inc ymrk
+	bne +
+	inc src+1
+	lda src+1
+	cmp #$28		; bis $2800 erreicht
+	bne +
+	lda #$20		; dann zurück auf $2000
+	sta src+1
++	rts 
+
+; ----------------------------------------- 
+
+setq4	lda #4		; Quadrant 4
+	sta qnumber
+	ldx #0
+	stx vorwrts	; von vorn: 0
+	dex 
+	stx rckwrts	; von hinten: 255
+	rts 
+
+; ----------------------------------------- Get New Pixel Position
+
+newpos	ldy vorwrts	; .y zuerst: 0 (s.o.)
+	lda (dst),y
+	sta tabval
+	ldy rckwrts	; .y zuerst: $ff
+	lda (dst),y
+	sta retabval
+	lda #0
+	sta tabval+1
+
+	lda qnumber	; welcher Quadrant?
+	cmp #3		; 3 oder 4?
+	bcs +
+
+	sec 		; nein, kleiner, 1 oder 2
+	lda cposx		; centerx minus table
+	sbc tabval
+	sta tabval
+	lda cposx+1
+	sbc tabval+1
+	sta tabval+1
+	jmp skp0
+
++	clc 		; Quadrant 3 oder 4
+	lda tabval	; centerx plus table
+	adc cposx
+	sta tabval
+	lda tabval+1
+	adc cposx+1
+	sta tabval+1
+
+skp0	lda cposy		; und centery?
+	ldx qnumber	; Quadrant?
+	cpx #3		; 3?
+	beq +
+	cpx #2		; 2?
+	beq +
+
+	clc 		; nein, 1 oder 4
+	adc retabval	; centery plus table
+	sta retabval
+	rts 
+
++	sec 		; 3 oder 2
+	sbc retabval	; centery minus table
+	sta retabval
+	rts 
+
+; ----------------------------------------- 
+
+getquad	ldx qnumber	; Quadrant (zuerst: 4)
+	dex
+	beq +		; war: 1
+	dex 
+	beq ++ 		; war: 2
+	dex 		; war: 3
+	beq +
+++	dec rckwrts	; war: 4
+	inc vorwrts
+	beq ++
+-	clc 
+	rts 
+
++	dec vorwrts
+	inc rckwrts
+	bne -
+
+++ 	dec qnumber	; bis 0
+	beq +++		; dann beenden
+
+	lda qnumber	; Quadrant?
+	cmp #3		; 3?
+	beq +
+	cmp #2		; 2?
+	beq ++
+
++	ldx #0		; nein, 1, 3 oder 4
+	stx rckwrts
+	dex 
+	stx vorwrts
+	clc 
+	rts 
+
+++	ldx #0		; 2
+	stx vorwrts
+	dex 
+	stx rckwrts
+	clc 
+	rts 
+
++++	sec		; Ende 
+	rts 
+
+; ----------------------------------------- 
+
+mktable	lda #<table1	; to $bd00
+	sta dst
+	lda #>table1
+	sta dst+1
+	ldy #0
+
+--	lda #0
+	sta filltab
+	sta filltab+1
+	sta ival+2
+	lda cradius
+	sta ival
+	lda tabelle,y
+	sta ival+1
+
+	ldx #7
+-	lsr ival		; 8mal rechts shiften (Radius)
+	bcc +		; .c=1?
+
+	lda filltab	; ja, dann Vektor aufaddieren
+	clc 
+	adc ival+1
+	sta filltab
+	lda filltab+1
+	adc ival+2
+	sta filltab+1
+
++	asl ival+1	; 8mal links shiften (16 Bit, Tabelle)
+	rol ival+2
+	dex 
+	bpl -
+
+	lda filltab	; 128 zum aufaddierten Vektor addieren
+	adc #128
+	sta filltab
+	lda filltab+1
+	adc #0
+	sta (dst),y	; Hibyte nach table1 speichern
+
+	iny 
+	bne --		; 256mal
+	rts 
+
+; ----------------------------------------- Move Tables
+
+movetable	ldx #0
+-	lda table1,x	; $bd00 nach $be00
+	sta table2,x
+	inx 
+	bne -
+	rts 
+
+; ----------------------------------------- Move Quads
+
+movequads	ldx #$00
+-	lda quads,x	; $2000 nach $2400
+	sta quads+$400,x
+	lda quads+$100,x
+	sta quads+$500,x
+	lda quads+$200,x
+	sta quads+$600,x
+	lda quads+$300,x
+	sta quads+$700,x
+	inx 
+	bne -
+	rts 
+
+; ----------------------------------------- Compute 4Bit Address
+
+comp4bt 	lda tabval
+	and #$f8
+	sta filltab
+	lda tabval+1
+	asl filltab
+	rol
+	asl filltab
+	rol
+	sta filltab+1
+	adc #>sy_4bit	; 4Bit-Adresse berechnen
+	sta filltab+1
+	lda tabval
+	and #$06
+	lsr
+	adc filltab
+	sta filltab
+	lda filltab+1
+	adc #$00
+	sta filltab+1
+
+	lda retabval	; Blockzeile anwählen
+	lsr
+	lsr
+	lsr
+	beq +
+
+	tax 
+	clc 
+-	lda filltab+1
+	adc #$05
+	sta filltab+1
+	dex 
+	bne -
+
++	lda retabval
+	and #$07
+	asl
+	asl
+	adc filltab
+	sta filltab
+	lda filltab+1
+	adc #$00
+	sta filltab+1
+	rts 
+
+; ----------------------------------------- Activity
+
+adinc	lda speedflg
+	bne ++
+
+	dec adcnt
+	bne +
+	inc spr2y
+	inc spr3y
+	lda #3
+	sta adcnt
++	rts
+
+++	inc border
+	rts 
+
+; ----------------------------------------- Activity Bar off
+
+baroff 	lda spronoff
+	and #$f3
+	sta spronoff
+	lda spritehi
+	and #$f3
+	sta spritehi
+	lda #0
+	sta sprxxp
+	clc 
+	rts 
+
+; ----------------------------------------- Init Activity Bar
+
+initad	ldy #$3c
+	lda #0
+-	sta $3fc3,y
+	dey 
+	bpl -
+	sty $3fc0
+	sty $3fc1
+	sty $3fc2
+	lda #$0f
+	sta spr2c
+	sta spr3c
+	lda sprxxp
+	ora #$0c
+	sta sprxxp
+	lda spritehi
+	ora #$0c
+	sta spritehi
+	lda #$08
+	sta spr2x
+	lda #$20
+	sta spr3x
+	lda #$92
+	sta spr2y
+	sta spr3y
+	sty $07fa
+	sty $07fb
+	lda spronoff
+	ora #$0c
+	sta spronoff
+	lda #3
+	sta adcnt
+	rts 
+
+; ----------------------------------------- 
+; part of ev_degree:
+
+-	lda #$67		; set angle to 359
+	sta angle
+	lda #$01
+	sta angle+1
+	lda #$39		; "9"
+	sta ival+2
+	lda #$35		; "5"
+	sta ival+1
+	lda #$33		; "3"
+	sta ival
+	bne ++
+
+; ----------------------------------------- Event: Get Angle
+
+ev_degree	jsr input		; fetch value for angle
+	ldx ival+1	; result < 255?
+	beq +		; yes
+
+	dex 		; no, >512?
+	bne -		; yes, delimit to 359
+	lda ival		; 360?
+	cmp #<360
+	bcs -		; then set 359
+
++	lda ival+1	; set angle value
+	sta angle+1
+	lda ival
+	sta angle
+	lda angle+1
+	bne ang1
+	ldx angle
+	jsr mkdigits	; convert to digits
+
+++	ldx #2		; set digits to screen /-list
+-	lda ival,x
+	sta $0698,x	; direct screen access!
+	sta degtx,x
+	dex 
+	bpl -
+
+--	lda #<quads	; .a=0
+	sta qangle
+	sta quadadd
+	lda #>quads	; $2000 
+	sta quadadd+1
+
+	lda angle
+	sta qangle+1
+	lda angle+1
+	lsr
+	ror qangle+1
+	ror qangle
+
+-	sec 
+	lda qangle
+	sbc #45
+	sta qangle
+	lda qangle+1
+	sbc #0
+	sta qangle+1	; Return: Quadrant und zugehörigen Puffer
+	bcc +
+	inc quadadd	; address of quadrant
+	bne -
+	inc quadadd+1
+	bne -
+
++	lda qangle+1	; # of quadrant
+	clc 
+	rts 
+
+; ----------------------------------------- Retrieve Angletxt
+
+ang1	lda $069a		; get angletxt directly from screen (digits)
+	sta degtx+2	; set to screenlist
+	lda $0699
+	sta degtx+1
+	lda $0698
+	sta degtx
+	bne --
+
+; ----------------------------------------- Event: Get Radius
+
+ev_radius	jsr input		; from keyboard (returns value)
+	beq +		; 0?
+
+	sta radius	; (lobyte of value)
+	lda ival+1	; >255?
+	beq ++		; nein, berechnen
+
+	lda #200		; sonst: begrenzen auf 200
+	!by $2c
++	lda #1		; oder wenn 0 dann 1
+	sta radius
+
+++	jsr showxyr
+	clc 
+	rts 
+
+; ----------------------------------------- Event: Get X Center Position
+
+ev_centerx
+	jsr input		; get value from keyboard
+	ldx ival+1	; >255?
+	beq +		; no
+
+	dex 		; yes, >512?
+	bne setmaxx	; yes, set 316
+	lda ival		; no, >316?
+	cmp #$3c
+	bcs setmaxx	; yes, delimit to 316
+
++	lda ival+1	; set x center position
+	sta cposx+1
+	lda ival
+	sta cposx
+	bne +++
+	lda cposx+1
+	bne +++
+	lda #1		; if 0: set 1 as min x center pos
+	sta cposx
+	bne +++
+
+setmaxx	lda #$3c		; set 316 as max x center pos
+	sta cposx
+	lda #$01
+	sta cposx+1
+	bne +++
+
+; ----------------------------------------- Event: Get Y Center Position
+
+ev_centery
+	jsr input		; get value from keyboard
+	lda ival+1	; >255?
+	bne setmaxy	; yes, delimit
+
+	lda ival		; 0?
+	beq +		; then 1
+	cmp #161		; >160?
+	bcs setmaxy	; then delimit to 161
+	tax 
+	bne ++
++	ldx #1		; min: 1
+	bne ++
+
+setmaxy	ldx #161		; max: 161
+++	stx cposy
+
++++	jsr showxyr
+	clc 
+	rts 
+
+; ----------------------------------------- Show X-Y-Radius
+
+showxyr	lda radius	; Radius merken
+	sta cradius
+	sec 
+	sbc cposy		; Y-Centerposition subtrahieren
+	bcc +		; negativ?
+	lda cposy		; dann auf Y-Centerposition begrenzen
+	sta cradius
+
++	sec 		; wenn nötig, auf 100 begrenzen
+	lda #200
+	sbc cposy
+	cmp cradius
+	bcs +
+	sta cradius
+
++	lda cposx+1	; mit x-Position abgleichen
+	bne +		; >255?
+	lda cradius	; nein, x-Pos zu groß für Radius?
+	cmp cposx
+	bcc +
+	lda cposx		; dann auf Radius begrenzen
+	sta cradius
+
++	lda cradius	; aufbereiten für die Ausgabe
+	clc 
+	adc cposx		; Radius plus Center-X
+	sta ival
+	lda cposx+1
+	adc #0
+	sta ival+1
+	beq +		; >255?
+	lda ival		; >320?
+	cmp #$40
+	bcc +
+	lda ival		; ja, 64 abziehen
+	sec 
+	sbc #64
+	sta ival
+	lda cradius
+	sec 
+	sbc ival
+	sta cradius
+
++	ldx radius	; Radius zu groß?
+	cpx cradius
+	bcc +
+
+	ldx cradius	; dann endgültig begrenzen
++	stx dradius
+	stx radius
+	jsr mkdigits	; in Ziffern wandeln
+	ldx #2
+-	lda ival,x	; digits into screen /-list
+	sta $0648,x	; direct screen access!
+	sta radtx,x
+	dex 
+	bpl -
+
+	ldx cposy		; CenterY
+	jsr mkdigits	; in Ziffern wandeln
+	ldx #$02
+-	lda ival,x
+	sta $05f8,x	; direct screen access!
+	sta ctytx,x
+	dex 
+	bpl -
+
+	lda cposx+1	; CenterX zu groß? (>255)
+	beq +
+	lda cposx		; dann 100 abziehen
+	sec 
+	sbc #100
+	tax 
+	jsr mkdigits
+	inc ival
+	bne ++
+
++	ldx cposx		; CenterX
+	jsr mkdigits	; in Ziffern wandeln
+++	ldx #$02
+-	lda ival,x
+	sta ctxtx,x
+	sta $05a8,x	; direct screen access!
+	dex 
+	bpl -
+	rts 
+
+; ----------------------------------------- Makedigits
+
+mkdigits	lda #$30		; init to "000"
+	sta ival		; hundreds' column
+	sta ival+1	; tens' column
+	sta ival+2	; units' column
+
+	txa 		; value in .x
+-	sec
+	sbc #100 		; subtract 100 until negative
+	bcc +
+	tax		; store remainder to .x
+	inc ival 		; if not negative inc first digit
+	bne -		; and loop
+
++	txa 		; process remainder
+-	sec 
+	sbc #10		; subtract 10 until negative
+	bcc +
+	tax 		; store remainder to .x
+	inc ival+1	; if not negative inc second digit
+	bne -		; and loop
+
++	txa 		; remainder is correct value 
+	adc ival+2	; add "0"
+	sta ival+2	; store as digit
+	lda ival		; first digit "0"?
+	cmp #$30
+	bne +		; no, digits all processed
+	lda #$20		; then replace by space
+	sta ival
+	lda ival+1	; then: is next digit also "0"?
+	cmp #$30
+	bne +
+	lda #$20		; then also replace by space
+	sta ival+1
++	rts 
+
+; ----------------------------------------- Positionieren: Zentrum/Radius
+
+ev_setpos	lda border
+	pha 
+
+	lda gr_bkcol	; set border and background
+	sta border
+	sta backgr
+	lda charreg	; Zeichengenerator verschieben
+	ora #$08
+	sta charreg
+	lda grafreg	; Grafik an
+	ora #$20
+	sta grafreg
+	jsr svvideo	; save video ram colors
+	lda gr_cmode	; current mode?
+	bne es0		; is multi?
+
+	jsr set		; no, process hires
+	bne es1		; (unconditional)
+
+es0	lda multreg	; yes, multi on
+	ora #$10
+	sta multreg
+	jsr svcolors	; save color ram colors
+	jsr set		; process multi
+	jsr svcolors	; re-get colors
+
+es1	lda grafreg	; dann: Grafik aus
+	and #$9f
+	sta grafreg
+	lda charreg	; Zeichengenerator zurücksetzen	
+	and #$f7
+	sta charreg
+	lda multreg	; Multi aus
+	and #$ef
+	sta multreg
+	pla 
+	sta border	; Screenfarben wiederherstellen
+	sta backgr
+	jsr slowdown	; Slowdown
+	jsr slowdown
+	clc 
+	rts 
+
+; ----------------------------------------- 
+
+set	jsr slowdown
+	jsr slowdown
+	lda #0
+	sta sc_stop
+	jsr rainbow	; get center by mouse
+	bcs +
+
+	jsr getcpos	; set center position, init ghost pointer
+	jsr slowdown
+	lda #0
+	sta sc_stop
+	jsr rainbow	; get radius by mouse
+	bcs +
+	jsr getradius	; set radius
+
++	jsr gd_spron	; mouse on
+	jsr svvideo	; re-get video ram colors
+	jmp showxyr	; show all
+
+; ----------------------------------------- Slowdown
+
+slowdown	ldx #0		; counts 64K down
+	ldy #0
+-	dey 
+	bne -
+	dex 
+	bne -
+	rts 
+
+; ----------------------------------------- Rainbow Pointer (get position)
+
+rainbow	inc spr2c		; Change Sprite Color (of Sprite 2)
+	lda $dc00		; Joy0: Fire?
+	and #$10
+	beq +		; ja, .c=0
+	lda #$fe		; Return?
+	sta $dc00
+	lda $dc01
+	and #$02
+	beq +		; ja, .c=0
+	lda #3		; STOP?
+	cmp sc_stop
+	beq ++		; ja, .c=1
+	lda $dc01		; Joy1: Fire?
+	and #$10
+	bne rainbow
+
++	lda #0		; ja, Init STOP, .c=0
+	sta sc_stop
+	clc 
+	rts 
+
+++	sec 
+	rts 
+
+; ----------------------------------------- Init Ghost Pointer
+
+getcpos	ldx mousex	; Maus x-Position merken (Center)
+	stx cposx
+	stx spr2x		; und für Ghost setzen
+	lda spritehi	; Position >255?
+	and #$fb
+	sta spritehi
+	and #$01		; ebenfalls setzen
+	sta cposx+1
+	beq +
+	lda spritehi	; wenn größer, dann Ghost auch setzen
+	ora #$04
+	sta spritehi
++	txa 
+	sec 
+	sbc #24		; minus 24 (Screenrand x)
+	sta cposx
+	lda cposx+1
+	sbc #0
+	sta cposx+1
+
+	lda mousey	; Maus y-Posiiton holen
+	sta spr2y		; für Ghost setzen
+	sec 		; minus 50 (Screenrand y)
+	sbc #50
+	sta cposy		; und merken
+
+	lda #7
+	sta spronoff	; Maus und Ghost an
+	lda $07f8		; Sprite 0 (Maus)
+	sta $07fa		; Sprite 2 (Ghost)
+	rts 
+
+; ----------------------------------------- Get Radius
+
+getradius	lda mousey	; compute y-radius:
+	cmp spr2y		; ghost-y greater than mouse-y?
+	bcc +
+	sec 		; no, subtract
+	sbc spr2y
+	bcs ++
++	lda spr2y		; yes, subtract vice-versa
+	sbc mousey
+++	sta radius	; store as radius
+
+	lda #0		; !!! Fehler im Original: lda $00 (zeropage) !!!
+	sta ival+1
+
+	lda spritehi	; Maus: x-Übertrag merken
+	and #$01
+	sta mposx+1
+	lda spritehi	; bei Ghost auch
+	and #$04
+	beq +
+	lda #1
+	sta gposx+1
+
++	lda mousex	; compute x-radius
+	sta mposx
+	lda spr2x
+	sta gposx
+	lda mposx+1	; Übertrag gleich?
+	cmp gposx+1
+	beq +
+
+	lda mposx		; nein 120 addieren
+	clc 
+	adc #120
+	sta mposx
+	lda gposx
+	clc 
+	adc #120
+	sta gposx
+
++	sec 
+	lda mposx		; x-Radius...
+	sbc gposx
+	bcc +
+	sta ival+2	; merken
+	bcs ++
++	sec 
+	lda gposx
+	sbc mposx
+	sta ival+2
+
+++	lda ival+2	; Vergleich mit y-Radius?
+	cmp radius
+	bcc +
+
+-	sta radius	; der größere gewinnt
++	lda radius
+	bne +
+	lda #1		; wenn 0, dann 1
+	bne -
+
++	jsr gd_spron	; Systemmaus an
+	lda spritehi	; x-Übertrag beachten
+	and #3
+	sta spritehi
+	rts 
+
+; ----------------------------------------- Input from Keyboard
+
+input	lda #0
+	sta ival+1
+	ldx #10		; 11 valid chars:
+	stx sc_iflag
+-	lda digits,x	; digits and space
+	sta sy_global,x
+	dex 
+	bpl -
+	lda #<sy_global	; call system input
+	sta ls_vekta8
+	lda #>sy_global
+	sta ls_vekta8+1
+	jsr gd_xinput
+
+; ----------------------------------------- Convert Value to Digits
+; (like gword)
+
+iresult	lda ls_nambuf+2	; dritte Ziffer Space?
+	cmp #$20
+	beq +++		; ja, aufrücken (rechtsbündig!)
+
+	sec 		; nein, Einer in Digit wandeln
+	sbc #$30
+	sta ival
+
+	lda ls_nambuf+1	; zweite Ziffer Space?
+	cmp #$20
+	beq +		; ja, dann Ergebnis <10
+
+	sec 
+	sbc #$30		; nein, Zehner in Digit wandeln
+	tax 		; in .x merken
+	beq ++		; Null?
+
+	lda ival		; nein, aus erstem Digit 10er machen (.x mal 10 addieren)
+-	clc 
+	adc #10
+	dex 
+	bne -
+
+	sta ival
+++	lda ls_nambuf	; erste Ziffer Space?
+	cmp #$20
+	beq +		; ja, Ergebnis holen, fertig
+
+	sec 
+	sbc #$30		; Hunderter in Digit wandeln
+	beq +
+	tax 		; merken in .x
+
+-	clc 
+	lda ival		; und Hunderter machen (.x mal 100 addieren)
+	adc #100
+	sta ival
+	lda ival+1
+	adc #0
+	sta ival+1
+	dex 
+	bne -
+
++	lda ival		; Ergebnis in ival/ival+1
+	rts
+
++++	lda ls_nambuf+1	; aufrücken nach rechts
+	sta ls_nambuf+2
+	lda ls_nambuf
+	sta ls_nambuf+1
+	lda #$30		; führende Null zufügen
+	sta ls_nambuf
+	jmp iresult	; Loop
+
+; ----------------------------------------- Switch Speed on
+
+speedon	lda speedflg
+	beq +
+
+	sei 
+	lda grafreg	; switch screen off
+	and #$ef
+	sta grafreg
+	lda #1		; Speed on
+	sta nvicspeed
+
++	rts 
+
+; ----------------------------------------- Return to normal Speed
+
+speedoff	lda speedflg	; Speed on? (on new c64? c128dcr?)
+	beq +		; no, skip 
+
+	cli 
+	lda grafreg	; switch screen on
+	ora #$10
+	sta grafreg
+	lda #0		; Speed off
+	sta nvicspeed
+	lda backgr	; restore border color
+	sta border
+
++	rts 
+
+; ----------------------------------------- Event: Switch Speedmode on/off
+
+ev_speed	lda speedflg	; toggle speed flag
+	eor #$ff
+	sta speedflg
+	beq spoff
+
+spon	lda #$0e		; "n"
+	sta $06e9		; direct screen access!
+	sta spdtx+1	; to screenlist
+	lda #$20		; " "
+	sta $06ea		; direct screen access!
+	sta spdtx+2
+	clc 
+	rts 
+
+spoff	lda #$06		; "ff"
+	sta $06e9		; direct screen access!
+	sta $06ea		; direct screen access!
+	sta spdtx+1
+	sta spdtx+2
+	clc 
+	rts 
+
+; ----------------------------------------- Toggle Video Ram
+
+svvideo	sei 
+	lda pport
+	pha 
+	lda $70		; set 6510 to RAM only (?)
+	sta pport
+
+	ldx #0
+-	ldy $de0b,x	; VRam Teil 2 aus Saver, 1. Hälfte
+	lda $0400,x
+	sta $de0b,x
+	tya 
+	sta $0400,x	; nach VRam Teil 1 (?)
+	ldy $ce0b,x
+	lda $05f4,x
+	sta $ce0b,x
+	tya 
+	sta $05f4,x
+	inx 
+	bne -
+
+-	ldy $df0b,x	; und 2. Hälfte
+	lda $0500,x
+	sta $df0b,x
+	tya 
+	sta $0500,x
+	ldy $cf0b,x
+	lda $06f4,x
+	sta $cf0b,x
+	tya 
+	sta $06f4,x
+	inx 
+	cpx #$f4
+	bne -
+
+	pla 
+	sta pport		; re-set 6510 to GoDot
+	cli 
+	rts 
+
+; ----------------------------------------- Toggle Color Ram
+
+svcolors 	sei 
+	lda pport
+	pha 
+	and #$f9
+	ora #5
+	sta pport
+	lda #$0b		; $ee0b (GoDot colors)
+	sta filltab
+	lda #$ee
+	sta filltab+1
+	lda #$00		; $d800 (Color Ram)
+	sta ls_adrmisc
+	lda #$d8
+	sta ls_adrmisc+1
+
+-	lda #0		; (big loop)
+	sta bmrk
+	tay 
+	lda (filltab),y	; get GoDot color
+	pha 		; store
+
+	iny 
+	lda (ls_adrmisc),y	; get C64 Color
+	lsr		; move lower nibble to bmrk...
+	rol bmrk
+	lsr
+	rol bmrk
+	lsr
+	rol bmrk
+	lsr
+	rol bmrk
+	dey 
+	lda (ls_adrmisc),y	; get Color again
+	asl		; move lower to upper nibble
+	asl
+	asl
+	asl
+	ora bmrk		; and combine to a double nibble
+	sta (filltab),y	; store to GoDot colors
+
+	pla 		; re-get original GoDot color
+	sta bmrk		; store
+	lsr		; upper nibble to lower
+	lsr
+	lsr
+	lsr
+	sta (ls_adrmisc),y	; and store to color ram
+	lsr bmrk		; lower nibble to upper
+	rol
+	lsr bmrk
+	rol
+	lsr bmrk
+	rol
+	lsr bmrk
+	rol
+	iny 
+	sta (ls_adrmisc),y	; store to color ram
+	inc ls_adrmisc	; advance 2 bytes in color ram
+	inc ls_adrmisc
+	bne +
+	inc ls_adrmisc+1
++	inc filltab	; 1 byte in GoDot colors
+	bne -
+	inc filltab+1
+	ldx filltab+1
+	cpx #$f0
+	bne -
+
+	pla 
+	sta pport
+	cli 
+	rts 
+
+; ----------------------------------------- 
+
+speedflg	!by 0
+radius	!by 100
+mposx	!wo 0
+gposx	!wo 0
+inputflg	!by 0
+
+; ----------------------------------------- 
+
+spinlst	!by $00
+	!by 5,13,16,16,$91
+	!wo 0
+	!scr "Spin Positive@"
+	!by 7,23,5,3,$c0
+	!wo ev_setpos
+	!scr "Set@"
+ctxgad	!by 9,23,5,3,$e0
+	!wo ev_centerx
+ctxtx	!scr "100@"
+ctygad	!by 11,23,5,3,$e0
+	!wo ev_centery
+ctytx	!scr "100@"
+radgad	!by 13,23,5,3,$e0
+	!wo ev_radius
+radtx	!scr "100@"
+deggad	!by 15,23,5,3,$e0
+	!wo ev_degree
+degtx	!scr " 90@"
+spdgad	!by 17,23,5,3,$c0
+	!wo ev_speed
+spdtx	!scr "Off@"
+	!by 19,13,16,3,$ca
+	!wo ev_exect
+	!scr "Execute@"
+	!by 21,13,16,3,$cb
+	!wo ev_cancel
+	!scr "Cancel@"
+
+	!by $c0,7,13,9
+	!scr "Position:@"
+	!by $c0,9,13,8
+	!scr "Center:X@"
+	!by $c0,11,20,1
+	!scr "Y@"
+	!by $c0,13,13,6
+	!scr "Radius@"
+	!by $c0,15,13,6
+	!scr "Degree@"
+	!by $c0,17,13,9
+	!scr "Speedmode@"
+
+	!by $80
+
+; ----------------------------------------- Data
+
+ival	!by 0,0,0
+digits	!scr " 0123456789"
+memman	!by 0
+passes	!by 0
+tabval	!wo 0
+retabval	!by 0
+dradius	!by 100
+cradius	!by 100
+vorwrts	!by 0
+rckwrts 	!by 0
+cposx	!wo 100
+cposy	!by 100
+quadadd	!wo $2100
+angle	!wo 90
+qangle	!wo 0
+qnumber	!by 0 
+
+; ----------------------------------------- Versatz-Tabelle
+
+tabelle	!by $01,$02,$03,$05,$06,$08,$09,$0b,$0d,$0e,$10,$11,$13,$14,$16,$17 
+	!by $19,$1b,$1c,$1e,$1f,$21,$22,$24,$25,$27,$29,$2a,$2c,$2d,$2f,$30
+	!by $32,$33,$35,$36,$38,$39,$3b,$3c,$3e,$3f,$41,$43,$44,$46,$47,$49
+	!by $4a,$4c,$4d,$4f,$50,$51,$53,$54,$56,$57,$59,$5a,$5c,$5d,$5f,$60 
+	!by $62,$63,$64,$66,$67,$69,$6a,$6c,$6d,$6e,$70,$71,$73,$74,$75,$77 
+	!by $78,$7a,$7b,$7c,$7e,$7f,$80,$82,$83,$84,$86,$87,$88,$8a,$8b,$8c
+	!by $8e,$8f,$90,$92,$93,$94,$95,$97,$98,$99,$9a,$9c,$9d,$9e,$9f,$a1
+	!by $a2,$a3,$a4,$a5,$a7,$a8,$a9,$aa,$ab,$ac,$ae,$af,$b0,$b1,$b2,$b3 
+	!by $b4,$b5,$b7,$b8,$b9,$ba,$bb,$bc,$bd,$be,$bf,$c0,$c1,$c2,$c3,$c4
+	!by $c5,$c6,$c7,$c8,$c9,$ca,$cb,$cc,$cd,$ce,$cf,$d0,$d0,$d1,$d2,$d3 
+	!by $d4,$d5,$d6,$d7,$d7,$d8,$d9,$da,$db,$dc,$dc,$dd,$de,$df,$df,$e0
+	!by $e1,$e2,$e2,$e3,$e4,$e4,$e5,$e6,$e7,$e7,$e8,$e8,$e9,$ea,$ea,$eb 
+	!by $ec,$ec,$ed,$ed,$ee,$ee,$ef,$f0,$f0,$f1,$f1,$f2,$f2,$f3,$f3,$f4 
+	!by $f4,$f4,$f5,$f5,$f6,$f6,$f7,$f7,$f7,$f8,$f8,$f8,$f9,$f9,$f9,$fa
+	!by $fa,$fa,$fa,$fb,$fb,$fb,$fc,$fc,$fc,$fc,$fc,$fd,$fd,$fd,$fd,$fd
+	!by $fe,$fe,$fe,$fe,$fe,$fe,$fe,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff 
+	!by $ff
+
+; ----------------------------------------- 
+
+modend	!eof
+
