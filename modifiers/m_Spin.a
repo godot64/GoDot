@@ -5,12 +5,19 @@
 ;	!sl "labels.txt"
 
 ; ----------------------------------------- 
-
+;
+;  mod.Spin
+;   Modifier to turn a circular part of the image by any angle
+;
+;  1.01, 22.11.98
+;  1.02, 30.04.18, completely reorganized and accommodated to GoDot system
+;
 ; ----------------------------------------- 
 
 ; ----------------------------------------- Equates
 
 	pport		= $01
+	int		= $14
 
 	dst		= $30
 	src		= $32
@@ -18,10 +25,18 @@
 	ymrk		= $36
 	bmrk		= $37
 	adcnt		= $38
+	slot		= $45	; /$46
+	v1buf		= $47
+	v2buf		= $48
+	cbuf		= $49
 
 	quads		= $2000
 	table1		= sy_bigbuffer
 	table2		= table1+$100
+
+	vram2		= $ce0b	; color buffers (standard addrs)
+	vram1		= $de0b
+	cstart		= $ee0b
 
 	mousex		= $d000
 	mousey		= $d001
@@ -45,42 +60,50 @@
 
 	jmp start
 	!by $20
-	!by $00
-	!by $01
+	!by 0
+	!by 0
 	!wo modend
-	!wo $00
+	!wo 0
 	!tx "Spin positive   "
-	!tx "1.01"
-	!tx "22.11.98"
-	!tx "Martin Bohnet   "
+	!tx "1.02"
+	!tx "30.04.18"
+	!tx "Martin Bohnet/AD"
 
 ; ----------------------------------------- Main
 
-start	lda gd_modswitch
+start	ldx sc_screenvek	; save vector to previous list
+	stx list
+	ldx sc_screenvek+1
+	stx list+1
+	lda gd_modswitch	; memory management
 	sta memman
-	lda sc_iflag
+	lda gr_redisp	; store render graphics flag
+	sta dispmk
+	lda sc_iflag	; init input
 	sta inputflg
 	lda #0
 	sta tabelle
-	ldx #<spinlst
+	jsr checkcols	; where is which module? (for re-display)
+	ldx #<spinlst	; show requester
 	ldy #>spinlst
 	jsr gd_screen
-	jmp gd_eloop
+	jsr angle1	; init vectors
+	jmp gd_eloop	; now wait...
 
 ; ----------------------------------------- 
 
 finish 	jsr baroff	; switch activity bar off
 	jsr speedoff	; return to normal speed, screen on
-	lda #1
+	lda #1		; imaga data changed, so redisplay
 	sta gr_redisp
 
-; ----------------------------------------- 
+; ----------------------------------------- Event: Cancel Modifier
 
-ev_cancel	lda memman
+ev_cancel	lda memman	; memory management
 	sta gd_modswitch
-	lda inputflg
+	lda inputflg	; restore input
 	sta sc_iflag
-	sec 
+	sec 		; leave modifier
 	rts 
 
 ; ----------------------------------------- Event: Execute
@@ -109,7 +132,7 @@ xloop 	dec cradius	; Radius auf 0?
 	lda quadadd
 	sta ymrk
 	lda quadadd+1
-	sta src+1		; Lowbyte: 0
+	sta src+1		; Lowbyte of src: 0
 	jsr setpixel1
 	lda passes
 	bne +
@@ -424,7 +447,7 @@ comp4bt 	lda tabval
 	and #$07
 	asl
 	asl
-	adc filltab
+	adc filltab	; Ergebnis in filltab/filltab+1
 	sta filltab
 	lda filltab+1
 	adc #$00
@@ -498,7 +521,7 @@ initad	ldy #$3c
 ; ----------------------------------------- 
 ; part of ev_degree:
 
--	lda #$67		; set angle to 359
+-	lda #$67		; set angle to 359 (the easy way)
 	sta angle
 	lda #$01
 	sta angle+1
@@ -512,7 +535,7 @@ initad	ldy #$3c
 
 ; ----------------------------------------- Event: Get Angle
 
-ev_degree	jsr input		; fetch value for angle
+ev_degree	jsr input		; returns value for angle
 	ldx ival+1	; result < 255?
 	beq +		; yes
 
@@ -522,21 +545,34 @@ ev_degree	jsr input		; fetch value for angle
 	cmp #<360
 	bcs -		; then set 359
 
-+	lda ival+1	; set angle value
-	sta angle+1
-	lda ival
++	lda ival		; set angle value
 	sta angle
-	lda angle+1
-	bne ang1
-	ldx angle
+	tay
+	lda ival+1
+	sta angle+1	; zwischen 256 und 360?
+
+angle1	lda angle+1
+	beq +		; nein
+
+	ldy angle		; digits between 256 and 360:
+	tya
+	clc		; low plus 56 (correct decimal units and tens)
+	adc #56
+	tax
+	jsr mkdigits
+	lda #$32		; decide wether hundreds are 2 or 3:
+	sta ival
+	tya
+	cmp #$2c		; low >44?
+	bcc ++		; no,  then: 2
+	inc ival		; yes, then: 3
+	bne ++	
+	
++	ldx angle
 	jsr mkdigits	; convert to digits
 
-++	ldx #2		; set digits to screen /-list
--	lda ival,x
-	sta $0698,x	; direct screen access!
-	sta degtx,x
-	dex 
-	bpl -
+++	ldy #6
+	jsr out
 
 --	lda #<quads	; .a=0
 	sta qangle
@@ -568,17 +604,7 @@ ev_degree	jsr input		; fetch value for angle
 	clc 
 	rts 
 
-; ----------------------------------------- Retrieve Angletxt
-
-ang1	lda $069a		; get angletxt directly from screen (digits)
-	sta degtx+2	; set to screenlist
-	lda $0699
-	sta degtx+1
-	lda $0698
-	sta degtx
-	bne --
-
-; ----------------------------------------- Event: Get Radius
+; ----------------------------------------- Event: Get "Radius"
 
 ev_radius	jsr input		; from keyboard (returns value)
 	beq +		; 0?
@@ -589,7 +615,7 @@ ev_radius	jsr input		; from keyboard (returns value)
 
 	lda #200		; sonst: begrenzen auf 200
 	!by $2c
-+	lda #1		; oder wenn 0 dann 1
++	lda #1		; oder: wenn 0 dann 1
 	sta radius
 
 ++	jsr showxyr
@@ -635,14 +661,14 @@ ev_centery
 
 	lda ival		; 0?
 	beq +		; then 1
-	cmp #161		; >160?
-	bcs setmaxy	; then delimit to 161
+	cmp #197		; >196?
+	bcs setmaxy	; then delimit to 196
 	tax 
 	bne ++
 +	ldx #1		; min: 1
 	bne ++
 
-setmaxy	ldx #161		; max: 161
+setmaxy	ldx #196		; max: 196
 ++	stx cposy
 
 +++	jsr showxyr
@@ -702,21 +728,15 @@ showxyr	lda radius	; Radius merken
 +	stx dradius
 	stx radius
 	jsr mkdigits	; in Ziffern wandeln
-	ldx #2
--	lda ival,x	; digits into screen /-list
-	sta $0648,x	; direct screen access!
-	sta radtx,x
-	dex 
-	bpl -
+
+	ldy #4		; ausgeben
+	jsr out
 
 	ldx cposy		; CenterY
 	jsr mkdigits	; in Ziffern wandeln
-	ldx #$02
--	lda ival,x
-	sta $05f8,x	; direct screen access!
-	sta ctytx,x
-	dex 
-	bpl -
+
+	ldy #2		; ausgeben
+	jsr out
 
 	lda cposx+1	; CenterX zu groß? (>255)
 	beq +
@@ -730,13 +750,9 @@ showxyr	lda radius	; Radius merken
 
 +	ldx cposx		; CenterX
 	jsr mkdigits	; in Ziffern wandeln
-++	ldx #$02
--	lda ival,x
-	sta ctxtx,x
-	sta $05a8,x	; direct screen access!
-	dex 
-	bpl -
-	rts 
+
+++	ldy #0		; ausgeben
+	jmp out
 
 ; ----------------------------------------- Makedigits
 
@@ -745,7 +761,7 @@ mkdigits	lda #$30		; init to "000"
 	sta ival+1	; tens' column
 	sta ival+2	; units' column
 
-	txa 		; value in .x
+	txa 		; value in .x (so: max. 255)
 -	sec
 	sbc #100 		; subtract 100 until negative
 	bcc +
@@ -776,111 +792,58 @@ mkdigits	lda #$30		; init to "000"
 	sta ival+1
 +	rts 
 
-; ----------------------------------------- Positionieren: Zentrum/Radius
+; ----------------------------------------- Event: Positionieren (Zentrum/Radius)
 
-ev_setpos	lda border
-	pha 
-
-	lda gr_bkcol	; set border and background
-	sta border
-	sta backgr
-	lda charreg	; Zeichengenerator verschieben
-	ora #$08
-	sta charreg
-	lda grafreg	; Grafik an
-	ora #$20
-	sta grafreg
-	jsr svvideo	; save video ram colors
-	lda gr_cmode	; current mode?
-	bne es0		; is multi?
-
-	jsr set		; no, process hires
-	bne es1		; (unconditional)
-
-es0	lda multreg	; yes, multi on
-	ora #$10
-	sta multreg
-	jsr svcolors	; save color ram colors
-	jsr set		; process multi
-	jsr svcolors	; re-get colors
-
-es1	lda grafreg	; dann: Grafik aus
-	and #$9f
-	sta grafreg
-	lda charreg	; Zeichengenerator zurücksetzen	
-	and #$f7
-	sta charreg
-	lda multreg	; Multi aus
-	and #$ef
-	sta multreg
-	pla 
-	sta border	; Screenfarben wiederherstellen
-	sta backgr
-	jsr slowdown	; Slowdown
-	jsr slowdown
-	clc 
-	rts 
+ev_setpos	lda #1
+	sta gr_redisp	; Flag: set render graphics for display
+	jsr redisplay	; graphics on
+	jsr set		; process
+	jsr dp2		; graphics off
+	lda dispmk	; reconstruct render graphics
+	sta gr_redisp
+	jmp showxyr	; show all
 
 ; ----------------------------------------- 
 
-set	jsr slowdown
-	jsr slowdown
-	lda #0
-	sta sc_stop
-	jsr rainbow	; get center by mouse
+set	jsr rainbow	; get center by mouse
 	bcs +
+	jsr setcpos	; set center position, init ghost pointer
 
-	jsr getcpos	; set center position, init ghost pointer
-	jsr slowdown
-	lda #0
-	sta sc_stop
 	jsr rainbow	; get radius by mouse
 	bcs +
-	jsr getradius	; set radius
+	jsr setradius	; set radius
 
-+	jsr gd_spron	; mouse on
-	jsr svvideo	; re-get video ram colors
-	jmp showxyr	; show all
-
-; ----------------------------------------- Slowdown
-
-slowdown	ldx #0		; counts 64K down
-	ldy #0
--	dey 
-	bne -
-	dex 
-	bne -
-	rts 
++	jsr gd_spron	; Systemmaus an
+	lda spritehi	; x-Übertrag beachten
+	and #3
+	sta spritehi
+	rts
 
 ; ----------------------------------------- Rainbow Pointer (get position)
 
-rainbow	inc spr2c		; Change Sprite Color (of Sprite 2)
-	lda $dc00		; Joy0: Fire?
-	and #$10
-	beq +		; ja, .c=0
-	lda #$fe		; Return?
-	sta $dc00
-	lda $dc01
-	and #$02
-	beq +		; ja, .c=0
-	lda #3		; STOP?
-	cmp sc_stop
-	beq ++		; ja, .c=1
-	lda $dc01		; Joy1: Fire?
-	and #$10
-	bne rainbow
-
-+	lda #0		; ja, Init STOP, .c=0
+rainbow	lda #0		; Init keys
 	sta sc_stop
-	clc 
-	rts 
+	sta sc_keyprs
 
-++	sec 
+-	inc spr2c		; Change Sprite Color (of Sprite 2)
+	lda sc_keyprs	; wait for key
+	ora sc_stop	; check for STOP
+	beq -
+-	lda joy		; Fire entprellen
+	and #16
+	beq -
+
+	cmp #3		; STOP?
+	bne +
+	sec		; yes
+	rts
+
++	clc		; no, other key (RETURN, Left Mouse)
 	rts 
 
 ; ----------------------------------------- Init Ghost Pointer
 
-getcpos	ldx mousex	; Maus x-Position merken (Center)
+setcpos	ldx mousex	; Maus x-Position merken (Center)
 	stx cposx
 	stx spr2x		; und für Ghost setzen
 	lda spritehi	; Position >255?
@@ -914,7 +877,7 @@ getcpos	ldx mousex	; Maus x-Position merken (Center)
 
 ; ----------------------------------------- Get Radius
 
-getradius	lda mousey	; compute y-radius:
+setradius	lda mousey	; compute y-radius:
 	cmp spr2y		; ghost-y greater than mouse-y?
 	bcc +
 	sec 		; no, subtract
@@ -974,11 +937,7 @@ getradius	lda mousey	; compute y-radius:
 	lda #1		; wenn 0, dann 1
 	bne -
 
-+	jsr gd_spron	; Systemmaus an
-	lda spritehi	; x-Übertrag beachten
-	and #3
-	sta spritehi
-	rts 
++	rts 
 
 ; ----------------------------------------- Input from Keyboard
 
@@ -996,62 +955,66 @@ input	lda #0
 	sta ls_vekta8+1
 	jsr gd_xinput
 
-; ----------------------------------------- Convert Value to Digits
-; (like gword)
+; -------------------------------------- Convert Digits to Word (Byte in INT)
 
-iresult	lda ls_nambuf+2	; dritte Ziffer Space?
-	cmp #$20
-	beq +++		; ja, aufrücken (rechtsbündig!)
+	lda #<ls_nambuf
+	sta ls_vekta8
+	lda #>ls_nambuf
+	sta ls_vekta8+1
 
-	sec 		; nein, Einer in Digit wandeln
-	sbc #$30
-	sta ival
-
-	lda ls_nambuf+1	; zweite Ziffer Space?
-	cmp #$20
-	beq +		; ja, dann Ergebnis <10
-
-	sec 
-	sbc #$30		; nein, Zehner in Digit wandeln
-	tax 		; in .x merken
-	beq ++		; Null?
-
-	lda ival		; nein, aus erstem Digit 10er machen (.x mal 10 addieren)
--	clc 
-	adc #10
-	dex 
-	bne -
-
-	sta ival
-++	lda ls_nambuf	; erste Ziffer Space?
-	cmp #$20
-	beq +		; ja, Ergebnis holen, fertig
-
-	sec 
-	sbc #$30		; Hunderter in Digit wandeln
+gword	ldy #0
+	sty int
+	sty int+1
 	beq +
-	tax 		; merken in .x
 
--	clc 
-	lda ival		; und Hunderter machen (.x mal 100 addieren)
-	adc #100
-	sta ival
-	lda ival+1
-	adc #0
-	sta ival+1
-	dex 
+-	jsr inca8
++	lda (ls_vekta8),y
+	cmp #$20
+	beq -
+
+	cmp #$3a
+	bcs +
+	sec 
+	sbc #$30
+	sec 
+	sbc #$d0
+	bcs +
+	sbc #$2f
+	sta sc_merk
+	lda int+1
+	sta ls_temp
+	cmp #$19		; delimit value to max. 63999 (next pass would exceed 64K)
+	bcs +
+
+	lda int		; value times 10:
+	asl
+	rol ls_temp
+	asl
+	rol ls_temp
+	adc int
+	sta int
+	lda ls_temp
+	adc int+1
+	sta int+1
+	asl int
+	rol int+1
+	lda int
+	adc sc_merk
+	sta int
+	bcc -
+	inc int+1
 	bne -
 
-+	lda ival		; Ergebnis in ival/ival+1
++	lda int+1		; result low in .a
+	sta ival+1
+	lda int
+	sta ival
 	rts
 
-+++	lda ls_nambuf+1	; aufrücken nach rechts
-	sta ls_nambuf+2
-	lda ls_nambuf
-	sta ls_nambuf+1
-	lda #$30		; führende Null zufügen
-	sta ls_nambuf
-	jmp iresult	; Loop
+inca8	inc ls_vekta8
+	bne +
+	inc ls_vekta8+1
++	rts 
 
 ; ----------------------------------------- Switch Speed on
 
@@ -1069,7 +1032,7 @@ speedon	lda speedflg
 
 ; ----------------------------------------- Return to normal Speed
 
-speedoff	lda speedflg	; Speed on? (on new c64? c128dcr?)
+speedoff	lda speedflg	; Speed on? (on new c64 or c128dcr)
 	beq +		; no, skip 
 
 	cli 
@@ -1085,200 +1048,354 @@ speedoff	lda speedflg	; Speed on? (on new c64? c128dcr?)
 
 ; ----------------------------------------- Event: Switch Speedmode on/off
 
-ev_speed	lda speedflg	; toggle speed flag
+ev_speed	lda #$4f		; "O"
+	sta ival
+	lda speedflg	; toggle speed flag
 	eor #$ff
 	sta speedflg
 	beq spoff
 
 spon	lda #$0e		; "n"
-	sta $06e9		; direct screen access!
-	sta spdtx+1	; to screenlist
-	lda #$20		; " "
-	sta $06ea		; direct screen access!
-	sta spdtx+2
-	clc 
-	rts 
+	ldx #$20		; " "
+	bne +
 
 spoff	lda #$06		; "ff"
-	sta $06e9		; direct screen access!
-	sta $06ea		; direct screen access!
-	sta spdtx+1
-	sta spdtx+2
+	tax
++	sta ival+1
+	stx ival+2
+
+	ldy #8
+	jsr out
 	clc 
 	rts 
 
-; ----------------------------------------- Toggle Video Ram
+; ------------------------------------------------ Display Clip values
 
-svvideo	sei 
-	lda pport
-	pha 
-	lda $70		; set 6510 to RAM only (?)
+tabigad	!wo ctxgad	; 0
+	!wo ctygad	; 2
+	!wo radgad	; 4
+	!wo deggad	; 6
+	!wo spdgad	; 8
+
+settab	lda #<(tabigad)
+	sta sc_texttab
+	lda #>(tabigad)
+	sta sc_texttab+1
+	rts
+
+gettab	lda (sc_texttab),y
+	sta sc_screentab
+	iny
+	lda (sc_texttab),y
+	sta sc_screentab+1
+	iny
+	sty sc_merk
+	stx sc_merk+1
+	lda #$00
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #$04
+	bne gt0
+	jsr gd_trim
+	jmp gd_initmove
+
+out	jsr settab
+	jsr gettab
+	ldy #9		; and display
+	ldx #2
+-	lda ival,x
+	sta (sc_screentab),y
+	dey
+	dex
+	bpl -
+	jmp gd_xtxout1
+
+; ------------------------------------------------ 
+
+redisplay	ldx gr_bkcol	; set bordercolor
+	stx border
+	jsr setcolors	; get colors from their buffers
+
+	lda gr_cmode	; which mode?
+	beq dp4
+	lda #$18		; multicolor
+	sta multreg
+dp4	lda #$1b		; hires
+	sta charreg
+	lda #$3b
+	sta grafreg
+	lda gr_redisp	; Flag: display graphics set?
+	bne dp3		; yes, branch and leave
+
+; ------------------------------------------------ End display
+
+dp2	jsr getcolors	; (no,) end display: save colors
+dp20	jsr tmode		; activate textmode
+
+oldreq	lda sc_screenvek	; save vector to current screenlist
+	pha
+	lda sc_screenvek+1
+	pha
+	ldx list		; yes, re-build main screen
+	ldy list+1
+	jsr gd_screen
+dp5	pla		; and then re-build this module's requester
+	tay
+	pla
+	tax
+	jsr gd_screen
+
+dp3	clc		; leave
+	rts
+
+; ------------------------------------------------ Check Color Buffers
+
+checkcols	sei 		; GoDot off
+	ldx #$00
+	stx pport
+
+	ldy #$03		; set lobyte of...
+	sty slot
+
+	lda #$f0		; ...Slot4, check for types of module there
+	sta slot+1	; (may be cram when input is active)
+	jsr sethicol	; (otherwise unchanged)
+
+	lda #$c0		; ...Slot1 and check
+	sta slot+1
+	jsr sethicol
+
+	lda #$d0		; ...Slot2 and check
+	sta slot+1
+	jsr sethicol
+
+	lda #$e0		; ...Slot3 and check
+	sta slot+1
+	jsr sethicol
+
+	lda #$36		; GoDot on again
 	sta pport
-
-	ldx #0
--	ldy $de0b,x	; VRam Teil 2 aus Saver, 1. Hälfte
-	lda $0400,x
-	sta $de0b,x
-	tya 
-	sta $0400,x	; nach VRam Teil 1 (?)
-	ldy $ce0b,x
-	lda $05f4,x
-	sta $ce0b,x
-	tya 
-	sta $05f4,x
-	inx 
-	bne -
-
--	ldy $df0b,x	; und 2. Hälfte
-	lda $0500,x
-	sta $df0b,x
-	tya 
-	sta $0500,x
-	ldy $cf0b,x
-	lda $06f4,x
-	sta $cf0b,x
-	tya 
-	sta $06f4,x
-	inx 
-	cpx #$f4
-	bne -
-
-	pla 
-	sta pport		; re-set 6510 to GoDot
 	cli 
 	rts 
 
-; ----------------------------------------- Toggle Color Ram
+; ------------------------------------------------ 
 
-svcolors 	sei 
-	lda pport
-	pha 
-	and #$f9
-	ora #5
-	sta pport
-	lda #$0b		; $ee0b (GoDot colors)
-	sta filltab
-	lda #$ee
-	sta filltab+1
-	lda #$00		; $d800 (Color Ram)
-	sta ls_adrmisc
-	lda #$d8
-	sta ls_adrmisc+1
-
--	lda #0		; (big loop)
-	sta bmrk
+sethicol	lda (slot,x)	; get type of module (at $c003): $20, $40, $80
 	tay 
-	lda (filltab),y	; get GoDot color
-	pha 		; store
+	and #$40		; is saver there? (contains vram1)
+	beq +		; no, next type
 
-	iny 
-	lda (ls_adrmisc),y	; get C64 Color
-	lsr		; move lower nibble to bmrk...
-	rol bmrk
-	lsr
-	rol bmrk
-	lsr
-	rol bmrk
-	lsr
-	rol bmrk
-	dey 
-	lda (ls_adrmisc),y	; get Color again
-	asl		; move lower to upper nibble
-	asl
-	asl
-	asl
-	ora bmrk		; and combine to a double nibble
-	sta (filltab),y	; store to GoDot colors
+	jsr c147		; yes, set color buffer 
+	sta v1buf
+	bne ++
 
-	pla 		; re-get original GoDot color
-	sta bmrk		; store
-	lsr		; upper nibble to lower
-	lsr
-	lsr
-	lsr
-	sta (ls_adrmisc),y	; and store to color ram
-	lsr bmrk		; lower nibble to upper
-	rol
-	lsr bmrk
-	rol
-	lsr bmrk
-	rol
-	lsr bmrk
-	rol
-	iny 
-	sta (ls_adrmisc),y	; store to color ram
-	inc ls_adrmisc	; advance 2 bytes in color ram
-	inc ls_adrmisc
-	bne +
-	inc ls_adrmisc+1
-+	inc filltab	; 1 byte in GoDot colors
-	bne -
-	inc filltab+1
-	ldx filltab+1
-	cpx #$f0
-	bne -
++	tya 		; loader? ($80, contains cram)
+	bpl +		; no, next type
 
-	pla 
+	jsr c147		; yes, set accordingly
+	sta cbuf
+	bne ++
+
++	jsr c147		; so, it's a modifier (contains vram2)
+	sta v2buf
+
+++	rts 
+
+c147 	lda slot+1	; get hibyte...
+	ora #$0e		; ...and OR %00001110 to it (ie $ce)
+	rts 		; thus: get correct hi address of color buffers
+
+; ------------------------------------------------ Switch textmode on
+
+tmode	ldx #$13
+	lda #$1b
+	stx charreg
+	sta grafreg
+	lda #$08
+	sta multreg
+	lda sc_maincolor
+	sta border
+	sta backgr
+	rts
+
+; ------------------------------------------ 
+
+setcveks	sei
+	lda #$35
 	sta pport
-	cli 
-	rts 
+	lda cbuf 		; color ram
+	ldx #$d8
+	bne scv0
+
+; ------------------------------------------ 
+
+setbveks	lda v1buf 	; vram1
+	ldx #4
+	dec pport
+scv0	stx ls_adrmisc+1
+	ldy #0
+	sty sc_merk
+	sty ls_adrmisc
+	dey
+
+; ------------------------------------------ 
+
+setlast	sty gr_bkcol
+	ldy #<cstart
+	sty sc_vekt20
+	sta sc_vekt20+1
+	lda #<500
+	sta ls_vekta8
+	lda #>500
+	sta ls_vekta8+1
+	ldy #0
+	rts
+
+; ------------------------------------------ 
+
+getcolors	jsr setcveks
+stco	lda (ls_adrmisc),y
+	sta sc_merk
+	inc ls_adrmisc
+	bne stc0
+	inc ls_adrmisc+1
+stc0	lda (ls_adrmisc),y
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	lda sc_merk
+	sta (sc_vekt20),y
+	jsr count
+	bne stco
+	jsr setbveks
+stc1	lda (ls_adrmisc),y
+	sta (sc_vekt20),y
+	jsr count
+	bne stc1
+	ldy gr_bkcol
+	bpl scv1
+	ldy #0
+	lda v2buf 	; vram2
+	jsr setlast
+	beq stc1
+scv1	lda #$36
+	sta pport
+	cli
+	lda backgr
+	and #15
+	sta gr_bkcol
+	rts
+
+; ------------------------------------------ 
+
+setcolors	lda gr_bkcol
+	sta backgr
+	pha
+	jsr setcveks
+stc2	sty sc_merk
+	lda (sc_vekt20),y
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	sta (ls_adrmisc),y
+	inc ls_adrmisc
+	bne stc3
+	inc ls_adrmisc+1
+stc3	lda sc_merk
+	sta (ls_adrmisc),y
+	jsr count
+	bne stc2
+	jsr setbveks
+stc4	lda (sc_vekt20),y
+	sta (ls_adrmisc),y
+	jsr count
+	bne stc4
+	ldy gr_bkcol
+	bpl scv1
+	pla
+	tay
+	lda v2buf 	; vram2
+	jsr setlast
+	beq stc4
+
+; ------------------------------------------------ Counters
+
+count	inc sc_vekt20
+	bne cou5
+	inc sc_vekt20+1
+cou5	inc ls_adrmisc
+	bne cou6
+	inc ls_adrmisc+1
+cou6	lda ls_vekta8
+	bne cou7
+	dec ls_vekta8+1
+cou7	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	rts
 
 ; ----------------------------------------- 
 
-speedflg	!by 0
-radius	!by 100
-mposx	!wo 0
-gposx	!wo 0
-inputflg	!by 0
-
-; ----------------------------------------- 
-
-spinlst	!by $00
-	!by 5,13,16,16,$91
+spinlst	!by 0
+	!by 3,13,16,19,$91
 	!wo 0
-	!scr "Spin Positive@"
-	!by 7,23,5,3,$c0
-	!wo ev_setpos
-	!scr "Set@"
-ctxgad	!by 9,23,5,3,$e0
+	!scr "Spin: Positive@"
+ctxgad	!by 6,23,5,3,$e0
 	!wo ev_centerx
-ctxtx	!scr "100@"
-ctygad	!by 11,23,5,3,$e0
+	!scr "100@"
+ctygad	!by 8,23,5,3,$e0
 	!wo ev_centery
-ctytx	!scr "100@"
-radgad	!by 13,23,5,3,$e0
+	!scr "100@"
+radgad	!by 10,23,5,3,$e0
 	!wo ev_radius
-radtx	!scr "100@"
-deggad	!by 15,23,5,3,$e0
+	!scr "100@"
+deggad	!by 12,23,5,3,$e0
 	!wo ev_degree
 degtx	!scr " 90@"
-spdgad	!by 17,23,5,3,$c0
+spdgad	!by 15,24,5,3,$cf
 	!wo ev_speed
-spdtx	!scr "Off@"
-	!by 19,13,16,3,$ca
+	!scr "Off@"
+	!by 17,13,16,3,$cb
+	!wo ev_setpos
+	!scr " Set Position@"
+	!by 19,13,8,3,$c7
 	!wo ev_exect
-	!scr "Execute@"
-	!by 21,13,16,3,$cb
+	!scr " Exec@"
+	!by 19,21,8,3,$ce
 	!wo ev_cancel
 	!scr "Cancel@"
 
-	!by $c0,7,13,9
-	!scr "Position:@"
-	!by $c0,9,13,8
-	!scr "Center:X@"
-	!by $c0,11,20,1
+	!by $c0,6,14,8
+	!scr "Center X@"
+	!by $c0,8,21,1
 	!scr "Y@"
-	!by $c0,13,13,6
+	!by $c0,10,14,6
 	!scr "Radius@"
-	!by $c0,15,13,6
-	!scr "Degree@"
-	!by $c0,17,13,9
+	!by $c0,12,14,5
+	!scr "Angle@"
+	!by $c0,15,14,9
 	!scr "Speedmode@"
 
 	!by $80
 
 ; ----------------------------------------- Data
 
+speedflg	!by 0
+radius	!by 100
+mposx	!wo 0
+gposx	!wo 0
+inputflg	!by 0
 ival	!by 0,0,0
 digits	!scr " 0123456789"
 memman	!by 0
@@ -1295,6 +1412,8 @@ quadadd	!wo $2100
 angle	!wo 90
 qangle	!wo 0
 qnumber	!by 0 
+list	!wo 0
+dispmk	!by 0
 
 ; ----------------------------------------- Versatz-Tabelle
 
