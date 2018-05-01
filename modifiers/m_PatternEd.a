@@ -1,0 +1,987 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ----------------------------------------- 
+;
+;  mod.PatternEd
+;   Modifier to manage GoDot's dither rasters
+;
+;  1.06, 05.04.93: changed interpretation of status byte
+;  1.07, 16.12.93: added "chgdrv" when accessing diskdrives to avoid crash
+;
+; ----------------------------------------- 
+
+; ----------------------------------------- Equates
+
+	cnter		= $30
+	bitcnt		= $31
+
+; ----------------------------------------- Header
+
+header	jmp start
+	!by $20
+	!by 0
+	!by 1		; dirty
+	!wo modend
+	!wo 0
+	!tx "PatternEditor   "
+	!tx "1.07"
+	!tx "16.12.93"
+	!tx "A. Dettke       "
+
+; ----------------------------------------- Main
+
+start	jsr gd_savescvek	; save vector to previous screenlist
+	ldx sc_scvek2
+	ldy sc_scvek2+1
+	stx list
+	sty list+1
+	jsr getpat	; retrieve custom pattern
+	jsr getundo	; save current pattern for undo
+
+sta0	lda #0		; entry point after disk access
+	sta mode
+	sta sc_keyprs
+	ldx #<plist	; build requester
+	ldy #>plist
+	jsr gd_screen
+	jsr setcol	; show palette colors below pattern
+	jsr show		; show edit area
+	jsr sevdot	; activate Dot mode
+	jsr gd_eloop	; now wait...
+
+	php
+	ldx list		; restore vector to previous screenlist
+	ldy list+1
+	stx sc_scvek2
+	sty sc_scvek2+1
+	plp
+
+	rts
+
+; ----------------------------------------- Event: Activate System Pattern
+; Button: "SysPat"
+
+sevsyspat	jsr getundo	; save current pattern for undo
+	ldx #127		; retrieve system pattern
+gst0	lda syspat,x
+	sta gr_pattern,x
+	dex
+	bpl gst0
+	jsr sevuse	; set re-render flag for next display
+	clc
+	rts
+
+; ----------------------------------------- Get Custom Pattern
+
+getpat	ldx #127		; retrieve the editable custom pattern
+gpt0	lda gr_pattern,x
+	sta patold,x
+	dex
+	bpl gpt0
+	rts
+
+; ----------------------------------------- Get Custom Pattern for Undo
+
+getundo	ldx #127
+gpt1	lda gr_pattern,x
+	sta patundo,x
+	dex
+	bpl gpt1
+	rts
+
+; ----------------------------------------- Event: Cancel all
+; Button: "Cancel"
+
+sevcancel	ldx #127		; re-set custom pattern to original state
+scn0	lda patold,x
+	sta gr_pattern,x
+	dex
+	bpl scn0
+	lda #0		; do not re-render graphics
+	!by $2c
+
+; ----------------------------------------- Event: Accept
+; Button: "Accept"
+
+sevuse	lda #1		; do re-render graphics on display
+	sta gr_redisp
+	sec		; leave module
+	rts
+
+; ----------------------------------------- Event: Pick a Pattern
+; no particular Button (Click into pattern bar)
+
+sevpick	lda mode		; which mode?
+	cmp #4		; Copy?
+	beq sp2
+
+	jsr setundo	; no, Dot: store current tile to undo
+	iny
+	jsr spmal8	; target picked tile
+sp1	lda gr_pattern,x	; and transfer to edit area
+	sta sc_undochar,y
+	inx
+	iny
+	cpy #8
+	bcc sp1
+sp3	jmp show		; display magnified
+
+sp2	jsr spmal8	; Copy mode: target picked tile
+	jsr sevok		; set it valid and show it magnified
+	jmp distrib	; activate Dot mode
+
+; ----------------------------------------- Event: Copy to All
+; Button: "->All"
+
+sevall	jsr getundo	; save current pattern to undo
+	lda #0		; set tile number and counter
+	sta number
+	lda #16
+	sta cnter
+sva0	jsr sevok		; set current tile valid and show it
+	sty number
+	dec cnter		; count through all tiles
+	bne sva0
+	clc
+	rts
+
+; ----------------------------------------- Store currently edited Tile to Undo
+
+setundo	ldy #7
+su0	lda sc_undochar,y
+	sta pundo,y
+	dey
+	bpl su0
+	rts
+
+; ----------------------------------------- Prepare picked Tile for Undo
+
+gpatundo	ldx #0
+	ldy number
+pu0	lda gr_pattern,y
+	sta pundo,x
+	iny
+	inx
+	cpx #8
+	bne pu0
+	rts
+
+; ----------------------------------------- Event: Complete Undo
+; Button: "Oh no!"
+
+sevpundo	ldx #127
+svp0	lda patundo,x
+	sta gr_pattern,x
+	dex
+	bpl svp0
+	clc
+	rts
+
+; ----------------------------------------- Event: Undo currently picked Tile
+; Button: "Undo"
+
+sevundo	ldy #7
+su1	lda pundo,y
+	sta sc_undochar,y
+	dey
+	bpl su1
+
+; ----------------------------------------- Show picked Pattern magnified
+
+show	lda #0
+	sta sc_loop
+	jsr getedit
+	lda #$80
+	sta bitcnt
+	sty sc_merk
+sh2	ldy #0
+sh0	ldx sc_merk
+	lda sc_undochar,x
+	and bitcnt
+	bne sh1
+	lda #32		; no pixel: space
+	!by $2c
+sh1	lda #160		; pixel: shift space
+	sta sc_movetab,y
+	iny
+	lsr bitcnt
+	bcc sh0
+
+	ror bitcnt
+	sty sc_br
+	ldx #1
+	jsr gd_fi1
+	inc sc_merk
+	ldx sc_merk
+	cpx #8
+	bcc sh2
+cont	clc
+	rts
+
+; ----------------------------------------- Point output vector to Edit Area
+
+getedit	ldx #<editbox
+	ldy #>editbox
+
+gettab	stx sc_screentab	; set screen parameters
+	sty sc_screentab+1
+	lda #0
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #4
+	bne gt0
+	jsr gd_trim
+	jmp gd_initmove
+
+; ----------------------------------------- Show current Mode
+
+tshow	pha
+	ldy #5
+	lda #32
+ts0	sta emode,y
+	dey
+	bpl ts0
+	pla
+	sta sc_texttab
+	stx sc_texttab+1
+ts1	iny
+	lda (sc_texttab),y
+	beq ts2
+	sta emode,y
+	bne ts1
+ts2	ldx #<modebox	; show mode in first small gadget 
+	ldy #>modebox
+	jsr gettab
+	ldy #6
+	jmp gd_xtxout1	; output to screen
+
+; ----------------------------------------- Event: Activate Dot Mode
+; Button: "Dot"
+
+sevdot	lda #<tdot
+	ldx #>tdot
+dot1	ldy #0
+dot0	sty mode
+	jmp tshow
+
+; ----------------------------------------- Event: Activate Vertical Line Mode
+; Button: "VLin"
+
+sevcol	lda #<tcol
+	ldx #>tcol
+	ldy #1
+	bne dot0
+
+; ----------------------------------------- Event: Activate Horizontal Line Mode
+; Button: "HLin"
+
+sevrow	lda #<trow
+	ldx #>trow
+	ldy #2
+	bne dot0
+
+; ----------------------------------------- Event: Activate Clr Mode
+; Button: "Clr"
+
+sevclr	lda #<tclr
+	ldx #>tclr
+	jsr tshow
+	lda #0		; and perform Clr edited Tile
+	beq sf1
+
+; ----------------------------------------- Event: Activate Fill Mode
+; Button: "Fill"
+
+sevfill	lda #<tfill
+	ldx #>tfill
+	jsr tshow
+	lda #$ff		; and perform Fill edited Tile
+sf1	pha
+	jsr setundo
+	pla
+	ldx #7
+sf0	sta sc_undochar,x
+	dex
+	bpl sf0
+
+; ----------------------------------------- Mode Distributor
+
+distrib	jsr show		; first update Edit Area
+	lda mode		; then activate current mode
+	beq sevdot
+	lsr
+	bcs sevcol
+	lsr
+	bcs sevrow
+	lsr
+	bcs sevdot
+	lsr
+	bcs sevscroll
+	rts
+
+; ----------------------------------------- Event: Activate Copy Mode
+; Button: "Copy"
+
+sevcopy	lda #<tcopy
+	ldx #>tcopy
+	ldy #4
+	bne dot0
+
+; ----------------------------------------- Event: Activate Scroll Mode
+; Button: "Scroll"
+
+sevscroll	lda #<tscroll
+	ldx #>tscroll
+	ldy #8
+	bne dot0
+
+; ----------------------------------------- Event: Activate Flip Edit Area Mode
+; Button: "Turn"
+
+sevturn	lda #<tturn
+	ldx #>tturn
+	jsr tshow
+	jsr setundo	; and perform vertical flip
+	ldx #7
+	ldy #0
+stu0	lda sc_undochar,x
+	sta pmove,y
+	iny
+	dex
+	bpl stu0
+	dey
+stu1	lda pmove,y
+	sta sc_undochar,y
+	dey
+	bpl stu1
+	jmp distrib
+
+; ----------------------------------------- Event: Activate Mirror Mode
+; Button: "Mirror"
+
+sevmirror	lda #<tmirror
+	ldx #>tmirror
+	jsr tshow
+	jsr setundo	; and perform horizontal flip
+	ldx #7
+smi2	lda #$80
+	sta bitcnt
+	ldy #0
+	sty sc_merk+1
+	iny
+	sty sc_merk
+smi1	lda sc_undochar,x
+	and bitcnt
+	beq smi0
+	lda sc_merk+1
+	ora sc_merk
+	sta sc_merk+1
+smi0	asl sc_merk
+	lsr bitcnt
+	bcc smi1
+	lda sc_merk+1
+	sta sc_undochar,x
+	dex
+	bpl smi2
+	jmp distrib
+
+; ----------------------------------------- Event: Activate Rotate Mode
+; Button: "Rotate"
+
+sevrotate	lda #<trotate
+	ldx #>trotate
+	jsr tshow
+	jsr setundo
+	iny
+	sty ls_temp
+	lda #$80
+	sta bitcnt
+srt2	ldx #7
+	ldy #0
+	sty sc_merk+1
+	ldy #$80
+	sty sc_merk
+srt1	lda sc_undochar,x
+	and bitcnt
+	beq srt0
+	lda sc_merk+1
+	ora sc_merk
+	sta sc_merk+1
+srt0	lsr sc_merk
+	dex
+	bpl srt1
+	ldy ls_temp
+	lda sc_merk+1
+	sta pmove,y
+	inc ls_temp
+	lsr bitcnt
+	bcc srt2
+	ldy #7
+	jmp stu1
+
+; ----------------------------------------- Event: Activate Invert Mode
+; Button: "Invert"
+
+sevinvert	lda #<tinvert
+	ldx #>tinvert
+	jsr tshow
+	jsr setundo	; and perform reverting the tile
+	ldx #7
+sin0	lda sc_undochar,x
+	eor #$ff
+	sta sc_undochar,x
+	dex
+	bpl sin0
+	jmp distrib
+
+; ----------------------------------------- Event: Activate Edit Mode
+; no particular Button (Edit Area)
+
+sevedit	jsr setundo
+	lda mode		; in current mode
+	bne ed0
+
+; ----------------------------------------- Perform Dot 
+
+edot	jsr minzl		; row?
+	jsr minsp		; column?
+	lda sc_undochar,x	; revert clicked position
+	eor bitcnt
+	sta sc_undochar,x
+	jmp show
+
+ed0	lsr
+	bcc ed1
+
+; ----------------------------------------- Perform Vertical Line
+
+ecol	ldx #7
+	jsr minsp		; on current column
+rw0	lda sc_undochar,x
+	ora bitcnt
+	sta sc_undochar,x
+	dex
+	bpl rw0
+edshow	jmp show
+
+ed1	lsr
+	bcc ed2
+
+; ----------------------------------------- Perform Horizontal Line
+
+erow	jsr minzl		
+	lda #$ff
+	sta sc_undochar,x
+	bne edshow
+
+ed2	lsr
+	lsr
+	bcc edshow
+
+; ----------------------------------------- Perform Scroll
+
+escroll	jsr minzl		; depending on which row...
+	bne esc0
+	jsr scrup
+	bne esc2
+esc0	cpx #7
+	bne esc2
+	jsr scrdwn
+esc2	jsr minsp		; ...or column
+	tya
+	bne esc4
+	jsr scrrgt
+	beq esc6
+esc4	cpy #7
+	bne esc6
+	jsr scrlft
+esc6	jmp show
+
+; ----------------------------------------- Scroll up
+
+scrup	ldy #0
+	lda sc_undochar,y
+	pha
+esc1	inx
+	lda sc_undochar,x
+	sta sc_undochar,y
+	iny
+	cpx #7
+	bne esc1
+	pla
+	sta sc_undochar,y
+	tya
+	rts
+
+; ----------------------------------------- Scroll down
+
+scrdwn	ldy #7
+	lda sc_undochar,y
+	pha
+esc3	dex
+	lda sc_undochar,x
+	sta sc_undochar,y
+	dey
+	bne esc3
+	pla
+	sta sc_undochar,y
+	rts
+
+; ----------------------------------------- Scroll right
+
+scrrgt	lda sc_undochar,y
+	asl
+	bcc esc5
+	ora #1
+esc5	sta sc_undochar,y
+	iny
+	cpy #8
+	bne scrrgt
+	rts
+
+; ----------------------------------------- Scroll left
+
+scrlft	lda sc_undochar,y
+	lsr
+	bcc esc7
+	ora #$80
+esc7	sta sc_undochar,y
+	dey
+	bpl scrlft
+	rts
+
+; ----------------------------------------- Event: Ok 
+; Button: "Ok"
+
+sevok	jsr gpatundo
+	ldy number	; set current tile as valid pattern tile
+	ldx #0
+sok0	lda sc_undochar,x
+	sta gr_pattern,y
+	iny
+	inx
+	cpx #8
+	bne sok0
+	clc
+	rts
+
+; ----------------------------------------- Event: Save Pattern
+; Button: "Save"
+
+sevsvpat	jsr chgdrv	; care for RAM (is always first access drive)
+	ldx #<(gr_pattern)
+	ldy #>(gr_pattern)
+	stx ls_adrmisc
+	sty ls_adrmisc+1
+	lda #0
+	sta ls_flen
+	lda gd_modswitch
+	pha
+	jsr svdir		; show Filerequester
+	sta ls_loadsave
+	jsr gd_eloop	; Wait
+	lda ls_flen	
+	beq sp0
+	jsr writepat	; Write file if it has a name
+sp0	pla
+	sta gd_modswitch
+	jsr chgdrv	; care for sys drive
+	jmp sta0		; restart module
+
+; ----------------------------------------- Event: Load Pattern
+; Button: "Load"
+
+sevldpat	jsr chgdrv	; care for RAM
+	jsr getundo	; prepare Undo
+	ldx #<(gr_pattern)
+	ldy #>(gr_pattern)
+	stx ls_adrmisc
+	sty ls_adrmisc+1
+	lda #0
+	sta ls_flen
+	lda gd_modswitch
+	pha
+	jsr lddir		; show filerequester
+	jsr gd_eloop
+	lda ls_flen
+	beq lp0
+	jsr readpat	; load pattern if it has a name 
+lp0	pla
+	sta gd_modswitch
+	jsr getpat	; activate it
+	jsr chgdrv	; care for sys drive
+	jmp sta0		; restart module
+
+; ----------------------------------------- Directory for Load
+
+lddir	lda #<(pat)
+	pha
+	lda #>(pat)
+	pha
+	lda #8
+	jmp gd_xloadm
+
+; ----------------------------------------- Directory for Save
+
+svdir	lda #<(pat)
+	pha
+	lda #>(pat)
+	pha
+	lda #8
+	ldx #0
+	jmp gd_xloadsave
+
+; ----------------------------------------- Load Pattern
+
+readpat	jsr gd_xopen
+	jsr onebyte
+	bne lderr
+	jsr onebyte
+	bne lderr
+ld6	lda status
+	bne lderr
+	jsr basin
+	sta (sc_vekt20),y
+	iny
+	bne ld6
+	inc sc_vekt20+1
+	bne ld6
+
+; ----------------------------------------- Disk Error
+
+lderr	jsr gd_xclose
+	jsr gd_spron
+	sec
+	rts
+
+; ----------------------------------------- Read Byte from Disk
+
+onebyte	jsr basin
+	ldy #0
+	ldx status
+	rts
+
+; ----------------------------------------- Save Pattern
+
+writepat	sta wflen
+	jsr wopen
+	bne wp0
+	ldx #12
+	jsr ckout
+	lda #0
+	jsr bsout
+	tay
+	lda #$0f
+	jsr bsout
+wp1	lda (ls_adrmisc),y
+	jsr bsout
+	iny
+	cpy #128
+	bne wp1
+wp0	jsr clrch
+	lda #12
+	jsr close
+	jmp err9
+
+; ----------------------------------------- Open Files
+
+wopen	jsr inull
+	bne err8
+	ldy wflen
+	ldx #3
+wo1	lda pw,x
+	sta ls_nambuf,y
+	iny
+	dex
+	bpl wo1
+	sty wflen
+	lda #12
+	tay
+	ldx ls_drive
+	jsr filpar
+	lda wflen
+	ldx #<(ls_nambuf)
+	ldy #>(ls_nambuf)
+	jsr filnam
+	jsr copen
+	jmp err9
+
+; ----------------------------------------- Initiate Disk
+
+inull	ldx #<(drinit)
+	ldy #>(drinit)
+	lda #2
+	jsr gd_sendcom
+err9	jsr gd_xmess
+	lda ls_err2
+	and #15
+err8	sec
+	rts
+
+; ----------------------------------------- Exchange Sys and Boot Drives
+
+chgdrv	lda ls_sysdrive
+	ldx ls_bootdrive
+	sta ls_bootdrive
+	stx ls_sysdrive
+	rts
+
+; ----------------------------------------- Output Color Bar
+
+setcol	ldx colline
+	inx
+	stx sc_zl
+	ldx colline+1
+	inx
+	stx sc_sp
+	ldx #2		; each color 2 tiles wide...
+	stx sc_br
+	dex
+	stx sc_ho		; ...and 1 high
+	dex
+stc0	stx cmerk
+	lda basepal,x
+	sta sc_chgcol
+	ldx #4		; index to Xchange Reg
+	jsr gd_fcol	; perform colorization
+	inc sc_sp
+	inc sc_sp
+	ldx cmerk
+	inx
+	cpx #16
+	bne stc0
+	rts
+
+; ----------------------------------------- Get Row
+
+minzl	sec
+	lda sc_merk
+	sbc editbox
+	tax
+	dex
+	rts
+
+; ----------------------------------------- Get Column
+
+minsp	sec
+	lda sc_merk+1
+	sbc editbox+1
+	tay
+	dey
+	lda bits,y
+	sta bitcnt
+	rts
+
+; ----------------------------------------- Get Pattern Tile Number
+
+spmal8	sec
+	lda sc_merk+1	; column of mouse pointer
+	and #$fe		; force even
+	sbc sc_sp
+	lsr		; times 8
+	asl
+	asl
+	asl
+	sta number	; is number of single pattern tile
+	tax
+	rts
+
+; ----------------------------------------- Old Pattern Buffer
+
+patold	!fill 8*16
+
+; ----------------------------------------- System Pattern Buffer
+
+syspat	!by $00,$00,$00,$00,$00,$00,$00,$00
+	!by $00,$44,$00,$11,$00,$44,$00,$11
+	!by $00,$55,$00,$11,$00,$55,$00,$11
+	!by $00,$55,$00,$55,$00,$55,$00,$55
+	!by $00,$55,$22,$55,$00,$55,$22,$55
+	!by $88,$55,$22,$55,$88,$55,$22,$55
+	!by $aa,$55,$22,$55,$aa,$55,$22,$55
+	!by $aa,$55,$aa,$55,$aa,$55,$aa,$55
+	!by $ee,$55,$aa,$55,$ee,$55,$aa,$55
+	!by $ee,$55,$bb,$55,$ee,$55,$bb,$55
+	!by $ff,$55,$bb,$55,$ff,$55,$bb,$55
+	!by $ff,$55,$ff,$55,$ff,$55,$ff,$55
+	!by $ff,$77,$ff,$55,$ff,$77,$ff,$55
+	!by $ff,$77,$ff,$77,$ff,$77,$ff,$77
+	!by $ff,$77,$ff,$ff,$ff,$77,$ff,$ff
+	!by $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff
+
+; ----------------------------------------- Undo Pattern Set Buffer
+
+patundo	!fill 8*16
+
+; ----------------------------------------- Data
+
+list	!by 0,0
+pundo	!by 0,0,0,0,0,0,0,0		; Undo single tile buffer
+pmove	!by 0,0,0,0,0,0,0,0
+bits	!by $80,$40,$20,$10,$08,$04,$02,$01
+number	!by 0
+mode	!by 0
+pat	!tx "pat.*"		; File prefix
+	!by 0
+tdot	!scr "Dot @"
+
+pw	!tx "w,p,"
+drinit	!tx "i0"
+wflen	!by 0
+
+cmerk	!by 0
+basepal	!by 0,6,9,11,2,4,8,12,14,10,5,15,3,7,13,1
+
+; ----------------------------------------- 
+
+plist	!by 0
+	!by 0,3,34,25,$01
+	!wo 0
+; ----	!scr "Pattern Editor@"
+
+patpick	!by 1,3,34,5,$da
+	!wo sevpick
+	!by $e0,$e0,$e1,$e1,$e2,$e2,$e3,$e3	; Pattern, 1st row
+	!by $e4,$e4,$e5,$e5,$e6,$e6,$e7,$e7
+	!by $e8,$e8,$e9,$e9,$ea,$ea,$eb,$eb
+	!by $ec,$ec,$ed,$ed,$ee,$ee,$ef,$ef,0
+
+	!by 6,28,8,4,$b0			; Preview
+	!wo 0
+	!by 223,223,223,223,223,223,0
+
+	!by 10,28,8,3,$d0
+	!wo sevldpat
+	!scr " Load @"
+
+	!by 13,28,8,3,$d0
+	!wo sevsvpat
+	!scr " Save @"
+
+	!by 16,28,8,3,$d0
+	!wo sevsyspat
+	!scr "SysPat@"
+
+	!by 19,28,8,3,$d0
+	!wo sevuse
+	!scr "Accept@"
+
+	!by 22,28,8,3,$dc
+	!wo sevcancel
+	!scr "Cancel@"
+
+	!by 16,4,10,3,$d0
+	!wo sevok
+	!scr "Ok@"
+
+editbox	!by 6,4,10,10,$d2
+	!wo sevedit
+	!fill 8,32
+	!by 0
+
+	!by 19,4,10,3,$d0
+	!wo sevundo
+	!scr "Undo@"
+
+modebox	!by 6,14,8,3,$c0
+	!wo sevdot
+emode	!scr "Dot   @"
+
+	!by 9,14,8,3,$d0
+	!wo sevinvert
+tinvert	!scr "Invert@"
+
+	!by 12,14,8,3,$d0
+	!wo sevrotate
+trotate	!scr "Rotate@"
+
+	!by 15,14,8,3,$d0
+	!wo sevmirror
+tmirror	!scr "Mirror@"
+
+	!by 18,14,8,3,$d0
+	!wo sevturn
+tturn	!scr " Turn @"
+
+	!by 21,14,8,3,$d0
+	!wo sevscroll
+tscroll	!scr "Scroll@"
+
+	!by 6,22,6,3,$d0
+	!wo sevcopy
+tcopy	!scr "Copy@"
+
+	!by 18,22,6,3,$d0
+	!wo sevfill
+tfill	!scr "Fill@"
+
+	!by 21,22,6,3,$d0
+	!wo sevclr
+tclr	!scr "Clr @"
+
+	!by 12,22,6,3,$d0
+	!wo sevrow
+trow	!scr "HLin@"
+
+	!by 15,22,6,3,$d0
+	!wo sevcol
+tcol	!scr "VLin@"
+
+	!by 9,22,6,3,$d0
+	!wo sevall
+tall	!by 94
+	!scr "All@"
+
+	!by 22,4,10,3,$dc
+	!wo sevpundo
+	!scr " Oh no! @"
+
+	!by $c0,2,3,34
+	!by $e0,$e0,$e1,$e1,$e2,$e2,$e3,$e3	; Pattern, 2nd row
+	!by $e4,$e4,$e5,$e5,$e6,$e6,$e7,$e7
+	!by $e8,$e8,$e9,$e9,$ea,$ea,$eb,$eb
+	!by $ec,$ec,$ed,$ed,$ee,$ee,$ef,$ef,0
+	!by $c0
+colline	!by 3,3,34
+	!by $a0,$a0,$a0,$a0,$a0,$a0,$a0,$a0	; color row
+	!by $a0,$a0,$a0,$a0,$a0,$a0,$a0,$a0
+	!by $a0,$a0,$a0,$a0,$a0,$a0,$a0,$a0
+	!by $a0,$a0,$a0,$a0,$a0,$a0,$a0,$a0,0
+	!by $c0,7,4,8
+	!fill 8,32			; Editor Area
+	!by 0
+	!by $c0,8,4,8
+	!fill 8,32
+	!by 0
+	!by $c0,9,4,8
+	!fill 8,32
+	!by 0
+	!by $c0,10,4,8
+	!fill 8,32
+	!by 0
+	!by $c0,11,4,8
+	!fill 8,32
+	!by 0
+	!by $c0,12,4,8
+	!fill 8,32
+	!by 0
+	!by $c0,13,4,8
+	!fill 8,32
+	!by 0
+	!by $c0,7,28,6
+	!by 223,223,223,223,223,223,0
+
+	!by $80
+
+; ----------------------------------------- 
+
+modend	!eof
+
+; ----------------------------------------- 
+
+
