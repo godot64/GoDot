@@ -1,0 +1,318 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ----------------------------------------- 
+;
+;  mod.ReadMe
+;   Module to provide info texts for the users
+;   (more information at the end of this source file)
+;   
+;
+;  0.99, 03.09.94: pre-release
+;  1.00, 25.10.98: added control codes, line padding
+;
+; ----------------------------------------- 
+
+; ----------------------------------------- Equates
+
+	adcnt		= $3e
+	dst0		= $40
+	dst		= $42
+
+; ----------------------------------------- Header
+
+header	jmp start
+	!by $20
+	!by 0
+	!by 0
+	!wo modend
+	!wo 0
+	!tx "GoDot Read Me   "
+	!tx "1.00"
+	!tx "25.10.98"
+	!tx "A.Dettke/W.Kling"
+
+; ----------------------------------------- Main
+
+start	jsr makech	; create "@"
+	lda convflg	; Text must be converted? ($ff)
+	bne noconv
+	jsr convasc	; yes
+	inc convflg
+
+noconv	ldx #<(inflst)	; then: requester
+	ldy #>(inflst)
+	jsr gd_screen
+	jsr textout	; text of one window to screen
+	jsr gd_eloop	; now wait...
+
+; ----------------------------------------- Event: Leave Module
+
+canc	sec
+	rts
+
+; ----------------------------------------- Text Output Handler
+
+gettab	lda #<textgad	; set parameters (where to output)
+	sta sc_screentab
+	lda #>textgad
+	sta sc_screentab+1
+	lda #0
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #4
+	bne gt0
+	jsr gd_trim
+	jmp gd_initmove
+
+; ----------------------------------------- Output Text
+
+textout	jsr gettab	; parameters
+
+	ldx #0
+txl1	lda sc_zl,x	; copy to work area
+	sta params,x
+	inx
+	cpx #4
+	bne txl1
+
+	sta cntho		; last value: text window height
+	jsr searchln	; set vector to text
+
+txl0	lda params	; row
+	ldx params+1	; column
+	ldy params+2	; width
+	jsr gd_setpar	; set values
+	jsr gd_clrline	; clear that screen row
+	jsr move		; copy line to output buffer
+	bcs txl3		; (found end flag? then no output)
+	jsr gd_xtxout3	; output line to screen
+
+txl3	inc params	; then proceed to next line
+	jsr gd_plus40
+	dec cntho		; care for text window height
+	bne txl0		; and loop
+txl2	rts
+
+; ----------------------------------------- 
+
+searchln	lda #<text
+	sta ls_vekta8
+	lda #>text
+	sta ls_vekta8+1
+	ldx currln	; on start: 0, so leave
+	beq sl3
+
+sl0	ldy #$ff
+sl1	iny
+	lda (ls_vekta8),y
+	beq sl11
+	cmp #$80
+	bne sl1
+	rts
+
+sl11	jsr addy
+	dex
+	bne sl0
+sl3	rts
+
+; ----------------------------------------- Move Line to Output Buffer
+
+move	ldy #0
+	sty maxln
+
+mv1	lda (ls_vekta8),y	; end of text flag? ($80)
+	bmi sl4
+mv3	sta sc_movetab,y	; store to output buffer, end of line? ($00)
+	beq addy		; yes, 
+
+	cpy params+2
+	bne mv2
+	lda #0
+	beq mv3
+mv2	iny
+	bne mv1
+
+addy	iny
+	clc
+	tya
+	adc ls_vekta8
+	sta ls_vekta8
+	bcc sl2
+	inc ls_vekta8+1
+sl2	dey
+	lda #32		; fill end of line with space
+sl5	cpy params+2	; is width? 
+	bcs sl6
+	sta sc_movetab,y	; no, proceed fill line buffer
+	iny
+	bne sl5
+
+sl6	lda #0		; yes, add end flag ($00) and leave
+	sta sc_movetab,y
+	clc
+	rts
+
+sl4	cmp #$80		; End flag?
+	bne mv3		; no, proceed
+	sta maxln		; yes, flag
+	sec
+	rts
+
+; ----------------------------------------- Event: Scroll one Line down
+
+evlndwn	lda maxln		; has reached max. line?
+	bmi ld0
+	inc currln	; no, proceed to next line
+ld1	jsr textout	; and show
+ld0	clc
+	rts
+
+; ----------------------------------------- Event: Scroll one Line up
+
+evlnup	lda currln	; at top of text?
+	beq ld0
+	dec currln	; no, proceed to one line before
+	jmp ld1
+
+; ----------------------------------------- Event: Scroll one Page down
+
+evpgdwn	clc
+	lda currln	; add height to current line
+	adc params+3
+	ldx maxln		; on max line?
+	bmi ld0
+	sta currln	; no, proceed
+	jmp ld1
+
+; ----------------------------------------- Event: Scroll one Page up
+
+evpgup	sec
+	lda currln	; subtract height from current line
+	sbc params+3
+	bcs ld2		; if at top of text
+	lda #0		; set it (line 0)
+ld2	sta currln	; and proceed
+	jmp ld1
+
+; ----------------------------------------- Convert to BCode 
+
+convasc	ldy #0
+	lda #<text
+	ldx #>text
+	sta ls_vekta8
+	stx ls_vekta8+1
+cvloop	lda (ls_vekta8),y	; first: Control Chars:
+	cmp #95		; convert "<-" (left arrow)...
+	bne cnvs01
+	lda #0		; ...to "end of line" ($00)
+	beq cnvs2
+cnvs01	cmp #94		; convert "^" (up arrow)...
+	bne cnvs0
+	lda #223		; ...to "@" (assigned to undochar)
+	bne cnvs2
+cnvs0	cmp #$80		; end flag?
+	beq cnvok		; yes, leave
+
+	cmp #128		; then: Upper PETSCII char?
+	bcs cnvs1		; yes, subtract 128
+	cmp #64		; Digit?
+	bcc cnvs3		; leave unchanged
+	bne ccc1		; otherwise, is Lower PETSCII, so subtract 64
+	lda #192		; if 64, then convert to $c0 (is "ü")
+	bne cnvs2
+
+ccc1	sbc #64
+	bne cnvs2
+cnvs1	sec
+	sbc #128
+cnvs2	sta (ls_vekta8),y	; write back
+cnvs3	iny		; and proceed
+	bne cvloop
+	inc ls_vekta8+1
+	jmp cvloop
+
+cnvok	rts
+
+; ----------------------------------------- Create At-Sign
+
+makech	ldx #7
+mc0	lda affe,x
+	sta sc_undochar,x
+	dex
+	bpl mc0
+	rts
+
+; ----------------------------------------- Data
+
+convflg	!by 0
+currln	!by 0
+params	!by 0,0,0,0
+cntho	!by 0
+maxln	!by 0
+affe	!by $3c,$66,$6e,$6e,$60,$62,$3c,$00
+
+; ----------------------------------------- Screenlist
+
+inflst	!by 0
+	!by 2,2,36,21,$91
+	!wo 0
+title	!scr "Read Me@"	; or whatever title you like
+textgad	!by 4,3,34,16,$20	; Text Window
+	!wo 0
+
+	!by 20,11,7,3,$cc
+	!wo evpgup
+	!scr "Page"
+	!by 30,0		; Up-Arrow
+	!by 20,18,3,3,$cc
+	!wo evlnup
+	!by 30,0
+	!by 20,21,3,3,$cc
+	!wo evlndwn
+	!by 31,0		; Down-Arrow
+	!by 20,24,7,3,$cc
+	!wo evpgdwn
+	!scr "Page"
+	!by 31,0
+	!by 20,31,7,3,$cd
+	!wo canc
+	!scr "Leave@"
+
+	!by $c0,19,4,5
+	!scr "GoDot@"
+	!by $c0,20,4,4
+	!scr "Info@"
+
+	!by $80
+
+; ----------------------------------------- Text Buffer
+
+;             "         1         2         3  _"
+;             "12345678901234567890123456789012_" 
+
+text	!tx "Dummy text on just 3 lines.__"	; 1 empty line!
+	!tx "  Lines are indented by spaces._"
+
+; Info:
+; Text must be hardcoded into the module, there's no user disk access implemented.
+; length of line: up to 32 chars
+; length of text: up to 3000 chars
+; control codes:  $5e (up arrow)   - "@"
+;                 $5f (left arrow) - end of line
+;
+; $5f is "_" (Underscore) on PC   (shift minus)
+; Empty lines are as many additional Underscores as empty lines.
+; $5e is "^" (powerto sign) on PC (left to key "1")
+;
+; $5e is a dead key, so you have to hit space after hitting ^!
+
+	!by $80		; end of text
+
+; ----------------------------------------- 
+
+modend	!eof
