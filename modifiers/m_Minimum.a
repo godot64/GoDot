@@ -8,7 +8,7 @@
 ;
 ; -------------------------------------------------------------- 
 
-;	!src "..\godotlib.lib"	; library nicht erforderlich
+;	!src "godotlib.lib"	; library nicht erforderlich
 	*=$c000
 
 ; -------------------------------------------------------------- Equates

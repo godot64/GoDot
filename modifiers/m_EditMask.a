@@ -1,5 +1,5 @@
 
-!source "..\godotlib.lib"
+!source "godotlib.lib"
 *=  $c000
 
 ; ----------------------------------------- 

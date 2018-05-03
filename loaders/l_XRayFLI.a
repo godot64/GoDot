@@ -10,7 +10,7 @@
 ; ----------------------------------------- Equates
 ;
 *= $c000
-!src "..\godotlib.lib"
+!src "godotlib.lib"
 
 	sprite	= $d015
 	status	= $90

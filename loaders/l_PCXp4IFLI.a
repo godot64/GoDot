@@ -1,6 +1,6 @@
 ;	.ob "ldr.PCXprep4IFLI,p,w"
 
-!src "..\godotlib.lib"
+!src "godotlib.lib"
 *=$c000
 
 ; ---------------------------
