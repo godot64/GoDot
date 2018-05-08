@@ -1,0 +1,655 @@
+
+	!src "..\godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ----------------------------------------- 
+;
+;  mod.Squeeze2Clip
+;   Module to scale down a screen to the size of the clip
+;
+;  1.00, 05.01.93: first release (by W.Kling)
+;  1.01, 10.05.98: bugfix (destination buffer didn't increment correctly)
+;  1.02, 08.11.00: added blinking the border if no pass necessary
+;  1.03, 10.08.03: minor speed up
+;
+; ----------------------------------------- 
+
+; ----------------------------------------- Equates
+
+	adcnt		= $30
+	dstcnt		= $33
+	src		= $35
+	dst		= $37
+	colnr		= $39
+	linenr		= $39
+	blcnt		= $3b
+	sum		= $3c
+	bbuf		= $3e
+	ybufstart		= $3f
+	sbak		= $3f
+	bufend		= $41
+	tab		= $41
+	null		= $43
+	which		= $44
+
+	sprptr		= $07f8
+	spr255		= $3fc0
+
+	ybuf0		= $bf00
+	ytab0		= $c500
+	xtab0		= $c500
+	ybuf1		= $c600
+	xbuf0		= $c700
+	xbuf1		= $c900
+
+	spr2x		= $d004
+	spr2y		= spr2x+1
+	msbx		= $d010
+	spren		= $d015
+	sprxe		= $d01d
+	border		= $d020
+	sprcol2		= $d029
+
+; -------------------------------------------------- Header
+
+	jmp start
+	!by $20
+	!wo 0
+	!wo modend
+	!wo 0
+	!tx "Squeeze To Clip "
+	!tx "1.03"
+	!tx "10.08.03"
+	!tx "W.Kling/A.Dettke"
+
+; -------------------------------------------------- Main Program
+
+start	jsr vres
+	jsr hres
+	jsr clearad
+	clc
+	rts
+
+; -------------------------------------------------- First Pass: vertically
+
+vres	lda sc_lastclpho	; clip height less 25 rows?
+	cmp #25
+	bne vstart0	; yes, squeeze
+	jmp graphon	; else blink border
+
+vstart0	lda sc_lastclpzl	; compute start line (0-192)
+	asl
+	asl
+	asl
+	sta ybufstart
+
+	lda sc_lastclpho	; compute height in lines (8-192)
+	asl
+	asl
+	asl
+	clc
+	adc ybufstart
+	sta bufend
+
+	ldx sc_lastclpho	; get according step values
+	lda ystep0,x
+	sta ystep
+	lda ystep1,x
+	sta ystep+1
+
+	lda #0		; clear sum
+	sta sum
+	sta sum+1
+
+	ldy ybufstart	; write scaling values to buffer 
+vtabl	sta ytab0,y	; (first time: clear buffer)
+	lda sum
+	clc
+	adc ystep
+	sta sum
+	lda sum+1
+	adc ystep+1
+	sta sum+1
+	iny
+	cpy bufend
+	bne vtabl
+
+	lda #8		; init Activity Display
+	jsr initad
+
+	ldy #0		; clear target buffer
+	tya
+vclrlp	sta ybuf1,y
+	iny
+	bne vclrlp
+
+; -------------------------------------------------- Shrink
+
+	lda #$00		; clear column 
+	sta colnr
+	sta colnr+1
+
+vloop00	lda colnr+1	; get column
+	lsr		; divide by 2 
+	sta src+1
+	lda colnr		; odd or even?
+	ror
+	bcs odd0
+	ldx #$0f		; if odd: right pixel
+	!by $2c
+odd0	ldx #$f0		; if even: left pixel
+	stx which
+
+	tax		; compute address in 4Bit memory
+	and #$03
+	sta src
+	txa
+	and #$fc
+	asl
+	rol src+1
+	asl
+	rol src+1
+	asl
+	rol src+1
+	ora src
+	sta src
+	lda src+1
+	ora #$40
+	sta src+1
+
+	ldx #0		; now squeeze, part 1
+	stx null		; clear no-op-flag
+
+vloop0	ldy #0		; get value
+vloop1	lda (src),y
+	bit which		; odd or even?
+	bvs odd1
+	lsr		; even: shift down left pixel
+	lsr
+	lsr
+	lsr
+odd1	and #$0f		; odd: get right pixel
+	sta ybuf0,x	; store value
+	beq nuls0		; branch if $00
+	sta null		; if NULL is > $00 there's at least 1 value being squeezed
+nuls0	inx		; go to pixel below
+	iny
+	iny
+	iny
+	iny
+	cpy #32
+	bcc vloop1	; until bottom of tile
+
+	lda src+1		; go to next row of tiles
+	clc
+	adc #>(1280)
+	sta src+1
+	cmp #$bd		; until end of 4Bit memory
+	bcc vloop0	; thus scanning 1 vertical band
+
+	lda null		; anything to squeeze?
+	beq nextcol	; no, proceed to next band
+
+	ldy ybufstart	; yes, get pointers to source
+vsql	ldx ytab0,y
+	lda ybuf0,x
+	sta ybuf1,y
+	iny
+	cpy bufend
+	bne vsql
+
+	lda colnr+1	; then write 1 squeezed band
+	lsr
+	sta dst+1
+	lda colnr		; determine which pixel (left or right)
+	ror
+	bcs odd2
+	ldx #$0f		; right
+	!by $2c
+odd2	ldx #$f0		; left
+	stx which
+
+	tax		; compute address in 4Bit memory
+	and #$03
+	sta dst
+	txa
+	and #$fc
+	asl
+	rol dst+1
+	asl
+	rol dst+1
+	asl
+	rol dst+1
+	ora dst
+	sta dst
+	lda dst+1
+	ora #$40
+	sta dst+1
+
+	ldx #0		; squeeze, part 2
+vloop2	ldy #0		; get band from part 1
+vloop3	lda ybuf1,x
+	bit which
+	bvs odd3
+	asl		; left
+	asl
+	asl
+	asl
+odd3	sta bbuf		; right
+	lda (dst),y
+	and which
+	ora bbuf
+	sta (dst),y
+	inx
+	iny
+	iny
+	iny
+	iny
+	cpy #32
+	bcc vloop3	; until bottom of tile
+
+	lda dst+1		; next tile row below
+	clc
+	adc #>(1280)
+	sta dst+1
+	cmp #$bd
+	bcc vloop2	; until end of 4Bit memory
+
+nextcol	inc colnr		; next band
+	bne vskip0
+	inc colnr+1
+vskip0	lda colnr		; is #320 (right limit)?
+	cmp #<(320)
+	bne vskip1
+	lda colnr+1
+	bne vok		; yes, finished
+
+vskip1	dec adcnt		; Activity Display
+	bne vadskp
+	inc spr2y
+	inc spr2y+2
+	lda #8
+	sta adcnt
+vadskp	jmp vloop00	; start over
+vok	rts
+
+; -------------------------------------------------- Data
+; ystep = 200x256/blockzeile*8 (0..25)
+; 200x256: 51200 ($c800 = 90 48 00 00 00)
+
+ystep	!by 0,0
+
+ystep0	!by $00,$00,$80,$55,$40
+	!by $00,$2a,$92,$20,$c7
+	!by $80,$45,$15,$ec,$c1
+	!by $aa,$90,$78,$63,$50
+	!by $40,$30,$22,$16,$0a
+
+ystep1	!by $00,$19,$0c,$08,$06
+	!by $05,$04,$03,$03,$02
+	!by $02,$02,$02,$01,$01
+	!by $01,$01,$01,$01,$01
+	!by $01,$01,$01,$01,$01
+
+; -------------------------------------------------- Second Pass: horizontally
+
+hres	lda sc_lastclpbr	; clip width less than 40 tiles?
+	cmp #40
+	bne hstart0	; yes, squeeze
+	jmp graphon	; else blink border
+
+hstart0	lda #0		; clear sum
+	sta sum
+	sta sum+1
+	sta sbak
+
+	sta dstcnt+1	; init start values
+	lda #>(xtab0)
+	sta tabstart+1
+	lda #>(xbuf1)
+	sta bufstart+1
+	lda sc_lastclpsp
+	asl
+	asl
+	asl
+	sta tabstart
+	sta bufstart
+	bcc xskip0
+	inc tabstart+1
+	inc bufstart+1
+
+xskip0	ldx sc_lastclpbr	; init step values
+	lda xstep0,x
+	sta xstep
+	lda xstep1,x
+	sta xstep+1
+	txa
+	asl
+	asl
+	asl
+	sta dstcnt
+	bcc xl01
+	inc dstcnt+1
+
+xl01	lda tabstart
+	ldx tabstart+1
+	sta tab
+	stx tab+1
+
+	ldy #0
+	lda dstcnt+1	; width > 31?
+	beq xloop1
+	lda dstcnt	; v1.03
+	beq xloop1	; v1.03
+	
+xloop0	lda sum+1		; yes, create table accordingly
+	sec
+	sbc sbak
+	sta (tab),y
+	lda sum
+	clc
+	adc xstep
+	sta sum
+	lda sum+1
+	sta sbak
+	adc xstep+1
+	sta sum+1
+	iny
+	bne xloop0
+	inc tab+1
+
+xloop1	lda sum+1		; table at width < 32
+	sec
+	sbc sbak
+	sta (tab),y
+	lda sum
+	clc
+	adc xstep
+	sta sum
+	lda sum+1
+	sta sbak
+	adc xstep+1
+	sta sum+1
+	iny
+	cpy dstcnt
+	bne xloop1
+
+	lda #5		; init Activity Display
+	jsr initad
+
+	ldy #0		; clear buffer
+	tya
+hclrlp	sta xbuf1,y
+	sta xbuf1+256,y
+	iny
+	bne hclrlp
+
+	lda #$00		; get 1 line
+	sta linenr
+hloop00	lda linenr	; compute address in 4Bit memory
+	pha
+	lsr
+	lsr
+	lsr
+	tax
+	pla
+	and #$07
+	asl
+	asl
+	sta dst
+	lda line8,x
+	sta dst+1
+
+	lda #<(xbuf0)	; squeeze, part 3
+	ldx #>(xbuf0)
+	sta src
+	stx src+1
+
+	ldx #0		; clear no-op-flag
+	stx null
+	lda #40		; scan 40 tiles
+	sta blcnt
+hloop0	ldy #0
+hloop1	lda (dst),y
+	beq nuls1
+	sta null		; set flag if value > $00
+nuls1	pha
+	lsr
+	lsr
+	lsr
+	lsr
+	sta (src,x)	; left pixel
+	inc src
+	bne hskip0
+	inc src+1
+hskip0	pla
+	and #$0f
+	sta (src,x)	; right pixel
+	inc src
+	bne hskip1
+	inc src+1
+hskip1	iny
+	cpy #4
+	bne hloop1	; until 8 pixels
+
+	lda dst		; next tile to the right
+	clc
+	adc #32
+	sta dst
+	bcc hskip2
+	inc dst+1
+hskip2	dec blcnt		; until 40 tiles
+	bne hloop0
+
+	lda null		; anything to squeeze?
+	bne xdoit
+	jmp nextline	; no, proceed with next line
+
+xdoit	lda #<(xbuf0)	; squeeze in two steps...
+	ldx #>(xbuf0)
+	sta src
+	stx src+1
+
+	lda bufstart
+	ldx bufstart+1
+	sta dst
+	stx dst+1
+
+	lda tabstart
+	ldx tabstart+1
+	sta tab
+	stx tab+1
+
+	ldx #0
+	ldy #0
+	lda dstcnt+1
+	beq xloop3
+	lda dstcnt	; v1.03
+	beq xloop3	; v1.03
+	
+xloop2	lda (tab),y	; ...width > 31
+	clc
+	adc src
+	sta src
+	bcc xskip1
+	inc src+1
+xskip1	lda (src,x)
+	sta (dst),y
+	iny
+	bne xloop2
+	inc tab+1
+	inc dst+1
+	
+xloop3	lda (tab),y	;  ...width < 32
+	clc
+	adc src
+	sta src
+	bcc xskip2
+	inc src+1
+xskip2	lda (src,x)
+	sta (dst),y
+	iny
+	cpy dstcnt
+	bne xloop3
+
+	lda linenr	; write line
+	pha
+	lsr		; compute address in 4Bit memory
+	lsr
+	lsr
+	tax
+	pla
+	and #$07
+	asl
+	asl
+	sta dst
+	lda line8,x
+	sta dst+1
+
+	lda #<(xbuf1)	; squeeze, part 4
+	ldx #>(xbuf1)
+	sta src
+	stx src+1
+	ldx #0
+	lda #40		; 40 tiles
+	sta blcnt
+hloop2	ldy #0
+hloop3	lda (src,x)	; get left pixel
+	asl
+	asl
+	asl
+	asl
+	inc src
+	bne hskip3
+	inc src+1
+hskip3	ora (src,x)	; combine with right pixel
+	inc src
+	bne hskip4
+	inc src+1
+hskip4	sta (dst),y	; store
+	iny
+	cpy #4
+	bne hloop3	; until 8 pixels
+
+	lda dst		; next tile
+	clc
+	adc #32
+	sta dst
+	bcc hskip5
+	inc dst+1
+hskip5	dec blcnt		; until 40 tiles
+	bne hloop2
+
+nextline	inc linenr	; next line
+	lda linenr
+	cmp #200
+	beq hok		; until 200 lines, then finished
+
+	dec adcnt		; Activity Display
+	bne adskp
+	inc spr2y
+	inc spr2y+2
+	lda #5
+	sta adcnt
+adskp	jmp hloop00	; start over
+hok	rts
+
+; -------------------------------------------------- 
+
+line8	!by $40,$45,$4a,$4f,$54
+	!by $59,$5e,$63,$68,$6d
+	!by $72,$77,$7c,$81,$86
+	!by $8b,$90,$95,$9a,$9f
+	!by $a4,$a9,$ae,$b3,$b8
+
+; -------------------------------------------------- 
+
+xstep	!by 0,0
+tabstart	!by 0,0
+bufstart	!by 0,0
+
+; --------------------------------------------------
+; xstep = 320x256/blockspalte*8 (0..40)
+; 320x256: 81920 ($014000 = 91 20 00 00 00)
+
+xstep0	!by $00,$00,$00,$55,$00
+	!by $00,$aa,$b6,$00,$71
+	!by $00,$a2,$55,$13,$db
+	!by $aa,$80,$5a,$38,$1a
+	!by $00,$e7,$d1,$bd,$aa
+	!by $99,$89,$7b,$6d,$61
+	!by $55,$4a,$40,$36,$2d
+	!by $24,$1c,$14,$0d,$06
+
+xstep1	!by $00,$28,$14,$0d,$0a
+	!by $08,$06,$05,$05,$04
+	!by $04,$03,$03,$03,$02
+	!by $02,$02,$02,$02,$02
+	!by $02,$01,$01,$01,$01
+	!by $01,$01,$01,$01,$01
+	!by $01,$01,$01,$01,$01
+	!by $01,$01,$01,$01,$01
+
+; -------------------------------------------------- Activity Display
+
+clearad	lda spren		; activity bar off (leave mouse on)
+	and #243
+	sta spren
+	sta gr_redisp	; re-render
+	lda msbx
+	and #243
+	sta msbx
+	rts
+
+initad	sta adcnt
+	ldy #60
+	lda #0
+adl0	sta spr255+3,y
+	dey
+	bpl adl0
+	sty spr255
+	sty spr255+1
+	sty spr255+2
+	lda #15
+	sta sprcol2
+	sta sprcol2+1
+	lda sprxe
+	ora #12
+	sta sprxe
+	lda msbx
+	ora #12
+	sta msbx
+	lda #8
+	sta spr2x
+	lda #32
+	sta spr2x+2
+
+	lda #146
+	sta spr2y
+	sta spr2y+2
+	lda #$ff
+	sta sprptr+2
+	sta sprptr+3
+	lda spren
+	ora #12
+	sta spren
+	rts
+
+; -------------------------------------------------- Blink Border
+
+graphon	lda border
+	pha
+	lda #2
+	sta border
+	ldx #$40
+	jsr gd_dl2
+	pla
+	sta border
+	clc
+	rts
+
+; -------------------------------------------------- 
+
+modend	!eof
