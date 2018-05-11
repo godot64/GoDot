@@ -1,0 +1,1126 @@
+
+	*= $c000
+	!src "..\godotlib.lib"
+	!ct pet
+;	!sl "labels.txt"
+
+; --------------------------------------
+;
+; mod.Stretch
+;
+;   Module to scale up a clip to the size of the screen
+;   with the option to keep the aspect ratio of a C64 screen
+;
+;  1.00, 11.05.18, first release (derived from mod.StretchClip)
+; 
+; -------------------------------------- 
+
+; -------------------------------------- equates
+
+	pport		= $01
+	int		= $14
+
+	bbuf		= $30
+	dstcnt		= $30	; /$31
+	dst		= $32	; /$33
+	adcnt		= $34
+	src		= $35	; /$36
+	linenr		= $38
+	colnr		= $39	; /$3a
+	blcnt		= $3b
+	sbak		= $3c
+	sum		= $3d	; /$3e
+	ybufstart		= $3f
+	bufend		= $40
+	null		= $41
+	which		= $42
+	tab		= $43	; /$44
+	txtlen		= $45
+	xmrk		= $46	; !! don't use $47 !!
+	ymrk		= $48
+
+	sprptr		= $07f8
+	spr255		= $3fc0
+	
+	xtab0		= $c800
+	xbuf0		= $ca00
+	xbuf1		= $cc00
+	ytab0		= xtab0
+	ybuf0		= xbuf0
+	ybuf1		= xbuf1
+	sysvars		= $ce00
+	
+	setarg		= $ba8c	; in .a/.y
+	setfac		= $bba2	; in .a/.y
+	arg2fac		= $bbfc
+	fac2arg		= $bc0f
+	facpl05		= $b849
+	facceil		= $bc1b
+	argmulfac		= $ba2b
+	argdivfac		= $bb12
+	conisfac		= $bc5b	; const in .a/.y
+	condivfac		= $bb0f	; constant in .a/.y (uses setarg)
+	conmulfac		= $ba28	; dito
+	intfac		= $bc49	; $62: hi, $63: lo, .x: #$90, .c=1
+	facint		= $b7fb	; result in (int)
+	facasc		= $bddf	; result in ls_nambuf
+
+	spr2x		= $d004
+	spr2y		= $d005
+	msbx		= $d010
+	spren		= $d015
+	sprxe		= $d01d
+	border		= $d020
+	sprcol2		= $d029
+
+; -------------------------------------- header
+
+	jmp start
+	!by $20
+	!by 0
+	!by 0
+	!wo modend
+	!wo 0
+	!tx "stretch /w Ratio"
+	!tx "1.00"
+	!tx "11.05.18"
+	!tx "A.Dettke/w.kling"
+
+; -------------------------------------- main 
+
+start	jsr savesvars
+	jsr makechr
+	ldx #<strlst
+	ldy #>strlst
+	jsr gd_screen
+	jsr setdata
+	jmp gd_eloop
+
+; ----------------------------------------- Event: Execute Modifier
+
+evexec	jsr vres		; execute
+	jsr hres
+	jsr clearad	; and leave module
+
+; ----------------------------------------- Event: Leave Modifier
+
+evleave	jsr restsvars
+	sec		; leave
+	rts
+
+; ----------------------------------------- Event: Adjust Width
+
+evadjx	inc pport
+-	jsr multiply
+	lda imrk
+	tax
+	clc
+	adc sc_lastclpsp
+	cmp #41		; result too wide?
+	bcc +
+	jmp graphon	; yes, blink border
++	stx sc_lastclpbr
+	lda #1
+	jsr settoff
+	ldx #4
+	jsr di0
+	jsr lmultiply
+	lda imrk
+	sta width
+	lda imrk+1
+	sta width+1
+	lda #2
+	jsr settoff
+	ldx #2
+	jsr di0
+	jmp shresult
+
+; ----------------------------------------- Event: Adjust Height
+
+evadjy	inc pport
+	jsr divide
+	lda imrk
+	tax
+	clc
+	adc sc_lastclpzl
+	cmp #26		; result too high?
+	bcc +
+	jmp graphon	; yes, blink border
++	stx sc_lastclpho
+	lda #1
+	jsr settoff
+	ldx #8
+	jsr di0
+	jsr ldivide
+	lda imrk
+	sta height
+	lda imrk+1
+	sta height+1
+	lda #2
+	jsr settoff
+	ldx #6
+	jsr di0
+	jmp shresult
+
+; ----------------------------------------- Event: Show Preview
+
+evpreview	lda gd_modswitch
+	pha
+	jsr ev_prviu
+	pla
+	sta gd_modswitch
+
+; ----------------------------------------- Restore System Variables
+
+restsvars	ldy #9
+-	lda sysvars,y
+	sta ls_lines,y
+	dey
+	bpl -
+	rts
+
+; ----------------------------------------- Save System Variables
+
+savesvars	ldy #9		; area affected by float routines
+-	lda ls_lines,y
+	sta sysvars,y
+	dey
+	bpl -
+	rts
+
+; ----------------------------------------- Compute Working Data
+
+setdata	inc pport
+
+	lda #1
+	jsr settoff
+	
+	jsr row2fac	; clip row (in Kacheln) nach fac
+	ldx #10		; Ergebis eintragen und ausgeben
+	jsr di0		; .x=0
+
+	jsr col2fac	; clip column (in Kacheln) nach fac
+	ldx #12		; Ergebis eintragen und ausgeben
+	jsr di0		; .x=0
+
+	jsr wid2fac	; clip width (in Kacheln) nach fac
+	ldx #4		; Ergebis eintragen und ausgeben
+	jsr di0		; .x=0
+
+	jsr hgt2fac	; clip height (in Kacheln) nach fac
+	ldx #8		; Ergebis eintragen und ausgeben
+	jsr di0		; .x=0
+
+	lda #2		; das Gleiche in Pixel (Clip-Breite)
+	jsr settoff
+	clc
+	lda sc_lastclpbr
+	asl
+	asl
+	asl
+	bcc +
+	inx
++	sta width		; Ergebnis als Integer merken
+	stx width+1
+	jsr any2fac
+	ldx #2		; ausgeben
+	jsr di0		; .x=0
+
+	lda sc_lastclpho	; und ebenso Clip-Höhe
+	asl
+	asl
+	asl
+	sta height	; als Integer merken
+	stx height+1
+	jsr any2fac
+	ldx #6		; ausgeben
+	jsr di0		; .x=0
+
+shresult	jsr getwid	; result will be distorted?
+	jsr fac2arg
+	jsr gethgt
+	jsr argdivfac
+	lda #<fratio	; Breite:Höhe=8:5? (Richtiger Aspekt?)
+	ldy #>fratio
+	jsr conisfac
+	beq +
+	ldx #2		; nein
+	!by $2c
++	ldx #5		; ja
+	ldy #2
+-	lda distort,x	; eintragen...
+	sta resgad+7,y
+	dex
+	dey
+	bpl -
+	stx xmrk
+
+	jsr cnvwdt	; 320x256/width =
+	jsr fac2arg
+	jsr getwid
+	jsr divit
+	lda int
+	sta xstep		; xstep
+	lda int+1
+	sta xstep+1
+	jsr cnvhgt	; 200x256/height =
+	jsr fac2arg
+	jsr gethgt
+	jsr divit
+	lda int
+	sta ystep		; ystep
+	lda int+1
+	sta ystep+1
+
+	dec pport
+
+	jsr settxt	; ..und für Ausgabe vorbereiten
+	ldx xmrk
+	bmi +		; pos: Aspekt stimmt
+	lda #15		; Zeile mit Adjust-Aufforderung löschen
+	ldx #13
+	ldy #14
+	jsr gd_setpar	; !! mind values at adjtx !!
+	jsr gd_clrline
++	ldy #0		; Ergebnis des Checks ausgeben
+	sty ymrk
+	jmp textout
+
+; ----------------------------------------- 
+
+di0	stx ymrk		; Index auf Zahl merken
+	jsr facasc	; convert fac to digits
+	jsr di1		; Ziffern holen
+	ldy ymrk		; Index zurück
+	jsr movetx	; Ziffern in die Screenlist schreiben
+	jsr textout	; und ausgeben
+	clc		; im Modul bleiben
+	rts
+
+; ----------------------------------------- Make Digits
+
+di1	ldy #9		; Ziffer-Ende suchen
+di2	dey
+	bmi +		; keins? dann nichts tun
+	lda sy_numbers,y
+	bne di2
+
+	ldx #0		; Ziffernpuffer löschen
+	lda #32
+-	sta text,x
+	inx
+	cpx txtlen
+	bne -
+
+	dey
+di3	lda sy_numbers,y	; und neue Ziffern eintragen
+	beq +		; Doppel-Null: Fehler, nichts tun
+	sta text,x
+	dex
+	dey
+	bpl di3
++	rts
+
+; ----------------------------------------- Digits to Screenlist
+
+movetx	jsr settxt
+	ldx txtlen
+	ldy toff
+-	lda text,x
+	sta (sc_screentab),y
+	dey
+	dex
+	bpl -
+	rts
+	
+; ----------------------------------------- 
+
+settoff	clc
+	sta txtlen
+	adc #7
+	sta toff
+	rts
+
+; ----------------------------------------- 
+
+gethgt	lda height
+	ldx height+1
+	jmp any2fac
+
+getwid	lda width
+	ldx width+1
+	jmp any2fac
+
+; -------------------------------------------------- First Pass: vertically
+; Scaling routines by W. Kling
+
+vres	lda sc_lastclpho	; clip height less 25 rows?
+	cmp #25
+	bcc vstart0	; yes, stretch
+	jmp graphon
+
+vstart0	lda sc_lastclpzl	; compute start line (0-192)
+	asl
+	asl
+	asl
+	sta ybufstart
+	clc
+	lda height	; get height in lines (8-192)
+	adc ybufstart
+	sta bufend
+	
+	lda #0
+	sta sum
+	sta sum+1
+	sta sbak
+	
+	ldy ybufstart
+vtab1	lda sum
+	clc
+	adc ystep
+	sta sum
+	lda sum+1
+	sta sbak
+	adc ystep+1
+	sta sum+1
+	sec
+	sbc sbak
+	sta ytab0,y
+	iny
+	cpy bufend
+	bne vtab1
+
+	lda #8
+	jsr initad
+	
+	ldy #0
+	tya
+vclrlp	sta ybuf1,y
+	iny
+	bne vclrlp
+
+; -------------------------------------------------- Stretch
+
+	lda #0
+	sta colnr
+	sta colnr+1
+
+vloop00	lda colnr+1
+	lsr
+	sta src+1
+	lda colnr
+	ror
+	bcs odd0
+	ldx #$0f
+	!by $2c
+odd0	ldx #$f0
+	stx which
+	
+	tax
+	and #3
+	sta src
+	txa
+	and #$fc
+	asl
+	rol src+1
+	asl
+	rol src+1
+	asl
+	rol src+1
+	ora src
+	sta src
+	lda src+1
+	ora #>sy_4bit
+	sta src+1
+	
+	ldx #0
+	stx null
+	
+vloop0	ldy #0
+vloop1	lda (src),y
+	bit which
+	bvs odd1
+	lsr
+	lsr
+	lsr
+	lsr
+odd1	and #$0f
+	sta ybuf0,x
+	beq nuls0
+	sta null
+nuls0	inx
+	iny
+	iny
+	iny
+	iny
+	cpy #32
+	bcc vloop1
+	
+	lda src+1
+	clc
+	adc #$05
+	sta src+1
+	cmp #$bd
+	bcc vloop0
+	
+	lda null
+	beq nextcol
+	
+	ldx #0
+	ldy ybufstart
+vsql	lda ytab0,y
+	sta sum
+	lda ybuf0,y
+vsql1	sta ybuf1,x
+	inx
+	dec sum
+	bne vsql1
+	iny
+	cpy bufend
+	bne vsql
+	
+	lda colnr+1
+	lsr
+	sta dst+1
+	lda colnr
+	ror
+	bcs odd2
+	ldx #$0f
+	!by $2c
+odd2	ldx #$f0
+	stx which
+	
+	tax
+	and #3
+	sta dst
+	txa
+	and #$fc
+	asl
+	rol dst+1
+	asl
+	rol dst+1
+	asl
+	rol dst+1
+	ora dst
+	sta dst
+	lda dst+1
+	ora #>sy_4bit
+	sta dst+1
+	
+	ldx #0
+vloop2	ldy #0
+vloop3	lda ybuf1,x
+	bit which
+	bvs odd3
+	asl
+	asl
+	asl
+	asl
+odd3	sta bbuf
+	lda (dst),y
+	and which
+	ora bbuf
+	sta (dst),y
+	inx
+	iny
+	iny
+	iny
+	iny
+	cpy #32
+	bcc vloop3
+	
+	lda dst+1
+	clc
+	adc #$05
+	sta dst+1
+	cmp #$bd
+	bcc vloop2
+
+nextcol	inc colnr
+	bne vskip0
+	inc colnr+1
+vskip0	lda colnr
+	cmp #$40
+	bne vskip1
+	lda colnr+1
+	bne vok
+	
+vskip1	dec adcnt
+	bne vadskp
+	inc spr2y
+	inc spr2y+2
+	lda #8
+	sta adcnt
+vadskp	jmp vloop00
+vok	rts
+
+; -------------------------------------------------- Second Pass: horizontally
+; Scaling routines by W. Kling
+
+hres	lda sc_lastclpbr	; clip width less than 40 tiles?
+	cmp #40
+	bcc hstart0	; yes, stretch
+	jmp graphon
+	
+hstart0	lda #0
+	sta sum
+	sta sum+1
+	sta sbak
+
+	sta dstcnt+1
+	lda #>xtab0
+	sta tabstart+1
+	lda #>xbuf0
+	sta bufstart+1
+
+	lda sc_lastclpsp
+	asl
+	asl
+	asl
+	sta tabstart
+	sta bufstart
+	bcc xskip0
+	inc tabstart+1
+	inc bufstart+1
+	
+xskip0	lda width		; init step values
+	sta dstcnt
+	lda width+1
+	sta dstcnt+1
+
+xl01	lda tabstart
+	ldx tabstart+1
+	sta tab
+	stx tab+1
+	
+	ldy #0
+	lda dstcnt+1
+	beq xloop1
+	lda dstcnt
+	beq xloop10
+	
+xloop0	lda sum
+	clc
+	adc xstep
+	sta sum
+	lda sum+1
+	sta sbak
+	adc xstep+1
+	sta sum+1
+	sec
+	sbc sbak
+	sta (tab),y
+	iny
+	bne xloop0
+	inc tab+1
+
+xloop1	inc dstcnt
+xloop10	lda sum
+	clc
+	adc xstep
+	sta sum
+	lda sum+1
+	sta sbak
+	adc xstep+1
+	sta sum+1
+	sec
+	sbc sbak
+	sta (tab),y
+	iny
+	cpy dstcnt
+	bne xloop10
+	lda dstcnt
+	beq xloop11
+	dec dstcnt
+	
+xloop11	lda #5
+	jsr initad
+	
+	ldy #0
+	tya
+hclrlp	sta xbuf1,y
+	sta xbuf1+256,y
+	iny
+	bne hclrlp
+	
+	lda #0
+	sta linenr
+hloop00	lda linenr
+	pha
+	lsr
+	lsr
+	lsr
+	tax
+	pla
+	and #$07
+	asl
+	asl
+	sta dst
+	lda line8,x
+	sta dst+1
+	
+	lda #<xbuf0
+	ldx #>xbuf0
+	sta src
+	stx src+1
+	
+	ldx #0
+	stx null
+	lda #40
+	sta blcnt
+hloop0	ldy #0
+hloop1	lda (dst),y
+	beq nuls1
+	sta null
+nuls1	pha
+	lsr
+	lsr
+	lsr
+	lsr
+	sta (src,x)
+	inc src
+	bne hskip0
+	inc src+1
+hskip0	pla
+	and #$0f
+	sta (src,x)
+	inc src
+	bne hskip1
+	inc src+1
+hskip1	iny
+	cpy #4
+	bne hloop1
+	
+	lda dst
+	clc
+	adc #32
+	sta dst
+	bcc hskip2
+	inc dst+1
+hskip2	dec blcnt
+	bne hloop0
+	
+	lda null
+	bne xdoit
+	jmp nextline
+	
+xdoit	lda #<xbuf1
+	ldx #>xbuf1
+	sta dst
+	stx dst+1
+
+	lda bufstart
+	ldx bufstart+1
+	sta src
+	stx src+1
+	
+	lda tabstart
+	ldx tabstart+1
+	sta tab
+	stx tab+1
+	
+	ldx #0
+	ldy #0
+	lda dstcnt+1
+	beq xloop3
+	lda dstcnt
+	beq xloop30
+
+xloop2	lda (tab),y
+	sta sum
+	lda (src),y
+xl2	sta (dst,x)
+	inc dst
+	bne xl1
+	inc dst+1
+xl1	dec sum
+	bne xl2
+	iny
+	bne xloop2
+	inc tab+1
+	inc src+1
+
+xloop3	inc dstcnt
+xloop30	lda (tab),y
+	sta sum
+	lda (src),y
+xl4	sta (dst,x)
+	inc dst
+	bne xl3
+	inc dst+1
+xl3	dec sum
+	bne xl4
+ 	iny
+	cpy dstcnt
+	bne xloop30
+	lda dstcnt
+	beq xloop12
+	dec dstcnt
+	
+xloop12	lda linenr
+	pha
+	lsr
+	lsr
+	lsr
+	tax
+	pla
+	and #$07
+	asl
+	asl
+	sta dst
+	lda line8,x
+	sta dst+1
+	
+	lda #<xbuf1
+	ldx #>xbuf1
+	sta src
+	stx src+1
+	ldx #0
+	lda #40
+	sta blcnt
+hloop2	ldy #0
+hloop3	lda (src,x)
+	asl
+	asl
+	asl
+	asl
+	inc src
+	bne hskip3
+	inc src+1
+hskip3	ora (src,x)
+	inc src
+	bne hskip4
+	inc src+1
+hskip4	sta (dst),y
+	iny
+	cpy #4
+	bne hloop3
+	
+	lda dst
+	clc
+	adc #32
+	sta dst
+	bcc hskip5
+	inc dst+1
+hskip5	dec blcnt
+	bne hloop2
+
+nextline	inc linenr
+	lda linenr
+	cmp #200
+	beq hok
+	
+	dec adcnt
+	bne adskp
+	inc spr2y
+	inc spr2y+2
+	lda #5
+	sta adcnt
+adskp	jmp hloop00
+hok	rts
+
+; ----------------------------------------- Text Output Handler
+
+tabigad	!wo resgad	; 0
+	!wo xgad		; 2
+	!wo widgad	; 4
+	!wo ygad		; 6
+	!wo hgtgad	; 8
+	!wo rowgad	; 10
+	!wo colgad	; 12
+
+settxt	lda #<tabigad
+	sta sc_texttab
+	lda #>tabigad
+	sta sc_texttab+1
+
+settx2	lda (sc_texttab),y	; set gadget parameters (where to output)
+	sta sc_screentab
+	iny
+	lda (sc_texttab),y
+	sta sc_screentab+1
+	rts
+
+gettab	lda #0
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #4
+	bne gt0
+	jsr gd_trim
+	jmp gd_initmove
+
+; ----------------------------------------- Output Text
+
+textout	ldy ymrk
+	jsr settx2
+	jsr gettab
+	ldy #6		; offset to gadget text
+	jmp gd_xtxout1	; show text
+
+; ----------------------------------------- Divide: width/1.6
+
+ldivide	jsr getwid
+	jmp dv0
+
+divide	jsr wid2fac	; breite holen
+dv0	jsr fac2arg	; nach arg
+	jsr cnvrio	; aspekt holen
+	jsr divit
+	jsr intmerk
+	jmp int2fac	; nach float
+
+divit	jsr argdivfac	; dividieren
+	jsr facpl05	; ergebnis runden
+	jsr facceil
+	jmp facint	; nach integer
+
+; ----------------------------------------- Multiply: height*1.6
+
+lmultiply	jsr gethgt
+	jmp mp0
+
+multiply	jsr hgt2fac	; höhe holen
+mp0	jsr fac2arg	; nach arg
+	jsr cnvrio	; aspekt holen
+	jsr argmulfac	; multiplizieren mit 1.6
+	jsr facpl05	; ergebnis runden
+	jsr facceil
+	jsr facint	; nach integer (in int)
+	jsr intmerk
+	jmp int2fac	; nach float
+
+; ----------------------------------------- Get Float Constants
+
+cnvrio	lda #<fratio	; ratio (1.6) nach fac
+	ldy #>fratio
+	bne +
+
+cnvhgt	lda #<fheight	; 200x256
+	ldy #>fheight
+	bne +
+
+cnvwdt	lda #<fwidth	; 320x256
+	ldy #>fwidth
+
++	jmp setfac
+
+; ----------------------------------------- Get Integer Values
+
+any2fac	stx int+1
+	sta int
+
+int2fac	lda int+1
+	ldx int
+	jmp cnvwa
+	
+row2fac	ldx sc_lastclpzl
+	jmp +
+wid2fac	ldx sc_lastclpbr
+	bne +
+hgt2fac	ldx sc_lastclpho
+	bne +
+col2fac	ldx sc_lastclpsp
++	ldy #9
+	lda #$30
+-	sta sy_numbers,y
+	dey
+	bpl -
+	lda #0
+	
+cnvwa	sta $62		; hi
+	stx $63		; lo
+	ldx #$90
+	sec
+	jmp intfac
+
+intmerk	lda int
+	sta imrk
+	lda int+1
+	sta imrk+1
+	rts
+
+; -------------------------------------------------- Activity Display
+
+clearad	lda spren		; activity bar off (leave mouse on)
+	and #243
+	sta spren
+	sta gr_redisp	; re-render
+	lda spritehi
+	and #$f3
+	sta spritehi
+	rts
+
+initad	sta adcnt
+	ldy #60
+	lda #0
+adl0	sta spr255+3,y
+	dey
+	bpl adl0
+	sty spr255
+	sty spr255+1
+	sty spr255+2
+	lda #15
+	sta sprcol2
+	sta sprcol2+1
+	lda sprxe
+	ora #12
+	sta sprxe
+	lda msbx
+	ora #12
+	sta msbx
+	lda #8
+	sta spr2x
+	lda #32
+	sta spr2x+2
+
+	lda #146
+	sta spr2y
+	sta spr2y+2
+	sty sprptr+2
+	sty sprptr+3
+	lda spren
+	ora #12
+	sta spren
+	rts
+
+; -------------------------------------------------- Blink Border
+
+graphon	lda #$36
+	sta pport
+	lda border
+	pha
+	lda #2
+	sta border
+	ldx #$40
+	jsr gd_dl2
+	pla
+	sta border
+stay	clc
+	rts
+
+; --------------------------- Adjust-Zeichen definieren
+
+makechr	ldx #7
+-	lda chschr,x
+	sta sc_undochar,x
+	dex
+	bpl -
+	rts
+
+; -------------------------------------------------- Data
+
+chschr	!by $00,$0e,$06,$0a,$50,$60,$70,$00
+
+line8	!by $40,$45,$4a,$4f,$54
+	!by $59,$5e,$63,$68,$6d
+	!by $72,$77,$7c,$81,$86
+	!by $8b,$90,$95,$9a,$9f
+	!by $a4,$a9,$ae,$b3,$b8
+
+; -------------------------------------------------- 
+; ystep = 200x256/blockzeile*8 (0..25)
+; 200x256: 51200 ($c800 = 90 48 00 00 00)
+; --------------------------------------------------
+; xstep = 320x256/blockspalte*8 (0..39)
+; 320x256: 81920 ($014000 = 91 20 00 00 00)
+
+xstep	!wo 0
+ystep	!wo 0
+tabstart	!wo 0
+bufstart	!wo 0
+
+; ----------------------------------------- 
+
+fwidth	!by $91,$20,$00,$00,$00	; float: 320x256=81920
+fheight	!by $90,$48,$00,$00,$00	; float: 200x256=51200
+fratio	!by $81,$4c,$cc,$cc,$cd	; float: 1.6
+width	!wo 0
+height	!wo 0
+imrk	!wo 0
+distort	!scr "   not"
+text	!fill 5,32
+toff	!by 11
+
+; -------------------------------------------------- Screenlist
+
+strlst	!by 0
+	!by 1,12,16,23,$81
+	!wo 0
+	!scr "Stretch@"
+
+widgad	!by 5,16,4,3,$a0
+	!wo 0
+	!scr "..@"
+
+hgtgad	!by 5,23,4,3,$a0
+	!wo 0
+	!scr "..@"
+
+xgad	!by 8,15,5,3,$a0
+	!wo 0
+	!scr "...@"
+
+ygad	!by 8,22,5,3,$a0
+	!wo 0
+	!scr "...@"
+
+resgad	!by 12,13,5,3,$a0
+	!wo 0
+	!scr "not@"
+
+rowgad	!by 16,16,4,3,$a0
+	!wo stay		; evnewrow
+	!scr "..@"
+
+colgad	!by 16,23,4,3,$a0
+	!wo stay		; evnewcol
+	!scr "..@"
+
+	!by 18,13,7,3,$c0	; adjust x
+	!wo evadjx
+	!by 223
+	!scr " Wid@"
+
+	!by 18,20,7,3,$c0	; adjust y
+	!wo evadjy
+	!by 223
+	!scr " Hgt@"
+
+	!by 11,29,11,7,$4d
+	!wo evpreview
+
+	!by 21,12,9,3,$c7
+	!wo evexec
+	!scr "Execute@"
+
+	!by 21,21,7,3,$cd
+	!wo evleave
+	!scr "Leave@"
+
+	!by $c0,3,14,10
+	!scr "Selection:@"
+	!by $c0,5,12,3
+	!scr "Wid@"
+	!by $c0,5,19,3
+	!scr "Hgt@"
+	!by $c0,8,13,1
+	!scr "X@"
+	!by $c0,8,20,1
+	!scr "Y@"
+	!by $c0,10,12,12
+	!scr "Results are:@"
+	!by $c0,12,17,9
+	!scr "distorted@"
+	!by $c0,14,12,14
+adjtx	!scr "Adjust Values:@"
+	!by $c0,16,12,3
+	!scr "Row@"
+	!by $c0,16,19,3
+	!scr "Col@"
+
+	!by $80
+
+; -------------------------------------- 
+
+modend	!eof
