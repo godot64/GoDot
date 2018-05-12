@@ -12,6 +12,7 @@
 ;   with the option to keep the aspect ratio of a C64 screen
 ;
 ;  1.00, 11.05.18, first release (derived from mod.StretchClip)
+;  1.01, 12.05.18, added input routines
 ; 
 ; -------------------------------------- 
 
@@ -38,13 +39,14 @@
 	txtlen		= $45
 	xmrk		= $46	; !! don't use $47 !!
 	ymrk		= $48
+	amrk		= $49
 
 	sprptr		= $07f8
 	spr255		= $3fc0
 	
-	xtab0		= $c800
-	xbuf0		= $ca00
-	xbuf1		= $cc00
+	xtab0		= $ca00
+	xbuf0		= xtab0+320
+	xbuf1		= xbuf0+320
 	ytab0		= xtab0
 	ybuf0		= xbuf0
 	ybuf1		= xbuf1
@@ -83,7 +85,7 @@
 	!wo 0
 	!tx "stretch /w Ratio"
 	!tx "1.00"
-	!tx "11.05.18"
+	!tx "12.05.18"
 	!tx "A.Dettke/w.kling"
 
 ; -------------------------------------- main 
@@ -111,20 +113,21 @@ evleave	jsr restsvars
 ; ----------------------------------------- Event: Adjust Width
 
 evadjx	inc pport
--	jsr multiply
+-	jsr multiply	; get width in tiles (rounded height*1.6)
 	lda imrk
 	tax
 	clc
-	adc sc_lastclpsp
+	adc sc_lastclpsp	; add start column
 	cmp #41		; result too wide?
 	bcc +
-	jmp graphon	; yes, blink border
-+	stx sc_lastclpbr
+	jmp graphon	; yes, blink border and finish
+
++	stx sc_lastclpbr	; no, set new width
 	lda #1
 	jsr settoff
 	ldx #4
 	jsr di0
-	jsr lmultiply
+	jsr lmultiply	; compute width in pixels
 	lda imrk
 	sta width
 	lda imrk+1
@@ -138,20 +141,21 @@ evadjx	inc pport
 ; ----------------------------------------- Event: Adjust Height
 
 evadjy	inc pport
-	jsr divide
+	jsr divide	; get height in tiles (rounded width/1.6)
 	lda imrk
 	tax
 	clc
-	adc sc_lastclpzl
+	adc sc_lastclpzl	; add start row
 	cmp #26		; result too high?
 	bcc +
-	jmp graphon	; yes, blink border
-+	stx sc_lastclpho
+-	jmp graphon	; yes, blink border and finish
+
++	stx sc_lastclpho	; no, set new height
 	lda #1
 	jsr settoff
 	ldx #8
 	jsr di0
-	jsr ldivide
+	jsr ldivide	; compute height in pixels
 	lda imrk
 	sta height
 	lda imrk+1
@@ -161,6 +165,42 @@ evadjy	inc pport
 	ldx #6
 	jsr di0
 	jmp shresult
+
+; ----------------------------------------- Events: Input Position Values
+
+evinpsp	jsr input
+	ldy #12
+	jsr newout
+	cmp #40
+	bcs -
+	sta sc_lastclpsp
+	bcc +
+
+evinpzl	jsr input
+	ldy #10
+	jsr newout
+	cmp #25
+	bcs -
+	sta sc_lastclpzl
+	bcc +
+
+evinpbr	jsr input
+	ldy #4
+	jsr newout
+	cmp #40
+	bcs -
+	sta sc_lastclpbr
+	bcc +
+
+evinpho	jsr input
+	ldy #8
+	jsr newout
+	cmp #25
+	bcs -
+	sta sc_lastclpho
++	jsr update
+	clc
+	rts
 
 ; ----------------------------------------- Event: Show Preview
 
@@ -211,7 +251,7 @@ setdata	inc pport
 	ldx #8		; Ergebis eintragen und ausgeben
 	jsr di0		; .x=0
 
-	lda #2		; das Gleiche in Pixel (Clip-Breite)
+update	lda #2		; das Gleiche in Pixel (Clip-Breite)
 	jsr settoff
 	clc
 	lda sc_lastclpbr
@@ -289,7 +329,7 @@ shresult	jsr getwid	; result will be distorted?
 ; ----------------------------------------- 
 
 di0	stx ymrk		; Index auf Zahl merken
-	jsr facasc	; convert fac to digits
+di4	jsr facasc	; convert fac to digits
 	jsr di1		; Ziffern holen
 	ldy ymrk		; Index zurück
 	jsr movetx	; Ziffern in die Screenlist schreiben
@@ -351,6 +391,16 @@ getwid	lda width
 	ldx width+1
 	jmp any2fac
 
+newout	sty ymrk
+	sta amrk
+	lda #1
+	jsr settoff
+	inc pport
+	jsr int2fac
+	jsr di4
+	lda amrk
+	rts
+
 ; -------------------------------------------------- First Pass: vertically
 ; Scaling routines by W. Kling
 
@@ -368,6 +418,7 @@ vstart0	lda sc_lastclpzl	; compute start line (0-192)
 	lda height	; get height in lines (8-192)
 	adc ybufstart
 	sta bufend
+	inc bufend
 	
 	lda #0
 	sta sum
@@ -460,7 +511,7 @@ nuls0	inx
 	clc
 	adc #$05
 	sta src+1
-	cmp #$bd
+	cmp #>sy_bigbuffer
 	bcc vloop0
 	
 	lda null
@@ -533,7 +584,7 @@ odd3	sta bbuf
 	clc
 	adc #$05
 	sta dst+1
-	cmp #$bd
+	cmp #>sy_bigbuffer
 	bcc vloop2
 
 nextcol	inc colnr
@@ -545,7 +596,7 @@ vskip0	lda colnr
 	lda colnr+1
 	bne vok
 	
-vskip1	dec adcnt
+vskip1	dec adcnt		; Activity
 	bne vadskp
 	inc spr2y
 	inc spr2y+2
@@ -566,29 +617,36 @@ hstart0	lda #0
 	sta sum
 	sta sum+1
 	sta sbak
-
 	sta dstcnt+1
-	lda #>xtab0
+
+	lda #>xtab0	; buffers start at $ca00
 	sta tabstart+1
 	lda #>xbuf0
 	sta bufstart+1
 
-	lda sc_lastclpsp
+	lda sc_lastclpsp	; start column of source in pixels
 	asl
 	asl
 	asl
 	sta tabstart
 	sta bufstart
-	bcc xskip0
+	bcc +
 	inc tabstart+1
+	inc bufstart+1
+
++	clc		; add buffer offset
+	lda #<xbuf0
+	adc bufstart
+	sta bufstart
+	bcc xskip0
 	inc bufstart+1
 	
 xskip0	lda width		; init step values
-	sta dstcnt
+	sta dstcnt	; set counter (countdown from max. 320)
 	lda width+1
 	sta dstcnt+1
 
-xl01	lda tabstart
+xl01	lda tabstart	; derives from xtab0
 	ldx tabstart+1
 	sta tab
 	stx tab+1
@@ -599,7 +657,7 @@ xl01	lda tabstart
 	lda dstcnt
 	beq xloop10
 	
-xloop0	lda sum
+xloop0	lda sum		; when counter is >255
 	clc
 	adc xstep
 	sta sum
@@ -614,7 +672,7 @@ xloop0	lda sum
 	bne xloop0
 	inc tab+1
 
-xloop1	inc dstcnt
+xloop1	inc dstcnt	; when counter is <256
 xloop10	lda sum
 	clc
 	adc xstep
@@ -629,7 +687,7 @@ xloop10	lda sum
 	iny
 	cpy dstcnt
 	bne xloop10
-	lda dstcnt
+	lda dstcnt	; end when counter is 0
 	beq xloop11
 	dec dstcnt
 	
@@ -639,7 +697,7 @@ xloop11	lda #5
 	ldy #0
 	tya
 hclrlp	sta xbuf1,y
-	sta xbuf1+256,y
+	sta xbuf1+64,y
 	iny
 	bne hclrlp
 	
@@ -817,6 +875,7 @@ nextline	inc linenr
 	lda #5
 	sta adcnt
 adskp	jmp hloop00
+
 hok	rts
 
 ; ----------------------------------------- Text Output Handler
@@ -999,6 +1058,87 @@ graphon	lda #$36
 stay	clc
 	rts
 
+; ----------------------------------------- Input from Keyboard
+
+input	lda gd_modswitch
+	pha
+	ldx #10		; 11 valid chars:
+	stx sc_iflag
+-	lda digits,x	; digits and space
+	sta sy_global,x
+	dex 
+	bpl -
+	lda #<sy_global	; call system input
+	sta ls_vekta8
+	lda #>sy_global
+	sta ls_vekta8+1
+	jsr gd_xinput
+	pla
+	sta gd_modswitch
+
+; -------------------------------------- Convert Digits to Word (Byte in INT)
+
+	lda #>ls_nambuf
+	sta ls_vekta8+1
+	lda #<ls_nambuf
+	sta ls_vekta8
+	ldy #2
+	sta ls_nambuf,y
+	sta sc_iflag
+
+gword	ldy #0
+	sty int
+	sty int+1
+	beq +
+
+-	jsr inca8
++	lda (ls_vekta8),y
+	cmp #$20
+	beq -
+
+	cmp #$3a
+	bcs +
+	sec 
+	sbc #$30
+	sec 
+	sbc #$d0
+	bcs +
+	sbc #$2f
+	sta sc_merk
+	lda int+1
+	sta ls_temp
+	cmp #$19		; delimit value to max. 63999 (next pass would exceed 64K)
+	bcs +
+
+	lda int		; value times 10:
+	asl
+	rol ls_temp
+	asl
+	rol ls_temp
+	adc int
+	sta int
+	lda ls_temp
+	adc int+1
+	sta int+1
+	asl int
+	rol int+1
+	lda int
+	adc sc_merk
+	sta int
+	bcc -
+	inc int+1
+	bne -
+
++	lda int		; result in (int), low also in .a
+	rts
+
+; -------------------------------------- 
+
+inca8	inc ls_vekta8
+	bne +
+	inc ls_vekta8+1
++	rts 
+
 ; --------------------------- Adjust-Zeichen definieren
 
 makechr	ldx #7
@@ -1041,6 +1181,7 @@ imrk	!wo 0
 distort	!scr "   not"
 text	!fill 5,32
 toff	!by 11
+digits	!scr " 0123456789"
 
 ; -------------------------------------------------- Screenlist
 
@@ -1049,12 +1190,12 @@ strlst	!by 0
 	!wo 0
 	!scr "Stretch@"
 
-widgad	!by 5,16,4,3,$a0
-	!wo 0
+widgad	!by 5,16,4,3,$c0
+	!wo evinpbr
 	!scr "..@"
 
-hgtgad	!by 5,23,4,3,$a0
-	!wo 0
+hgtgad	!by 5,23,4,3,$c0
+	!wo evinpho
 	!scr "..@"
 
 xgad	!by 8,15,5,3,$a0
@@ -1069,12 +1210,12 @@ resgad	!by 12,13,5,3,$a0
 	!wo 0
 	!scr "not@"
 
-rowgad	!by 16,16,4,3,$a0
-	!wo stay		; evnewrow
+rowgad	!by 16,16,4,3,$c0
+	!wo evinpzl
 	!scr "..@"
 
-colgad	!by 16,23,4,3,$a0
-	!wo stay		; evnewcol
+colgad	!by 16,23,4,3,$c0
+	!wo evinpsp
 	!scr "..@"
 
 	!by 18,13,7,3,$c0	; adjust x
