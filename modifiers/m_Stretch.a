@@ -37,7 +37,8 @@
 	which		= $42
 	tab		= $43	; /$44
 	txtlen		= $45
-	xmrk		= $46	; !! don't use $47 !!
+	xmrk		= $46
+;					!! don't use $47 !!
 	ymrk		= $48
 	amrk		= $49
 
@@ -50,7 +51,6 @@
 	ytab0		= xtab0
 	ybuf0		= xbuf0
 	ybuf1		= xbuf1
-	sysvars		= $ce00
 	
 	setarg		= $ba8c	; in .a/.y
 	setfac		= $bba2	; in .a/.y
@@ -83,10 +83,10 @@
 	!by 0
 	!wo modend
 	!wo 0
-	!tx "stretch /w Ratio"
-	!tx "1.00"
+	!tx "Stretch /w Ratio"
+	!tx "1.01"
 	!tx "12.05.18"
-	!tx "A.Dettke/w.kling"
+	!tx "A.Dettke/W.Kling"
 
 ; -------------------------------------- main 
 
@@ -1182,6 +1182,7 @@ distort	!scr "   not"
 text	!fill 5,32
 toff	!by 11
 digits	!scr " 0123456789"
+sysvars	!fill 10
 
 ; -------------------------------------------------- Screenlist
 
