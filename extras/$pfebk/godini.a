@@ -1,0 +1,28 @@
+120 "mousexy  =  300,160
+140 "textcolors = 0,15,11,1,12
+150 "colors   =  16
+160 "mode     =  1
+170 :
+200 "ram mod..ScanDrives
+210 "ram mod..FileCopy
+
+300 "ram svr.4BitClip
+310 "ram mod.MoveClip
+320 "ram mod..FileCopy
+330 "ram mod.Histogram
+340 "ram mod.BalancingCol
+350 "ram mod.PixelEdit
+360 "ram ldr.4BitGoDot
+370 "ram ldr.4Bit&Mask
+380 "ram mod.ClipWorks
+390 "ram svr.Koala
+400 "ram mod.SetColorbase
+410 "ram mod.QuickMask
+420 "ram mod.DrawMask
+430 "ram mod.EditMask
+440 "ram mod.Scroll
+450 "ram mod.StretchClip
+460 "ram mod.Squeeze2Clip
+470 "ram mod..REUTool
+480:
+490 "reuclear =  0
