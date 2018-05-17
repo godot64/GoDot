@@ -53,4 +53,4 @@ Arndt
 [Make Link]: http://gnuwin32.sourceforge.net/packages/make.htm "GNU Make for Windows"
 [Manual]: http://www.godot64.de/german/index.htm "GoDot Manual: How to GoDot"
 [Tutorials]: http://www.godot64.de/german/tutorials.htm "GoDot Tutorials"
-[Downloads]: www.godot64.de/german/downloads.htm "GoDot's download section"
+[Downloads]: http://www.godot64.de/german/downloads.htm "GoDot's download section"
