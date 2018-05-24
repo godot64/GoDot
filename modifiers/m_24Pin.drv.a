@@ -1,0 +1,933 @@
+
+	*= $c000
+	!src "godotlib.lib"
+	!ct pet
+;	!sl "labels.txt"
+
+; --------------------------------------
+;
+; mod.24pin.drv
+;
+;   Module to print with Epson 24pin printers
+;     by Markus Kanet
+;
+; 1.00, 13.03.95, first release
+; 
+; -------------------------------------- 
+
+; -------------------------------------- equates
+
+	vecprnlin		= $33
+	adcnt		= $35
+	count1		= $36
+	count2		= $37
+	count3		= $38
+	count4		= $39
+	count5		= $3a
+
+	geraet		= $9a
+	fnlen		= $b7
+	gnmbr		= $ba
+	bitmap		= $f7
+	stlinadr		= $f9
+	hold		= $fb
+	bitmask		= $fc
+	prlinofst		= $fd
+	linoffset		= $fe
+
+	ickout		= $0320
+	ibsout		= $0326
+	sprptr		= $07f8
+	spr255		= $3fc0
+
+	spr2x		= $d004
+	spr2y		= $d005
+	msbx		= $d010
+	spren		= $d015
+	sprxe		= $d01d
+	border		= $d020
+	sprcol2		= $d029
+	rausch		= $d41b
+
+	lookup		= $f30f
+	getlfs		= $f31f
+	ioerr3		= $f701
+
+; -------------------------------------- header
+
+	jmp start
+	!by $20
+	!by 0
+	!by 0
+	!wo modend
+	!wo 0
+	!tx "Epson 24Pin     "
+	!tx "1.00"
+	!tx "13.03.95"
+	!tx "M. Kanet / AD   "
+
+addtext	!tx "Druck-Dichte    "
+	!tx "ESC * 39 $00 $05"
+	!by 0
+
+; -------------------------------------- main
+; Initialisierung und Aufbau des Menüs
+
+start	jsr togchar	; Kringel
+	bit type		; Druckerport testen
+	bvc +
+	jsr initpar	; Init Parallelport
+
++	jsr defgadtxt	; Requester
+	jsr deflftxt
+	ldx #<pflst
+	ldy #>pflst
+	jmp gd_xmloop	; now wait...
+
+; -------------------------------------- Abschluss
+; Verlassen des Moduls
+
+ende	jsr resetprt	; Druckende senden
+	jsr clearad	; Activity aus
+	jsr clrch		; IO auf Standard
+	lda #4		; Close 4
+	jsr close
+	lda #3		; Maus an
+	sta spren
+	clc 		; Ende
+	rts 
+
+; --------------------------- Kringelzeichen definieren
+
+chschr	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
+
+togchar	ldx #7
+-	lda chschr,x
+	sta sc_undochar,x	; Zeichen 223
+	dex
+	bpl -
+	rts
+
+; ------------------------------------------------ Activity
+
+adinc	dec adcnt		; Balken bewegen
+	bne +
+	inc spr2y
+	inc spr2y+2
+	lda #5
+	sta adcnt
++	rts 
+
+; ------------------------------------------------ Init Activity
+
+initad	ldy #60		; Balkensprite erzeugen
+	lda #0
+-	sta spr255+3,y	; Spriteblock 255 vorbereiten
+	dey 
+	bpl -
+	sty spr255	; dünner Strich
+	sty spr255+1
+	sty spr255+2
+	lda #$0f		; Farbe hellgrau
+	sta sprcol2
+	sta sprcol2+1
+	lda sprxe		; doppelt breit
+	ora #$0c
+	sta sprxe
+
+	lda msbx		; x über 255
+	ora #$0c
+	sta msbx
+	lda #8		; x-Ordinate: 8 (plus 256)
+	sta spr2x
+	lda #$20
+	sta spr2x+2
+	lda #$92		; y-Ordinate: 146
+	sta spr2y		; (im Image Information Fenster)
+	sta spr2y+2
+
+	sty sprptr+2	; Sprite 255
+	sty sprptr+3
+	lda spren
+	ora #$0c		; Activity-Balken aktivieren
+	sta spren
+	lda #5		; Startzähler (5 mal 40 = 200)
+	sta adcnt
+	rts
+
+; ------------------------------------------------ Abschluss Activity
+
+clearad	lda spren		; Wanderbalken aus
+	and #$f3
+	sta spren
+	lda msbx
+	and #$f3
+	sta msbx
+	lda #$ff		; Grafik verändert
+	sta gr_redisp
+	clc 		; fertig
+	rts 
+
+; -------------------------------------- Linefeed senden
+
+linefd6	jsr linefd	; 6fach
+	jsr linefd
+linefd4	jsr linefd	; 4fach
+	jsr linefd
+	jsr linefd
+linefd	lda #$0d		; einfach: CR/LF
+	bit lfflag
+	bpl +
+	jsr bsout
+	lda #$0a
++	jmp bsout
+
+; -------------------------------------- Event: Interface auswählen
+
+ifselect	jsr paroff	; Centronics aus
+	lda tflag		; nächstes Interface anwählen
+	cmp #2
+	bne +
+	lda #$ff
+	sta tflag
++	inc tflag
+	ldx tflag		; entsprechenden Text anwählen
+	lda ptypes,x
+	sta type
+	jsr defgadtxt
+	ldy #0
+	jsr settext
+	jsr gettext
+	ldy #6		; und ausgeben
+	jsr gd_xtxout1
+
+	bit type		; und jetzt: Interface aktivieren
+	bmi +
+	bvs ++
+
+	lda #5		; Merlin
+	sta sekadr
+	clc 
+	rts 
+
++	lda #$01		; Wiesemann
+	sta sekadr
+	clc 
+	rts 
+
+++	jmp initpar	; Centronics
+
+; -------------------------------------- Event: Linefeedmodus wählen
+
+lfselect 	lda lfflag	; Modus umschalten
+ 	beq +
+	lda #1
+	sta lfflag
++	dec lfflag
+	jsr deflftxt	; entsprechenden Text anwählen
+	ldy #2
+	jsr settext
+	jsr gettext
+	ldy #6
+	jmp gd_xtxout1	; und ausgeben
+
+; -------------------------------------- Event: Leave
+
+leave 	jsr paroff	; Centronics aus
+	sec		; Ende-Flag setzen
+	rts 
+
+; -------------------------------------- Text Menü umkopieren
+
+defgadtxt	ldx tflag
+	lda ptoffs,x
+	tax 
+	ldy #15
+-	lda ptext,x
+	sta pgadt,y
+	dex 
+	dey 
+	bpl -
+	rts 
+
+; -------------------------------------- Text Linefeed umkoopieren
+
+deflftxt	ldx lfflag
+	beq +
+	ldx #1
++	lda lfoffs,x
+	tax 
+	ldy #2
+-	lda lftext,x
+	sta lftx+4,y
+	dex 
+	dey 
+	bpl -
+	rts 
+
+; -------------------------------------- Text Output Handler
+
+tabigad	!wo pgad
+	!wo lfgad
+
+settext	lda #<tabigad
+	sta sc_texttab
+	lda #>tabigad
+	sta sc_texttab+1
+	rts 
+
+gettext	lda (sc_texttab),y
+	sta sc_screentab
+	iny 
+	lda (sc_texttab),y
+	sta sc_screentab+1
+	lda #0
+	tax 
+	tay 
+-	jsr $11cc
+	cpx #3
+	bne -
+	stx sc_ho
+	jsr gd_trim
+	jmp gd_initmove
+
+; -------------------------------------- 
+; -------------------------------------- Treiber für den Userport (Centronics)
+; bei seriellem Anschluss werden diese Routinen nicht verwendet
+; -------------------------------------- 
+
+initpar	ldx ibsout
+	ldy ibsout+1
+	stx oldibsout
+	sty oldibsout+1
+	ldx #<nbsout
+	ldy #>nbsout
+	stx ibsout
+	sty ibsout+1
+	ldx ickout
+	ldy ickout+1
+	stx oldickout
+	sty oldickout+1
+	ldx #<nckout
+	ldy #>nckout
+	stx ickout
+	sty ickout+1
+	clc 
+	rts 
+
+; -------------------------------------- Centronics ausschalten
+
+paroff	ldx oldibsout
+	beq +
+	ldy oldibsout+1
+	stx ibsout
+	sty ibsout+1
+	ldx oldickout
+	ldy oldickout+1
+	stx ickout
+	sty ickout+1
++	rts 
+
+oldibsout	!wo 0
+oldickout	!wo 0
+
+; -------------------------------------- Neue Routinen: Zeichen ausgeben
+
+nbsout	pha 
+	sta smod1+1	; selfmod1
+	lda geraet	; Drucker?
+	cmp #4
+	beq parprint
+	jmp $f1cd		; part of bsout
+
+parprint	sei 
+	txa 
+	pha 
+	tya 
+	pha 
+	lda #$ff
+	tax 
+	tay 
+	sta $dd03
+	lda $dd02
+	ora #$04
+	sta $dd02
+	lda $dd00
+	ora #$04
+	sta $dd00
+	lda #$10
+	sta $dd0d
+	lda $dd0d
+	cli 
+smod1	lda #$ff
+	sta $dd01
+	lda $dd00
+	and #$fb
+	sta $dd00
+	ora #$04
+	sta $dd00
+
+busy	lda $dd0d		; warten bis Zeichen gesendet
+	dex 
+	bne +
+	dey 
+	beq timeout
++	and #$10
+	beq busy
+
+pardone	lda #0		; alles klar
+	sta status
+	pla 
+	tay 
+	pla 
+	tax 
+	pla 
+	clc 
+parend	rts 
+
+; -------------------------------------- Zeitüberschreitung abfangen
+; beim nächsten Versuch, ein Zeichen auszugeben, wird 'parend' aufgerufen
+
+timeout	ldx #<parend
+	ldy #>parend
+	stx ibsout
+	sty ibsout+1
+	jmp pardone
+
+; -------------------------------------- Druckerkanal öffnen
+
+nckout	jsr lookup
+	beq +
+	jmp ioerr3
++	jsr getlfs
+	lda gnmbr
+	cmp #4
+	beq parout
+	jmp $f25b		; part of ckout
+
+parout	jmp $f275
+
+; -------------------------------------- Drucker initialisieren
+
+initprt	lda #4
+	tax 
+	ldy sekadr
+	jsr filpar
+	ldy #0
+	sty fnlen
+	jsr copen
+	jsr openprn
+
+	ldx #4		; Reset senden
+-	lda initp1,x
+	jsr bsout
+	dex 
+	bpl -
+	lda status
+	rts 
+
+initp1	!by $08,$33,$1b,$40,$1b	 ; ESC @, ESC "3" 8
+
+; -------------------------------------- Open Printer
+; tritt dabei ein Fehler auf, Ausgaberoutine verlassen
+
+openprn	ldx #4
+	jsr ckout
+	ldx status
+	beq +
+	pla 
+	pla 
++	txa 
+	rts 
+
+; -------------------------------------- Printer auf Standardwerte setzen
+
+resetprt	jsr openprn
+	ldx #2
+-	lda initp3,x
+	jsr bsout
+	dex 
+	bpl -
+	jsr linefd6
+	lda status
+	rts 
+
+initp3	!by $18,$32,$1b		; ESC "2", CAN
+
+; -------------------------------------- Init Grafikdruck
+
+graphon	jsr openprn
+	ldx #9
+-	lda initp2,x
+	jsr bsout
+	dex 
+	bpl -
+	lda status
+	rts 
+
+initp2	!by $05,$00,$27,$2a,$1b,$20,$20,$20,$20,$20
+				; ESC * 39 0 5 ...
+
+; -------------------------------------- 
+; -------------------------------------- Ditherroutinen: Verteiler
+; -------------------------------------- 
+
+makedith	jmp dithoff
+
+; -------------------------------------- Off
+
+dithoff	cmp #8
+	bcs +
+	lda #0
+	beq ++
++	lda #15
+++	sta temp4x4
+	sta temp4x4+1
+	sta temp4x4+2
+	sta temp4x4+3
+	rts 
+
+; -------------------------------------- Ordered
+
+dithrst	ldy #0
+-	pha 
+	ora offs,y
+	tax 
+	lda gr_orderedpat,x
+	and #$0f
+	sta temp4x4,y
+	pla 
+	iny 
+	cpy #4
+	bne -
+	rts 
+
+; -------------------------------------- Pattern
+
+dithpat	asl
+	asl
+	asl
+	tay 
+	ldx #0
+-	lda gr_pattern,y
+	and #$0f
+	sta temp4x4,x
+	iny 
+	inx 
+	cpx #4
+	bne -
+	rts 
+
+; -------------------------------------- Noise
+
+dithnoi	ldx #0
+-	pha 
+	jsr noibyte
+	and #$0f
+	sta temp4x4,x
+	sta temp4x4+1,x
+	pla 
+	inx 
+	inx 
+	cpx #4
+	bne -
+	rts 
+
+; -------------------------------------- 
+
+noibyte	cmp #0
+	beq ++
+	cmp #$0f
+	beq ++
+	ldy #0
+	sta hold
+	lda rausch
+	and #$0f
+	cmp hold
+	bcs +
+	ldy #$aa
++	lda rausch
+	and #$0f
+	cmp hold
+	tya 
+	bcs ++
+	ora #$55
+++	rts 
+
+; -------------------------------------- Random
+
+dithrnd	ldx #0
+-	pha 
+	jsr rndbyte
+	and #$0f
+	sta temp4x4,x
+	sta temp4x4+1,x
+	pla 
+	inx 
+	inx 
+	cpx #4
+	bne -
+	rts 
+
+; -------------------------------------- 
+
+rndbyte	cmp #8
+	beq +
+	bcs ++
+	bcc +++
++	lda rausch
+	rts
+++	lda #$0f
+	rts
++++	lda #$00
+	rts 
+
+; -------------------------------------- 
+; -------------------------------------- Screenlist
+; -------------------------------------- 
+
+pflst	!by 0
+	!by 4,11,18,15,$81
+	!wo 0 
+	!scr "24Pin PrintOut@"
+pgad	!by 9,11,18,3,$ca
+	!wo ifselect
+pgadt	!by 223
+	!fill 15,32
+	!by 0
+
+	!by 12,11,9,3,$c8
+	!wo startprt
+	!scr " Print @"
+lfgad	!by 12,20,9,3,$cf
+	!wo lfselect
+lftx	!scr "lf:    @"
+	!by 15,11,18,3,$ca
+	!wo leave
+	!scr "Leave@"
+
+	!by $c0,6,11,16
+	!scr "Select Interface@"
+	!by $80
+
+; -------------------------------------- 
+; -------------------------------------- Data
+; -------------------------------------- 
+
+ptypes	!by $80,$,40,$00	; seriell, parallel, Wiesemann
+type	!by $80		; aktuell: seriell
+tflag	!by $00
+
+; -------------------------------------- Texte
+
+ptext	!by 223
+	!scr "  Wiesemann    "
+	!by 223
+	!scr "  Centronics   "
+	!by 223
+	!scr "  Merlin C+    "
+
+; -------------------------------------- Data
+
+ptoffs	!by 15,31,47
+lfflag	!by 0
+lftext	!scr "AUSEIN"
+lfoffs	!by 2,5
+sekadr	!by 1
+offs	!by $00,$10,$20,$30,$00,$10,$20,$30
+
+dlo	!wo dithoff
+	!wo dithrst
+	!wo dithpat
+	!wo dithnoi
+	!wo dithrnd
+
+; -------------------------------------- 
+; -------------------------------------- Event: Drucken
+; -------------------------------------- 
+
+startprt	lda #0		; alle Sprites aus
+	sta spren
+	jsr initad	; Balken an
+	lda gr_dither	; Dithermodus?
+	asl
+	tax 
+	lda dlo,x		; einstellen
+	sta makedith+1
+	lda dlo+1,x
+	sta makedith+2
+
+	lda #$80		; Noise initialisieren
+	sta $d418
+	sta $d40e
+	sta $d40f
+	sta sc_texttab+1
+	lda #0
+	sta $d412
+	sta sc_texttab
+	lda #$81
+	sta $d412
+
+	jsr initprt	; 80 dpi
+	beq doprint
+	jmp ende		; bei Fehler: Abbruch
+
+; -------------------------------------- Drucken
+
+doprint	lda #<sy_4bit	; 4Bit-Startadresse
+	ldx #>sy_4bit
+	sta stlinadr
+	stx stlinadr+1
+
+	lda #25		; Blockzeilen
+	sta count5
+bigloop1	lda #4		; Doppelzeilen
+	sta count4
+	lda #0
+	sta smod2+1	; selfmod2
+bigloop0	lda #$00
+	sta prlinofst
+bigloop	lda stlinadr
+	ldx stlinadr+1
+	sta bitmap
+	stx bitmap+1
+	jsr setvec
+
+	lda #40		; 40 Kacheln
+	sta count1
+smod2	lda #0
+	sta linoffset
+	lda #4		; 8 Pixel zählen
+	sta count2
+-	lda #$f0		; linkes Pixel
+	sta bitmask
+	ldy linoffset
+	lda (bitmap),y
+	pha 
+	lsr
+	lsr
+	lsr
+	lsr
+	tay 
+	lda gr_btab,y
+	jsr makedith
+	jsr movebyte
+	lda #$0f		; rechtes Pixel
+	sta bitmask
+	pla 
+	and #$0f
+	tay 
+	lda gr_btab,y
+	jsr makedith	; dithern
+	jsr movebyte	; speichern
+	inc linoffset
+	dec count2
+	bne -
+
+	clc 
+	lda bitmap	; nächste Kachel
+	adc #32
+	sta bitmap
+	bcc +
+	inc bitmap+1
++	dec count1
+	bne smod2
+
+	clc 
+	lda smod2+1	; nächste Rasterzeile
+	adc #$04
+	sta smod2+1
+	jsr adinc		; Activity
+	lda prlinofst
+	eor #$04
+	sta prlinofst	; Doppelzeile erzeugen
+	beq +
+	jmp bigloop
+
++	lda $dc01		; Taste gedrückt?
+	cmp #$ff
+	bne +
+
+	jsr drehen	; nein, weiter, 90 Grad kippen
+	jsr print		; Doppelzeile drucken
+	dec count4
+	beq +
+	jmp bigloop0
+
++	clc 
+	lda stlinadr+1	 ; nächste Kachelzeile
+	adc #$05
+	sta stlinadr+1
+	dec count5
+	beq ++
+	jmp bigloop1
+
++
+-	cmp $dc01		; Taste gedrückt?
+	beq -
+	ldx #4
+	jsr ckout
+	lda status	; nein, Fehler?
+	bne ++
+
+	lda count4	; nein, weiterdrucken
+	beq +
+-	jsr linefd
+	dec count4
+	bne -
+	dec count5
++
+-	jsr linefd4
+	dec count5
+	bne -
+	jsr clrch
+
+++	jmp ende
+
+; -------------------------------------- Speicher umformen
+
+movebyte	ldx #0
+	ldy prlinofst
+-	lda temp4x4,x
+	bit bitmask
+	bpl +
+	asl
+	asl
+	asl
+	asl
+	jmp mvb0
++	ora (vecprnlin),y
+mvb0	sta (vecprnlin),y
+	inx 
+	iny 
+	cpx #4
+	bne -
+	bit bitmask
+	bmi +
+	jsr addvec
++	rts 
+
+; -------------------------------------- Drehen um 90 Grad
+
+drehen	jsr setvec
+	lda #160		; 160*8=1280 Pixel
+	sta count3
+---	ldy #0
+--	lda (vecprnlin),y
+	ldx #0		; umverteilen
+-	asl
+	rol buffer,x
+	inx 
+	cpx #8
+	bne -
+	iny 
+	cpy #8
+	bne --
+	dey 
+-	lda buffer,y	; zurückschreiben
+	eor #$ff
+	sta (vecprnlin),y
+	dey 
+	bpl -
+	jsr addvec
+	dec count3
+	bne ---
+	rts 
+
+; -------------------------------------- Drucken
+
+print	lda #0
+	ldx #5
+	sta initp2+1
+	stx initp2
+	lda #<prnline	; mit Druckwegoptimierung
+	ldx #>prnline
+	sta vecprnlin
+	stx vecprnlin+1
+
+	ldx #5		; von hinten: $00 suchen
+	ldy #$ff
+-	lda (vecprnlin),y
+	bne +
+	sec 
+	lda initp2+1	; dann um 1 verkürzen (Druckwegeoptimierung)
+	sbc #1
+	sta initp2+1
+	bcs +
+	dec initp2
+
++	dey 
+	cpy #$ff
+	bne -
+	dec vecprnlin+1
+	dex 
+	bne -
+	jmp pr0
+
++	jsr graphon	; Grafikdruck ein
+	bne +++
+	jsr setvec
+	ldy #0
+-	lda #0		; zwei $00-Bytes senden (die oberen 16 Nadeln)
+	jsr bsout
+	jsr bsout
+	lda (vecprnlin),y	; ab dann: Pixeldaten senden (die unteren 8 Nadeln)
+	jsr bsout
+	sec 
+	lda initp2+1
+	sbc #1
+	sta initp2+1
+	bcs +
+	dec initp2
+	lda initp2
+	cmp #$ff
+	beq ++
++	iny 
+	bne -
+	inc vecprnlin+1
+	jmp -
+
+pr0	jsr openprn
+	bne +++
+
+++	jsr linefd
+	jmp clrch
+
++++	jsr paroff
+	jmp ende
+
+; -------------------------------------- 
+
+setvec	lda #<prnline
+	ldx #>prnline
+	sta vecprnlin
+	stx vecprnlin+1
+	rts 
+
+; -------------------------------------- 
+
+addvec	clc 
+	lda vecprnlin
+	adc #8
+	sta vecprnlin
+	lda vecprnlin+1
+	adc #0
+	sta vecprnlin+1
+	rts 
+
+; -------------------------------------- Zwischenspeicher zum Drehen
+
+buffer	!fill 8
+
+; -------------------------------------- Zwischenspeicher beim Dithering
+
+temp4x4	!fill 4
+
+; -------------------------------------- Pixeldaten, 1280*8 Druckpixel (320*2 Pixel)
+
+prnline	!by 0
+
+; -------------------------------------- 
+
+modend	!eof
+
