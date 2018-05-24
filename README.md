@@ -5,11 +5,11 @@ GoDot C64 Image Processing
 
 ## What is it?
 
-If you like you can say **GoDot** is something like a Photoshop for the Commodore 64, a *SixtyPhourtoshop*, the only one on the Commodore, by the way. GoDot is a modular system which consists of **loaders** (for particular graphics file formats), **savers** (for particular graphics file formats, so you can convert formats one into another, see the [Table of Supported Formats][Conversions Table]), and **modifiers** (which do what their typename says, they *modify* the loaded data, so you can manipulate images in many, many ways using GoDot; see our [Table of Modifiers][Modifiers]).
+If you like, you can say **GoDot** is something like a Photoshop for the Commodore 64, a *SixtyPhourtoshop*, the only one on the Commodore, by the way. GoDot is a modular system which consists of **loaders** (for particular graphics file formats), **savers** (for particular graphics file formats respectively, so you can convert formats one into another, see the [Table of Supported Formats][Conversions Table]), and **modifiers** (which do what their typename says, they *modify* the loaded data, so you can manipulate images in many, many ways using GoDot; see our [Table of Modifiers][Modifiers]).
 
 ## How to use it?
 
-GoDot has a **mouse driven GUI** (can also be controlled by joystick or keyboard) which was derived from Amiga's Art Department Professional II (another Photoshop-like program). On this [page][Character Set] you can see how this was achieved. It runs on any device that is able to work like a C-64 (which includes emulators like [VICE][Emulator]).
+GoDot has a **mouse driven GUI** (can also be controlled by joystick or keyboard) which was derived from Amiga's Art Department Professional II (another Photoshop-like program). On [this page][Character Set] you can see how this was achieved. It runs on any device that is able to work like a C-64 (which includes emulators like [VICE][Emulator]).
 
 ## What do you need?
 
@@ -19,7 +19,7 @@ You need nothing more than **a stock Commodore 64** and a disk drive. Of course,
 
 All source code files available from here are written using the ACME assembler. So first you have to download ACME and probably a facility to edit, run and thus test out the code you write, like Relaunch64. Following [this link][ACME] you will have both of them.
 
-Then just clone this GoDot repository to your computer, add a path to ACME (and to VICE if you want to use an emulator), add a MAKE utility to your system ([Make for Windows][Make Link] if you run Windows), and run the Makefile in this repository.
+Then just clone this GoDot repository to your computer, add a path to ACME (and to VICE if you want to use an emulator), add a MAKE utility to your system ([Make for Windows][Make Link] if you run Windows), and run this repository's Makefile.
 
 You have several options:
 - **make d81**<br>
@@ -35,7 +35,7 @@ You have several options:
 
 ## How to GoDot?
 
-Go here: http://www.godot64.de, GoDot's website. It's German, but Google Translate will do. You'll find a most elaborate [manual][Manual] of GoDot's modifiers there, and some intensive [tutorials][Tutorials].
+Go to GoDot's website: http://www.godot64.de. It's German, but Google Translate will do. You'll find a most elaborate [manual][Manual] of GoDot's modifiers there, and some intensive [tutorials][Tutorials].
 
 Additional material can be found in the [downloads section of godot64.de][Downloads]. On three D64 disk images you find the *complete* GoDot system, together with convolution filters, dither patterns, mouse pointers and more.
 
@@ -47,7 +47,7 @@ Arndt
 [Conversions Table]: http://www.godot64.de/german/formats.htm "GoDot's list of supported file formats"
 [Modifiers]: http://www.godot64.de/german/m_allg.htm "GoDot's Standard Modifiers (there are also a number of more specific modifiers)"
 [Character Set]: http://www.godot64.de/german/godset.htm "GoDot's origins"
-[Graphics Hardware]: http://www.godot64.de/german/l_bdata.htm "Graphics Hardware"
+[Graphics Hardware]: http://www.godot64.de/german/l_bdata.htm "Graphics Hardware Overview"
 [Emulator]: http://vice-emu.sourceforge.net/ "VICE - the Versatile Commodore Emulator"
 [ACME]: http://www.emu64-projekt.de/acme/ "Download of ACME und Relaunch64"
 [Make Link]: http://gnuwin32.sourceforge.net/packages/make.htm "GNU Make for Windows"
