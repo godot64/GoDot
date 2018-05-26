@@ -1,6 +1,8 @@
 
 	!src "godotlib.lib"
-	*=$c000
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
 
 ; ------------------------------------------------ 
 ;
@@ -13,6 +15,7 @@
 ; 1.06, 05.10.05: bugfix: wrong colors when executed from ram
 ; 1.07, 05.07.17: bugfix: activity bar exceeding lower limit on clrclp outside
 ; 1.08, 18.07.17: added Preview
+; 1.09, 26.05.18: made Preview safer (avoiding color trash on Show after Execute from RAM)
 ;
 ; ------------------------------------------------ 
 
@@ -81,8 +84,8 @@
 	!wo modend
 	!wo 0
 	!pet "ClipWorks       "
-	!pet "1.07"
-	!pet "05.07.17"
+	!pet "1.09"
+	!pet "26.05.18"
 	!pet "A. Dettke       "
 
 ; ------------------------------------------------ Main
@@ -776,6 +779,16 @@ gw4	lda sc_clipzl,y	; care for right value
 	pla
 	jmp gw3
 
+; ----------------------------------------- Event: Show Preview
+
+evpreview	lda gd_modswitch
+	pha
+	jsr ev_prviu
+	pla
+	sta gd_modswitch
+	clc
+	rts
+
 ; ------------------------------------------------ Screenlist for ClipWorks
 
 arealst	!by 0
@@ -808,7 +821,7 @@ hoehe	!by 6,23,4,3,$e0,<(sevvinp),>(sevvinp)
 	!by 21,12,16,3,$d9,<(sevclcan),>(sevclcan)
 	!scr "Cancel@"
 	!by 11,29,11,7,$4d		; 4Bit-Preview		 ### 1.08
-	!wo ev_prviu
+	!wo evpreview		; safer			 ### 1.09
 	!by $c0,3,12,3
 	!scr "Row@"
 	!by $c0,3,19,3
