@@ -1,7 +1,7 @@
 # GoDot
 GoDot C64 Image Processing
 
-![GoDot GUI](http://www.godot64.de/german/pictures/godot2017.gif "GoDot Main Screen")
+![GoDot GUI](https://www.godot64.de/german/pictures/godot2017.gif "GoDot Main Screen")
 
 ## What is it?
 
@@ -44,13 +44,13 @@ Additional material can be found in the [downloads section of godot64.de][Downlo
 Arndt
 
 ---
-[Conversions Table]: http://www.godot64.de/german/formats.htm "GoDot's list of supported file formats"
-[Modifiers]: http://www.godot64.de/german/m_allg.htm "GoDot's Standard Modifiers (there are also a number of more specific modifiers)"
-[Character Set]: http://www.godot64.de/german/godset.htm "GoDot's origins"
-[Graphics Hardware]: http://www.godot64.de/german/l_bdata.htm "Graphics Hardware Overview"
+[Conversions Table]: https://www.godot64.de/german/formats.htm "GoDot's list of supported file formats"
+[Modifiers]: https://www.godot64.de/german/m_allg.htm "GoDot's Standard Modifiers (there are also a number of more specific modifiers)"
+[Character Set]: https://www.godot64.de/german/godset.htm "GoDot's origins"
+[Graphics Hardware]: https://www.godot64.de/german/l_bdata.htm "Graphics Hardware Overview"
 [Emulator]: http://vice-emu.sourceforge.net/ "VICE - the Versatile Commodore Emulator"
 [ACME]: http://www.emu64-projekt.de/acme/ "Download of ACME und Relaunch64"
 [Make Link]: http://gnuwin32.sourceforge.net/packages/make.htm "GNU Make for Windows"
-[Manual]: http://www.godot64.de/german/index.htm "GoDot Manual: How to GoDot"
-[Tutorials]: http://www.godot64.de/german/tutorials.htm "GoDot Tutorials"
-[Downloads]: http://www.godot64.de/german/downloads.htm "GoDot's download section"
+[Manual]: https://www.godot64.de/german/index.htm "GoDot Manual: How to GoDot"
+[Tutorials]: https://www.godot64.de/german/tutorials.htm "GoDot Tutorials"
+[Downloads]: https://www.godot64.de/german/downloads.htm "GoDot's download section"
