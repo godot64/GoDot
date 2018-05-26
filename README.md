@@ -35,7 +35,7 @@ You have several options:
 
 ## How to GoDot?
 
-Go to GoDot's website: http://www.godot64.de. It's German, but Google Translate will do. You'll find a most elaborate [manual][Manual] of GoDot's modifiers there, and some intensive [tutorials][Tutorials].
+Go to GoDot's website: https://www.godot64.de. It's German, but Google Translate will do. You'll find a most elaborate [manual][Manual] of GoDot's modifiers there, and some intensive [tutorials][Tutorials].
 
 Additional material can be found in the [downloads section of godot64.de][Downloads]. On three D64 disk images you find the *complete* GoDot system, together with convolution filters, dither patterns, mouse pointers and more.
 
