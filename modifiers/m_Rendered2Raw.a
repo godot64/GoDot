@@ -1,0 +1,408 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ----------------------------------------- 
+;
+;  mod.Rendered2Raw
+;   Module to convert the contents of GoDot's rendered image area to 4Bit
+;
+;  1.00, 15.11.92, first release
+;  1.01, 26.05.18, better performance
+;
+; ----------------------------------------- 
+
+; ----------------------------------------- Equates
+
+	pport		= $01
+
+	color		= $30
+	farbe		= $32
+	bitmap		= $34
+	fourbit		= $36
+
+	backc		= $38
+	hinten		= $39
+	vorne		= $3a
+	oben		= $3b
+
+	bytcnt		= $3c
+	blkcnt		= $3d
+	byte		= $3e
+	merkbyte		= $3f
+	yps		= $40
+	merk		= $41
+	trans		= $42
+	dest1		= $44
+	adcnt		= $45
+
+	vram		= $cc17	; videoram 1 (500 bytes)
+	cram		= $c82f	; unpacked colorram (1000 bytes)
+	cramp		= $ee0b	; packed color ram (500 bytes)
+	vram1		= $de0b	; videoram 2 (500 bytes)
+
+	sprptr		= $07f8	; activity data
+	spr255		= $3fc0
+	spr2x		= $d004
+	spr2y		= $d005
+	msbx		= $d010
+	spren		= $d015
+	sprxe		= $d01d
+	border		= $d020
+	sprcol2		= $d029
+
+; ----------------------------------------- 
+
+	jmp start
+	!by $20
+	!wo 0
+	!wo modend
+	!wo 0
+	!tx "Back To 4Bit    "
+	!tx "1.01"
+	!tx "26.05.18"
+	!tx "W.Kling/A.Dettke"
+
+; ----------------------------------------- 
+
+start	lda #<(doithi)	; set distributor
+	ldx #>(doithi)
+	sta trans
+	stx trans+1
+	jsr makevram	; build video ram colors
+
+	lda gr_cmode	; determine which render mode
+	beq skip
+
+	jsr makecram	; multicolor
+	ldx gr_bkcol
+	lda dnib,x
+	sta backc
+	lda #<(doitmc)
+	ldx #>(doitmc)
+	sta trans
+	stx trans+1
+	lda #<(cram-1)
+	ldx #>(cram-1)
+	sta color
+	stx color+1
+
+skip	jsr initad	; init activity bar
+	lda #<(vram-1)	; hires
+	ldx #>(vram-1)
+	sta farbe
+	stx farbe+1
+
+	lda #<($1fff)	; bitmap
+	ldx #>($1fff)
+	sta bitmap
+	stx bitmap+1
+	lda #<($4000)	; 4bit ram
+	ldx #>($4000)
+	sta fourbit
+	stx fourbit+1
+
+	jsr rtor		; perform
+
+	jsr clearad	; end up
+	clc
+	rts
+
+; ----------------------------------------- 
+
+rtor	jmp (trans)
+
+; ----------------------------------------- 
+
+dnib	!by $00,$ff,$44,$cc
+	!by $55,$aa,$11,$dd
+	!by $66,$22,$99,$33
+	!by $77,$ee,$88,$bb
+
+; ----------------------------------------- Build Video RAM
+
+makevram	sei
+	lda #$34
+	sta pport
+	ldy #0
+vloop	lda vram1,y
+	sta vram,y
+	lda vram1+250,y
+	sta vram+250,y
+	iny
+	cpy #250
+	bne vloop
+	lda #$36
+	sta pport
+	cli
+	rts
+
+; ----------------------------------------- Build Color RAM
+
+makecram	sei
+	lda #<(cramp)
+	sta sc_vekt20
+	lda #>(cramp)
+	sta sc_vekt20+1
+	lda #<(cram)
+	sta dest1
+	lda #>(cram)
+	sta dest1+1
+	lda #<(500)
+	sta ls_vekta8
+	lda #>(500)
+	sta ls_vekta8+1
+	lda #$34
+	sta pport
+	ldy #0
+stc2	sty merk
+	lda (sc_vekt20),y
+	lsr
+	rol merk
+	lsr
+	rol merk
+	lsr
+	rol merk
+	lsr
+	rol merk
+	sta (dest1),y
+	inc dest1
+	bne stc3
+	inc dest1+1
+stc3	lda merk
+	sta (dest1),y
+	inc sc_vekt20
+	bne cou5
+	inc sc_vekt20+1
+cou5	inc dest1
+	bne cou6
+	inc dest1+1
+cou6	lda ls_vekta8
+	bne cou7
+	dec ls_vekta8+1
+cou7	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	bne stc2
+	lda #$36
+	sta pport
+	cli
+	rts
+
+; ----------------------------------------- Convert from Hires
+
+doithi	ldy #0
+	lda #$80
+	sta bytcnt
+	sty yps
+tr0	sta blkcnt
+	inc farbe
+	bne tr1
+	inc farbe+1
+tr1	lda farbe+1
+	cmp #$d0
+	beq trready
+	lda (farbe),y
+	pha
+	lsr
+	lsr
+	lsr
+	lsr
+	tax
+	lda dnib,x
+	sta vorne
+	pla
+	and #15
+	tax
+	lda dnib,x
+	sta hinten
+
+bytes8	ldy #0
+	inc bitmap
+	bne tr2
+	inc bitmap+1
+tr2	lda (bitmap),y
+	sta byte
+
+	ldy yps
+pixels8	asl byte
+	rol
+	and #1
+	tax
+	lda hinten,x
+	tax
+	stx merkbyte
+	lda #$aa
+	and bytcnt
+	beq tr4
+	txa
+	and #$f0
+	sta (fourbit),y
+	jmp tr6
+tr4	lda merkbyte
+	and #15
+	ora (fourbit),y
+	sta (fourbit),y
+	iny
+tr6	lsr bytcnt
+	bcc pixels8
+
+	lda #$80
+	sta bytcnt
+	sty yps
+	lsr blkcnt
+	bcc bytes8
+
+	clc		; next tile (of 1000)
+	lda fourbit
+	adc #32
+	sta fourbit
+	bcc +
+	inc fourbit+1
+
++	jsr adinc		; activity
+	bne doithi
+trready	rts
+
+; ----------------------------------------- Convert from Multicolor
+
+doitmc	ldy #0
+	lda #$80
+	sta bytcnt
+	sta blkcnt
+	sty yps
+	inc farbe
+	bne cr1
+	inc farbe+1
+cr1	inc color
+	bne cr01
+	inc color+1
+cr01	lda farbe+1
+	cmp #$d0
+	beq crready
+	lda (farbe),y
+	pha
+	lsr
+	lsr
+	lsr
+	lsr
+	tax
+	lda dnib,x
+	sta hinten
+	pla
+	and #15
+	tax
+	lda dnib,x
+	sta vorne
+	lda (color),y
+	tax
+	lda dnib,x
+	sta oben
+
+byte8c	ldy #0
+	inc bitmap
+	bne cr2
+	inc bitmap+1
+cr2	lda (bitmap),y
+	sta byte
+
+	ldy yps
+pixels8c	asl byte
+	rol
+	asl byte
+	rol
+	and #3
+	tax
+	lda backc,x
+	sta (fourbit),y
+	iny
+	lsr bytcnt
+	lsr bytcnt
+	bcc pixels8c
+
+	lda #$80
+	sta bytcnt
+	sty yps
+	lsr blkcnt
+	bcc byte8c
+
+	clc		; next tile (of 1000)
+	lda fourbit
+	adc #32
+	sta fourbit
+	bcc +
+	inc fourbit+1
+
++	jsr adinc		; activity
+	bne doitmc
+crready	rts
+
+; ----------------------------------------- 
+;   sprite activity display
+; ----------------------------------------- 
+
+; ------------------------------------------------ Activity
+
+adinc	dec adcnt
+	bne +
+	inc spr2y
+	inc spr2y+2
+	lda #25		; (zählt 1000 durch 40 = 25)
+	sta adcnt
++	rts 
+
+; ------------------------------------------------ Abschluss Activity
+
+clearad	lda spren		; Wanderbalken aus
+	and #$f3
+	sta spren
+	lda msbx
+	and #$f3
+	sta msbx
+	lda #$ff		; Grafik verändert
+	sta gr_redisp
+	clc 		; fertig
+	rts 
+
+; ------------------------------------------------ Init Activity
+
+initad	ldy #60
+	lda #0
+-	sta spr255+3,y	; Spriteblock 255 vorbereiten
+	dey 
+	bpl -
+	sty spr255	; dünner Strich
+	sty spr255+1
+	sty spr255+2
+	lda #$0f		; Farbe hellgrau
+	sta sprcol2
+	sta sprcol2+1
+	lda sprxe		; doppelt breit
+	ora #$0c
+	sta sprxe
+
+	lda msbx		; x über 255
+	ora #$0c
+	sta msbx
+	lda #8		; x-Ordinate: 8 (plus 256)
+	sta spr2x
+	lda #$20
+	sta spr2x+2
+	lda #$92		; y-Ordinate: 146
+	sta spr2y		; (im Image Information Fenster)
+	sta spr2y+2	; (überstreicht 5*8 = 40 Linien)
+
+	sty sprptr+2	; Sprite 255
+	sty sprptr+3
+	lda spren
+	ora #$0c		; Activity-Balken aktivieren
+	sta spren
+	lda #1		; Startzähler
+	sta adcnt
+	rts
+
+; ----------------------------------------- 
+
+modend	!eof
