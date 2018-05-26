@@ -1,0 +1,477 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ----------------------------------------- 
+;
+;  mod.QuickMask
+;   Module to generate masks for ldr.4Bit&Mask
+;   contributed by Martin Bohnet
+;
+;  1.00,         , first release (not system friendly)
+;  1.01,         , rewrote module for system convenience
+;  1.02,         , bug fixes
+;  1.03, 14.01.01, final release
+;
+; ----------------------------------------- 
+
+; ----------------------------------------- Equates
+
+	adcnt		= $30
+	counter		= $31
+	bits		= $32
+
+	colors		= $0400
+	sprptr		= $07f8
+
+	spr255		= $3fc0
+	spr2x		= $d004
+	spr2y		= $d005
+	msbx		= $d010
+	spren		= $d015
+	sprxe		= $d01d
+	border		= $d020
+	sprcol2		= $d029
+
+; ----------------------------------------- 
+
+header	jmp start
+	!by $20
+	!by 0
+	!by 1
+	!wo modend
+	!wo 0
+	!tx "Generate Mask   "
+	!tx "1.03"
+	!tx "14.01.01"
+	!tx "ADettke/M.Bohnet"
+
+; ----------------------------------------- Main
+
+start	jsr gd_savescvek	; save vector to previous screenlist
+	ldx sc_scvek2
+	ldy sc_scvek2+1
+	stx list
+	sty list+1
+	lda #200
+	sta cntwert
+
+	lda #0
+	sta sc_keyprs
+	jsr show		; requester
+	jsr clrmasks	; init mask flags
+	jsr gd_eloop	; ...and wait
+
+	php
+	ldx list		; then: rebuild previous screenlist
+	ldy list+1
+	stx sc_scvek2
+	sty sc_scvek2+1
+	plp
+	rts
+
+; ----------------------------------------- Event: Generate Mask
+
+evmask	lda #$40		; vekt20=$4000 (source)
+	sta sc_vekt20+1
+	sta ls_vekta8	; vekta8= 8000 (counter)
+	ldx #$20
+	stx sc_texttab+1	; texttab=$2000 (dest)
+	dex
+	stx ls_vekta8+1
+	ldy #0
+	sty sc_vekt20
+	sty sc_texttab
+	lda cntwert	; init activity
+	jsr initad
+
+loop1	ldy #0
+	sty bits
+lp0	lda (sc_vekt20),y	; get 4bit pixel
+	pha
+	lsr
+	lsr
+	lsr
+	lsr
+	tax
+	lda masks,x	; take maskflags as mask bits
+	lsr
+	rol bits
+	pla
+	and #15
+	tax
+	lda masks,x
+	lsr
+	rol bits		; generate 1 mask byte
+	iny
+	cpy #4
+	bne lp0
+
+	lda bits
+	ldy #0
+	sta (sc_texttab),y	; and write to destination
+	clc
+	lda sc_vekt20	; proceed
+	adc #3
+	sta sc_vekt20
+	bcc lp1
+	inc sc_vekt20+1
+lp1	jsr adinc		; activity
+	jsr count
+	bne loop1		; count 8000 bytes
+
+	jsr clearad	; then: activity off
+	clc
+	rts
+
+; ----------------------------------------- Event: View Mask
+
+evview	lda #$1b		; hires graphics on
+	sta $d018
+	lda #$3b
+	sta $d011
+	lda #$f0		; light grey on black
+	ldy #250
+	ldx #0
+	stx sc_stop
+vw0	sta colors-1,y
+	sta colors+249,y
+	sta colors+499,y
+	sta colors+749,y
+	dey
+	bne vw0
+vw1	lda sc_keyprs	; any key or stop?
+	ora sc_stop
+	beq vw1
+	ldx #$13		; yes: graphics off
+	lda #$1b
+	stx $d018
+	sta $d011
+vw2	ldx list		; restore requester
+	ldy list+1
+	jsr gd_screen
+	jsr show		; show current setting
+	jsr cos
+	clc
+	rts
+
+; ----------------------------------------- Event: Leave
+
+evleave	sec
+	rts
+; 
+; ----------------------------------------- Show Requester
+
+show	ldx #<(plist)
+	ldy #>(plist)
+	jsr gd_screen
+	jsr setgray
+	jsr setcol
+	jsr setcolline
+	jmp gd_invert
+
+; ----------------------------------------- Set Parameters
+
+setmskline
+	lda #<mskline	; Masks
+	sta sc_screentab
+	lda #>mskline
+	bne gt1
+setcolline
+	lda #<colline	; respective Colors
+	sta sc_screentab
+	lda #>colline
+gt1	sta sc_screentab+1
+	ldx #0
+	ldy #0
+gt0	jsr gd_setpos
+	cpx #4
+	bne gt0
+	jsr gd_trim
+	lda #0
+	sta sc_loop
+	jmp gd_initmove
+
+; ----------------------------------------- Event: Invert Choice
+
+evinvert	ldx #15		; toggle each color mask flag
+sin1	lda masks,x
+	eor #1
+	sta masks,x
+	dex
+	bpl sin1
+	jsr cos
+	lda cntwert	; init activity
+	jsr initad
+
+	ldy #0
+	lda #<($2000)	; revert graphics buffer at $2000
+	ldx #>($2000)
+	sta sc_vekt20
+	stx sc_vekt20+1
+	lda #<(8000)	; count 8000 bytes
+	ldx #>(8000)
+	sta ls_vekta8
+	stx ls_vekta8+1
+sin0	lda (sc_vekt20),y	; revert
+	eor #$ff
+	sta (sc_vekt20),y
+	jsr adinc		; activity
+	jsr count		; count
+	bne sin0
+
+	jsr clearad	; then: activity off
+	clc
+	rts
+
+; ----------------------------------------- Counters
+
+count	inc sc_vekt20
+	bne cou5
+	inc sc_vekt20+1
+cou5	inc sc_texttab
+	bne cou6
+	inc sc_texttab+1
+cou6	lda ls_vekta8
+	bne cou7
+	dec ls_vekta8+1
+cou7	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	rts
+
+; ----------------------------------------- Events: Mark (a single) Color
+
+col0	ldx #0
+	!by $2c
+col1	ldx #1
+	!by $2c
+col2	ldx #2
+	!by $2c
+col3	ldx #3
+	!by $2c
+col4	ldx #4
+	!by $2c
+col5	ldx #5
+	!by $2c
+col6	ldx #6
+	!by $2c
+col7	ldx #7
+	!by $2c
+col8	ldx #8
+	!by $2c
+col9	ldx #9
+	!by $2c
+cola	ldx #10
+	!by $2c
+colb	ldx #11
+	!by $2c
+colc	ldx #12
+	!by $2c
+cold	ldx #13
+	!by $2c
+cole	ldx #14
+	!by $2c
+colf	ldx #15
+	lda masks,x
+	eor #1
+	sta masks,x
+
+cos	jsr setmskline	; address mask line, first entry
+	ldx #0
+	stx counter
+cos2	ldx counter
+	lda masks,x
+	bne cos0
+	lda #32		; fill /w space...
+	bne cos1
+cos0	lda #160		; ...or shift space
+cos1	jsr gd_fi0
+	sec 
+	lda sc_vekt20	; minus 38 (one line above, two tiles ahead)
+	sbc #38
+	sta sc_vekt20
+	bcs cos3
+	dec sc_vekt20+1
+cos3	inc counter	; 16 times (all colors)
+	lda counter
+	cmp #16
+	bcc cos2
+	clc
+	rts
+
+; ----------------------------------------- Show Colors
+
+setcol	ldx colline+1
+	ldy colline
+	lda #2		; Breite und Höhe: 2 Kacheln
+	iny
+stc1	sty sc_zl
+	inx
+	stx sc_sp
+	ldx #2
+	stx sc_br
+	sta sc_ho
+	ldx #0
+stc0	stx cmerk
+	lda gr_basepal,x
+	sta sc_chgcol
+	ldx #4
+	jsr gd_fcol
+	inc sc_sp
+	inc sc_sp
+	ldx cmerk
+	inx
+	cpx #16
+	bne stc0
+	rts
+; 
+; ----------------------------------------- Mark Color
+
+setgray	jsr setcolline
+	ldx #11
+	lda gr_basepal,x	; set light grey
+	sta sc_chgcol
+	ldx #4
+	jmp gd_fcol
+
+; ----------------------------------------- Clear all Mask Flags
+
+clrmasks	ldx #15
+	lda #1
+cm0	sta masks,x
+	dex
+	bpl cm0
+	rts
+
+; -------------------------------------------------- Activity Display
+;
+;   sprite activity display
+;
+; ------------------------------------------------ Abschluss Activity
+
+clearad	lda spren		; Wanderbalken aus
+	and #$f3
+	sta spren
+	lda msbx
+	and #$f3
+	sta msbx
+	rts 
+
+; ------------------------------------------------ Activity
+
+adinc	dec adcnt
+	bne +
+	inc spr2y
+	inc spr2y+2
+	lda cntwert
+	sta adcnt
++	rts 
+
+; ------------------------------------------------ Init Activity
+
+initad	sta adcnt
+	ldy #60
+	lda #0
+-	sta spr255+3,y	; Spriteblock 255 vorbereiten
+	dey 
+	bpl -
+	sty spr255	; dünner Strich
+	sty spr255+1
+	sty spr255+2
+	lda #$0f		; Farbe hellgrau
+	sta sprcol2
+	sta sprcol2+1
+	lda sprxe		; doppelt breit
+	ora #$0c
+	sta sprxe
+
+	lda msbx		; x über 255
+	ora #$0c
+	sta msbx
+	lda #8		; x-Ordinate: 8 (plus 256)
+	sta spr2x
+	lda #$20
+	sta spr2x+2
+	lda #$92		; y-Ordinate: 146
+	sta spr2y		; (im Image Information Fenster)
+	sta spr2y+2
+
+	sty sprptr+2	; Sprite 255
+	sty sprptr+3
+	lda spren
+	ora #$0c		; Activity-Balken aktivieren
+	sta spren
+	rts
+
+; ----------------------------------------- 
+
+list	!by 0,0
+masks	!by 1,1,1,1,1,1,1,1
+	!by 1,1,1,1,1,1,1,1
+cntwert	!by 200
+cmerk	!by 0
+mskline	!by 5,3,4,3
+
+; ----------------------------------------- Screenlist
+
+plist	!by 0
+	!by 2,3,34,10,$01
+	!wo 0
+co0	!by 3,3,4,5,$40
+	!wo col0
+co1	!by 3,5,4,5,$40
+	!wo col1
+co2	!by 3,7,4,5,$40
+	!wo col2
+co3	!by 3,9,4,5,$40
+	!wo col3
+co4	!by 3,11,4,5,$40
+	!wo col4
+co5	!by 3,13,4,5,$40
+	!wo col5
+co6	!by 3,15,4,5,$40
+	!wo col6
+co7	!by 3,17,4,5,$40
+	!wo col7
+co8	!by 3,19,4,5,$40
+	!wo col8
+co9	!by 3,21,4,5,$40
+	!wo col9
+coa	!by 3,23,4,5,$40
+	!wo cola
+cob	!by 3,25,4,5,$40
+	!wo colb
+coc	!by 3,27,4,5,$40
+	!wo colc
+cod	!by 3,29,4,5,$40
+	!wo cold
+coe	!by 3,31,4,5,$40
+	!wo cole
+cof	!by 3,33,4,5,$40
+	!wo colf
+
+colline	!by 3,3,34,5,$0a
+	!wo 0
+	!by 9,4,10,3,$cc
+	!wo evmask
+	!scr "Generate@"
+	!by 9,14,8,3,$cc
+	!wo evinvert
+	!scr "Invert@"
+	!by 9,22,7,3,$cc
+	!wo evview
+	!scr "View!@"
+	!by 9,29,7,3,$cc
+	!wo evleave
+	!scr "Leave@"
+
+	!by $c0,7,6,26
+	!scr "Choose transparent colors.@"
+	!by $80
+
+; ----------------------------------------- 
+
+modend	!eof
