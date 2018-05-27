@@ -1,0 +1,14 @@
+{
+  "name": "language-acme",
+  "version": "0.0.0",
+  "description": "ACME Crossassembler Highlighter",
+  "keywords": [
+  ],
+  "repository": "https://github.com/godot64/language-acme",
+  "license": "MIT",
+  "engines": {
+    "atom": ">=1.0.0 <2.0.0"
+  },
+  "dependencies": {
+  }
+}
