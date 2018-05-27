@@ -1,4 +1,4 @@
-# Syntax Highlighting for the acme directives
+# Syntax Highlighting for the acme crossassembler directives
 
 scopeName: 'source.acme'
 name: 'ACME Crossassembler'
