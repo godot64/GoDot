@@ -1,5 +1,5 @@
 
-	!src "godotlib.lib"
+	!src "..\godotlib.lib"
 	*= $c000
 	!ct pet
 ;	!sl "moveclp.txt"
@@ -27,6 +27,7 @@
 ;                              (which leads to the same result, actually)
 ;                     removed: dirty flag (now executable from REU)
 ;     1.09, 03.03.18, bugfix: set correct target position on SetClip
+;     1.10, 28.05.18, bugfix: garbage when moved right on same row, fixed
 ;
 ; --------------------------------------
 ;
@@ -72,6 +73,7 @@
 	spr2x		= $4a	; /$4b
 	check1		= $4c
 	check2		= $4d
+	vmflag		= $4e
 
 	spalte		= sc_merk+1
 
@@ -106,8 +108,8 @@
 	!wo modend
 	!wo 0
 	!tx "Move the Clip ! "
-	!tx "1.09"
-	!tx "03.03.18"
+	!tx "1.10"
+	!tx "28.05.18"
 	!tx "M.Burggraf/$AD  "
 
 ; -------------------------------------- Main
@@ -319,38 +321,63 @@ chkwhere	clc
 	adc zbreite
 	sta spmk
 
-	lda quellzeile	; first: check if equal
+	lda quellzeile	; first: check if rows are equal
 	eor zzeile
-	bne olap
-	lda quellspalte
+	bne olap2
+	lda quellspalte	; if not: check if columns are equal (vmflag now 0)
 	eor zspalte
 	bne olap
-	rts		; yes, destination is equal to source, do nothing
+	rts		; destination is completely equal to source, do nothing
 
-olap	lda zlmk		; destination clip above source clip?
+olap	lda zlmk		; destination clip completely above source clip?
 	cmp quellzeile
 	bcc fwd		; yes, forwards (no overlap)
-	lda sp		; destination clip right of source clip?
-	cmp zspalte
-	bcc fwd		; yes, forwards
-	lda zl		; destination clip below source clip?
+	lda zl		; destination clip completely below source clip?
 	cmp zzeile
 	bcc fwd		; yes, forwards
 
-	lda zzeile	; if overlap: dst clip above?
-	cmp quellzeile
+olap2	lda sp		; destination clip completely right of source clip?
+	cmp zspalte
 	bcc fwd		; yes, forwards
-	beq fwd		; equal, then also forwards
-
-	lda spmk		; otherwise: destination clip left of source clip?
+	lda spmk		; otherwise: destination clip completely left of source clip?
 	cmp quellspalte
 	bcc fwd		; yes, forwards
+
+	lda zspalte	; then they overlap: dst clip left?
+	cmp quellspalte
+	bcc +		; yes, vmflag to %000 (forwards)
+	beq +
+	lda #1		; no, %001
+	!by $2c
++	lda #0		; %000
+	sta vmflag
+
+	lda zzeile	; otherwise: dst clip above?
+	cmp quellzeile
+	bcc +		; yes, vmflag to %010 (forwards)
+	beq ifrght	; the same row, then look if right
+	lda #4		; no, %100
+	!by $2c
+-
++	lda #2		; %010
+	ora vmflag
+
+	beq fwd		; decide
+	cmp #2
+	beq fwd
+	cmp #3
+	beq fwd
 
 bwd	lda #$ff		; any other: backwards
 	bmi +
 fwd	lda #1
 +	sta fwflag
 	rts
+
+ifrght	lda vmflag
+	cmp #1
+	beq bwd
+	bne -
 
 ; -------------------------------------- Opaque-Distributor
 
