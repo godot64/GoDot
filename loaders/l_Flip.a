@@ -1,0 +1,437 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; -------------------------------------- 
+;
+;  ldr.FLIP
+;
+;  Loader for images of FLIP (FLI-Painter)
+;
+;  0.99, 03.05.93, pre-release (only unpacked images)
+;
+; --------------------------------------
+
+	dst0		= $35
+	dst		= $37
+	src		= dst
+	byte		= $39
+	cntwert		= $3a
+	vrcnt		= $3b
+	pack		= $3c
+	pcnt		= $3d
+	data		= $3e
+
+	offx		= ls_adrmisc
+	offy		= offx+1
+	adcnt		= $ff
+
+	cbuf		= $ca00
+	sprite		= $d015
+	basin		= $ffcf
+
+; ------------------------------------ Header
+
+	jmp start
+	!by $80
+	!wo 0
+	!wo modend
+	!wo 0
+	!tx "FLIP raw data   "
+	!tx "0.99"
+	!tx "03.05.93"
+	!tx "W.Kling/A.Dettke"
+
+; ------------------------------------ 
+
+jerror	jmp error
+
+; ------------------------------------ Main
+
+start	lda #50		; set activity counter value
+	sta cntwert
+	lda #1		; start counter at value 1
+	sta adcnt
+
+	ldx $20		; start of graphics data ($4000)
+	ldy $21
+	stx dst0		; to work vector
+	sty dst0+1
+	jsr getname	; save filename for later info output
+
+; ------------------------------------ get picture data
+
+	jsr gd_xopen	; open file
+	jsr onebyte	; read start address (and ignore)
+	bne jerror
+	jsr onebyte
+	bne jerror
+	jsr gd_clrms	; initialize gauge output
+	jsr tcopy		; set screen output text
+
+	jsr getcram	; get color ram ($d800 area) to buffer CBUF
+
+	jsr setdst0	; get 8 video rams to 4Bit area
+	lda #8
+	sta vrcnt
+vloop	lda dst0
+	ldy dst0+1
+	sta dst
+	sty dst+1
+vloop0	jsr action	; activity display (increment gauge)
+	jsr basin
+	ldy #3
+vloop1	sta (dst),y
+	dey
+	bpl vloop1
+	lda dst
+	clc
+	adc #32
+	sta dst
+	bcc vskip0
+	inc dst+1
+vskip0	lda dst+1
+	cmp #>sy_bigbuffer
+	bne vloop0	; up to end of 4Bit area
+
+	ldy #24		; skip dummy bytes
+	jsr dumy
+	lda dst0		; target next row of tile
+	clc
+	adc #4
+	sta dst0
+	dec vrcnt
+	bne vloop
+
+	ldx #7		; initialize new text and counters
+	jsr tcopy
+	lda #50
+	sta cntwert
+	sta adcnt
+
+	jsr setdst0	; get bitmap to 4Bit area
+bloop0	jsr basin
+	sta byte
+	jsr action	; (gauge again)
+	ldy #0
+bloop1	lda #0		; convert pixels to 4Bit
+	asl byte
+	rol
+	asl byte
+	rol
+	beq null		; null (%00)?
+	cmp #3		; three (%11)?
+	beq drei
+	cmp #1		; one (%01)?
+	beq eins
+	lda (dst0),y	; no, two (%10), assign
+	and #$0f
+	ora #$20
+	sta (dst0),y
+	bne next
+eins	lda (dst0),y	; one: assign
+	lsr
+	lsr
+	lsr
+	lsr
+	ora #$10
+	sta (dst0),y
+	bne next
+drei	lda #$30		; three: assign
+	sta (dst0),y
+	bne next
+null	sta (dst0),y	; null: assign
+
+next	iny		; through all pixels of a byte
+	cpy #4
+	bne bloop1
+
+	lda dst0		; advance to next row of 4Bit tile
+	clc
+	adc #4
+	sta dst0
+	bcc bskip0
+	inc dst0+1
+
+bskip0	lda dst0+1	; end of 4Bit area?
+	cmp #>sy_bigbuffer
+	bne bloop0
+	ldy #192		; yes, skip dummy bytes behind bitmap
+	jsr dumy
+
+; ------------------------------------ process color ram
+
+	lda #7		; initialize new text and counters
+	sta cntwert
+	sta adcnt
+	ldx #14
+	jsr tcopy
+
+	jsr setdst0	; assign color from color ram:
+	lda #<(cbuf)	; source address is CBUF
+	ldx #>(cbuf)
+	sta src
+	stx src+1
+cloop0	ldy #0
+	lda (src),y
+	inc src
+	bne cskip00
+	inc src+1
+cskip00	and #$0f		; be sure to have correct value (lower nibble)
+	ora #$30
+	sta byte
+	jsr action	; (gauge again)
+
+	ldy #31		; process one tile
+cloop1	lda (dst0),y	; get 4Bit value
+	cmp #$30		; was three?
+	bne cskip0	; no, skip
+	lda byte		; yes, store new byte
+	sta (dst0),y
+cskip0	dey
+	bpl cloop1
+
+	lda dst0		; target next tile
+	clc
+	adc #32
+	sta dst0
+	bcc cskip1
+	inc dst0+1
+
+cskip1	lda dst0+1	; until end of 4Bit area
+	cmp #>sy_bigbuffer
+	bne cloop0
+	ldy #24		; skip dummy bytes
+	jsr dumy
+
+; ------------------------------------ make colors
+
+	lda #200		; initialize text and counters
+	sta cntwert
+	sta adcnt
+	ldx #21
+	jsr tcopy
+
+	jsr setdst0
+
+	lda #0		; convert processed bytes to colors:
+	and #$0f		; first: background color 
+	tax		; (is always black but could be different)
+	lda dnib,x
+	sta byte
+nloop0	jsr action
+	ldy #0
+	lda (dst0),y	; $00 is background color
+	beq nskip0
+	and #$0f		; convert the other
+	tax
+	lda dnib,x
+	!by $2c
+nskip0	lda byte
+	sta (dst0),y	; write back
+	inc dst0
+	bne nskip1
+	inc dst0+1
+nskip1	lda dst0+1
+	cmp #>sy_bigbuffer	; until end of 4Bit area
+	bne nloop0
+
+sk10	jsr gd_xmess	; output floppy message
+	jsr setinfo	; set file information data
+	jsr gd_xclose	; close file
+	lda #$03		; switch on mouse pointer
+	sta sprite
+	sec		; set Leave flag
+	rts		; leave loader
+
+; ------------------------------------ 
+; ------------------------------------ Service Routines
+; ------------------------------------ 
+
+; ------------------------------------ store color ram to buffer
+
+getcram	lda #<(cbuf)
+	ldx #>(cbuf)
+	sta dst
+	stx dst+1
+	ldy #0
+	ldx #4
+gcl	jsr basin
+	sta (dst),y
+	iny
+	bne gcl
+	inc dst+1
+	dex
+	bne gcl
+	rts
+
+; ------------------------------------ skip bytes
+
+dumy	jsr basin
+	dey
+	bne dumy
+	rts
+
+; ------------------------------------ set vector to start of 4Bit area
+
+setdst0	lda #<sy_4bit
+	ldy #>sy_4bit
+	sta dst0
+	sty dst0+1
+	rts
+
+; ------------------------------------ read one byte from floppy
+
+onebyte	jsr basin
+	ldx status
+	rts
+
+; ------------------------------------ read error handler
+
+error	jsr gd_xclose	; close file
+	jsr sk10		; texts
+	clc		; set Don't Leave flag
+	rts		; end of loader (requester remains open)
+
+; ------------------------------------ Text Output Handler
+
+messout	ldx #<message
+	ldy #>message
+	jmp gd_xtxout2
+
+; --- select texts for output
+
+tcopy	ldy #0
+tc0	lda txt,x
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+
+; --- gauge
+
+action	dec adcnt
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts
+
+; --- clear gauge
+
+clrmess	ldx #20
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0
+	ldx #7
+	sty offy
+	stx offx
+	rts
+
+; --- gauge characters
+
+filltab	!by 160,93,103,127,126,124,105,109
+
+; --- texts
+
+txt	!scr " VRams@"
+	!scr " BMap @"
+	!scr " CRam @"
+	!scr " Col0 @"
+
+; --- text output buffer
+
+message	!fill 11,32
+mess	!fill 21,32
+	!by 0
+
+; ------------------------------------ c64 colors
+
+dnib	!by $00,$ff,$44,$cc,$55,$aa,$11,$dd
+	!by $66,$22,$99,$33,$77,$ee,$88,$bb
+
+; ------------------------------------ Image Information Handler
+
+getname	ldx #0
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+; --- set file information
+
+getdatac	ldx #4
+	!by $2c
+getdatag	ldx #9
+	ldy #4
+sinfo0	lda dtextc,x
+	sta datatype,y
+	dex
+	dey
+	bpl sinfo0
+	rts
+
+setinfo	jsr getdatac
+	jsr setname
+	jsr setloader
+	jsr setmode
+	jmp setdata
+
+setname	lda #0
+	ldx #<ls_picname
+	ldy #>ls_picname
+	bne si3
+setloader	lda #17
+	ldx #<ls_iloader
+	ldy #>ls_iloader
+	bne si3
+setmode	lda #25
+	ldx #<ls_imode
+	ldy #>ls_imode
+	bne si3
+setdata	lda #33
+	ldx #<ls_idrive
+	ldy #>ls_idrive
+si3	stx dst0
+	sty dst0+1
+	tax
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (dst0),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!fill 16,32
+	!by 0
+	!scr "FLIP   @"
+modetx	!scr "160x200@"
+datatype	!scr "Color@"
+ttext	!scr "Text   "
+htext	!scr "320x200"
+mtext	!scr "160x200"
+dtextc	!scr "Color"
+dtextg	!scr "Grey "
+
+; ------------------------------------ 
+
+modend	!eof
