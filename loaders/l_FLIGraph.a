@@ -1,5 +1,5 @@
 
-	!src "godotlib.lib"
+	!src "..\godotlib.lib"
 	*= $c000
 	!ct pet
 ;	!sl "labels.txt"
@@ -11,6 +11,7 @@
 ;
 ;    1.00, 21.11.99, bugfixes
 ;    1.01, 03.03.18, process list of background colors
+;    1.02, 01.06.18, added reading of compressed images
 ;
 ; ------------------------------------------------------------ 
 
@@ -22,57 +23,92 @@
 	adcnt		= $33
 	dst0		= $35	; /$36
 	dst		= $37	; /$38
-	src		= dst
 	byte		= $39
 	cntwert		= $3a
 	vrcnt		= $3b
 	bckcnt		= $3c
 	pcnt		= $3d
 	data		= $3e
+	fstart		= $40	; /$41
+	merkx		= $42
+	merky		= $43
+	undotype		= $44
+	read		= $45	; /$46
+	src		= $47	; /$48
+	pack		= $49
+
 	offx		= ls_adrmisc
 	offy		= offx+1
 
 	bcbuf		= sy_bigbuffer
 	cbuf		= $ca00
-	sprite		= $d015
+	bkstart		= $2b00	; ($5b00 - $4000 + $1000)
+	memstart		= $2c00
+	vramstart		= $3000 
+	bmapstart		= $5000 
 
 ; ----------------------------------------- Header
 
 	jmp start
 	!by $80
-	!by $00,$00
+	!wo 0
 	!wo modend
-	!by $00,$00
+	!wo 0
 	!tx "FLI by Blackmail"
-	!tx "1.01"
-	!tx "03.03.18"
+	!tx "1.02"
+	!tx "01.06.18"
 	!tx "A.Dettke/W.Kling"
 
 ; ----------------------------------------- 
 
 jerror	jmp error
+jnoflig	ldx #81
+	jmp noflig
 
 ; ----------------------------------------- Main
 
-start	ldx #2
-	stx cntwert
-	dex
-	stx adcnt
+start	ldx #<fromiec	; set default read vector
+	ldy #>fromiec
+	stx read
+	sty read+1
 	ldx sc_vekt20
 	ldy sc_vekt20+1
 	stx dst0
 	sty dst0+1
 stt2	jsr getname	; save filename
 
-	jsr gd_xopen	; open file
-	jsr onebyte
-	bne jerror
-	jsr onebyte	; skip start address
-	bne jerror
-	jsr gd_clrms
-; ------------------------------------------------------------- 
+; ------------------------------------ get picture data
 
-	jsr tcopy		; .x=0
+	jsr check4reu	; REU angeschlossen?
+	and #$40		; isolate Overflow bit (%01000000)
+	sta hasreu	; Flag setzen
+	jsr gd_xopen	; open file
+	jsr gd_clrms	; initialize gauge output
+	jsr onebyte	; read start address:
+	bne jerror
+	sta fstart
+	tax		; if $00: unpacked ($3b00) ?
+	beq +
+	cpx #$f0		; if $f0: packed   ($38f0) ?
+	bne jnoflig
++	jsr onebyte
+	bne jerror
+	sta fstart+1
+	and #2
+	sta ftype
+	sta passes	; init pass flag
+	bne +		; if bit=1: unpacked!
+	jsr readpack	; if 0: init reading of packed file 
+
+; ------------------------------------ Retrieve Image File
+
++	lda #2
+	sta cntwert
+	ldx #0
+	jsr tcopy		; set screen output for text 0
+	iny
+	sty adcnt
+
 	jsr getbckcol	; get background colors
 
 ; ------------------------------------------------------------- 
@@ -80,7 +116,10 @@ stt2	jsr getname	; save filename
 	lda #7
 	sta cntwert
 	ldx #18
-	jsr tcopy
+	jsr tcopy		; set screen output for text 1
+	iny
+	sty adcnt
+
 	jsr getcram	; get color ram
 
 ; ------------------------------------------------------------- 
@@ -88,8 +127,16 @@ stt2	jsr getname	; save filename
 	lda #50
 	sta cntwert
 	ldx #9
-	jsr tcopy
-	jsr setdst0
+	jsr tcopy		; set screen output for text 2
+	iny
+	sty adcnt
+
+	lda passes
+	beq +
+	jsr setreu
+	lda #>vramstart
+	sta rm_werte+3
++	jsr setdst0
 	lda #8		; get 8 video rams
 	sta vrcnt		; and spread them over one rasterline
 vloop	lda dst0		; after the other (one rasterline for each vram)
@@ -97,7 +144,7 @@ vloop	lda dst0		; after the other (one rasterline for each vram)
 	sta dst
 	sty dst+1
 vloop0	jsr action
-	jsr basin
+	jsr readbyte	; get 1 byte
 	ldy #3
 vloop1	sta (dst),y
 	dey
@@ -109,8 +156,9 @@ vloop1	sta (dst),y
 	bcc vskip0
 	inc dst+1
 vskip0	lda dst+1
-	cmp #$bd
+	cmp #>sy_bigbuffer
 	bne vloop0
+
 	ldy #24
 	jsr dumy
 	lda dst0
@@ -123,12 +171,17 @@ vskip0	lda dst+1
 ; ------------------------------------------------------------- 
 
 	ldx #27
-	jsr tcopy
-	lda #1
-	sta adcnt
+	jsr tcopy		; set screen output for text 3
+	iny
+	sty adcnt
 
-	jsr setdst0
-bloop0	jsr basin		; get bitmap
+	lda passes
+	beq +
+	jsr setreu
+	lda #>bmapstart
+	sta rm_werte+3
++	jsr setdst0
+bloop0	jsr readbyte	; get pixel byte
 	sta byte
 	jsr action
 	ldy #0
@@ -142,6 +195,7 @@ bloop1	lda #0
 	beq drei
 	cmp #1
 	beq eins
+
 	lda (dst0),y
 	and #$0f
 	ora #$20
@@ -159,17 +213,20 @@ drei	lda #$30
 	sta (dst0),y
 	bne next
 null	sta (dst0),y
+
 next	iny
 	cpy #4
 	bne bloop1
+
 	lda dst0
 	clc
 	adc #4
 	sta dst0
 	bcc bskip0
 	inc dst0+1
+
 bskip0	lda dst0+1
-	cmp #$bd
+	cmp #>sy_bigbuffer
 	bne bloop0
 	ldy #192
 	jsr dumy
@@ -178,13 +235,14 @@ bskip0	lda dst0+1
 
 	lda #7
 	sta cntwert
-	sta adcnt
-	ldx #18
+	ldx #18		; set screen output for text 4
 	jsr tcopy
+	iny
+	sty adcnt
 
 	jsr setdst0
-	lda #<(cbuf)	; process color ram
-	ldx #>(cbuf)
+	lda #<cbuf	; source address is CBUF
+	ldx #>cbuf
 	sta src
 	stx src+1
 cloop0	ldy #0
@@ -196,6 +254,7 @@ cskip00	and #$0f
 	ora #$30
 	sta byte
 	jsr action
+
 	ldy #31
 cloop1	lda (dst0),y
 	cmp #$30
@@ -204,26 +263,26 @@ cloop1	lda (dst0),y
 	sta (dst0),y
 cskip0	dey
 	bpl cloop1
+
 	lda dst0
 	clc
 	adc #32
 	sta dst0
 	bcc cskip1
 	inc dst0+1
+
 cskip1	lda dst0+1
-	cmp #$bd
+	cmp #>sy_bigbuffer
 	bne cloop0
-	ldy #24
-	jsr dumy
 
 ; ------------------------------------------------------------- 
 
-	iny		; .y=1
-	sty adcnt
 	lda #50
 	sta cntwert
-	ldx #36
+	ldx #36		; set screen output for text 5
 	jsr tcopy
+	iny
+	sty adcnt
 
 	jsr setdst0
 	sta pcnt		; .a=0; count rasterlines
@@ -292,24 +351,31 @@ nskip0	lda byte
 	cmp #200		; 200 rasterlines?
 	bne n0loop
 
-; ------------------------------------------------------------- 
+; ------------------------------------ 
 
-sk10	jsr gd_xmess	; end of processing
-	jsr setinfo
-	jsr gd_xclose
+	jsr setinfo	; set file information data
+
+sk10	jsr gd_xmess	; output floppy message
+sk11	jsr gd_xclose	; close file
+	jsr initreu	; reset reu record
 	jsr gd_spron
 	sec
 	rts
 
 ; ----------------------------------------- Retrieve Chunks
 
-getcram	lda #<(cbuf)	; read color ram bytes from disk
+getcram	lda passes
+	beq +
+	jsr setreu
+	lda #>memstart
+	sta rm_werte+3
++	lda #<(cbuf)	; read color ram bytes from disk
 	ldx #>(cbuf)
 	sta dst
 	stx dst+1
 	ldy #0
 	ldx #4
-gcl	jsr basin
+gcl	jsr readbyte
 	sta (dst),y
 	jsr action
 	iny
@@ -321,13 +387,18 @@ gcl	jsr basin
 
 ; ------------------------------------------------------------- 
 
-getbckcol	lda #<(bcbuf)	; read 256 background color bytes from disk
-	ldx #>(bcbuf)
+getbckcol	lda passes
+	beq +
+	jsr setreu
+	lda #>bkstart
+	sta rm_werte+3
++	lda #<bcbuf	; read 256 background color bytes from disk
+	ldx #>bcbuf
 	sta dst
 	stx dst+1
 	ldy #0
 	sty byte
-gbc	jsr basin
+gbc	jsr readbyte
 	sta (dst),y
 	ora byte
 	sta byte
@@ -337,9 +408,149 @@ gbc	jsr basin
 	lda byte
 	rts
 
-; ----------------------------------------- Skip Chunk
+; ------------------------------------ read packed file
 
-dumy	jsr basin
+jsuberr	jmp suberror
+
+readpack	jsr onebyte
+	bne jsuberr
+	sta pack		; get pack indicator
+
+	jsr onebyte	; get end of data address (in src)
+	bne jsuberr
+	sta src
+	jsr onebyte
+	bne jsuberr
+	clc
+	adc #$20		; to GoDot
+	sta src+1
+
+	jsr onebyte	; get end of target address (in dst)
+	bne jsuberr
+	sta dst
+	cmp #$3f		; is $7f3f? (mandatory!)
+	bne notflip
+	jsr onebyte
+	bne jsuberr
+	cmp #$7f
+	bne notflip
+	clc
+	adc #$20		; to GoDot
+	sta dst+1
+
+	bit hasreu
+	bvc noreu	
+
+	lda #200		; initialize adcounter
+	sta cntwert
+	stx fstart	; (.x=0) target address: $5900
+	lda #$59
+	sta fstart+1
+
+	ldy #11		; skip padding bytes ("align" to $5900)
+	jsr dumy
+	ldx #54
+	jsr tcopy		; (.y=0)
+	iny
+	sty adcnt
+
+-	ldy #0		; reset .y
+	jsr onebyte	; retrieve packed file
+	sta (fstart),y
+	cpx #64
+	beq +
+	cpx #0
+	bne jsuberr
+	jsr action	; (.y gets garbled here)
+	inc fstart
+	bne -
+	inc fstart+1
+	bne -
+
++	lda #110		; initialize adcounter
+	sta cntwert
+	ldx #63
+	jsr tcopy		; set screen output for text 0
+	iny
+	sty adcnt
+	jsr deflate	; decompress file to $5900 (End: $9f3f)
+
+	lda #9		; GetUndo (save to Undo)
+	sta undotype
+	jsr undo4bit
+
+	ldx #<frommem	; set proper read vector
+	ldy #>frommem
+	stx read
+	sty read+1
+	inc passes	; set passes to 1
+	rts
+
+noreu	ldx #114
+	!by $2c
+notflip	ldx #81
+	pla
+	pla
+	jmp noflig
+
+; ------------------------------------------------ Decompress Image
+
+deflate	ldy #0
+	lda (src),y	; get byte
+	cmp pack		; is pack indicator?
+	beq unpack	; yes, treat
+	sta (dst),y	; no, write to target
+	jsr zminus1	; proceed
+--	jsr qminus1
+	jsr action
+	lda dst+1		; at end?
+	cmp #$5a
+	bne deflate	; no, next byte
+	rts
+
+unpack	jsr qminus1	; get counter to .x
+	lda (src),y
+	sta merkx
+	jsr qminus1	; get byte
+	lda (src),y
+	sta byte
+-	jsr action
+	lda byte
+	ldy #0
+	sta (dst),y	; write .x times
+	jsr zminus1
+	dec merkx
+	bne -
+	beq --
+
+; ------------------------------------------------ Counters
+
+qminus1	lda src
+	bne +
+	dec src+1
++	dec src
+	rts
+
+zminus1	lda dst
+	bne +
+	dec dst+1
++	dec dst
+	rts
+
+; -------------------------------------- Check for REU
+
+check4reu	lda ls_sysdrive+6	; Sysdrive ist RAM?
+	and #15
+	tax
+	lda banks,x
+	sta bank		; dann hier positiver Wert
+	lda rm_ramvec	; Device eingebunden?
+	cmp #$4c		; equal, wenn ja
+	rts
+
+; ------------------------------------ Skip Chunk
+
+dumy	jsr readbyte
 	dey
 	bne dumy
 	rts
@@ -352,32 +563,133 @@ setdst0	lda #<sy_4bit
 	sty dst0+1
 	rts
 
+; ------------------------------------ read one byte
+
+readbyte	jmp (read)
+
+fromiec	jmp basin		; read from disk (unpacked)
+
+frommem	jmp readreu	; read from memory
+
 ; ----------------------------------------- 
 
 onebyte	jsr basin
 	ldx status
 	rts
 
-; ----------------------------------------- 
+; ------------------------------------ read error handler
 
-error	jsr gd_xclose
-	jsr sk10
+noflig	jsr setmess	; provide text (index in .x)
+	jsr gd_clrms	; set output parameters
+	jsr messout	; output text
+	jsr sk11		; close file
 	clc
 	rts
 
-; ----------------------------------------- Message Handler
+suberror	pla
+	pla
+error	jsr sk10		; texts
+	clc
+	rts
 
-messout	ldx #<(message)
-	ldy #>(message)
+; ---------------------------------------------------------------------
+; -------------------------------------------------------------- Undo
+; ---------------------------------------------------------------------
+
+; -------------------------------------- Install Undo Handler
+; Aufruf: lda #8 - sta undotype - jsr undo (DoUndo)
+;   bzw.: lda #9 - sta undotype - jsr undo (GetUndo)
+
+undo	lda #<getundo	; eigentliche Routine verschieben
+	ldx #>getundo	; (weil das Modul ausgeblendet wird)
+	sta ls_vekta8
+	stx ls_vekta8+1
+	ldy #setreu-getundo
+sloop	lda (ls_vekta8),y
+	sta sy_global,y	; nach GLOBAL
+	dey
+	bpl sloop
+	jmp sy_global	; und dann getundo ausführen:
+
+; -------------------------------------- 
+
+getundo 	jsr gd_swapd	; Ram einblenden
+	ldx #10		; FirstInit
+	jsr rm_ramvec
+
+	ldx #1		; Flag für 4Bit-Undo setzen
+	stx rm_nextentry
+	ldx #$10		; an $1000 in REU: setzen!
+	stx rm_werte+3	; *** Fehler im Device! ***
+	
+perfundo	ldx undotype	; und DoUndo (8) bzw. GetUndo (9)
+	jsr rm_ramvec
+	ldx #1		; forceoff 
+	jmp rm_ramvec
+
+; --------------------------------------- Init REU values
+
+setreu	jsr initreu
+	ldx #1		; read/write 1 byte
+	stx rm_werte+5
+	dex
+	lda #byte		; set C64 address: byte ($39)
+	sta rm_werte
+	stx rm_werte+1
+	lda #$10		; set offset in bank ($1000)
+	sta rm_werte+3	; (buf+1)
+	rts		; $39, $00, $00, $10, 0, 1, 0
+
+; ----------------------------------------- Undo 
+; Undo holen    : lda #8 - sta undotype - jsr undo4bit
+; Undo schreiben: lda #9 - sta undotype - jsr undo4bit
+
+undo4bit	jsr initreu	; Init REU
+	jsr undo		; move: $4000,$001000,32000
+	jsr gd_sproff
+
+; ---------------------------------------- Init rm_werte
+
+initreu	ldx #6
+	lda #0		; RM_WERTE (am Ende): 
+sl0	sta rm_werte,x	; $00, $c0, $00, $00, 0, 0, 0
+	dex		; - C64 - | -  REU   - | Anzahl 
+	bpl sl0
+	lda #$c0
+	sta rm_werte+1
+	rts
+
+; --------------------------------------- Read from REU
+
+readreu	sty merky
+	stx merkx
+	lda #$91		; fetch
+	jsr gd_reu
+	inc rm_werte+2
+	bne +
+	inc rm_werte+3
++	ldy merky
+	ldx merkx
+	lda byte
+	rts
+
+; ------------------------------------ Text Output Handler
+
+messout	ldx #<message
+	ldy #>message
 	jmp gd_xtxout2
 
-tcopy	ldy #0
-tc0	lda txt,x
+tcopy	jsr setmess
 	beq clrmess
+
+setmess	ldy #0
+-	lda txt,x
+	beq +
 	sta message,y
 	inx
 	iny
-	bne tc0
+	bne -
++	rts
 
 action	dec adcnt
 	bne ld4
@@ -387,7 +699,7 @@ action	dec adcnt
 	lda cntwert
 	sta adcnt
 	ldy offy
-	cpy #20		; catch Gauge Overflow
+	cpy #23		; catch Gauge Overflow
 	bne act0
 	jsr clrmess
 act0	ldx offx
@@ -404,7 +716,7 @@ ld41	lda stoa
 	ldx stox
 ld4	rts
 
-clrmess	ldx #20
+clrmess	ldx #23
 	lda #32
 cl0	sta mess,x
 	dex
@@ -415,23 +727,37 @@ cl0	sta mess,x
 	stx offx
 	rts
 
-; ----------------------------------------- Data
-
-dnib	!by $00,$ff,$44,$cc,$55,$aa,$11,$dd
-	!by $66,$22,$99,$33,$77,$ee,$88,$bb
-
-
 filltab	!by 160,93,103,127,126,124,105,109
 
 txt	!scr " Backgr @"	; 0
 	!scr " VRams  @"	; 9
 	!scr " CRams  @"	; 18
 	!scr " Bitmap @"	; 27
-	!scr " Convert@"	; 36
+	!scr " Convrt @"	; 36
+	!scr " Col0   @"	; 45
+	!scr " Read   @"	; 54
+	!scr " Expand @"	; 63
+	!scr " Move   @"	; 72
+	!scr " Most likely no FLIGraph image. @"; 81
+	!scr "   Packed images need an REU.@"	; 114
 
-message	!scr " Bitmap    "
-mess	!fi 21,32
+
+message	!fill 8,32
+mess	!fill 24,32
 	!by 0
+
+; ----------------------------------------- Data
+
+ftype	!by 0
+passes	!by 0
+hasreu	!by 0
+bank	!by $ff
+banks	!by $ff,$ff,0,0,3,7,$ff,1,0
+
+; ------------------------------------ c64 colors
+
+dnib	!by $00,$ff,$44,$cc,$55,$aa,$11,$dd
+	!by $66,$22,$99,$33,$77,$ee,$88,$bb
 
 ; ------------------------------------------------------------- 
 
@@ -462,20 +788,20 @@ setinfo	jsr getdatac
 	jmp setdata
 
 setname	lda #0
-	ldx #<(ls_picname)
-	ldy #>(ls_picname)
+	ldx #<ls_picname
+	ldy #>ls_picname
 	bne si3
 setloader	lda #17
-	ldx #<(ls_iloader)
-	ldy #>(ls_iloader)
+	ldx #<ls_iloader
+	ldy #>ls_iloader
 	bne si3
 setmode	lda #25
-	ldx #<(ls_imode)
-	ldy #>(ls_imode)
+	ldx #<ls_imode
+	ldy #>ls_imode
 	bne si3
 setdata	lda #33
-	ldx #<(ls_idrive)
-	ldy #>(ls_idrive)
+	ldx #<ls_idrive
+	ldy #>ls_idrive
 si3	stx dst0
 	sty dst0+1
 	tax
@@ -493,11 +819,8 @@ nbuf	!fi 16,32
 	!scr "FLIGrph@"
 modetx	!scr "160x200@"
 datatype	!scr "Color@"
-ttext	!scr "Text   "
-htext	!scr "Hires  "
 mtext	!scr "160x200"
 dtextc	!scr "Color"
-dtextg	!scr "Grey "
 
 ; ----------------------------------------- 
 
