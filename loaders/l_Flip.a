@@ -11,24 +11,33 @@
 ;  Loader for images of FLIP (FLI-Painter)
 ;
 ;  0.99, 03.05.93, pre-release (only unpacked images)
+;  1.00, 31.05.18, now reading packed FLIPs as well
 ;
 ; --------------------------------------
 
-	dst0		= $35
-	dst		= $37
-	src		= dst
+	adcnt		= $30
+	read		= $31	; /$32
+	src		= $33	; /$34
+	dst0		= $35	; /$36
+	dst		= $37	; /$38
 	byte		= $39
 	cntwert		= $3a
 	vrcnt		= $3b
 	pack		= $3c
 	pcnt		= $3d
 	data		= $3e
+	fstart		= $40	; /$41
+	merkx		= $42
+	merky		= $43
+	undotype		= $44
 
 	offx		= ls_adrmisc
 	offy		= offx+1
-	adcnt		= $ff
 
 	cbuf		= $ca00
+	memstart		= $2c00	; ($5c00 - $4000 + $1000)
+	vramstart		= $3000 
+	bmapstart		= $5000 
 	sprite		= $d015
 	basin		= $ffcf
 
@@ -39,54 +48,85 @@
 	!wo 0
 	!wo modend
 	!wo 0
-	!tx "FLIP raw data   "
-	!tx "0.99"
-	!tx "03.05.93"
+	!tx "FLIPainter FLI  "
+	!tx "1.00"
+	!tx "31.05.18"
 	!tx "W.Kling/A.Dettke"
 
 ; ------------------------------------ 
 
 jerror	jmp error
+jnoflip	ldx #63
+	jmp noflip
 
 ; ------------------------------------ Main
 
 start	lda #50		; set activity counter value
 	sta cntwert
-	lda #1		; start counter at value 1
-	sta adcnt
 
-	ldx $20		; start of graphics data ($4000)
-	ldy $21
+	ldx #<fromiec	; set default read vector
+	ldy #>fromiec
+	stx read
+	sty read+1
+	ldx sc_vekt20	; get start of graphics data ($4000)
+	ldy sc_vekt20+1	; (set by system)
 	stx dst0		; to work vector
 	sty dst0+1
 	jsr getname	; save filename for later info output
 
 ; ------------------------------------ get picture data
 
+	jsr check4reu	; REU angeschlossen?
+	and #$40		; isolate Overflow bit (%01000000)
+	sta hasreu	; Flag setzen
 	jsr gd_xopen	; open file
-	jsr onebyte	; read start address (and ignore)
-	bne jerror
-	jsr onebyte
-	bne jerror
 	jsr gd_clrms	; initialize gauge output
-	jsr tcopy		; set screen output text
+	jsr onebyte	; read start address:
+	bne jerror
+	sta fstart
+	tax		; if $00: unpacked ($3c00) ?
+	beq +
+	cpx #$f0		; if $f0: packed   ($38f0) ?
+	bne jnoflip
++	jsr onebyte
+	bne jerror
+	sta fstart+1
+	and #4
+	sta ftype
+	bne +		; if 1: unpacked!
+	sta passes	; init pass counter
+	jsr readpack	; if 0: init packed file reading
 
-	jsr getcram	; get color ram ($d800 area) to buffer CBUF
+; ------------------------------------ Retrieve Image File
 
-	jsr setdst0	; get 8 video rams to 4Bit area
-	lda #8
++	ldx #0
+	jsr tcopy		; set screen output for text 0
+	iny
+	sty adcnt
+
+	jsr getcram	; get *color ram* ($d800 area) to buffer CBUF
+
+; ------------------------------------ 
+
+	lda passes
+	beq +
+	jsr setreu
+	lda #>vramstart
+	sta rm_werte+3
++	jsr setdst0	; get *8 video rams* to 4Bit area
+	lda #8		; each videoram is one rasterline
 	sta vrcnt
 vloop	lda dst0
 	ldy dst0+1
 	sta dst
 	sty dst+1
 vloop0	jsr action	; activity display (increment gauge)
-	jsr basin
-	ldy #3
+	jsr readbyte	; get 1 byte
+	ldy #3		; spread to 4 bytes (4Bit!)
 vloop1	sta (dst),y
 	dey
 	bpl vloop1
-	lda dst
+	lda dst		; next tile
 	clc
 	adc #32
 	sta dst
@@ -98,57 +138,66 @@ vskip0	lda dst+1
 
 	ldy #24		; skip dummy bytes
 	jsr dumy
-	lda dst0		; target next row of tile
+	lda dst0		; target next rasterline of tile
 	clc
 	adc #4
 	sta dst0
 	dec vrcnt
 	bne vloop
 
-	ldx #7		; initialize new text and counters
+; ------------------------------------ 
+
+	ldx #9		; initialize new text and counters
 	jsr tcopy
 	lda #50
 	sta cntwert
-	sta adcnt
+	iny
+	sty adcnt
 
-	jsr setdst0	; get bitmap to 4Bit area
-bloop0	jsr basin
+	lda passes
+	beq +
+	jsr setreu
+	lda #>bmapstart
+	sta rm_werte+3
++	jsr setdst0	; get *bitmap* to 4Bit area
+bloop0	jsr readbyte	; get pixel byte
 	sta byte
 	jsr action	; (gauge again)
 	ldy #0
 bloop1	lda #0		; convert pixels to 4Bit
-	asl byte
+	asl byte		; (isolate 2 pixels)
 	rol
 	asl byte
 	rol
-	beq null		; null (%00)?
-	cmp #3		; three (%11)?
+	beq null		; are they: NULL (%00)?
+	cmp #3		; THREE (%11)?
 	beq drei
-	cmp #1		; one (%01)?
+	cmp #1		; ONE (%01)?
 	beq eins
-	lda (dst0),y	; no, two (%10), assign
+
+	lda (dst0),y	; or TWO (%10), assign
 	and #$0f
-	ora #$20
+	ora #$20		; $20: color two
 	sta (dst0),y
 	bne next
-eins	lda (dst0),y	; one: assign
+eins	lda (dst0),y	; ONE: assign
 	lsr
 	lsr
 	lsr
 	lsr
-	ora #$10
+	ora #$10		; $10: color one
 	sta (dst0),y
 	bne next
-drei	lda #$30		; three: assign
+drei	lda #$30		; $30: color THREE: assign
 	sta (dst0),y
 	bne next
-null	sta (dst0),y	; null: assign
+null	sta (dst0),y	; $00: color NULL: assign
 
 next	iny		; through all pixels of a byte
 	cpy #4
 	bne bloop1
 
-	lda dst0		; advance to next row of 4Bit tile
+	lda dst0		; advance to next rasterline of 4Bit tile
 	clc
 	adc #4
 	sta dst0
@@ -165,35 +214,36 @@ bskip0	lda dst0+1	; end of 4Bit area?
 
 	lda #7		; initialize new text and counters
 	sta cntwert
-	sta adcnt
-	ldx #14
+	ldx #18
 	jsr tcopy
+	iny
+	sty adcnt
 
 	jsr setdst0	; assign color from color ram:
-	lda #<(cbuf)	; source address is CBUF
-	ldx #>(cbuf)
+	lda #<cbuf	; source address is CBUF
+	ldx #>cbuf
 	sta src
 	stx src+1
 cloop0	ldy #0
-	lda (src),y
+	lda (src),y	; get color ram byte
 	inc src
 	bne cskip00
 	inc src+1
-cskip00	and #$0f		; be sure to have correct value (lower nibble)
+cskip00	and #$0f		; be sure to have correct color value (lower nibble)
 	ora #$30
 	sta byte
 	jsr action	; (gauge again)
 
-	ldy #31		; process one tile
+	ldy #31		; process *one* tile
 cloop1	lda (dst0),y	; get 4Bit value
-	cmp #$30		; was three?
+	cmp #$30		; was THREE?
 	bne cskip0	; no, skip
-	lda byte		; yes, store new byte
+	lda byte		; yes, store color ram byte
 	sta (dst0),y
 cskip0	dey
 	bpl cloop1
 
-	lda dst0		; target next tile
+	lda dst0		; next tile
 	clc
 	adc #32
 	sta dst0
@@ -203,31 +253,27 @@ cskip0	dey
 cskip1	lda dst0+1	; until end of 4Bit area
 	cmp #>sy_bigbuffer
 	bne cloop0
-	ldy #24		; skip dummy bytes
-	jsr dumy
 
 ; ------------------------------------ make colors
 
 	lda #200		; initialize text and counters
 	sta cntwert
-	sta adcnt
-	ldx #21
+	ldx #27
 	jsr tcopy
+	iny
+	sty adcnt
 
 	jsr setdst0
 
-	lda #0		; convert processed bytes to colors:
-	and #$0f		; first: background color 
-	tax		; (is always black but could be different)
-	lda dnib,x
-	sta byte
+	ldx #0		; convert processed bytes to colors:
+	stx byte		; first: background color (black)
 nloop0	jsr action
 	ldy #0
-	lda (dst0),y	; $00 is background color
-	beq nskip0
+	lda (dst0),y
+	beq nskip0	; ($00 is background color)
 	and #$0f		; convert the other
 	tax
-	lda dnib,x
+	lda dnib,x	; assign GoDot colors
 	!by $2c
 nskip0	lda byte
 	sta (dst0),y	; write back
@@ -238,11 +284,14 @@ nskip1	lda dst0+1
 	cmp #>sy_bigbuffer	; until end of 4Bit area
 	bne nloop0
 
-sk10	jsr gd_xmess	; output floppy message
+; ------------------------------------ 
+
 	jsr setinfo	; set file information data
-	jsr gd_xclose	; close file
-	lda #$03		; switch on mouse pointer
-	sta sprite
+
+sk10	jsr gd_xmess	; output floppy message
+sk11	jsr gd_xclose	; close file
+	jsr initreu	; reset reu record
+	jsr gd_spron	; switch on mouse pointer
 	sec		; set Leave flag
 	rts		; leave loader
 
@@ -252,13 +301,18 @@ sk10	jsr gd_xmess	; output floppy message
 
 ; ------------------------------------ store color ram to buffer
 
-getcram	lda #<(cbuf)
+getcram	lda passes
+	beq +
+	jsr setreu
+	lda #>memstart
+	sta rm_werte+3
++	lda #<(cbuf)
 	ldx #>(cbuf)
 	sta dst
 	stx dst+1
 	ldy #0
 	ldx #4
-gcl	jsr basin
+gcl	jsr readbyte
 	sta (dst),y
 	iny
 	bne gcl
@@ -267,9 +321,149 @@ gcl	jsr basin
 	bne gcl
 	rts
 
+; ------------------------------------ read packed file
+
+jsuberr	jmp suberror
+
+readpack	jsr onebyte
+	bne jsuberr
+	sta pack		; get pack indicator
+
+	jsr onebyte	; get end of data address (in src)
+	bne jsuberr
+	sta src
+	jsr onebyte
+	bne jsuberr
+	clc
+	adc #$20		; to GoDot
+	sta src+1
+
+	jsr onebyte	; get end of target address (in dst)
+	bne jsuberr
+	sta dst
+	cmp #$3f		; is $7f3f? (mandatory!)
+	bne notflip
+	jsr onebyte
+	bne jsuberr
+	cmp #$7f
+	bne notflip
+	clc
+	adc #$20		; to GoDot
+	sta dst+1
+
+	bit hasreu
+	bvc noreu	
+
+	lda #200		; initialize adcounter
+	sta cntwert
+	stx fstart	; (.x=0) target address: $5900
+	lda #$59
+	sta fstart+1
+
+	ldy #11		; skip padding bytes ("align" to $5900)
+	jsr dumy
+	ldx #36
+	jsr tcopy		; (.y=0)
+	iny
+	sty adcnt
+
+-	ldy #0		; reset .y
+	jsr onebyte	; retrieve packed file
+	sta (fstart),y
+	cpx #64
+	beq +
+	cpx #0
+	bne jsuberr
+	jsr action	; (.y gets garbled here)
+	inc fstart
+	bne -
+	inc fstart+1
+	bne -
+
++	lda #110		; initialize adcounter
+	sta cntwert
+	ldx #54
+	jsr tcopy		; set screen output for text 0
+	iny
+	sty adcnt
+	jsr deflate	; decompress file to $5900 (End: $9f3f)
+
+	lda #9		; GetUndo (save to Undo)
+	sta undotype
+	jsr undo4bit
+
+	ldx #<frommem	; set proper read vector
+	ldy #>frommem
+	stx read
+	sty read+1
+	inc passes	; set passes to 1
+	rts
+
+noreu	ldx #93
+	!by $2c
+notflip	ldx #63
+	pla
+	pla
+	jmp noflip
+
+; ------------------------------------------------ Decompress Image
+
+deflate	ldy #0
+	lda (src),y	; get byte
+	cmp pack		; is pack indicator?
+	beq unpack	; yes, treat
+	sta (dst),y	; no, write to target
+	jsr zminus1	; proceed
+--	jsr qminus1
+	jsr action
+	lda dst+1		; at end?
+	cmp #$5a
+	bne deflate	; no, next byte
+	rts
+
+unpack	jsr qminus1	; get counter to .x
+	lda (src),y
+	sta merkx
+	jsr qminus1	; get byte
+	lda (src),y
+	sta byte
+-	jsr action
+	lda byte
+	ldy #0
+	sta (dst),y	; write .x times
+	jsr zminus1
+	dec merkx
+	bne -
+	beq --
+
+; ------------------------------------------------ Counters
+
+qminus1	lda src
+	bne +
+	dec src+1
++	dec src
+	rts
+
+zminus1	lda dst
+	bne +
+	dec dst+1
++	dec dst
+	rts
+
+; -------------------------------------- Check for REU
+
+check4reu	lda ls_sysdrive+6	; Sysdrive ist RAM?
+	and #15
+	tax
+	lda banks,x
+	sta bank		; dann hier positiver Wert
+	lda rm_ramvec	; Device eingebunden?
+	cmp #$4c		; equal, wenn ja
+	rts
+
 ; ------------------------------------ skip bytes
 
-dumy	jsr basin
+dumy	jsr readbyte
 	dey
 	bne dumy
 	rts
@@ -282,6 +476,14 @@ setdst0	lda #<sy_4bit
 	sty dst0+1
 	rts
 
+; ------------------------------------ read one byte
+
+readbyte	jmp (read)
+
+fromiec	jmp basin		; read from disk (unpacked)
+
+frommem	jmp readreu	; read from memory
+
 ; ------------------------------------ read one byte from floppy
 
 onebyte	jsr basin
@@ -290,10 +492,99 @@ onebyte	jsr basin
 
 ; ------------------------------------ read error handler
 
-error	jsr gd_xclose	; close file
-	jsr sk10		; texts
+noflip	jsr setmess	; provide text (index in .x)
+	jsr gd_clrms	; set output parameters
+	jsr messout	; output text
+	jsr sk11		; close file
+	clc
+	rts
+
+suberror	pla
+	pla
+error	jsr sk10		; texts
 	clc		; set Don't Leave flag
 	rts		; end of loader (requester remains open)
+
+; ---------------------------------------------------------------------
+; -------------------------------------------------------------- Undo
+; ---------------------------------------------------------------------
+
+; -------------------------------------- Install Undo Handler
+; Aufruf: lda #8 - sta undotype - jsr undo (DoUndo)
+;   bzw.: lda #9 - sta undotype - jsr undo (GetUndo)
+
+undo	lda #<getundo	; eigentliche Routine verschieben
+	ldx #>getundo	; (weil das Modul ausgeblendet wird)
+	sta ls_vekta8
+	stx ls_vekta8+1
+	ldy #setreu-getundo
+sloop	lda (ls_vekta8),y
+	sta sy_global,y	; nach GLOBAL
+	dey
+	bpl sloop
+	jmp sy_global	; und dann getundo ausführen:
+
+; -------------------------------------- 
+
+getundo 	jsr gd_swapd	; Ram einblenden
+	ldx #10		; FirstInit
+	jsr rm_ramvec
+
+	ldx #1		; Flag für 4Bit-Undo setzen
+	stx rm_nextentry
+	ldx #$10		; an $1000 in REU: setzen!
+	stx rm_werte+3	; *** Fehler im Device! ***
+	
+perfundo	ldx undotype	; und DoUndo (8) bzw. GetUndo (9)
+	jsr rm_ramvec
+	ldx #1		; forceoff 
+	jmp rm_ramvec
+
+; --------------------------------------- Init REU values
+
+setreu	jsr initreu
+	ldx #1		; read/write 1 byte
+	stx rm_werte+5
+	dex
+	lda #byte		; set C64 address: byte ($39)
+	sta rm_werte
+	stx rm_werte+1
+	lda #$10		; set offset in bank ($1000)
+	sta rm_werte+3	; (buf+1)
+	rts		; $39, $00, $00, $10, 0, 1, 0
+
+; ----------------------------------------- Undo 
+; Undo holen    : lda #8 - sta undotype - jsr undo4bit
+; Undo schreiben: lda #9 - sta undotype - jsr undo4bit
+
+undo4bit	jsr initreu	; Init REU
+	jsr undo		; move: $4000,$001000,32000
+	jsr gd_sproff
+
+; ---------------------------------------- Init rm_werte
+
+initreu	ldx #6
+	lda #0		; RM_WERTE (am Ende): 
+sl0	sta rm_werte,x	; $00, $c0, $00, $00, 0, 0, 0
+	dex		; - C64 - | -  REU   - | Anzahl 
+	bpl sl0
+	lda #$c0
+	sta rm_werte+1
+	rts
+
+; --------------------------------------- Read from REU
+
+readreu	sty merky
+	stx merkx
+	lda #$91		; fetch
+	jsr gd_reu
+	inc rm_werte+2
+	bne +
+	inc rm_werte+3
++	ldy merky
+	ldx merkx
+	lda byte
+	rts
 
 ; ------------------------------------ Text Output Handler
 
@@ -303,13 +594,17 @@ messout	ldx #<message
 
 ; --- select texts for output
 
-tcopy	ldy #0
-tc0	lda txt,x
+tcopy	jsr setmess
 	beq clrmess
+
+setmess	ldy #0
+-	lda txt,x
+	beq +
 	sta message,y
 	inx
 	iny
-	bne tc0
+	bne -
++	rts
 
 ; --- gauge
 
@@ -318,7 +613,10 @@ action	dec adcnt
 	lda cntwert
 	sta adcnt
 	ldy offy
-	ldx offx
+	cpy #23
+	bne act0
+	jsr clrmess
+act0	ldx offx
 	lda filltab,x
 	sta mess,y
 	jsr messout
@@ -331,7 +629,7 @@ ld4	rts
 
 ; --- clear gauge
 
-clrmess	ldx #20
+clrmess	ldx #23
 	lda #32
 cl0	sta mess,x
 	dex
@@ -348,16 +646,29 @@ filltab	!by 160,93,103,127,126,124,105,109
 
 ; --- texts
 
-txt	!scr " VRams@"
-	!scr " BMap @"
-	!scr " CRam @"
-	!scr " Col0 @"
+txt	!scr " VRams  @"	; 0
+	!scr " BMap   @"	; 9
+	!scr " CRam   @"	; 18
+	!scr " Col0   @"	; 27
+	!scr " Read   @"	; 36
+	!scr " Expand @"	; 45
+	!scr " Move   @"	; 54
+	!scr "   Most likely no FLIP image.@"	; 63
+	!scr "   Packed images need an REU.@"	; 93
 
 ; --- text output buffer
 
-message	!fill 11,32
-mess	!fill 21,32
+message	!fill 8,32
+mess	!fill 24,32
 	!by 0
+
+; ------------------------------------ data
+
+ftype	!by 0
+passes	!by 0
+hasreu	!by 0
+bank	!by $ff
+banks	!by $ff,$ff,0,0,3,7,$ff,1,0
 
 ; ------------------------------------ c64 colors
 
@@ -426,11 +737,8 @@ nbuf	!fill 16,32
 	!scr "FLIP   @"
 modetx	!scr "160x200@"
 datatype	!scr "Color@"
-ttext	!scr "Text   "
-htext	!scr "320x200"
 mtext	!scr "160x200"
 dtextc	!scr "Color"
-dtextg	!scr "Grey "
 
 ; ------------------------------------ 
 
