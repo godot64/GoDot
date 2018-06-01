@@ -12,6 +12,7 @@
 ;
 ;  0.99, 03.05.93, pre-release (only unpacked images)
 ;  1.00, 31.05.18, now reading packed FLIPs as well
+;  1.01, 01.06.18, minor changes and some bugfixes
 ;
 ; --------------------------------------
 
@@ -29,7 +30,8 @@
 	fstart		= $40	; /$41
 	merkx		= $42
 	merky		= $43
-	undotype		= $44
+	merka		= $44	
+	undotype		= $45
 
 	offx		= ls_adrmisc
 	offy		= offx+1
@@ -49,8 +51,8 @@
 	!wo modend
 	!wo 0
 	!tx "FLIPainter FLI  "
-	!tx "1.00"
-	!tx "31.05.18"
+	!tx "1.01"
+	!tx "01.06.18"
 	!tx "W.Kling/A.Dettke"
 
 ; ------------------------------------ 
@@ -61,10 +63,7 @@ jnoflip	ldx #63
 
 ; ------------------------------------ Main
 
-start	lda #50		; set activity counter value
-	sta cntwert
-
-	ldx #<fromiec	; set default read vector
+start	ldx #<fromiec	; set default read vector
 	ldy #>fromiec
 	stx read
 	sty read+1
@@ -93,20 +92,29 @@ start	lda #50		; set activity counter value
 	sta fstart+1
 	and #4
 	sta ftype
-	bne +		; if 1: unpacked!
-	sta passes	; init pass counter
+	sta passes	; init pass flag
+	bne +		; if bit=1: unpacked!
 	jsr readpack	; if 0: init packed file reading
 
 ; ------------------------------------ Retrieve Image File
 
-+	ldx #0
-	jsr tcopy		; set screen output for text 0
++	lda #7
+	sta cntwert
+	ldx #18		; set screen output for text 1 ("CRams")
+	jsr tcopy
 	iny
 	sty adcnt
 
 	jsr getcram	; get *color ram* ($d800 area) to buffer CBUF
 
 ; ------------------------------------ 
+
+	lda #50
+	sta cntwert
+	ldx #0		; set screen output for text 2 ("VRams")
+	jsr tcopy
+	iny
+	sty adcnt
 
 	lda passes
 	beq +
@@ -147,10 +155,8 @@ vskip0	lda dst+1
 
 ; ------------------------------------ 
 
-	ldx #9		; initialize new text and counters
+	ldx #9		; set screen output for text 3 ("Bitmap")
 	jsr tcopy
-	lda #50
-	sta cntwert
 	iny
 	sty adcnt
 
@@ -214,7 +220,7 @@ bskip0	lda dst0+1	; end of 4Bit area?
 
 	lda #7		; initialize new text and counters
 	sta cntwert
-	ldx #18
+	ldx #18		; set screen output for text 4 ("CRams")
 	jsr tcopy
 	iny
 	sty adcnt
@@ -258,7 +264,7 @@ cskip1	lda dst0+1	; until end of 4Bit area
 
 	lda #200		; initialize text and counters
 	sta cntwert
-	ldx #27
+	ldx #27		; set screen output for text 5 ("Backgr")
 	jsr tcopy
 	iny
 	sty adcnt
@@ -306,18 +312,22 @@ getcram	lda passes
 	jsr setreu
 	lda #>memstart
 	sta rm_werte+3
-+	lda #<(cbuf)
-	ldx #>(cbuf)
++	lda #<cbuf
+	ldx #>cbuf
 	sta dst
 	stx dst+1
 	ldy #0
 	ldx #4
+	stx merka
 gcl	jsr readbyte
 	sta (dst),y
+	sty merky
+	jsr action
+	ldy merky
 	iny
 	bne gcl
 	inc dst+1
-	dex
+	dec merka
 	bne gcl
 	rts
 
@@ -362,7 +372,7 @@ readpack	jsr onebyte
 
 	ldy #11		; skip padding bytes ("align" to $5900)
 	jsr dumy
-	ldx #36
+	ldx #36		; set screen output for text 6 ("Read")
 	jsr tcopy		; (.y=0)
 	iny
 	sty adcnt
@@ -382,8 +392,8 @@ readpack	jsr onebyte
 
 +	lda #110		; initialize adcounter
 	sta cntwert
-	ldx #54
-	jsr tcopy		; set screen output for text 0
+	ldx #54		; set screen output for text 7 ("Move")
+	jsr tcopy
 	iny
 	sty adcnt
 	jsr deflate	; decompress file to $5900 (End: $9f3f)
@@ -399,9 +409,9 @@ readpack	jsr onebyte
 	inc passes	; set passes to 1
 	rts
 
-noreu	ldx #93
+noreu	ldx #93		; text 8 ("Packed images...")
 	!by $2c
-notflip	ldx #63
+notflip	ldx #63		; text 9 ("Most likely...")
 	pla
 	pla
 	jmp noflip
@@ -421,7 +431,7 @@ deflate	ldy #0
 	bne deflate	; no, next byte
 	rts
 
-unpack	jsr qminus1	; get counter to .x
+unpack	jsr qminus1	; get counter to merkx
 	lda (src),y
 	sta merkx
 	jsr qminus1	; get byte
@@ -430,7 +440,7 @@ unpack	jsr qminus1	; get counter to .x
 -	jsr action
 	lda byte
 	ldy #0
-	sta (dst),y	; write .x times
+	sta (dst),y	; write merkx times
 	jsr zminus1
 	dec merkx
 	bne -
@@ -647,9 +657,9 @@ filltab	!by 160,93,103,127,126,124,105,109
 ; --- texts
 
 txt	!scr " VRams  @"	; 0
-	!scr " BMap   @"	; 9
+	!scr " Bitmap @"	; 9
 	!scr " CRam   @"	; 18
-	!scr " Col0   @"	; 27
+	!scr " Backgr @"	; 27
 	!scr " Read   @"	; 36
 	!scr " Expand @"	; 45
 	!scr " Move   @"	; 54
