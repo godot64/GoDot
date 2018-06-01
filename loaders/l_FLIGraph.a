@@ -105,7 +105,7 @@ stt2	jsr getname	; save filename
 +	lda #2
 	sta cntwert
 	ldx #0
-	jsr tcopy		; set screen output for text 0
+	jsr tcopy		; set screen output for text 0 ("Backgr")
 	iny
 	sty adcnt
 
@@ -116,7 +116,7 @@ stt2	jsr getname	; save filename
 	lda #7
 	sta cntwert
 	ldx #18
-	jsr tcopy		; set screen output for text 1
+	jsr tcopy		; set screen output for text 1 ("CRams")
 	iny
 	sty adcnt
 
@@ -127,7 +127,7 @@ stt2	jsr getname	; save filename
 	lda #50
 	sta cntwert
 	ldx #9
-	jsr tcopy		; set screen output for text 2
+	jsr tcopy		; set screen output for text 2 ("VRams")
 	iny
 	sty adcnt
 
@@ -171,7 +171,7 @@ vskip0	lda dst+1
 ; ------------------------------------------------------------- 
 
 	ldx #27
-	jsr tcopy		; set screen output for text 3
+	jsr tcopy		; set screen output for text 3 ("Bitmap")
 	iny
 	sty adcnt
 
@@ -235,7 +235,7 @@ bskip0	lda dst0+1
 
 	lda #7
 	sta cntwert
-	ldx #18		; set screen output for text 4
+	ldx #18		; set screen output for text 4 ("CRams")
 	jsr tcopy
 	iny
 	sty adcnt
@@ -279,7 +279,7 @@ cskip1	lda dst0+1
 
 	lda #50
 	sta cntwert
-	ldx #36		; set screen output for text 5
+	ldx #36		; set screen output for text 5 ("Convrt")
 	jsr tcopy
 	iny
 	sty adcnt
