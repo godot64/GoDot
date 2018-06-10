@@ -7,7 +7,7 @@
 ; ------------------------------------------------------------ 
 ;
 ; mod.DisplayIFLI
-; Module to display an IFLI image (REU required)
+; Module to display the contents of 4Bit as an IFLI image (REU required)
 ;
 ;   1.00, 17.08.03, first release
 ;   1.01, 09.06.18, changed: convert 4bit to IFLI and then display
@@ -45,7 +45,6 @@
 	swap4k		= swap4096-2
 	bank0		= sy_4bit
 	bank1		= $c000
-	systemirq		= $ea81
 
 	hist		= sy_global
 	hist0		= hist+16
@@ -919,15 +918,7 @@ cols64	!by $00,$66,$99,$bb		; conversion table GoDot<->C64
 	!by $ee,$aa,$55,$ff
 	!by $33,$77,$dd,$11
 
-fixb0	!by $d0,$78,$40,$7e
-fixb1	!by $d0,$f8,$40,$fe
-fixs0	!by $c0,$5c,$c0,$5f
-fixs1	!by $c0,$dc,$c0,$df
-rows	!by 0
-screens	!by 0
-linecnt	!by 0
 storems	!by 0
-comp0	!by 0
 col0	!by 0,0,0,0,0
 nr0	!by 0,0,0,0
 mask	!by 0,0,0,0
