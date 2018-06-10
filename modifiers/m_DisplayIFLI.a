@@ -11,6 +11,7 @@
 ;
 ;   1.00, 17.08.03, first release
 ;   1.01, 09.06.18, changed: convert 4bit to IFLI and then display
+;   1.02, 10.06.18, added: visible reaction when no REU, set re-render flag
 ;
 ; ------------------------------------------------------------ 
 
@@ -85,12 +86,12 @@
 header 	jmp start
 	!by $20
 	!by 0
-	!by 0
+	!by 1		; dirty
 	!wo modend
 	!wo 0
 	!tx "IFLI Display    "
-	!tx "1.01"
-	!tx "09.06.18"
+	!tx "1.02"
+	!tx "10.06.18"
 	!tx "$AD/A.Gonzales  "
 
 ; --------------------------------------- Main
@@ -102,7 +103,8 @@ start	lda gd_modswitch
 	jsr savec64
 	jsr writeifli
 	jsr clearad
-	jsr getjpz
+	jsr getjpz	; display ifli, doesn't return if successful
+
 +	lda storems
 	sta gd_modswitch
 	clc
@@ -768,24 +770,35 @@ check4reu	lda ls_ramdrive	; welcher Ramdrive?
 	and #15
 	ldx #6
 	cmp #8		; 1700
-	beq +		; too small
+	beq graphon	; too small
 	cmp #4		; 1764
 	bne st2
 	cpy #2		; MODs in bank 2?
-	bcs +		; too small
+	bcs graphon	; too small
 	ldx #2
 	bne st7
 st2	cmp #5		; 1750
-	bne +
+	bne graphon
 	cpy #6		; MODs in bank 6?
-	bcs +		; too small
+	bcs graphon	; too small
 st7	stx bank
 	stx basic+2
 	lda rm_ramvec	; Device eingebunden?
 	cmp #$4c		; equal, wenn ja
 	rts
 
-+	lda #1
+; ----------------------------------------------------- Blink the Border
+
+graphon	ldy #2		; red
+	lda border	; save border color
+	pha
+	sty border	; set new color (in .y, e.g. "2" for red)
+	ldx #$40
+	jsr gd_dl2	; delay (.x=0)
+	pla
+	sta border	; reset old border color
+	stx sy_tbuffer	; clear key strokes
+stay	clc
 	rts
 
 ; --------------------------------------- Init REU values
@@ -1256,6 +1269,7 @@ fb1	ldx sy_numbers+18	; swap slots 2 - 4
 	jsr resetwerte	; reset REU records
 
 	jsr gd_spron	; mouse pointer on
+	sta gr_redisp	; set re-render flag
 	lda #$58		; unpatch gd_swap4k (CLI)
 	sta $1740
 	sta sy_numbers+122	; unpatch next command (CLI)
