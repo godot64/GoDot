@@ -12,6 +12,7 @@
 ;   1.00, 17.08.03, first release
 ;   1.01, 09.06.18, changed: convert 4bit to IFLI and then display
 ;   1.02, 10.06.18, added: visible reaction when no REU, set re-render flag
+;   1.03, 12.06.18, bugfix: wrong unpatch in fallback routine
 ;
 ; ------------------------------------------------------------ 
 
@@ -90,8 +91,8 @@ header 	jmp start
 	!wo modend
 	!wo 0
 	!tx "IFLI Display    "
-	!tx "1.02"
-	!tx "10.06.18"
+	!tx "1.03"
+	!tx "12.06.18"
 	!tx "$AD/A.Gonzales  "
 
 ; --------------------------------------- Main
@@ -1213,12 +1214,16 @@ time	!by 0,0,0
 
 ; --------------------------------------- Fallback to GoDot (at $0100)
 
-patch2	!by 0,0,0,0	; to C64 $0000, from REU $0000
+patch2
+
+!pseudopc sy_numbers {
+
+patch	!by 0,0,0,0	; to C64 $0000, from REU $0000
 bank2	!by 6		; in bank x (default = bank 6)
 	!by 0,$d0		; up to $d000 
 			; [7]
 swap64	ldx #$90		; to $9000 in C64
-	stx sy_numbers+1
+	stx patch+1
 	jmp swap4096	; [8]
 
 slots	!by $d0,$e0,$f0
@@ -1239,41 +1244,41 @@ fback	sei		; jump in here ($0124)
 	lda #18		; activate character set
 	sta charreg
 	lda #$d0
-	sta sy_numbers+6
+	sta patch+6
 
 	lda #$60		; RTS
-	sta sy_numbers+30
-	jsr sy_numbers+19	; swap $0000 - $cfff
+	sta fb2
+	jsr swapreu	; swap $0000 - $cfff
 	lda #$a9		; LDA
-	sta sy_numbers+30
+	sta fb2
 	lda #$92
 	sta reucom
 
 	lda #$10		; swap 4k-wise
-	sta sy_numbers+6	; [18]
+	sta patch+6	; [18]
 
 	lda #$ea		; patch gd_swap4k (NOP)
 	sta $1740
 	ldx #2
-	stx sy_numbers+18
-fb1	ldx sy_numbers+18	; swap slots 2 - 4
-	lda sy_numbers+15,x	; slots
-	sta sy_numbers+3
+	stx slots+3
+fb1	ldx slots+3	; swap slots 2 - 4
+	lda slots,x	; slots
+	sta patch+3
 	pha
-	jsr sy_numbers+7	; swap64
-	jsr sy_numbers+19	; swapreu
+	jsr swap64
+	jsr swapreu
 	pla
-	jsr sy_numbers+7	; swap64
-	dec sy_numbers+18
+	jsr swap64
+	dec slots+3
 	bpl fb1
 	jsr resetwerte	; reset REU records
 
 	jsr gd_spron	; mouse pointer on
 	sta gr_redisp	; set re-render flag
 	lda #$58		; unpatch gd_swap4k (CLI)
+	sta ptch		; unpatch ptch
 	sta $1740
-	sta sy_numbers+122	; unpatch next command (CLI)
-	cli
+ptch	cli
 	ldx #$e0		; re-exchange ldr and mod
 	jsr swap4k
 	lda sc_maincolor	; set screen color
@@ -1282,7 +1287,9 @@ fb1	ldx sy_numbers+18	; swap slots 2 - 4
 	lda #8		; fix lower case characters
 	jsr bsout
 	jmp into		; finally start GoDot
-			; [31; tot 137]
+			; [34; tot 140]
+}
+
 endofpatch
 
 ; --------------------------------------- 
