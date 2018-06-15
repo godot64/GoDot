@@ -1,5 +1,5 @@
 
-	!src "godotlib.lib"
+	!src "..\godotlib.lib"
 	*= $c000
 
 ; --------------------------------------- 
@@ -10,6 +10,7 @@
 ; 1.00, 07.07.02: first release
 ; 1.01, 05.10.05:
 ; 1.02, 05.06.17: enhanced: graphics redisplay when executed from REU
+; 1.03, 13.06.18: set default direction to "turn right"
 ;
 ; --------------------------------------- 
 
@@ -21,8 +22,8 @@
             !wo (modend)
             !by $00,$00
             !pet "TurnScreen 90 dg"
-            !pet "1.02"
-            !pet "05.06.17"
+            !pet "1.03"
+            !pet "13.06.18"
             !pet "A.Dettke        "
 
 ; --------------------------------------- Equates
@@ -1233,7 +1234,7 @@ noreu 	ldx #<(warnreulst)
 ; --------------------------------------- Variables
 
 exflag	!by 0
-dirflag	!by 1
+dirflag	!by 0
 adjflag	!by 0
 warnflag	!by 0
 emptyflag	!by 0
@@ -1308,7 +1309,7 @@ toptxt	!scr " 0@"
 
 dirgad	!by 11,24,4,3,$ce
 	!wo evdir
-dirtxt	!by 91,91,0
+dirtxt	!by 94,94,0
 
 emptygad	!by 13,23,5,3,$ce
 	!wo evempty
