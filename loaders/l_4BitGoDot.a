@@ -26,6 +26,7 @@
 ;    1.17, 13.12.17, bugfix: missing mouse pointer/open files
 ;                    when accessing bad files
 ;    1.18, 24.04.18, bugfix: couldn't change Source after Preview anymore
+;    1.19, 17.06.18, bugfix: couldn't compose anymore
 ;
 ; ------------------------------------------------------------ 
 
@@ -62,20 +63,24 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "native 4Bit ldr "
-	!pet "1.18"
-	!pet "24.04.18"
+	!pet "1.19"
+	!pet "17.06.18"
 	!pet "A.Dettke/W.Kling"
 ; ----------------------------------------- Leave Module
-cancel	lda #$ff
-	sta used
+cancel	ldx #$ff
+	stx used
+	inx
+	stx which
 cn2	sec
 	rts
 ; ----------------------------------------- Subroutines to Main 
 jrequ	jmp requ
 jerror	jmp error
 ; ----------------------------------------- Main
-start	jsr setrplc	; ### 1.18, init distributor
-	jsr mchar		; define listbox char
+start	lda which
+	bne +
+	jsr setrplc	; ### 1.18, init distributor
++	jsr mchar		; define listbox char
 	ldx used		; first call?
 	bmi jrequ		; yes, pre-requester
 	beq cancel	; error and finished
