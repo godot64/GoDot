@@ -1,19 +1,21 @@
 
-!src "godotkernal.lib"
+!src "..\godotkernal.lib"
 *= $1000
 
 ; -------------------------------------------------- 
 ;
-; 25.08.17: current version 1.31
+; 22.06.18: current version 1.32
 ;
 ; 24.04.97, Kernel Version 1.27
 ;
-; 27.10.00, complete text revision
+; 27.10.00, (no new version, complete text revision)
 ; 06.04.04, sprite beyond left border bug fixed
 ; 22.11.16, code tranformed to ACME
 ;           mouse in x-upper space bug finally fixed
 ; 23.01.17, hotspot of mouse now on *white* part of mouse
 ; 25.08.17, variable number of entries in directory window
+; 22.06.18, bugfix, "Cancel" in filerequester now returns
+;           correct value of 0 for ls_flen
 ;
 ; -------------------------------------------------- 
 
@@ -93,7 +95,7 @@ im1	lda #$d8
 	sta sc_vekt20
 	lda sc_pos+1
 	bne pl1
-;
+
 mal40	asl sc_pos	; multiply .a by 40
 	rol sc_pos+1
 mal20	asl sc_pos
@@ -116,7 +118,7 @@ mal10	asl sc_pos
 	adc sc_pos+1
 	sta sc_pos+1
 	rts
-;
+
 plus40	clc		; add 40 to sc_vekt20
 	lda sc_vekt20
 	adc #40
@@ -229,7 +231,7 @@ m4	jsr fcol		; colorize right edge
 m5	jsr fcol		; colorize bottom edge
 	lda sc_flags	; pressed button?
 	beq m6		; no, finished
-;
+
 swapcol	ldx sc_shadow	; exchange colors
 	lda sc_light
 	stx sc_light
@@ -288,7 +290,7 @@ screen	stx sc_screentab	; pointer to list in .x/.y
 	jsr bsout
 sc0	iny
 	bne sc1
-;
+
 s1	ldy #0
 	ldx #0
 	sty sc_loop
@@ -320,7 +322,7 @@ m1	iny
 sc1	jsr setvektor
 	bne s1
 ready1	rts
-;
+
 text0	asl		; End of list? ($80)
 	bpl ready1	; yes, finished
 	jsr text2
@@ -415,7 +417,7 @@ es1	ldx #0		; care for text screen
 	ldy #0
 	lda (sc_screentab),y; End of list? ($c0 or $80)
 	bmi esready	; yes, finished
-;
+
 es0	jsr setpos	; get gadget parameters
 	cpx #4
 	bne es0
@@ -451,7 +453,7 @@ es0	jsr setpos	; get gadget parameters
 	jsr dl2
 esm3	jsr initmove
 	jmp invert
-;
+
 esm0	ldy #6
 	pla
 	bpl esm1
@@ -501,7 +503,7 @@ gd_irq	lda potx		; mouse driver
 y0	lda #$03
 	eor spritehi
 	sta spritehi
-;
+
 	lda poty
 	ldy sy_oldposy
 	jsr moved
@@ -514,7 +516,7 @@ y0	lda #$03
 	dex
 	dex
 	stx spritey-2
-;
+
 tastatur	jsr checkkeyb	; use ROM via $028f/90 (check keyboard)
 	lda sc_keyprs	; no key
 	beq stick
@@ -537,7 +539,7 @@ ttt	ldx #0		; clear keyboard
 	beq st12
 	cmp #$9d		; CRSR up?
 	beq st13
-;
+
 stick	lda joy		; get joystickport
 	and #$10		; Fire?
 	bne st0
@@ -592,7 +594,7 @@ moved	sty sy_newposy
 	beq most
 	ldy sy_newposx
 	rts
-;
+
 more	ora #$c0
 	cmp #$ff
 	beq most
@@ -601,14 +603,14 @@ more	ora #$c0
 	ldx #$ff
 	ldy sy_newposx
 	rts
-;
+
 most	lda #0
 	rts
 
 ; -------------------------------------------------- Version Number
 
 gd_version
-	!by $01,$31	; version number, SED-mode
+	!by $01,$32	; version number, SED-mode
 
 ; -------------------------------------------------- 
 ; -------------------------------------------------- Entry to GoDot, Main Loop
@@ -616,7 +618,7 @@ gd_version
 
 into	ldx #<(mainlst)	; main loop, pointer to list
 	ldy #>(mainlst)
-;
+
 main	jsr mloop		; display list and wait
 	bne into
 
@@ -639,7 +641,7 @@ el0	lda sc_keyprs	; no change...
 	jsr exec		; execute command
 	bcc gd_eloop	; finished, but stay in list
 	rts		; definitely finished, back to main screen
-;
+
 exec	jmp (sy_event)	; execute function the user clicked on
 
 ; -------------------------------------------------- backup sc_screenvek
@@ -690,11 +692,11 @@ magic	!by $ad
 gd_listen	jsr listen
 	tya
 	jmp second
-;
+
 gd_talk	jsr talk
 	tya
 	jmp tksa
-;
+
 gd_sendcom
 	jsr filnam	; send IO command
 	lda ls_drive
@@ -950,7 +952,7 @@ se_units	lda #1		; clear file window (not: filename box)
 suni	ldx #1		; entry: directory starting with line #1
 	stx sc_zl
 	jmp gd_dir
-;
+
 units	jsr uready	; clear bar on previous drive
 	lda sc_merk	; drive number is line# plus 5
 	adc #5
@@ -995,7 +997,7 @@ urd2	beq urd0		; yes, finished
 	jsr gd_swapd	; no, RAM disabled, switch on again
 	inx		; .x=0	
 urd6	jmp rm_ramvec	; enter RAM device
-;
+
 urd3	jsr gd_clrms	; clear status bar
 urd5	jsr gd_testdrive	; drive still active?
 	bcs uready	; yes, switch bar on again
@@ -1078,7 +1080,7 @@ swappfox	sta sc_texttab+1
 	ldy #0
 	sty sc_texttab
 	sty sc_pos
-;
+
 	sei		; switch C64 to RAM throughout
 	lda 1
 	pha
@@ -1191,7 +1193,7 @@ scc0	lda #0		; no, change to Hires
 	ldx #<(hirs)
 	ldy #>(hirs)
 scc1	sta gr_cmode
-;
+
 tggl2	stx sc_screentab	; address of new text
 	sty sc_screentab+1
 	ldy sc_br		; first clear gadget
@@ -1386,8 +1388,8 @@ ct6	lda ls_lastname,x	; and write new entry
 
 se_ldcan	ldx #1		; RAM active/loaded from RAM?
 	jsr urd7
-	bcc can0
-	jsr forceoff	; definitely switch RAM off
+	ldx #0		; ### 1.32
+	stx ls_flen	; ### 
 can0	sec		; back to main loop
 	rts
 
@@ -1530,7 +1532,7 @@ reqpt	jsr suni		; clear file window and show files
 	and #8
 	beq fil2
 	rts
-;
+
 fil2	jsr gd_eloop	; waiting for click (in file requester)
 
 	php		; save Carry
@@ -1560,7 +1562,7 @@ sdrive	lda drvtype,y	; write drivetype to buffer
 	dey
 	bpl sdrive
 	rts
-;
+
 sram	ldy #3		; RAMtype texts
 sra0	lda ramtype,x
 	sta (sc_texttab),y
@@ -1664,7 +1666,7 @@ s1541	lda #$34
 sdr5	ldx #2
 sdr6	sta sc_movetab,x
 	bne sout
-;
+
 s1570	ldx #3
 	lda #$30
 	bne sdr6
@@ -1676,7 +1678,7 @@ magic5	!by $ad,$ad
 ; -------------------------------------------------- 
 ; -------------------------------------------------- Dir Routines
 ; -------------------------------------------------- 
-;
+
 getdir	lda #1		; read dir block
 	ldx #<(dirchan)
 	ldy #>(dirchan)
@@ -1700,11 +1702,11 @@ gd1	jsr clrch		; close file
 send	ldx #$0f		; send command
 	jsr ckout
 	ldx #$00
-l98eb	lda messu1,x
+-	lda messu1,x
 	jsr bsout
 	inx
 	cpx #$08
-	bcc l98eb
+	bcc -
 	lda #0
 	ldx ls_track
 	inc pport
@@ -1722,11 +1724,11 @@ l98eb	lda messu1,x
 
 cnvdez	ldx #$30		; value in .a
 	sec
-l98ff	sbc #$0a		; tenths in .x
-	bcc l9906
+-	sbc #$0a		; tenths in .x
+	bcc +
 	inx
-	bcs l98ff
-l9906	adc #$3a		; oneths in .a
+	bcs -
++	adc #$3a		; oneths in .a
 	rts
 
 ; -------------------------------------------------- 
@@ -1811,10 +1813,10 @@ gd_makedir  lda #0
 	beq mdr2
 	cmp #5
 	bcs mdr2
-;
+
 	lda #$10		; length of filename (16)
 	sta sc_merk+1
-;
+
 	lda ls_dirmask	; filetype graphics?
 	tay
 	ora ls_showfiles	; forced to show all?
@@ -1838,7 +1840,7 @@ mdr8	ldx #$05
 	lda dirbuf,x	; dot on 4?
 	cmp #$2e
 	bne mdr2
-;
+
 	ldy #$03		; compare prefixes
 mdr0	dex
 	lda dirbuf,x
@@ -1896,7 +1898,7 @@ mdr4	lda dirbuf+1	; next block
 	lda ls_lines	; window full?
 	cmp ls_dlines	; ### 1.31
 mdr5	rts
-;
+
 mdr9	jmp gd_makedir
 
 ; -------------------------------------------------- Move index into Dirblock
@@ -1921,29 +1923,30 @@ out1	inc sc_zl		; next line
 ; -------------------------------------------------- Convert PETSCII to Screencode
 
 gd_cnvbc	ldy #$00
-l99f8	lda sc_movetab,y
+-	lda sc_movetab,y
 	beq cnva0
-	bmi l9a19
+	bmi +++
 	cmp #$20
-	bcc l9a0b
+	bcc ++
 	cmp #$60
-	bcc l9a09
+	bcc ++
 	and #$df
-	bne l9a0b
-l9a09	and #$3f
-l9a0b	sta sc_movetab,y
+	bne +
+++	and #$3f
+--
++	sta sc_movetab,y
 	iny
 	cpy sc_br
-	bne l99f8
-l9a13	lda #$00
+	bne -
+-	lda #$00
 	sta sc_movetab,y
 	rts
-;
-l9a19	cmp #$a0		; finished if $a0
-	beq l9a13
+
++++	cmp #$a0		; finished if $a0
+	beq -
 	and #$7f
 cnva0	ora #$40
-	bne l9a0b
+	bne --
 
 ; -------------------------------------------------- Pointer Management
 
@@ -2067,7 +2070,7 @@ ramtype	!scr "1700"
 	!scr "VDC1"
 	!scr "PFox"
 	!scr "CMD "
-;
+
 ; -------------------------------------------------- 
 
 messu1	!pet "u1:13 0 "
@@ -2080,7 +2083,7 @@ logo	!pet "!GoDot!"
 
 dirchan	!pet "#"
 dspalte	!by 5
-;
+
 hirs	!scr "Hires@"
 mult	!scr "Multi@"
 
@@ -2105,9 +2108,9 @@ exlst	!by $00
 magic3	!by $ad
 
 ; -------------------------------------------------- 
-;
+
 ;  screen5 (5th revision of GoDot's Screen):
-;
+
 ; -------------------------------------------------- 
 
 mainlst	!by $93		; Main Screen list: Clear Screen
@@ -2210,7 +2213,7 @@ idrive	!fill 7,32
 ; -------------------------------------------------- 
 
 list	!wo $ffff
-;
+
 mloop	lda sc_screenvek
 	sta list
 	lda sc_screenvek+1
