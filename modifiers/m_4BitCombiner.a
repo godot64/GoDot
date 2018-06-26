@@ -1,0 +1,1250 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ----------------------------------------- 
+;
+;  mod.4BitCombiner
+;   Module to add two clips to one
+;
+;  1.00, 26.06.18: first release
+;
+; ----------------------------------------- 
+
+; ----------------------------------------- Equates
+
+	indicator		= $ad
+	pport		= $01
+	mantisse		= $62
+
+	ymrk		= $30
+	hasreu		= $31
+	src		= $32	; /$33
+	dst		= $34	; /$35
+	cnt		= $36	; /$37 (Packzähler write)
+	byte		= $38	; (Packbyte write)
+	counter		= $39	; /$3a (Packzähler read)
+	gbyte		= $3b	; (Packbyte read)
+	fcnt		= $3c	; Filezähler (2..4)
+	bcnt2		= $3d	; /$3e (Bytezähler File 2)
+	blines		= $3f	; Blockzeilenzähler
+	skip		= $40	; Flag für falsche Breite
+
+	offx		= ls_adrmisc
+	offy		= offx+1
+
+	loadpatch		= $1d0d
+	cancpatch		= $18f5
+	opentch		= $1b1c	; open  13 & 15
+	closetch		= $1b12	; close 13 & 15
+	rendered		= $2000
+	undorend		= $8d00
+	clip1		= $cd00
+	nlens		= clip1+64
+	drives		= nlens+4
+	wids		= drives+4
+	hgts		= wids+4
+	modes		= hgts+4
+	types		= modes+4
+
+	intfac		= $bc49
+	facasc		= $bddf
+	rahmen		= $d020
+
+; ----------------------------------------- Header
+
+header	jmp start
+	!by $20
+	!by 0
+	!by 0
+	!wo modend
+	!wo 0
+	!tx "Concat 2-4 4bits"
+	!tx "1.00"
+	!tx "26.06.18"
+	!tx "A.Dettke        "
+
+; ----------------------------------------- Main
+
+start	lda rm_ramvec	; Device eingebunden?
+	cmp #$4c		; equal, wenn ja
+	bne +
+	lda #0
++	sta hasreu	; set flag
+
+	lda gd_modswitch	; care for module management
+	pha
+	ldx sc_scvek2
+	ldy sc_scvek2+1
+	stx list
+	sty list+1
+	ldx loadpatch
+	ldy loadpatch+1
+	stx patch
+	sty patch+1
+	ldx #4
+-	lda syspatch,x
+	sta cancpatch,x
+	dex
+	bpl -
+	jsr chgdrv
+	jsr makechr
+
+	jsr switchoff	; init gui
+	jsr setnums
+	jsr requester
+	ldx #1		; start mode: "below" ($ff)
+	stx mode
+	jsr evmode
+	jsr gd_eloop	; now wait...
+
+	pla 		; restore module management flag
+	sta gd_modswitch
+	jsr chgdrv
+	lda list
+	ldx list+1
+	sta sc_screenvek
+	stx sc_screenvek+1
+	lda hasreu
+	bne evcancel
+	jsr undo		; restore data if reu present
+
+
+; ----------------------------------------- Event: Leave Module
+
+evcancel	sec
+	rts
+
+; --------------------------- Bootdrive sicherstellen
+
+chgdrv	lda ls_sysdrive
+	ldx ls_bootdrive
+	sta ls_bootdrive
+	stx ls_sysdrive
+	rts
+
+; ----------------------------------------- Prepare for next Image
+
+switchoff	lda #0
+	sta numfiles
+	sta max
+	jsr setwid
+	lda #0
+	jsr sethgt
+	iny		; .y=0
+	ldx #0
+-	lda switches,x
+	sta dst,y
+	inx
+	iny
+	jsr deactivt
+	cpx #6
+	bcc -
+	lda attgad+4	; Unhilite Attachgadget
+	and #$ef
+	sta attgad+4
+	lda #$80
+	sta more
+	lda #$c0
+	sta clipgad+4
+	lda #$91
+	sta comclplst+5
+	ldx #$87
+	stx ccgad+4
+	ldx #11
+-	lda starttext,x
+	sta cliptx,x
+	dex
+	bpl -
+	ldx #8
+	stx clipnlen
+	ldx #12
+-	dex
+	bmi +
+	lda dummys,x
+	sta clipsname,x
+	lda dummyd,x
+	sta clipdname,x
+	bne -
++	ldx #4
+	stx firstclip
+	lda #<evnewclip
+	ldx #>evnewclip
+	sta clipgad+5
+	stx clipgad+6
+	rts
+
+deactivt	cpy #2
+	bne +
+	ldy #0
+	lda (dst),y
+	and #$bf
+	sta (dst),y
++	rts
+
+; ----------------------------------------- Change GUI after first Image
+
+switchon	ldy #0
+	ldx #0
+-	lda switches,x
+	sta dst,y
+	inx
+	iny
+	jsr activate
+	cpx firstclip
+	bcc -
+	lda #$c0
+	sta more
+	lda #$e0
+	sta clipgad+4
+	lda #$81
+	sta comclplst+5
+	ldx #11
+-	lda clipsname,x
+	sta cliptx,x
+	dex
+	bpl -
+	lda #<evnameclp
+	ldx #>evnameclp
+	sta clipgad+5
+	stx clipgad+6
+	rts
+
+activate	cpy #2
+	bne +
+	ldy #0
+	lda (dst),y
+	ora #$40
+	sta (dst),y
++	rts
+
+; ----------------------------------------- Event: Set first 4Bit
+
+evnewclip	lda hasreu
+	bne +
+	jsr undo		; Undo Rendered Bitmap if present
+
++	jsr getclip	; get first clip
+	beq leave		; nothing selected?
+	jsr touchfile	; get filedata (width/height)
+	beq leave
+
+	sta nlens		; Namenslänge merken
+	lda ls_drive
+	sta drives	; Herkunftsdrive merken
+	lda wids		; Breite und Höhe eintragen
+	sta width
+	jsr setwid
+	lda hgts
+	sta height
+	jsr sethgt
+	lda mode		; Attachmodus merken (immer "below")
+	sta modes
+	jsr switchon	; GUI umstellen
+	lda attgad+4	; Hilite Attachgadget
+	ora #$10
+	sta attgad+4
+	lda #1		; Bild zählen (erstes Bild)
+	sta numfiles
+
+nextclip	jsr setnames	; Namen merken
+	jsr setnums
+leave	jsr requester
+
+stay	clc
+	rts
+
+; ----------------------------------------- Event: Add next 4Bit
+
+evattclip	lda numfiles
+	cmp max
+	bcc +
+	jmp fail
+
++	jsr getclip
+	beq leave
+	jsr touchfile	; get filedata (width/height)
+	beq leave
+
+	ldx numfiles	; Namenslänge merken
+	sta nlens,x
+	lda ls_drive	; Herkunftsdrive merken
+	sta drives,x
+	lda mode		; Reihenfolge merken
+	sta modes,x
+
+	clc
+	beq +		; mode is "aside"?
+	bmi ++		; or "below"?
+
+	cpx #2		; nein ("both"), Bild 3?
+	bne +
+	lda modes+1	; ja, wie war Bild 2?
+	beq ++		; aside, dann Höhe anpassen
+	bpl ++		; both, auch Höhe anpassen
+
++	cpx #3		; Bild 4: nichts tun
+	bcs +++
+	lda wids,x	; sonst: Breite anpassen
+	adc wids
+	sta width
+	jsr setwid
+	bmi +++
+
+++	cpx #3		; Bild 4: nichts tun
+	bcs +++
+	lda hgts,x	; sonst: Höhe anpassen
+	adc hgts
+	sta height
+	jsr sethgt
+
++++	inc numfiles	; Bilder zählen
+	lda numfiles	; bei Bild 2: Concat aktivieren
+	cmp #2
+	bne +
+	ldx #6
+	stx firstclip
+	ldx #$d7
+	stx ccgad+4
+
++	cmp max		; Höchstzahl erreicht?
+	bcc ++
+	lda attgad+4	; ja: Unhilite Attachgadget
+	and #$ef
+	sta attgad+4
+
+++	lda numfiles
+	jmp nextclip
+	
+; ----------------------------------------- 
+
+evconcat	jsr putclip	; open filerequester for destination file
+	bne +
+	jmp leave		; cancel if $00
+
++	sta clipnlen	; neue Namenslänge merken
+	sta wflen
+	jsr addsig	; ".4bt" anhängen (in ls_nambuf)
+	lda ls_drive	; Drive merken
+	sta ddrive
+	jsr gd_sproff
+
+	jsr wopen
+	beq +
+	jsr fail
+	jmp endproz
++	ldx #12
+	jsr ckout
+	ldx #0
+-	lda signature,x	; Signatur ausgeben ("god")
+	jsr bsout
+	inx
+	cpx #3
+	bcc -
+	lda #$31		; Typ ausgeben ("1" für Clip)
+	jsr bsout
+	lda #0
+	jsr bsout		; Origin ausgeben (0,0)
+	jsr bsout
+	sta fcnt
+	lda width		; neue Breite ausgeben
+	jsr bsout
+	lda height	; neue Höhe ausgeben
+	jsr bsout
+	jsr gd_clrms
+
+	lda modes+1
+	bpl +
+
+	jsr above
+			; bei Erfolg: neuen Namen publizieren
++
+endproz	jsr gd_spron
+	jsr clrch
+	lda #12
+-	jsr close
+	sec
+	rts
+
+closesrc	lda #13
+	bne -
+
+above	jsr opensrc	; deal first file
+-	jsr setcnt	; Lesevektor setzen
+	ldx #13
+	jsr chkin
+	jsr readline1
+	ldx #12
+	jsr ckout
+	jsr writeline
+	dec blines
+	bne -
+	jsr flush
+	ldx #13
+	jsr chkin
+	jsr basin
+	jsr closesrc
+
+	inc fcnt		; deal second file
+	lda fcnt
+	cmp max
+	bcc above
+	ldx #12
+	jsr ckout
+	lda #indicator
+	jsr bsout
+	rts
+
+; ----------------------------------------- Event: Change Mode
+
+evmode	ldx mode
+	inx
+	beq +
+	cpx #2
+	bne +
+	ldx #$ff
++	stx mode
+	txa
+	bmi ++
+	dex
+	bmi +
+	ldx #23		; mode=1   (both)
+	!by $2c
++	ldx #15		; mode=0   (aside)
+	!by $2c
+++	ldx #7		; mode=$ff (below)
+	ldy #7
+-	lda modtext,x
+	sta modtx,y
+	dex
+	dey
+	bpl -
+
+	lda mode
+	bmi +
+	beq +
+	lda #4
+	!by $2c
++	lda #2
+	sta max
+	ora #$30
+	sta maxtx
+
+	lda numfiles	; bei Start: nichts tun
+	beq +++
+
+	cmp max		; Höchstzahl Bilder erreicht?
+	bcs +
+	lda attgad+4	; nein, hilite Attachgadget
+	ora #$10
+	sta attgad+4
+	bne ++
++	lda attgad+4	; ja, unhilite Attachgadget
+	and #$ef
+	sta attgad+4
+++	jsr requester	; und Requester ausgeben
+
++++	ldy #6		; sonst nur die neuen Texte ausgeben
+	jsr tout
+	ldy #4
+tout	jsr settxt
+	jsr gettab
+	ldy #6
+	jmp gd_xtxout1
+
+; ----------------------------------------- Event: Set Name for Saving
+
+evnameclp	lda clipnlen
+	sta ls_flen
+	jsr gd_xinput
+	lda ls_flen
+	beq ++
+	pha
+	ldx #11
+	lda #$20
+-	sta cliptx,x
+	sta clipdname,x
+	sta clipsname,x
+	dex
+	bpl -
+	pla
+	tax
+-	dex
+	lda ls_nambuf,x
+	cmp #$20
+	beq -
+	inx
+	txa
+	sta clipnlen
+	sta sc_br
+	pha
+	tax
+	bne +
+-	lda ls_nambuf,x
+	sta clipdname,x
+	sta sc_movetab,x
++	dex
+	bpl -
+	jsr gd_cnvbc
+	pla
+	tax
+	bne +
+-	lda sc_movetab,x
+	sta clipsname,x
+	sta cliptx,x
++	dex
+	bpl -
+++	clc
+	rts
+	
+; ----------------------------------------------------- Blink the Border
+
+fail	ldy #2
+	!by $2c
+warn	ldy #5
+graphon	lda rahmen	; save border color
+	pha
+	sty rahmen	; set new color (in .y, e.g. "2" for red)
+	ldx #$40
+	jsr gd_dl2	; delay
+	pla
+	sta rahmen	; reset old border color
+	clc
+	rts
+
+; ----------------------------------------- Store Filenames
+
+setnames	tax
+	clc
+	lda #0
+-	adc #16
+	dex
+	bne -
+	tax
+	dex
+	ldy #15
+-	lda ls_nambuf,y
+	sta clip1,x
+	dex
+	dey
+	bpl -
+	rts
+
+; ----------------------------------------- Output counter
+
+setnums	lda max
+	jsr gd_xcnvdez
+	sta maxtx
+	lda numfiles
+	jsr gd_xcnvdez
+	sta ttx
+	rts
+
+; ----------------------------------------- 
+
+setwid	jsr times8
+	jsr cnvwa
+	jsr rightb
+	ldy #3
+-	lda text,y
+	sta clp1tx,y
+	dey
+	bpl -
+	rts
+
+; ----------------------------------------- 
+
+sethgt	jsr times8
+	jsr cnvwa
+	jsr rightb
+	ldy #3
+-	lda text,y
+	sta clp2tx,y
+	dey
+	bpl -
+	rts
+
+; ----------------------------------------- 
+
+setcnt	ldy fcnt
+	beq +
+	sec
+	lda width
+	sbc wids,y
+	beq +
+	sta skip
++	lda wids,y
+	jsr times32
+	sta bcnt2+1
+	stx bcnt2
+	sta ls_vekta8+1	; Länge als 4Bit-Zähler
+	stx ls_vekta8
+
+clbuffer	pha		; Hi ist Anzahl Pages (minus 1)
+	jsr setvecs
+	sta dst
+	stx dst+1
+	ldy #0		; zum Löschen
+	pla
+	tax
+	inx		; Anzahl Pages korrigieren (plus 1)
+	tya
+-	sta (dst),y	; clear page
+	iny
+	bne -
+	inc dst+1
+	dex		; count pages
+	bne -
+	
+setvecs	lda #<rendered	; Bufferstart
+	ldx #>rendered
+	sta sc_vekt20
+	stx sc_vekt20+1
+	sta sc_texttab
+	stx sc_texttab+1
+	rts
+
+; -------------------------------------------------------------- Filehandling
+
+pw	!tx "w,p,"
+sigtx	!tx "tb4."
+sigtxs	!scr "tb4."
+drinit	!tx "i0"
+wflen	!by 0
+
+; ----------------------------------------- Disk Routines
+
+wopen	jsr inull		; Initialize
+	bne err8
+	ldy wflen		; ",p,w" anhängen
+	ldx #3
+wo1	lda pw,x
+	sta ls_nambuf,y
+	iny
+	dex
+	bpl wo1
+	sty wflen
+	lda #12		; OPEN 12,drive,12,"name,p,w"
+	tay
+	ldx ls_drive
+	jsr filpar
+	lda wflen
+	ldx #<ls_nambuf
+	ldy #>ls_nambuf
+	jsr filnam
+	jsr copen
+	jmp err9
+
+inull	ldx #<drinit	; Initialize Drive
+	ldy #>drinit
+	lda #2
+	jsr gd_sendcom
+err9	jsr gd_xmess
+	lda ls_err2
+	and #15
+err8 	sec
+	rts
+
+; ------------------------------------------------ Open Source
+
+sopen	lda #13		; 13,drive,13
+	tay 
+	ldx sdrive
+	beq err8
+	jsr filpar
+	lda ls_temp
+	ldx src
+	ldy src+1
+	jsr filnam
+	jmp copen
+
+; ----------------------------------------- 
+
+opensrc	ldy fcnt
+	lda drives,y
+	sta sdrive
+	lda types,y
+	and #$0f
+	sta whichf2
+	lda hgts,y
+	sta blines
+	lda nlens,y
+	sta ls_temp
+	lda modes+1
+	sta wheref2
+	clc
+	lda #$00
+	ldy fcnt
+-	dey
+	bmi +
+	adc #16
+	bne - 
++	sta src
+	lda #>clip1
+	sta src+1
+
+	jsr sopen
+	ldx #13
+	jsr chkin
+
+	lda whichf2
+	beq +
+	ldx #8
+	!by $2c
++	ldx #4
+-	jsr basin		; skip file header
+	dex
+	bne -
+	jsr tcopy
+	iny
+	sta adcnt
+
+	lda #0		; Packzähler auf 0
+	sta counter
+	sta counter+1
+	sta cnt
+	sta cnt+1
+	sta byte
+	sta gbyte
+	sta skip
+	rts
+
+; ----------------------------------------- 
+
+touchfile	sta ls_temp	; open selected file
+	lda #>ls_nambuf
+	ldx #<ls_nambuf
+	sta ls_vekta8+1
+	stx ls_vekta8
+	jsr opentch
+	ldx #13
+	jsr chkin
+
+	ldy #$ff		; check signature
+-	iny
+	jsr onebyte
+	bne +++		; read error? fail
+	cmp signature,y
+	bne +++
+	cpy #2		; match "god"?
+	bcc -
+
+	ldy numfiles	; set data
+	jsr onebyte	; yes
+	sta types,y	; store type
+	cmp #$30		; type "0"? (4bit)
+	bne +
+	lda #40		; then: 40x25
+	ldx #25
+	bne ++
++	cmp #$31		; type "1"? (clip)
+	bne +++		; if not: fail
+	jsr onebyte	; if yes: skip origin
+	jsr onebyte
+	jsr onebyte	; get width
+	pha
+	jsr onebyte	; get height
+	tax
+	pla
+++	sta wids,y
+	txa
+	sta hgts,y
+
+	jsr closetch	; close file
+	lda ls_flen	; return value
+	rts
+
++++	jsr closetch	; if fail
+	lda #0
+	rts
+
+; ----------------------------------------- 
+
+onebyte	jsr basin
+	ldx status
+	rts
+
+; ------------------------------------------------ Compress
+
+flush	lda byte
+	eor #$ff
+
+write	cmp byte
+	beq incr
+p256	pha
+	lda cnt+1
+	bne wl0
+	lda cnt
+	beq wl1
+	cmp #4
+	bcs wl0
+	lda byte
+	cmp #indicator
+	bne wl2
+wl0	lda #indicator
+	jsr bsout
+	lda cnt
+	jsr bsout
+	lda #1
+	sta cnt
+	lda #0
+	sta cnt+1
+wl2	lda byte
+	jsr bsout
+	dec cnt
+	bne wl2
+wl1	pla
+	sta byte
+incr	inc cnt
+	bne wl3
+	inc cnt+1
+wl4	jsr p256
+	dec cnt
+wl3	rts
+
+; ----------------------------------------- Decompress
+
+read	lda counter	; repeated byte?
+	ora counter+1
+	bne getit2	; yes, re-get value
+
+	inc counter	; no, counter to 1
+	jsr basin		; get 1 byte
+	cmp #indicator	; compression flag? (=$ad)
+	bne getit1	; no
+
+	jsr basin		; get counter
+	sta counter
+	beq rb2		; $00 equals 256 bytes
+	lda #0
+	beq rb3
+rb2	lda #1
+rb3	sta counter+1
+	jsr basin		; get byte to compress
+
+getit1	sta gbyte		; and store
+
+getit2	lda counter	; count repetition
+	bne rb4
+	dec counter+1
+rb4	dec counter
+	lda gbyte		; re-get byte
+	rts
+
+; ----------------------------------------- 
+
+readline2	lda wheref2
+	beq +
+readline1	ldy #0
+	jsr read
+	sta (sc_vekt20),y
+	jsr count
+	bne readline1
+	lda skip
+	beq +
+	lda wids
+	jsr times32
+	sta bcnt2+1
+	stx bcnt2
++	rts
+
+; ----------------------------------------- 
+
+writeline	ldy #0
+	lda (sc_texttab),y
+	jsr write
+	jsr action
+	jsr cou2
+	bne writeline
+	rts
+
+; -------------------------------------------------------------------------
+; -------------------------------------------------------------- Namen verlängern
+; -------------------------------------------------------------------------
+
+addsig	pha		; Länge merken
+	tay
+	dey
+	ldx #0
+ag4	lda ls_nambuf,y	; endet auf ".4bt"?
+	cmp sigtx,x
+	bne ag2		; nein
+	dey
+	inx
+	cpx #4
+	bcc ag4
+	pla		; ja, fertig
+	rts
+	
+ag2	pla
+	tay		; Name länger als 12 Zeichen?
+	cpy #13
+	bcs ag0		; ja, behandeln
+
+ag5	ldx #3		; nein, ".4bt" anhängen
+ag1	lda sigtx,x
+ag3	sta ls_nambuf,y
+	lda sigtxs,x	; auch fär Image Info
+	sta ls_lastname,y
+	iny
+	dex
+	bpl ag1
+	sty wflen		; neue Länge merken, fertig
+	sty ls_flen
+	rts
+
+ag0	dey		; auf 12 verkürzen
+	cpy #12
+	bne ag0
+	beq ag5		; unbed. Sprung
+
+; ------------------------------------------------ Counters
+
+count	inc sc_vekt20
+	bne cou6
+	inc sc_vekt20+1
+cou6	lda ls_vekta8
+	bne cou7
+	dec ls_vekta8+1
+cou7	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	rts
+
+cou2	inc sc_texttab
+	bne cou5
+	inc sc_texttab+1
+cou5	lda bcnt2
+	bne cou3
+	dec bcnt2+1
+cou3	dec bcnt2
+	lda bcnt2
+	ora bcnt2+1
+	rts
+	
+; --------------------------- Kringel definieren
+
+makechr	ldx #7
+-	lda chschr,x
+	sta sc_undochar,x
+	dex
+	bpl -
+	rts
+
+; ----------------------------------------- Open Filerequester for Save
+
+putclip	jsr swappname
+	lda #<evcancel	; patch Filerequester
+	ldx #>evcancel
+	sta loadpatch
+	stx loadpatch+1
+	jsr ev_save	; perform Filerequester
+	lda patch		; unpatch Filerequester
+	ldx patch+1
+	sta loadpatch
+	stx loadpatch+1
+	jsr swappname
+	lda ls_flen	; plus filename at ls_nambuf
++	rts
+
+; ----------------------------------------- Open Filerequester for Load
+
+getclip	lda #<evcancel	; patch Filerequester
+	ldx #>evcancel
+	sta loadpatch
+	stx loadpatch+1
+	ldx #1
+	jsr gd_xload	; perform Filerequester
+	lda patch		; unpatch Filerequester
+	ldx patch+1
+	sta loadpatch
+	stx loadpatch+1
+	lda ls_flen	; plus filename at ls_nambuf
+	rts
+
+; ----------------------------------------- 
+
+swappname	ldx #0
+-	ldy clipsname,x
+	beq +
+	lda ls_picname,x
+	sta clipsname,x
+	tya
+	sta ls_picname,x
+	inx
+	cpx #16
+	bcc -
++	rts
+
+; ----------------------------------------- Output Module Requester
+
+requester	ldx #<comclplst	; then: requester
+	ldy #>comclplst
+	jmp gd_screen
+
+; ----------------------------------------- Save Rendered Bitmap
+
+undo	jsr initreu
+	ldx #>rendered
+	stx rm_werte+1
+	ldx #>undorend
+	stx rm_werte+3
+	lda #<8000
+	ldx #>8000
+	sta rm_werte+5
+	stx rm_werte+6
+	lda #$92		; swap
+	jsr gd_reu
+	jmp initreu
+
+; ---------------------------------------- Init rm_werte
+
+initreu	ldx #6
+	lda #0		; RM_WERTE (am Ende): 
+sl0	sta rm_werte,x	; $00, $c0, $00, $00, 0, 0, 0
+	dex		; - C64 - | -  REU   - | Anzahl 
+	bpl sl0
+	lda #$c0
+	sta rm_werte+1
+	rts
+
+; ----------------------------------------- 
+
+cnvwa	sta mantisse	; hi
+	stx mantisse+1	; lo
+	lda #32
+	ldx #6
+-	sta sy_numbers,x	; Ergbebnis löschen
+	sta text,x	; Ausgabestring löschen
+	dex
+	bpl -
+	inc pport
+	ldx #$90
+	sec
+	jsr intfac	; .y=0
+	jsr facasc	; result at sy_numbers, .a=0, .y=1
+	dec pport
+	rts
+
+; ----------------------------------------- 
+
+rightb	ldy #5		; ab Stelle 4 nach $00 suchen
+-	dey
+	lda sy_numbers,y
+	bne -
+	dey
+	ldx #3
+-	lda sy_numbers,y
+	sta text,x
+	dex
+	dey
+	bpl -
+	rts
+
+; ----------------------------------------- 
+
+times8	ldx #0		; value in .a
+	stx dst+1
+	sta dst
+	clc
+	asl dst
+	rol dst+1
+	asl dst
+	rol dst+1
+	asl dst
+	rol dst+1
+	lda dst+1		; result in .a/.x
+	ldx dst
+	rts
+
+; ----------------------------------------- 
+
+times32	ldx #0		; value in .a
+	stx dst+1
+	sta dst
+	clc
+	asl dst
+	rol dst+1
+	asl dst
+	rol dst+1
+	asl dst
+	rol dst+1
+	asl dst
+	rol dst+1
+	asl dst
+	rol dst+1
+	lda dst+1		; result in .a/.x
+	ldx dst
+	rts
+
+; -------------------------------------------------------------------------
+; -------------------------------------------------------------- Activity Handler
+; -------------------------------------------------------------------------
+
+messout	ldx #<message	; Textausgabe
+	ldy #>message
+	jmp gd_xtxout2
+
+tcopy	ldy #0		; Informationstextauswahl (hinter Label "txt"), Offset auf Text in .x
+tc0 	lda txt,x
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+
+action 	dec adcnt		; Activity, nur bei 0
+	bne ld4
+	lda cntwert	; dann: Reload des Zählers
+	sta adcnt
+	ldy offy		; Offset auf Balkenende
+	cpy #23		; Ende erreicht? (Hier den gleichen Wert wie bei clrmess einsetzen!)
+	bne act0
+	jsr clrmess	; ja, re-Init
+act0	ldx offx		; Dicke des Balkenendstücks
+	lda filltab,x
+	sta mess,y
+	jsr messout	; Balken ausgeben
+	dec offx		; Endstück nächstes Mal dicker
+	bpl ld4		; bis gefüllt
+	inc offy		; dann Balken selbst verlängern
+	lda #7		; Endstück wieder dünn
+	sta offx
+ld4 	rts
+
+clrmess	ldx #23		; Puffer für Balken löschen
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0		; Balkenlänge 0 
+	ldx #7		; Dicke am Ende 0
+	sty offy
+	stx offx
+	rts
+
+filltab	!by 160,93,103,127,126,124,105,109
+txt	!scr " MClip  @"	; Offset 0, (das "@" entspricht dem Screencode $00, ist hier also Stringdelimiter)
+message	!fill 8,32	; 8 Zeichen für Infotext (kann geändert werden, dann "mess" anpassen)
+mess	!fill 24,32	; 24 Zeichen für Fortschrittsbalken, Länge von message und mess zusammen 32
+	!by 0		; Anzahl: bei Änderung "clrmess" und "action" anpassen (dort Wert minus 1)!
+
+; ----------------------------------------- Text Output Handler
+
+tabigad	!wo clp1gad	; .y:0
+	!wo clp2gad	; 2
+	!wo modgad	; 4
+	!wo maxgad	; 6
+
+settxt	lda #<tabigad
+	sta sc_texttab
+	lda #>tabigad
+	sta sc_texttab+1
+
+settx2	lda (sc_texttab),y	; set gadget parameters (where to output)
+	sta sc_screentab
+	iny
+	lda (sc_texttab),y
+	sta sc_screentab+1
+	rts
+
+gettab	lda #0
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #4
+	bne gt0
+	jsr gd_trim
+	jmp gd_initmove
+
+; ----------------------------------------- Data
+
+switches	!wo modgad+4,attgad+4,ccgad+4
+chschr	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
+syspatch	!by $a2,$00,$8e,$b9,$0f
+patch	!wo 0
+list	!wo 0
+numfiles	!by 0
+max	!by 0
+f1cnt	!wo 0
+f2cnt	!wo 0
+sdrive	!by 0
+ddrive	!by 0
+whichf2	!by 0
+wheref2	!by 0
+width	!by 0
+height	!by 0
+cntwert	!by 200
+adcnt	!by 0
+mode	!by $ff
+firstclip	!by 4
+clipnlen	!by 8
+clipsname	!scr "NewImage"	; target clip
+	!fill 8,32
+clipdname	!tx  "NewImage"	; name on disk
+	!fill 8,32
+dummys	!scr "NewImage    "
+dummyd	!tx  "NewImage    "
+starttext	!scr " First Clip "
+modtext	!scr " Below ",$1f," Aside ",$5e," Both ",$5e,$1f  
+nofile	!scr "Untitled"
+signature	!tx "god"
+text	!fill 12,32
+
+; ----------------------------------------- Screenlist
+
+comclplst	!by 0
+	!by 4,12,16,18,$91
+	!wo 0
+	!scr " 4BitCombiner@"
+
+clipgad	!by 8,13,14,3,$c0
+	!wo evnewclip
+cliptx	!scr "  New Clip  @"
+
+clp1gad	!by 11,14,6,3,$a0
+	!wo 0
+clp1tx	!scr "   0@"
+clp2gad	!by 11,21,6,3,$a0
+	!wo 0
+clp2tx	!scr "   0@"
+tgad	!by 14,13,3,3,$a0
+	!wo 0
+ttx	!scr "0@"
+maxgad	!by 14,18,3,3,$a0
+	!wo 0
+maxtx	!scr "0@"
+
+attgad	!by 17,12,5,3,$88
+	!wo evattclip
+	!scr "Add@"
+modgad	!by 17,17,11,3,$8f
+	!wo evmode
+	!by 223
+modtx	!scr " Below ",$1f,0
+
+ccgad	!by 19,12,10,3,$87
+	!wo evconcat
+	!scr " Concat @"
+	!by 19,22,6,3,$ce
+	!wo evcancel
+	!scr "Exit@"
+
+	!by $c0,11,12,1
+	!scr "x@"
+	!by $c0,11,19,1
+	!scr "y@"
+	!by $c0,14,15,2
+	!scr "of@"
+	!by $c0,14,20,6
+	!scr "tagged@"
+more	!by $c0,6,12,14
+	!scr "Set Resultname@"
+
+	!by $80
+
+; ----------------------------------------- 
+
+modend	!eof
