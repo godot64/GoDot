@@ -9,7 +9,8 @@
 ;  mod.4BitCombiner
 ;   Module to add two clips to one
 ;
-;  1.00, 26.06.18: first release
+;  1.00, 26.06.18: first release, finished function "below"
+;  1.01, 29.06.18: continued work
 ;
 ; ----------------------------------------- 
 
@@ -25,12 +26,18 @@
 	dst		= $34	; /$35
 	cnt		= $36	; /$37 (Packzähler write)
 	byte		= $38	; (Packbyte write)
-	counter		= $39	; /$3a (Packzähler read)
-	gbyte		= $3b	; (Packbyte read)
-	fcnt		= $3c	; Filezähler (2..4)
-	bcnt2		= $3d	; /$3e (Bytezähler File 2)
-	blines		= $3f	; Blockzeilenzähler
-	skip		= $40	; Flag für falsche Breite
+	counter		= $39	; /$3a (Packzähler read1)
+	gbyte		= $3b	; (Packbyte read1)
+	cnt2		= $3c	; /$3d (Packzähler read2)
+	rbyte		= $3e	; (Packbyte read2)
+	bcnt2		= $3f	; /$40 (Bytezähler read1 / write ist ls_vekta8)
+	bcnt3		= $41	; /$42 (Bytezähler read2)
+	fcnt		= $43	; Filezähler (2..4)
+	fnum		= $44	; Filenummer für File2
+	scndfile		= $45
+	blines		= $46	; Blockzeilenzähler
+	wskip		= $47	; Flag für falsche Breite
+	hskip		= $48	; Flag für falsche Höhe
 
 	offx		= ls_adrmisc
 	offy		= offx+1
@@ -62,8 +69,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "Concat 2-4 4bits"
-	!tx "1.00"
-	!tx "26.06.18"
+	!tx "1.01"
+	!tx "29.06.18"
 	!tx "A.Dettke        "
 
 ; ----------------------------------------- Main
@@ -73,28 +80,30 @@ start	lda rm_ramvec	; Device eingebunden?
 	bne +
 	lda #0
 +	sta hasreu	; set flag
+	lda #13		; filenumber readfile 1
+	sta fnum
 
 	lda gd_modswitch	; care for module management
 	pha
-	ldx sc_scvek2
+	ldx sc_scvek2	; Screenlist für Main retten
 	ldy sc_scvek2+1
 	stx list
 	sty list+1
-	ldx loadpatch
+	ldx loadpatch	; Unpatchwerte retten
 	ldy loadpatch+1
 	stx patch
 	sty patch+1
-	ldx #4
+	ldx #4		; Systempatch für GoDot unter v1.32
 -	lda syspatch,x
 	sta cancpatch,x
 	dex
 	bpl -
-	jsr chgdrv
-	jsr makechr
+	jsr chgdrv	; Bootdrive sicherstellen
+	jsr makechr	; Listboxzeichen erzeugen
 
 	jsr switchoff	; init gui
-	jsr setnums
-	jsr requester
+	jsr setnums	; Zahlen eintragen
+	jsr requester	; Gui anzeigen
 	ldx #1		; start mode: "below" ($ff)
 	stx mode
 	jsr evmode
@@ -102,8 +111,8 @@ start	lda rm_ramvec	; Device eingebunden?
 
 	pla 		; restore module management flag
 	sta gd_modswitch
-	jsr chgdrv
-	lda list
+	jsr chgdrv	; Sysdrive rekonstruieren
+	lda list		; Mainlist rekonstruieren
 	ldx list+1
 	sta sc_screenvek
 	stx sc_screenvek+1
@@ -114,7 +123,7 @@ start	lda rm_ramvec	; Device eingebunden?
 
 ; ----------------------------------------- Event: Leave Module
 
-evcancel	sec
+evcancel	sec		; leave module
 	rts
 
 ; --------------------------- Bootdrive sicherstellen
@@ -220,7 +229,7 @@ activate	cpy #2
 	sta (dst),y
 +	rts
 
-; ----------------------------------------- Event: Set first 4Bit
+; ----------------------------------------- Event: Set first 4Bit File
 
 evnewclip	lda hasreu
 	bne +
@@ -256,7 +265,7 @@ leave	jsr requester
 stay	clc
 	rts
 
-; ----------------------------------------- Event: Add next 4Bit
+; ----------------------------------------- Event: Add next 4Bit File
 
 evattclip	lda numfiles
 	cmp max
@@ -318,84 +327,135 @@ evattclip	lda numfiles
 ++	lda numfiles
 	jmp nextclip
 	
-; ----------------------------------------- 
+; ----------------------------------------- Event: Concatenate these Files
 
 evconcat	jsr putclip	; open filerequester for destination file
 	bne +
-	jmp leave		; cancel if $00
+	jmp leave		; leave if nothing selected (hit "Cancel")
 
 +	sta clipnlen	; neue Namenslänge merken
 	sta wflen
 	jsr addsig	; ".4bt" anhängen (in ls_nambuf)
 	lda ls_drive	; Drive merken
 	sta ddrive
-	jsr gd_sproff
+	jsr gd_sproff	; Mauszeiger aus
 
-	jsr wopen
+	jsr wopen		; open write file
 	beq +
 	jsr fail
 	jmp endproz
-+	ldx #12
++	ldx #12		; OPEN 12,dr,12,"file,p,w"
 	jsr ckout
 	ldx #0
--	lda signature,x	; Signatur ausgeben ("god")
+-	lda signature,x	; Signatur schreiben ("god")
 	jsr bsout
 	inx
 	cpx #3
 	bcc -
-	lda #$31		; Typ ausgeben ("1" für Clip)
+	lda #$31		; Typ schreiben ("1" für Clip)
 	jsr bsout
 	lda #0
-	jsr bsout		; Origin ausgeben (0,0)
+	jsr bsout		; Origin schreiben (0,0)
 	jsr bsout
 	sta fcnt
-	lda width		; neue Breite ausgeben
+	sta scndfile
+	inc scndfile
+	lda width		; neue Breite schreiben
 	jsr bsout
-	lda height	; neue Höhe ausgeben
+	lda height	; neue Höhe schreiben
 	jsr bsout
-	jsr gd_clrms
+	jsr gd_clrms	; Gauge vorbereiten
 
-	lda modes+1
+	lda modes+1	; Reihenfolge der Files (hier: $ff, $00, $01)
 	bpl +
 
-	jsr above
-			; bei Erfolg: neuen Namen publizieren
-+
-endproz	jsr gd_spron
-	jsr clrch
+	jsr below		; wenn negativ: "Below"
+	bcc endproz	; .c=0 (immer)
+
++	bne endproz
+	jsr aside		; wenn equal: "Aside"
+
+endproz	jsr gd_spron	; Abschluss: Mauszeiger wieder an
+	jsr clrch		; File 12 schließen
 	lda #12
 -	jsr close
 	sec
 	rts
 
-closesrc	lda #13
+closesrc	lda #13		; File 13 (Readfile) schließen
 	bne -
 
-above	jsr opensrc	; deal first file
+; ----------------------------------------- Add File Below
+
+below	jsr opensrc1	; open first file for read
+	jsr tcopy		; .x=0, init activity output
+	iny
+	sty adcnt		; .y=1
+	jsr initcnts
+
 -	jsr setcnt	; Lesevektor setzen
-	ldx #13
+	ldx #13		; target: 13,dr,13,"readfile"
 	jsr chkin
-	jsr readline1
-	ldx #12
+	jsr readline1	; read one block line
+	ldx #12		; target: 12,dr,12,"resultfile"
 	jsr ckout
-	jsr writeline
-	dec blines
+	jsr writeline	; write this block line to resultfile
+	dec blines	; count block lines
 	bne -
-	jsr flush
-	ldx #13
+
+	jsr flush		; flush last compress record
+	ldx #13		; skip file signature from readfile ($ad)
 	jsr chkin
 	jsr basin
-	jsr closesrc
+	jsr closesrc	; close readfile
 
-	inc fcnt		; deal second file
-	lda fcnt
+	inc fcnt
+	lda fcnt		; open second file
 	cmp max
-	bcc above
-	ldx #12
+	bcc below		; and loop
+
+--	ldx #12		; then: add signature ($ad) to resultfile
 	jsr ckout
 	lda #indicator
 	jsr bsout
-	rts
+	rts		; finished
+
+; ----------------------------------------- Add File Aside
+
+aside	jsr opensrc1	; open first file for read (13)
+	jsr opensrc2	; open second file for read (14)
+	jsr tcopy		; .x=0, init activity output
+	iny
+	sty adcnt		; .y=1
+	jsr initcnts
+
+-	jsr setcnt	; Lesevektor setzen, Puffer löschen
+	ldx #13		; target: 13,dr,13,"readfile1"
+	jsr chkin
+	jsr readline1	; read block line left image
+	ldx #12		; target: 12,dr,12,"resultfile"
+	jsr ckout
+	jsr writeline	; write this block line to resultfile
+
+	inc fcnt
+	jsr setcnt2
+	dec fcnt
+
+	ldx #14		; target: 14,dr,14,"readfile2"
+	jsr chkin
+	jsr readline2	; read block line right image
+	ldx #12		; target: 12,dr,12,"resultfile"
+	jsr ckout
+	jsr writeline	; write this block line to resultfile
+
+	dec blines	; count block lines
+	bne -
+
+	jsr flush		; flush last write compress record
+	jsr closesrc	; close readfiles
+	lda #14
+	jsr endproz+8
+	bcs --		; .c=1 (immer)
 
 ; ----------------------------------------- Event: Change Mode
 
@@ -432,7 +492,7 @@ evmode	ldx mode
 	ora #$30
 	sta maxtx
 
-	lda numfiles	; bei Start: nichts tun
+	lda numfiles	; bei Modulstart: nichts tun
 	beq +++
 
 	cmp max		; Höchstzahl Bilder erreicht?
@@ -463,7 +523,7 @@ evnameclp	lda clipnlen
 	beq ++
 	pha
 	ldx #11
-	lda #$20
+	lda #$20		; clear names
 -	sta cliptx,x
 	sta clipdname,x
 	sta clipsname,x
@@ -472,7 +532,7 @@ evnameclp	lda clipnlen
 	pla
 	tax
 -	dex
-	lda ls_nambuf,x
+	lda ls_nambuf,x	; skip trailing spaces
 	cmp #$20
 	beq -
 	inx
@@ -482,12 +542,12 @@ evnameclp	lda clipnlen
 	pha
 	tax
 	bne +
--	lda ls_nambuf,x
-	sta clipdname,x
+-	lda ls_nambuf,x	; set new name
+	sta clipdname,x	; in PETSCII...
 	sta sc_movetab,x
 +	dex
 	bpl -
-	jsr gd_cnvbc
+	jsr gd_cnvbc	; and in Screencode
 	pla
 	tax
 	bne +
@@ -501,9 +561,9 @@ evnameclp	lda clipnlen
 	
 ; ----------------------------------------------------- Blink the Border
 
-fail	ldy #2
+fail	ldy #2		; red
 	!by $2c
-warn	ldy #5
+warn	ldy #5		; green
 graphon	lda rahmen	; save border color
 	pha
 	sty rahmen	; set new color (in .y, e.g. "2" for red)
@@ -514,7 +574,7 @@ graphon	lda rahmen	; save border color
 	clc
 	rts
 
-; ----------------------------------------- Store Filenames
+; ----------------------------------------- Store Filenames to Buffer
 
 setnames	tax
 	clc
@@ -542,7 +602,7 @@ setnums	lda max
 	sta ttx
 	rts
 
-; ----------------------------------------- 
+; ----------------------------------------- Output width
 
 setwid	jsr times8
 	jsr cnvwa
@@ -554,7 +614,7 @@ setwid	jsr times8
 	bpl -
 	rts
 
-; ----------------------------------------- 
+; ----------------------------------------- Output height
 
 sethgt	jsr times8
 	jsr cnvwa
@@ -566,24 +626,40 @@ sethgt	jsr times8
 	bpl -
 	rts
 
-; ----------------------------------------- 
+; ----------------------------------------- Set counters and clear read buffer
 
 setcnt	ldy fcnt
 	beq +
 	sec
 	lda width
 	sbc wids,y
-	beq +
-	sta skip
-+	lda wids,y
+	sta wskip
+	lda wids
+	jsr times32
+	sta bwidth	; hi merken für 2. Durchgang
+
+setcnt2	ldy scndfile
+	lda wids,y
+	jsr times32
+	sta bcnt3+1
+	stx bcnt3
+
+	ldy fcnt
++	lda wids,y	; dann Zähler setzen (für File1 und Writefile)
 	jsr times32
 	sta bcnt2+1
 	stx bcnt2
 	sta ls_vekta8+1	; Länge als 4Bit-Zähler
 	stx ls_vekta8
+	
+	bit modes+1	; Mode: Below?
+	bpl clbuffer	; no
+	cpy #0		; second pass?
+	beq clbuffer	; no
+	lda bwidth	; else: set correct width
 
-clbuffer	pha		; Hi ist Anzahl Pages (minus 1)
-	jsr setvecs
+clbuffer	pha		; .a: Hi ist Anzahl Pages (minus 1)
+	jsr setvecs	; Zeiger setzen
 	sta dst
 	stx dst+1
 	ldy #0		; zum Löschen
@@ -596,14 +672,16 @@ clbuffer	pha		; Hi ist Anzahl Pages (minus 1)
 	bne -
 	inc dst+1
 	dex		; count pages
-	bne -
-	
+	bne -		; danach Zeiger neu setzen:
+
 setvecs	lda #<rendered	; Bufferstart
 	ldx #>rendered
 	sta sc_vekt20
 	stx sc_vekt20+1
 	sta sc_texttab
 	stx sc_texttab+1
+	sta src
+	stx src+1
 	rts
 
 ; -------------------------------------------------------------- Filehandling
@@ -649,7 +727,7 @@ err8 	sec
 
 ; ------------------------------------------------ Open Source
 
-sopen	lda #13		; 13,drive,13
+sopen	lda fnum		; 13,drive,13 (read1) or 14,dr,14 (read2)
 	tay 
 	ldx sdrive
 	beq err8
@@ -660,17 +738,34 @@ sopen	lda #13		; 13,drive,13
 	jsr filnam
 	jmp copen
 
-; ----------------------------------------- 
+; ----------------------------------------- Get Parameters for Readfiles an OPEN
 
-opensrc	ldy fcnt
+opensrc2	inc fnum
+	inc fcnt
+	jsr opensrc1
+	sec
+	lda hgts
+	sbc hgts+1
+	sta hskip
+	beq +
+	inc hskip
++	dec fnum
+	dec fcnt
+	rts
+
+opensrc1	ldy fcnt
 	lda drives,y
 	sta sdrive
 	lda types,y
 	and #$0f
 	sta whichf2
 	lda hgts,y
-	sta blines
-	lda nlens,y
+	bit modes+1
+	bmi +
+	cmp hgts
+	bne ++
++	sta blines
+++	lda nlens,y
 	sta ls_temp
 	lda modes+1
 	sta wheref2
@@ -686,7 +781,7 @@ opensrc	ldy fcnt
 	sta src+1
 
 	jsr sopen
-	ldx #13
+	ldx fnum
 	jsr chkin
 
 	lda whichf2
@@ -697,21 +792,24 @@ opensrc	ldy fcnt
 -	jsr basin		; skip file header
 	dex
 	bne -
-	jsr tcopy
-	iny
-	sta adcnt
+	rts
 
-	lda #0		; Packzähler auf 0
+; ----------------------------------------- Init File Counters
+
+initcnts	lda #0		; Packzähler auf 0
 	sta counter
 	sta counter+1
 	sta cnt
 	sta cnt+1
+	sta cnt2
+	sta cnt2+1
 	sta byte
 	sta gbyte
-	sta skip
+	sta rbyte
+	sta wskip
 	rts
 
-; ----------------------------------------- 
+; ----------------------------------------- Get File Parameters
 
 touchfile	sta ls_temp	; open selected file
 	lda #>ls_nambuf
@@ -760,13 +858,13 @@ touchfile	sta ls_temp	; open selected file
 	lda #0
 	rts
 
-; ----------------------------------------- 
+; ----------------------------------------- Read one byte
 
 onebyte	jsr basin
 	ldx status
 	rts
 
-; ------------------------------------------------ Compress
+; ------------------------------------------------ Compress 4Bit
 
 flush	lda byte
 	eor #$ff
@@ -804,9 +902,9 @@ wl4	jsr p256
 	dec cnt
 wl3	rts
 
-; ----------------------------------------- Decompress
+; ----------------------------------------- Decompress 4Bit
 
-read	lda counter	; repeated byte?
+read1	lda counter	; repeated byte?
 	ora counter+1
 	bne getit2	; yes, re-get value
 
@@ -833,24 +931,62 @@ rb4	dec counter
 	lda gbyte		; re-get byte
 	rts
 
-; ----------------------------------------- 
+; ----------------------------------------- Decompress 4Bit
 
-readline2	lda wheref2
-	beq +
-readline1	ldy #0
-	jsr read
+read2	lda cnt2		; repeated byte?
+	ora cnt2+1
+	bne getit22	; yes, re-get value
+
+	inc cnt2		; no, counter to 1
+	jsr basin		; get 1 byte
+	cmp #indicator	; compression flag? (=$ad)
+	bne getit21	; no
+
+	jsr basin		; get counter
+	sta cnt2
+	beq rb22		; $00 equals 256 bytes
+	lda #0
+	beq rb23
+rb22	lda #1
+rb23	sta cnt2+1
+	jsr basin		; get byte to compress
+
+getit21	sta rbyte		; and store
+
+getit22	lda cnt2		; count repetition
+	bne rb24
+	dec cnt2+1
+rb24	dec cnt2
+	lda rbyte		; re-get byte
+	rts
+
+; ----------------------------------------- Read one blockline
+
+readline2	ldy #0		; read for "aside"
+	ldx blines
+	cpx hskip
+	bcc +
+	jsr read2
+	sta (src),y
++	jsr cou0
+	bne readline2
+	rts
+
+readline1	ldy #0		; read for "below"
+	jsr read1
 	sta (sc_vekt20),y
 	jsr count
 	bne readline1
-	lda skip
+
+	lda wskip		; wenn zweites File eine andere Breite hat:
 	beq +
-	lda wids
+	lda wids		; anpassen (korrigieren) fürs Wegschreiben
 	jsr times32
 	sta bcnt2+1
 	stx bcnt2
 +	rts
 
-; ----------------------------------------- 
+; ----------------------------------------- Write one blockline
 
 writeline	ldy #0
 	lda (sc_texttab),y
@@ -902,7 +1038,7 @@ ag0	dey		; auf 12 verkürzen
 
 ; ------------------------------------------------ Counters
 
-count	inc sc_vekt20
+count	inc sc_vekt20	; readfile 1
 	bne cou6
 	inc sc_vekt20+1
 cou6	lda ls_vekta8
@@ -913,7 +1049,18 @@ cou7	dec ls_vekta8
 	ora ls_vekta8+1
 	rts
 
-cou2	inc sc_texttab
+cou0	inc src		; readfile 2
+	bne cou1
+	inc src+1
+cou1	lda bcnt3
+	bne cou8
+	dec bcnt3+1
+cou8	dec bcnt3
+	lda bcnt3
+	ora bcnt3+1
+	rts
+	
+cou2	inc sc_texttab	; writefile
 	bne cou5
 	inc sc_texttab+1
 cou5	lda bcnt2
@@ -964,7 +1111,7 @@ getclip	lda #<evcancel	; patch Filerequester
 	lda ls_flen	; plus filename at ls_nambuf
 	rts
 
-; ----------------------------------------- 
+; ----------------------------------------- Save name of current image
 
 swappname	ldx #0
 -	ldy clipsname,x
@@ -991,7 +1138,7 @@ undo	jsr initreu
 	stx rm_werte+1
 	ldx #>undorend
 	stx rm_werte+3
-	lda #<8000
+	lda #<8000	; only bitmap!
 	ldx #>8000
 	sta rm_werte+5
 	stx rm_werte+6
@@ -1010,7 +1157,7 @@ sl0	sta rm_werte,x	; $00, $c0, $00, $00, 0, 0, 0
 	sta rm_werte+1
 	rts
 
-; ----------------------------------------- 
+; ----------------------------------------- Make digits from integers
 
 cnvwa	sta mantisse	; hi
 	stx mantisse+1	; lo
@@ -1028,7 +1175,7 @@ cnvwa	sta mantisse	; hi
 	dec pport
 	rts
 
-; ----------------------------------------- 
+; ----------------------------------------- Make rightbound
 
 rightb	ldy #5		; ab Stelle 4 nach $00 suchen
 -	dey
@@ -1043,7 +1190,7 @@ rightb	ldy #5		; ab Stelle 4 nach $00 suchen
 	bpl -
 	rts
 
-; ----------------------------------------- 
+; ----------------------------------------- Value times 8
 
 times8	ldx #0		; value in .a
 	stx dst+1
@@ -1059,7 +1206,7 @@ times8	ldx #0		; value in .a
 	ldx dst
 	rts
 
-; ----------------------------------------- 
+; ----------------------------------------- Value times 32
 
 times32	ldx #0		; value in .a
 	stx dst+1
@@ -1168,14 +1315,13 @@ patch	!wo 0
 list	!wo 0
 numfiles	!by 0
 max	!by 0
-f1cnt	!wo 0
-f2cnt	!wo 0
 sdrive	!by 0
 ddrive	!by 0
 whichf2	!by 0
 wheref2	!by 0
 width	!by 0
 height	!by 0
+bwidth	!by 0
 cntwert	!by 200
 adcnt	!by 0
 mode	!by $ff
