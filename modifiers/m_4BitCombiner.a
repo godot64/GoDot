@@ -10,7 +10,10 @@
 ;   Module to add two clips to one
 ;
 ;  1.00, 26.06.18: first release, finished function "below"
-;  1.01, 29.06.18: continued work
+;  1.01, 29.06.18: continued work,
+;                  stage 2: "below" and "aside" working
+;  1.02, 02.07.18: continued work,
+;                  final stage: "both" working
 ;
 ; ----------------------------------------- 
 
@@ -49,6 +52,7 @@
 	rendered		= $2000
 	undorend		= $8d00
 	clip1		= $cd00
+	clip2		= clip1+16
 	nlens		= clip1+64
 	drives		= nlens+4
 	wids		= drives+4
@@ -69,8 +73,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "Concat 2-4 4bits"
-	!tx "1.01"
-	!tx "29.06.18"
+	!tx "1.02"
+	!tx "02.07.18"
 	!tx "A.Dettke        "
 
 ; ----------------------------------------- Main
@@ -93,7 +97,7 @@ start	lda rm_ramvec	; Device eingebunden?
 	ldy loadpatch+1
 	stx patch
 	sty patch+1
-	ldx #4		; Systempatch für GoDot unter v1.32
+	ldx #4		; Systempatch für GoDot <v1.32
 -	lda syspatch,x
 	sta cancpatch,x
 	dex
@@ -288,11 +292,10 @@ evattclip	lda numfiles
 	beq +		; mode is "aside"?
 	bmi ++		; or "below"?
 
-	cpx #2		; nein ("both"), Bild 3?
+	cpx #2		; nein ("both"), jetzt Bild 3?
 	bne +
 	lda modes+1	; ja, wie war Bild 2?
-	beq ++		; aside, dann Höhe anpassen
-	bpl ++		; both, auch Höhe anpassen
+	bpl ++		; aside/both, dann Höhe anpassen
 
 +	cpx #3		; Bild 4: nichts tun
 	bcs +++
@@ -358,6 +361,8 @@ evconcat	jsr putclip	; open filerequester for destination file
 	jsr bsout		; Origin schreiben (0,0)
 	jsr bsout
 	sta fcnt
+	sta numfiles
+	sta twowids
 	sta scndfile
 	inc scndfile
 	lda width		; neue Breite schreiben
@@ -366,29 +371,34 @@ evconcat	jsr putclip	; open filerequester for destination file
 	jsr bsout
 	jsr gd_clrms	; Gauge vorbereiten
 
-	lda modes+1	; Reihenfolge der Files (hier: $ff, $00, $01)
+	lda max		; "Both"?
+	cmp #4
+	bne +		; nein
+	jsr both
+	bcc endproz
+
++	lda modes+1	; Reihenfolge der Files (hier: $ff, $00, $01)
 	bpl +
 
 	jsr below		; wenn negativ: "Below"
 	bcc endproz	; .c=0 (immer)
 
-+	bne endproz
-	jsr aside		; wenn equal: "Aside"
++	jsr aside		; wenn equal: "Aside"
 
 endproz	jsr gd_spron	; Abschluss: Mauszeiger wieder an
-	jsr clrch		; File 12 schließen
+	jsr clrch		; File 12 (write) schließen
 	lda #12
--	jsr close
+close2	jsr close
 	sec
 	rts
 
-closesrc	lda #13		; File 13 (Readfile) schließen
-	bne -
+closesrc	lda #13		; File 13 (read) schließen
+	bne close2
 
 ; ----------------------------------------- Add File Below
 
 below	jsr opensrc1	; open first file for read
-	jsr tcopy		; .x=0, init activity output
+	jsr tcopy		; .x=0; init activity output
 	iny
 	sty adcnt		; .y=1
 	jsr initcnts
@@ -411,10 +421,10 @@ below	jsr opensrc1	; open first file for read
 
 	inc fcnt
 	lda fcnt		; open second file
-	cmp max
+	cmp max		; (of 2, max 4)
 	bcc below		; and loop
 
---	ldx #12		; then: add signature ($ad) to resultfile
+signit	ldx #12		; then: add signature ($ad) to resultfile
 	jsr ckout
 	lda #indicator
 	jsr bsout
@@ -427,23 +437,23 @@ aside	jsr opensrc1	; open first file for read (13)
 	jsr tcopy		; .x=0, init activity output
 	iny
 	sty adcnt		; .y=1
-	jsr initcnts
+	jsr initcnts	; init counters
 
 -	jsr setcnt	; Lesevektor setzen, Puffer löschen
 	ldx #13		; target: 13,dr,13,"readfile1"
 	jsr chkin
-	jsr readline1	; read block line left image
+	jsr readline1	; read one block line of left image
 	ldx #12		; target: 12,dr,12,"resultfile"
 	jsr ckout
 	jsr writeline	; write this block line to resultfile
 
 	inc fcnt
-	jsr setcnt2
+	jsr setcnt	; Lesevektor setzen für readfile2, Puffer löschen
 	dec fcnt
 
 	ldx #14		; target: 14,dr,14,"readfile2"
 	jsr chkin
-	jsr readline2	; read block line right image
+	jsr readline2	; read one block line of right image
 	ldx #12		; target: 12,dr,12,"resultfile"
 	jsr ckout
 	jsr writeline	; write this block line to resultfile
@@ -452,10 +462,26 @@ aside	jsr opensrc1	; open first file for read (13)
 	bne -
 
 	jsr flush		; flush last write compress record
-	jsr closesrc	; close readfiles
-	lda #14
-	jsr endproz+8
-	bcs --		; .c=1 (immer)
+	jsr closesrc	; close readfile 13...
+	lda #14		; ...and 14
+	jsr close2
+	lda max		; "Both"?
+	cmp #4
+	bne signit	; no, sign and finish
+	rts
+
+; ----------------------------------------- Add both: Aside and Below
+
+both	jsr xchange	; care: "both" after "below"?
+
+	jsr aside		; perform "both"
+	ldx #2
+	stx fcnt
+	inx
+	stx scndfile
+	jsr aside
+
+	jmp signit
 
 ; ----------------------------------------- Event: Change Mode
 
@@ -563,7 +589,7 @@ evnameclp	lda clipnlen
 
 fail	ldy #2		; red
 	!by $2c
-warn	ldy #5		; green
+warn	ldy #5		; green (unused)
 graphon	lda rahmen	; save border color
 	pha
 	sty rahmen	; set new color (in .y, e.g. "2" for red)
@@ -576,23 +602,23 @@ graphon	lda rahmen	; save border color
 
 ; ----------------------------------------- Store Filenames to Buffer
 
-setnames	tax
+setnames	tax		; laufende Nummer
 	clc
 	lda #0
--	adc #16
+-	adc #16		; mal 16
 	dex
 	bne -
 	tax
 	dex
 	ldy #15
--	lda ls_nambuf,y
+-	lda ls_nambuf,y	; Namen ablegen (max 4)
 	sta clip1,x
 	dex
 	dey
 	bpl -
 	rts
 
-; ----------------------------------------- Output counter
+; ----------------------------------------- Output: counter
 
 setnums	lda max
 	jsr gd_xcnvdez
@@ -602,7 +628,7 @@ setnums	lda max
 	sta ttx
 	rts
 
-; ----------------------------------------- Output width
+; ----------------------------------------- Output: width
 
 setwid	jsr times8
 	jsr cnvwa
@@ -614,7 +640,7 @@ setwid	jsr times8
 	bpl -
 	rts
 
-; ----------------------------------------- Output height
+; ----------------------------------------- Output: height
 
 sethgt	jsr times8
 	jsr cnvwa
@@ -626,38 +652,111 @@ sethgt	jsr times8
 	bpl -
 	rts
 
+; ----------------------------------------- Blines
+
+setblines	lda max
+	cmp #4
+	beq ++
+
+-	lda hgts
+	sta blines
+	lda hgts,y
+	tay
+	lda modes+1
+	eor modes+2
+	jmp sbl0
+
+++	cpy #2
+	bcc -
+	lda hgts+2
+	sta blines
+	lda hgts,y
+	tay
+	lda modes+1
+	eor modes+2
+
+sbl0	bmi +
+	cpy blines
+	bne ++
++	sty blines
+++	rts
+
+; ----------------------------------------- Hskip
+
+sethskip	ldx #0		; .y: 1 or 3
+	lda max
+	cmp #4
+	beq +
+
+-	sec
+	lda hgts
+	sbc hgts+1
+	jmp ssk0
+
++	cpy #2
+	bcc -
+	lda hgts+2
+	sbc hgts+3
+ssk0	bcc +
+	beq +
+	tax
+	inx
++	stx hskip
+	rts
+
+; ----------------------------------------- Adapt Width
+
+adaptwid	ldx #0
+	ldy fcnt
+	clc
+	lda wids,y	; addiere die unteren beiden Breiten
+	adc wids+1,y
+	sta bwidth
+	lda width		; und vergleiche mit der tatsächlichen Breite
+	cmp bwidth
+	beq ++		; gleich?
+	bcs +
+	lda bwidth	; nein, größer (.c=0)
++	sbc wids,y	; nein, kleiner, dann erste abziehen
+	tax
+	inx
+++	stx bwidth	; dann neue Breite
+	stx wskip		; und Flag
+	rts
+
 ; ----------------------------------------- Set counters and clear read buffer
 
-setcnt	ldy fcnt
-	beq +
-	sec
-	lda width
-	sbc wids,y
-	sta wskip
-	lda wids
-	jsr times32
-	sta bwidth	; hi merken für 2. Durchgang
-
-setcnt2	ldy scndfile
+setcnt 	ldy scndfile	; second file (Aside & Both)
 	lda wids,y
 	jsr times32
-	sta bcnt3+1
+	sta bcnt3+1	; set counter for file 2
 	stx bcnt3
+	cpy #3
+	bne +
+	jsr adaptwid	; adapt width on last file if necessary (Both)
 
-	ldy fcnt
-+	lda wids,y	; dann Zähler setzen (für File1 und Writefile)
++	ldy fcnt
+	lda wids,y	; dann Zähler setzen (für File1 und Writefile)
+	jsr times32
+	sta ls_vekta8+1	; length Read
+	stx ls_vekta8
+	sta bcnt2+1	; length Write (gets probably changed on last file)
+	stx bcnt2
+
+	cpy #1		; 2nd pass?
+	bne +
+	lda modes+1	; below?
+	bpl +
+	lda max
+	cmp #2
+	bne +
+	lda wids		; so: change write length
 	jsr times32
 	sta bcnt2+1
 	stx bcnt2
-	sta ls_vekta8+1	; Länge als 4Bit-Zähler
-	stx ls_vekta8
 	
-	bit modes+1	; Mode: Below?
-	bpl clbuffer	; no
-	cpy #0		; second pass?
-	beq clbuffer	; no
-	lda bwidth	; else: set correct width
-
++	lda width		; Puffer auf max. Größe
+	
 clbuffer	pha		; .a: Hi ist Anzahl Pages (minus 1)
 	jsr setvecs	; Zeiger setzen
 	sta dst
@@ -666,12 +765,13 @@ clbuffer	pha		; .a: Hi ist Anzahl Pages (minus 1)
 	pla
 	tax
 	inx		; Anzahl Pages korrigieren (plus 1)
+	beq +		; 255 abfangen
 	tya
 -	sta (dst),y	; clear page
 	iny
 	bne -
 	inc dst+1
-	dex		; count pages
++	dex		; count pages
 	bne -		; danach Zeiger neu setzen:
 
 setvecs	lda #<rendered	; Bufferstart
@@ -683,6 +783,61 @@ setvecs	lda #<rendered	; Bufferstart
 	sta src
 	stx src+1
 	rts
+
+; ----------------------------------------- Exchange file parameters
+
+xchange	lda modes+1	; Modus "Below"? 
+	bpl +
+
+	ldy #31		; ja, Austausch:
+	ldx #15		; file, index 1 <-> file, index 2
+-	lda clip2,y
+	pha
+	lda clip2,x
+	sta clip2,y
+	pla
+	sta clip2,x
+	dey
+	dex
+	bpl -
+
+	lda nlens+1
+	tax
+	lda nlens+2
+	sta nlens+1
+	stx nlens+2
+
+	lda drives+1
+	tax
+	lda drives+2
+	sta drives+1
+	stx drives+2
+
+	lda wids+1
+	tax
+	lda wids+2
+	sta wids+1
+	stx wids+2
+
+	lda hgts+1
+	tax
+	lda hgts+2
+	sta hgts+1
+	stx hgts+2
+
+	lda types+1
+	tax
+	lda types+2
+	sta types+1
+	stx types+2
+
+	lda modes+1
+	tax
+	lda modes+2
+	sta modes+1
+	stx modes+2
+
++	rts
 
 ; -------------------------------------------------------------- Filehandling
 
@@ -738,18 +893,16 @@ sopen	lda fnum		; 13,drive,13 (read1) or 14,dr,14 (read2)
 	jsr filnam
 	jmp copen
 
-; ----------------------------------------- Get Parameters for Readfiles an OPEN
+; ----------------------------------------- Get Parameters for Readfiles and OPEN
 
 opensrc2	inc fnum
 	inc fcnt
 	jsr opensrc1
-	sec
-	lda hgts
-	sbc hgts+1
-	sta hskip
-	beq +
-	inc hskip
-+	dec fnum
+
+	ldy fcnt
+	jsr sethskip
+
+	dec fnum
 	dec fcnt
 	rts
 
@@ -759,17 +912,12 @@ opensrc1	ldy fcnt
 	lda types,y
 	and #$0f
 	sta whichf2
-	lda hgts,y
-	bit modes+1
-	bmi +
-	cmp hgts
-	bne ++
-+	sta blines
-++	lda nlens,y
+	lda nlens,y
 	sta ls_temp
-	lda modes+1
-	sta wheref2
-	clc
+
+	jsr setblines	; set height
+
+	clc		; retrieve filename
 	lda #$00
 	ldy fcnt
 -	dey
@@ -784,12 +932,12 @@ opensrc1	ldy fcnt
 	ldx fnum
 	jsr chkin
 
-	lda whichf2
+	lda whichf2	; skip file header
 	beq +
 	ldx #8
 	!by $2c
 +	ldx #4
--	jsr basin		; skip file header
+-	jsr basin
 	dex
 	bne -
 	rts
@@ -972,7 +1120,7 @@ readline2	ldy #0		; read for "aside"
 	bne readline2
 	rts
 
-readline1	ldy #0		; read for "below"
+readline1	ldy #0		; read for "below" and "aside"
 	jsr read1
 	sta (sc_vekt20),y
 	jsr count
@@ -980,7 +1128,7 @@ readline1	ldy #0		; read for "below"
 
 	lda wskip		; wenn zweites File eine andere Breite hat:
 	beq +
-	lda wids		; anpassen (korrigieren) fürs Wegschreiben
+	lda bwidth	; anpassen (korrigieren) fürs Wegschreiben
 	jsr times32
 	sta bcnt2+1
 	stx bcnt2
@@ -1022,7 +1170,7 @@ ag2	pla
 ag5	ldx #3		; nein, ".4bt" anhängen
 ag1	lda sigtx,x
 ag3	sta ls_nambuf,y
-	lda sigtxs,x	; auch fär Image Info
+	lda sigtxs,x	; auch für Image Info
 	sta ls_lastname,y
 	iny
 	dex
@@ -1094,7 +1242,7 @@ putclip	jsr swappname
 	stx loadpatch+1
 	jsr swappname
 	lda ls_flen	; plus filename at ls_nambuf
-+	rts
+	rts
 
 ; ----------------------------------------- Open Filerequester for Load
 
@@ -1315,10 +1463,10 @@ patch	!wo 0
 list	!wo 0
 numfiles	!by 0
 max	!by 0
+twowids	!by 0
 sdrive	!by 0
 ddrive	!by 0
 whichf2	!by 0
-wheref2	!by 0
 width	!by 0
 height	!by 0
 bwidth	!by 0
