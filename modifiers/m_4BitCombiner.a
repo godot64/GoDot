@@ -12,8 +12,10 @@
 ;  1.00, 26.06.18: first release, finished function "below"
 ;  1.01, 29.06.18: continued work,
 ;                  stage 2: "below" and "aside" working
-;  1.02, 02.07.18: continued work,
+;  1.02, 22.07.18: continued work,
 ;                  final stage: "both" working
+;                  known bug: if both images on "Both" in lower row
+;                  are wider than WIDTH they will display scrambled
 ;
 ; ----------------------------------------- 
 
@@ -41,6 +43,9 @@
 	blines		= $46	; Blockzeilenzähler
 	wskip		= $47	; Flag für falsche Breite
 	hskip		= $48	; Flag für falsche Höhe
+	width		= $49	; Gesamtbreite
+	height		= $4a	; Gesamthöhe
+	adapted		= $4b	; Flag für zu große Breite bei Bild 3
 
 	offx		= ls_adrmisc
 	offy		= offx+1
@@ -74,7 +79,7 @@ header	jmp start
 	!wo 0
 	!tx "Concat 2-4 4bits"
 	!tx "1.02"
-	!tx "02.07.18"
+	!tx "22.07.18"
 	!tx "A.Dettke        "
 
 ; ----------------------------------------- Main
@@ -105,8 +110,15 @@ start	lda rm_ramvec	; Device eingebunden?
 	jsr chgdrv	; Bootdrive sicherstellen
 	jsr makechr	; Listboxzeichen erzeugen
 
+	lda #>clip1	; clear file buffers
+	sta dst+1
+	lda #0
+	sta adapted
+	sta dst
+	jsr clrbufs
+
 	jsr switchoff	; init gui
-	jsr setnums	; Zahlen eintragen
+	jsr setnums	; Zahlen in Screenlist eintragen
 	jsr requester	; Gui anzeigen
 	ldx #1		; start mode: "below" ($ff)
 	stx mode
@@ -127,7 +139,7 @@ start	lda rm_ramvec	; Device eingebunden?
 
 ; ----------------------------------------- Event: Leave Module
 
-evcancel	sec		; leave module
+evcancel	sec		; leave gd_eloop
 	rts
 
 ; --------------------------- Bootdrive sicherstellen
@@ -362,7 +374,6 @@ evconcat	jsr putclip	; open filerequester for destination file
 	jsr bsout
 	sta fcnt
 	sta numfiles
-	sta twowids
 	sta scndfile
 	inc scndfile
 	lda width		; neue Breite schreiben
@@ -434,7 +445,8 @@ signit	ldx #12		; then: add signature ($ad) to resultfile
 
 aside	jsr opensrc1	; open first file for read (13)
 	jsr opensrc2	; open second file for read (14)
-	jsr tcopy		; .x=0, init activity output
+	ldx #0
+	jsr tcopy		; init activity output
 	iny
 	sty adcnt		; .y=1
 	jsr initcnts	; init counters
@@ -652,11 +664,14 @@ sethgt	jsr times8
 	bpl -
 	rts
 
-; ----------------------------------------- Blines
+; ----------------------------------------- Set Blines
 
-setblines	lda max
+setblines	lda modes+2	; .y: 0 or 2
+	bmi sbl1
+
+	lda max
 	cmp #4
-	beq ++
+	beq +
 
 -	lda hgts
 	sta blines
@@ -666,7 +681,7 @@ setblines	lda max
 	eor modes+2
 	jmp sbl0
 
-++	cpy #2
++	cpy #2
 	bcc -
 	lda hgts+2
 	sta blines
@@ -681,7 +696,17 @@ sbl0	bmi +
 +	sty blines
 ++	rts
 
-; ----------------------------------------- Hskip
+sbl1	tya
+	bne ++
+	lda hgts
+	bne +
+++	cpy #2
+	bne ++
+	lda hgts+2
++	sta blines
+++	rts
+
+; ----------------------------------------- Set Hskip
 
 sethskip	ldx #0		; .y: 1 or 3
 	lda max
@@ -706,41 +731,63 @@ ssk0	bcc +
 
 ; ----------------------------------------- Adapt Width
 
-adaptwid	ldx #0
-	ldy fcnt
-	clc
-	lda wids,y	; addiere die unteren beiden Breiten
-	adc wids+1,y
-	sta bwidth
-	lda width		; und vergleiche mit der tatsächlichen Breite
-	cmp bwidth
-	beq ++		; gleich?
+adaptwid1	ldx #0
+	stx adapted
+	lda width
+	cmp wids+2
 	bcs +
-	lda bwidth	; nein, größer (.c=0)
-+	sbc wids,y	; nein, kleiner, dann erste abziehen
-	tax
-	inx
-++	stx bwidth	; dann neue Breite
+	sec
+	sbc wids+3
+	bcs ++
+	lda width		; wenn beide zu groß: halbieren
+	lsr
+++	sta adapted
+	jmp aw0
++	rts
+
+adaptwid2	ldx #0
+	clc
+	lda wids+2	; addiere die unteren beiden Breiten
+	adc wids+3
+	sta bwidth
+	lda width	
+	cmp wids+3	; vergleiche mit den Einzelbreiten
+	bcc +		; wenn die größer: Vorgabebreite
+	cmp bwidth	; und vergleiche mit der Summe
+	beq ++		; wenn gleich: nichts tun
++	sec
+	sbc wids+2	; sonst: Bild3 abziehen
+aw0	bpl +
+	lda #0
++	tax
+++	stx bwidth	; als neue Breite
 	stx wskip		; und Flag
 	rts
 
 ; ----------------------------------------- Set counters and clear read buffer
 
-setcnt 	ldy scndfile	; second file (Aside & Both)
+setcnt 	ldy scndfile	; second file (on Aside & Both)
 	lda wids,y
 	jsr times32
-	sta bcnt3+1	; set counter for file 2
+	sta bcnt3+1	; set counter for image 2 (or 4)
 	stx bcnt3
-	cpy #3
+
+	lda fcnt
+	cmp #2		; on image 3: adapt width (if necessary)
 	bne +
-	jsr adaptwid	; adapt width on last file if necessary (Both)
+	jsr adaptwid1
++	cpy #3		; on image 4: adapt width (if necessary)
+	bne +
+	lda adapted
+	bne +
+	jsr adaptwid2
 
 +	ldy fcnt
 	lda wids,y	; dann Zähler setzen (für File1 und Writefile)
 	jsr times32
-	sta ls_vekta8+1	; length Read
+	sta ls_vekta8+1	; length on Read
 	stx ls_vekta8
-	sta bcnt2+1	; length Write (gets probably changed on last file)
+	sta bcnt2+1	; length on Write (gets changed on Both if adapted)
 	stx bcnt2
 
 	cpy #1		; 2nd pass?
@@ -750,7 +797,7 @@ setcnt 	ldy scndfile	; second file (Aside & Both)
 	lda max
 	cmp #2
 	bne +
-	lda wids		; so: change write length
+	lda wids		; so: change write length (on Below)
 	jsr times32
 	sta bcnt2+1
 	stx bcnt2
@@ -763,7 +810,7 @@ clbuffer	pha		; .a: Hi ist Anzahl Pages (minus 1)
 	stx dst+1
 	ldy #0		; zum Löschen
 	pla
-	tax
+clrbufs	tax
 	inx		; Anzahl Pages korrigieren (plus 1)
 	beq +		; 255 abfangen
 	tya
@@ -784,9 +831,9 @@ setvecs	lda #<rendered	; Bufferstart
 	stx src+1
 	rts
 
-; ----------------------------------------- Exchange file parameters
+; ----------------------------------------- Exchange file parameters on Both
 
-xchange	lda modes+1	; Modus "Below"? 
+xchange	lda modes+1	; only if Mode "Below"
 	bpl +
 
 	ldy #31		; ja, Austausch:
@@ -895,7 +942,7 @@ sopen	lda fnum		; 13,drive,13 (read1) or 14,dr,14 (read2)
 
 ; ----------------------------------------- Get Parameters for Readfiles and OPEN
 
-opensrc2	inc fnum
+opensrc2	inc fnum		; fcnt: 1 or 3
 	inc fcnt
 	jsr opensrc1
 
@@ -906,7 +953,7 @@ opensrc2	inc fnum
 	dec fcnt
 	rts
 
-opensrc1	ldy fcnt
+opensrc1	ldy fcnt		; fcnt: 0 or 2
 	lda drives,y
 	sta sdrive
 	lda types,y
@@ -1006,7 +1053,7 @@ touchfile	sta ls_temp	; open selected file
 	lda #0
 	rts
 
-; ----------------------------------------- Read one byte
+; ----------------------------------------- Read one byte (Header)
 
 onebyte	jsr basin
 	ldx status
@@ -1050,7 +1097,7 @@ wl4	jsr p256
 	dec cnt
 wl3	rts
 
-; ----------------------------------------- Decompress 4Bit
+; ----------------------------------------- Decompress 4Bit File 1
 
 read1	lda counter	; repeated byte?
 	ora counter+1
@@ -1079,7 +1126,7 @@ rb4	dec counter
 	lda gbyte		; re-get byte
 	rts
 
-; ----------------------------------------- Decompress 4Bit
+; ----------------------------------------- Decompress 4Bit File 2
 
 read2	lda cnt2		; repeated byte?
 	ora cnt2+1
@@ -1114,24 +1161,34 @@ readline2	ldy #0		; read for "aside"
 	ldx blines
 	cpx hskip
 	bcc +
+	lda status
+	bne +
 	jsr read2
 	sta (src),y
 +	jsr cou0
 	bne readline2
-	rts
-
-readline1	ldy #0		; read for "below" and "aside"
-	jsr read1
-	sta (sc_vekt20),y
-	jsr count
-	bne readline1
 
 	lda wskip		; wenn zweites File eine andere Breite hat:
 	beq +
-	lda bwidth	; anpassen (korrigieren) fürs Wegschreiben
+-	lda bwidth	; anpassen (korrigieren) fürs Wegschreiben
 	jsr times32
 	sta bcnt2+1
 	stx bcnt2
++	rts
+
+readline1	ldy #0		; read for "below" and "aside"
+	lda status
+	bne +
+	jsr read1
+	sta (sc_vekt20),y
++	jsr count
+	bne readline1
+
+	lda adapted	; wenn erstes File zu breit ist:
+	beq +
+	jsr -
+	lda #0
+	sta wskip
 +	rts
 
 ; ----------------------------------------- Write one blockline
@@ -1279,7 +1336,7 @@ requester	ldx #<comclplst	; then: requester
 	ldy #>comclplst
 	jmp gd_screen
 
-; ----------------------------------------- Save Rendered Bitmap
+; ----------------------------------------- Save Rendered Bitmap if REU present
 
 undo	jsr initreu
 	ldx #>rendered
@@ -1463,12 +1520,9 @@ patch	!wo 0
 list	!wo 0
 numfiles	!by 0
 max	!by 0
-twowids	!by 0
 sdrive	!by 0
 ddrive	!by 0
 whichf2	!by 0
-width	!by 0
-height	!by 0
 bwidth	!by 0
 cntwert	!by 200
 adcnt	!by 0
