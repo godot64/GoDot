@@ -1,5 +1,5 @@
 
-!src "godotlib.lib"
+!src "..\godotlib.lib"
 *= $c000
 ;	!sl "labels.txt"
 
@@ -26,7 +26,8 @@
 ;   1.34, 14.02.18: solved problem with mouse pointer set to wrong tile
 ;   1.35, 14.02.18: really solved the problem (was use of CTRL instead of CBM key!)
 ;   1.36, 03.03.18: changed navigation icons
-;   1.37, 25.03.28: activate optimal grid color on start
+;   1.37, 25.03.18: activate optimal grid color on start
+;   1.38, 23.07.18: fix gridcolor for next start
 ;
 ; ------------------------------------------------------------ 
 
@@ -64,12 +65,12 @@
 	sprites 		= $07f8	; Sprite definition pointers
 	spr255 		= $3fc0	; Spriteblock 255
 
-	sprp2 		= $d004	; spr #4 x pos
-	sprp3 		= $d006	; spr #4 x pos
+	sprp2 		= $d004	; spr #2 x pos
+	sprp3 		= $d006	; spr #3 x pos
 	sprp4 		= $d008	; spr #4 x pos
 	sprp5 		= $d00a 	; spr #5 x pos
 	sprp6 		= $d00c	; spr #6 x pos
-	sprp7 		= $d00e	; spr #7 xpos
+	sprp7 		= $d00e	; spr #7 x pos
 	sprenable 	= $d015	; spr display
 	sprxy 		= $d017	; expand spr y
 	sprmulti 		= $d01c	; multicolr
@@ -88,8 +89,8 @@
 	!wo (modend)
 	!wo 0
 	!pet "Edit 4bit pixels"
-	!pet "1.37"
-	!pet "25.03.18"
+	!pet "1.38"
+	!pet "23.07.18"
 	!pet "AD/ H.McMenamin "
 
 ; ------------------------------------------ Main
@@ -364,8 +365,12 @@ masp:	lda sprstore,x	; load sprite
 	sta sprmulti	; multi off
 	sta sprxx
 	sta sprxy
-	jsr gridcl
-	lda #$ff		; all sprites
+	lda fgrclr
+	beq +
+	jsr gridcl0
+	bne ++
++	jsr gridcl
+++	lda #$ff		; all sprites
 	sta sprites+2	; point to $ff
 	sta sprites+3
 	sta sprites+4
@@ -396,8 +401,10 @@ masp:	lda sprstore,x	; load sprite
 
 ; ------------------------------------------ grid color
 
-gridcl:	lda grclr		; colors for grid
-	sta $d029
+fixgcl:	lda grclr		; manually
+	sta fgrclr
+gridcl:	lda grclr		; colors for grid (bestcols)
+gridcl0:	sta $d029
 	sta $d02a
 	sta $d02b
 	sta $d02c
@@ -418,6 +425,7 @@ tab:	!by 0,8,16,24		; horizontal tab positions
 tabspr:	!by 0,64,128,192
 cols:	!by 0,0,0,0,0
 grclr:	!by 1
+fgrclr:	!by 0
 
 grstore:	!by $00,$00,$00,$00,$00,$00,$00,$00
 	!by $00,$00,$00,$00,$00,$00,$00,$00
@@ -642,7 +650,7 @@ pe4:	cpx #62		; "q" key
 	bne pe5
 	inc grclr		; change grid color
 	jsr tdelay
-	jsr gridcl
+	jsr fixgcl
 pe5:	cpx #37		; "k" key
 	bne pe6
 	jsr tdelay
@@ -918,7 +926,7 @@ eg1	cpx #36		; "L" (for Bottom Left)
 eg2	cpx #35		; "Q" (for change grid color)
 	bne eg31
 	inc grclr		; change grid color
-	jsr gridcl
+	jsr fixgcl
 eg31	cpx #37		; "B" (for Bottom Right)
 	beq evbotrght
 eg3	cpx #34		; "W" (for Wipe)		
