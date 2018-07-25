@@ -1,6 +1,7 @@
 
-!src "..\godotlib.lib"
-*= $c000
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
 ;	!sl "labels.txt"
 
 ; ------------------------------------------------------------ 
@@ -28,6 +29,7 @@
 ;   1.36, 03.03.18: changed navigation icons
 ;   1.37, 25.03.18: activate optimal grid color on start
 ;   1.38, 23.07.18: fix gridcolor for next start
+;   1.39, 24.07.18: solved problem /w writing to right border of canvas when clicking to far left
 ;
 ; ------------------------------------------------------------ 
 
@@ -89,8 +91,8 @@
 	!wo (modend)
 	!wo 0
 	!pet "Edit 4bit pixels"
-	!pet "1.38"
-	!pet "23.07.18"
+	!pet "1.39"
+	!pet "24.07.18"
 	!pet "AD/ H.McMenamin "
 
 ; ------------------------------------------ Main
@@ -503,7 +505,17 @@ edx3:	lda sc_keyprs	; FIRE/RETURN/STOP?
 
 	tay		; hold key
 	jsr gd_position	; where is the mouse?
-	lda commoflag	; check for CBM/Shift
+	lda spritex	; too far left?
+	cmp #25
+	bcs +
+	ora spritehi
+	eor spritex
+	beq edx1		; yes, blink and back to loop
+	lda spritex
+	cmp #25
+	bcs edx1
+
++	lda commoflag	; check for CBM/Shift
 	beq edit		; no, other key
 	ldx #0
 	stx sc_keyprs
