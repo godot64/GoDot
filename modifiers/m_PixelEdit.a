@@ -30,6 +30,7 @@
 ;   1.37, 25.03.18: activate optimal grid color on start
 ;   1.38, 23.07.18: fix gridcolor for next start
 ;   1.39, 24.07.18: solved problem /w writing to right border of canvas when clicking to far left
+;   1.40, 27.07.18: finally take account of mouse hotspot offsets
 ;
 ; ------------------------------------------------------------ 
 
@@ -57,6 +58,7 @@
 	v1buf		= $47
 	v2buf		= $48
 	cbuf		= $49
+	hotspx		= $4a
 
 	zeile		= sc_merk
 	spalte		= zeile+1
@@ -91,8 +93,8 @@
 	!wo (modend)
 	!wo 0
 	!pet "Edit 4bit pixels"
-	!pet "1.39"
-	!pet "24.07.18"
+	!pet "1.40"
+	!pet "27.07.18"
 	!pet "AD/ H.McMenamin "
 
 ; ------------------------------------------ Main
@@ -111,6 +113,10 @@ start:	jsr makech	; define new character
 	sta vertical
 	sta horizont
 	sta sc_loop	; init mem flag (to: textmem)
+	sec		; compute hotspot offset
+	lda #24
+	sbc sy_soffx
+	sta hotx
 	jsr initchooser	; set colors in color chooser
 	jsr display	; show 4Bit enlarged
 	jsr sprbox	; show spritebox
@@ -428,6 +434,7 @@ tabspr:	!by 0,64,128,192
 cols:	!by 0,0,0,0,0
 grclr:	!by 1
 fgrclr:	!by 0
+hotx	!by 0
 
 grstore:	!by $00,$00,$00,$00,$00,$00,$00,$00
 	!by $00,$00,$00,$00,$00,$00,$00,$00
@@ -505,13 +512,16 @@ edx3:	lda sc_keyprs	; FIRE/RETURN/STOP?
 
 	tay		; hold key
 	jsr gd_position	; where is the mouse?
+	clc
 	lda spritex	; too far left?
+	adc hotx
+	sta hotspx
 	cmp #25
 	bcs +
 	ora spritehi
-	eor spritex
+	eor hotspx
 	beq edx1		; yes, blink and back to loop
-	lda spritex
+	lda hotspx	; too far right?
 	cmp #25
 	bcs edx1
 
