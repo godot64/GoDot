@@ -1,5 +1,5 @@
 
-	!src "..\godotlib.lib"
+	!src "godotlib.lib"
 	*= $c000
 	!ct pet
 ;	!sl "labels.txt"
@@ -7,7 +7,7 @@
 ; ------------------------------------------------------------ 
 ;
 ; ldr.FLIGraph
-; Lader für Bilder des FLI-Editors der Demogruppe Blackmail
+; Lader fÃ¼r Bilder des FLI-Editors der Demogruppe Blackmail
 ;
 ;    1.00, 21.11.99, bugfixes
 ;    1.01, 03.03.18, process list of background colors
@@ -609,7 +609,7 @@ sloop	lda (ls_vekta8),y
 	sta sy_global,y	; nach GLOBAL
 	dey
 	bpl sloop
-	jmp sy_global	; und dann getundo ausführen:
+	jmp sy_global	; und dann getundo ausfÃ¼hren:
 
 ; -------------------------------------- 
 
@@ -617,7 +617,7 @@ getundo 	jsr gd_swapd	; Ram einblenden
 	ldx #10		; FirstInit
 	jsr rm_ramvec
 
-	ldx #1		; Flag für 4Bit-Undo setzen
+	ldx #1		; Flag fÃ¼r 4Bit-Undo setzen
 	stx rm_nextentry
 	ldx #$10		; an $1000 in REU: setzen!
 	stx rm_werte+3	; *** Fehler im Device! ***

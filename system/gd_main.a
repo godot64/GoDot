@@ -1,5 +1,5 @@
 
-!src "..\godotkernal.lib"
+!src "godotkernal.lib"
 *= $1000
 
 ; -------------------------------------------------- 
@@ -390,7 +390,7 @@ xy2spzl	sec		; subtract offset of hotspot
 
 position	ldx sy_soffy	; convert sprite position to screen position
 	stx sc_merk+1	; hotspot y (-50)
-	lda spritey-2	; v1.30: Referenz ist jetzt *weiﬂer* Mauszeiger
+	lda spritey-2	; v1.30: Referenz ist jetzt *wei√üer* Mauszeiger
 	jsr xy2spzl
 	sta sc_merk
 	ldx sy_soffx	; hotspot x (-24)

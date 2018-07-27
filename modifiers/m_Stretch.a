@@ -1,6 +1,6 @@
 
 	*= $c000
-	!src "..\godotlib.lib"
+	!src "godotlib.lib"
 	!ct pet
 ;	!sl "labels.txt"
 
@@ -266,7 +266,7 @@ update	lda #2		; das Gleiche in Pixel (Clip-Breite)
 	ldx #2		; ausgeben
 	jsr di0		; .x=0
 
-	lda sc_lastclpho	; und ebenso Clip-Höhe
+	lda sc_lastclpho	; und ebenso Clip-HÃ¶he
 	asl
 	asl
 	asl
@@ -280,7 +280,7 @@ shresult	jsr getwid	; result will be distorted?
 	jsr fac2arg
 	jsr gethgt
 	jsr argdivfac
-	lda #<fratio	; Breite:Höhe=8:5? (Richtiger Aspekt?)
+	lda #<fratio	; Breite:HÃ¶he=8:5? (Richtiger Aspekt?)
 	ldy #>fratio
 	jsr conisfac
 	beq +
@@ -314,10 +314,10 @@ shresult	jsr getwid	; result will be distorted?
 
 	dec pport
 
-	jsr settxt	; ..und für Ausgabe vorbereiten
+	jsr settxt	; ..und fÃ¼r Ausgabe vorbereiten
 	ldx xmrk
 	bmi +		; pos: Aspekt stimmt
-	lda #15		; Zeile mit Adjust-Aufforderung löschen
+	lda #15		; Zeile mit Adjust-Aufforderung lÃ¶schen
 	ldx #13
 	ldy #14
 	jsr gd_setpar	; !! mind values at adjtx !!
@@ -331,7 +331,7 @@ shresult	jsr getwid	; result will be distorted?
 di0	stx ymrk		; Index auf Zahl merken
 di4	jsr facasc	; convert fac to digits
 	jsr di1		; Ziffern holen
-	ldy ymrk		; Index zurück
+	ldy ymrk		; Index zurÃ¼ck
 	jsr movetx	; Ziffern in die Screenlist schreiben
 	jsr textout	; und ausgeben
 	clc		; im Modul bleiben
@@ -345,7 +345,7 @@ di2	dey
 	lda sy_numbers,y
 	bne di2
 
-	ldx #0		; Ziffernpuffer löschen
+	ldx #0		; Ziffernpuffer lÃ¶schen
 	lda #32
 -	sta text,x
 	inx
@@ -939,7 +939,7 @@ divit	jsr argdivfac	; dividieren
 lmultiply	jsr gethgt
 	jmp mp0
 
-multiply	jsr hgt2fac	; höhe holen
+multiply	jsr hgt2fac	; hÃ¶he holen
 mp0	jsr fac2arg	; nach arg
 	jsr cnvrio	; aspekt holen
 	jsr argmulfac	; multiplizieren mit 1.6

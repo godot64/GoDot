@@ -1,5 +1,5 @@
 
-	!src "..\godotlib.lib"
+	!src "godotlib.lib"
 	*= $c000
 
 ; --------------------------------------- 
@@ -276,7 +276,7 @@ getword	iny		; convert to digits
 	inc $14+1
 	bne getword
 
-gw0	lda inmerk	; Limit check: Zeile+Höhe, Spalte+Breite
+gw0	lda inmerk	; Limit check: Zeile+HÃ¶he, Spalte+Breite
 	tax
 	eor #3
 	tay
@@ -308,7 +308,7 @@ gw2	lda #0		; finish
 	lda #>(topgad)
 	jmp adj3
 
-gw4	lda lclpzl,y	; Breite: y=1 / Höhe: y=0
+gw4	lda lclpzl,y	; Breite: y=1 / HÃ¶he: y=0
 	pha
 	tya		; turn value again
 	eor #3
