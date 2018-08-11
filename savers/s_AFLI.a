@@ -1,0 +1,551 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ----------------------------------------- 
+;
+;  svr.AFLI
+;  saver for Hires FLI (AFLI) Images
+;
+;  1.00, 27.11.95, first release
+;  1.01, 27.11.95, added signature in target file
+;
+; ----------------------------------------- 
+
+
+; ----------------------------------------- Equates
+
+	nr0	= $3c
+	src	= $35
+	bbuf	= $37
+	byte	= $38
+	hstart	= $39
+	hend	= $3a
+	max	= $3b
+	adcnt	= $3e
+
+	offx	= ls_adrmisc
+	offy	= offx+1
+
+	hist	= sy_global
+	hist0	= hist+16
+	htab	= hist0+16
+	c64	= sy_bigbuffer
+
+; ----------------------------------------- 
+
+header	jmp start
+	!by $40
+	!by 0
+	!by 1
+	!wo modend
+	!wo 0
+	!tx "Hires FLI (AFLI)"
+version	!tx "1.01"
+	!tx "27.11.95"
+	!tx "A.Dettke/W.Kling"
+
+
+; ----------------------------------------- 
+
+start	ldx gr_nr		; Funktionsnummer testen:
+	dex
+	bne saver		; Null, dann eigentlichen Saver aufrufen
+
+	jmp initinp	; eins, dann "Input" ausführen (Label in "input.inc")
+
+; ----------------------------------------- 
+
+saver	lda gd_modswitch	; Memory Management
+	pha
+
+	jsr gd_sproff
+	lda ls_flen	; Filename wurde vom Filerequester übergeben?
+	beq st1		; nein (dann Cancel)
+	sta wflen
+
+	jsr wopen
+	bne st2
+
+	jsr getname
+	ldx #12
+	jsr ckout
+	jsr gd_clrms	; Fortschrittsbalken und Statusausgaben vorbereiten
+	ldx #0		; Anzeigetext #1 (Offset .x=0) eintragen
+	jsr tcopy
+	iny
+	sty adcnt		; Activity (Fortschrittsbalken) starten (.y=1)
+
+	jsr dohmfli
+
+st2	jsr clrch
+	lda #12
+	jsr close
+	jsr err9
+	bne st1
+	jsr setname
+
+st1	pla 
+	sta gd_modswitch
+
+	jsr gd_spron	; Mauszeiger wieder an
+	sec		; Leave-Flag setzen
+	rts		; fertig, Saver verlassen
+
+; ---------------------------
+; --------------------------- Input Routines
+; ---------------------------
+
+	!src "input.inc"
+
+; ---------------------------
+; ---------------------------
+; ---------------------------
+
+pw	!tx "w,p,"
+drinit	!tx "i0"
+wflen	!by 0
+
+wopen	jsr inull		; Initialize
+	bne err8
+	ldy wflen		; ",p,w" anhängen
+	ldx #3
+wo1	lda pw,x
+	sta ls_nambuf,y
+	iny
+	dex
+	bpl wo1
+	sty wflen
+	lda #12		; OPEN 12,drive,12,"name,p,w"
+	tay
+	ldx ls_drive
+	jsr filpar
+	lda wflen
+	ldx #<ls_nambuf
+	ldy #>ls_nambuf
+	jsr filnam
+	jsr copen
+	jmp err9
+
+inull	ldx #<drinit	; Initialize Drive
+	ldy #>drinit
+	lda #2
+	jsr gd_sendcom
+
+err9	jsr gd_xmess
+	lda ls_err2	; liefert Fehlernummer der Floppy
+	and #15		; und zwar als Bytewert (wenn <>0, dann Fehler)
+err8 	sec
+	rts
+
+; ----------------------------------------- Text- und Activity-Handler
+
+messout	ldx #<message	; Textausgabe
+	ldy #>message
+	jmp gd_xtxout2
+
+tcopy	ldy #0
+tc0	lda txt,x
+	beq clrmess
+	sta message,y
+	inx 
+	iny 
+	bne tc0
+
+action	dec adcnt
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy		; Offset auf Balkenende
+	cpy #20		; Ende der Ausgabezeile erreicht?
+	bne act0
+	jsr clrmess	; ja, re-Init des Status-Bereichs
+act0	ldx offx		; offx: Index auf aktuelles Zeichen für Dicke des Balkenendstücks
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts 
+
+clrmess	ldx #20
+	lda #32
+cl0	sta mess,x
+	dex 
+	bpl cl0
+	ldy #0
+	ldx #7
+	sty offy
+	stx offx
+	rts 
+
+filltab	!by 160,93,103,127,126,124,105,109
+cntwert	!by 109
+txt	!scr " Hires FLI @"
+message	!fill 11,32
+mess	!fill 21,32
+	!by 0
+
+; ----------------------------------------- Filename Handler
+
+getname	ldx #0		; aktuellen Filenamen sichern
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+setname	lda #0		; Namen in Image Info eintragen
+	ldx #<ls_picname
+	ldy #>ls_picname
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!fill 16,32	; Namenspuffer
+	!by 0
+
+; ----------------------------------------- Save AFLI Image
+
+dohmfli	jsr dogod
+	jsr dovrams
+	jmp dobmap
+
+; ----------------------------------------- 
+
+dogod	jsr makec64	; write start address
+	lda #<sy_4bit
+	jsr bsout
+	lda #>sy_4bit
+	jsr bsout
+	ldx #3		; set saver version number
+	ldy #0
+-	lda version,x
+	sta cright,y
+	iny
+	dex
+	bpl -
+	rts
+
+; ----------------------------------------- Create Video RAMs
+
+dovrams	lda #0		; counts 8 video rams
+	sta vrcnt		; (in steps of 4 up to 28)
+
+vrloop	lda vrcnt		; get start address of each vram
+	ldx #>sy_4bit
+	sta src
+	stx src+1
+
+loop12	ldy #15		; Clear histogram
+	lda #0
+ch3	sta hist,y
+	dey
+	bpl ch3
+
+	ldy #3		; count # of colors in a card
+hl4	lda (src),y	; (per 8 pixels)
+	sta bbuf
+	and #$0f
+	tax
+	inc hist,x
+	lda bbuf
+	lsr
+	lsr
+	lsr
+	lsr
+	tax
+	inc hist,x
+	dey
+	bpl hl4
+
+	lda #0		; compute maximum color (ink)
+	sta max
+	ldy #15
+m1	lda hist,y
+	beq s13
+	cmp max
+	beq s13
+	bcc s13
+	sta max
+	sty col0		; col0 contains the most frequent color
+s13	dey
+	bpl m1
+
+	lda #32		; compute second maximum color (paper)
+	sta col0+1	; care for one single color
+	ldx col0		; clear max color in histogram
+	lda #0
+	sta hist,x
+	sta max		; clear max
+
+	ldy #15		; count again
+m2	lda hist,y
+	beq s15
+	cmp max
+	beq s15
+	bcc s15
+	sta max
+	sty col0+1	; save second max color to col0+1
+s15	dey
+	bpl m2
+
+s14	lda col0+1	; compute vram byte to write
+	asl
+	asl
+	asl
+	asl
+	ora col0
+	tax
+	lda c64,x
+
+	jsr write		; write to disk
+
+	lda src		; proceed to next card
+	clc
+	adc #32
+	sta src
+	bcc s17
+	inc src+1
+s17	lda src+1
+	cmp #>sy_bigbuffer	; until end of buffer
+	beq s18
+	jmp loop12
+
+s18	ldy #23		; write GoDot signature to file
+l24	lda cright,y	; (fill the 24 gap bytes between vrams)
+	jsr write
+	dey
+	bpl l24
+
+	lda vrcnt		; proceed to next vram
+	clc
+	adc #4
+	sta vrcnt
+	cmp #32
+	beq ok12
+	jmp vrloop
+ok12	rts		; until finished
+
+; ----------------------------------------- Create Bitmap
+
+dobmap	lda #<sy_4bit	; source is 4bit
+	ldx #>sy_4bit
+	sta src
+	stx src+1
+
+bmloop	lda #8
+	sta zlcnt
+
+zlloop	ldy #15		; clear histogram
+	lda #0
+ch4	sta hist,y
+	dey
+	bpl ch4
+
+	ldy #3		; get color bytes from 4bit
+hl5	lda (src),y
+	sta bbuf
+	and #$0f
+	tax
+	inc hist,x	; count (right pixel)
+	lda bbuf
+	lsr
+	lsr
+	lsr
+	lsr
+	tax
+	inc hist,x	; count (left pixel)
+	dey		; 4 times, so count 8 pixels
+	bpl hl5
+
+	lda #32		; care for one single color
+	sta col0+1
+	lda #0		; clear max
+	sta max
+
+	ldy #15		; compute maximum frequent color
+m11	lda hist,y
+	beq s20
+	cmp max
+	beq s20
+	bcc s20
+	sta max
+	sty col0		; store to col0
+s20	dey
+	bpl m11
+
+	ldx col0		; clear this color from histogram
+	lda #0
+	sta hist,x
+	sta max		; clear max
+
+	ldy #15		; compute second most frequent color
+m21	lda hist,y
+	beq s22
+	cmp max
+	beq s22
+	bcc s22
+	sta max
+	sty col0+1	; store to col0+1
+s22	dey
+	bpl m21
+
+	lda #0		; now assign pixel masks to these colors
+	sta nr0
+	lda #$ff
+	sta nr0+1
+
+	lda col0		; compare colors and line them up
+	cmp col0+1
+	bcc noswap
+	lda col0		; swap if necessary
+	tax
+	lda nr0
+	tay
+	lda col0+1
+	sta col0
+	lda nr0+1
+	sta nr0
+	stx col0+1
+	sty nr0+1
+noswap	lda col0		; compute average (to set the range length)
+	clc
+	adc col0+1
+	lsr
+	cmp #16
+	bcc s24
+	lda #15
+s24	sta hend
+
+	ldx #$ff		; fill table with pixel patterns
+	lda nr0
+htl	inx
+	sta htab,x
+	cpx hend
+	bcc htl
+	cpx #15
+	bcs s25
+	lda nr0+1
+htl1	inx
+	sta htab,x
+	cpx #15
+	bcc htl1
+
+s25	lda #0		; re-fetch 4bit colors
+	sta byte
+	ldy #3
+rl	lda (src),y	; get ink color
+	sta bbuf
+	and #$0f
+	tax
+	lda htab,x	; finally compute the correct pixel patterns
+	and mask,y
+	ora byte
+	sta byte		; store pixel bit
+	lda bbuf		; get paper color
+	lsr
+	lsr
+	lsr
+	lsr
+	tax
+	lda htab,x
+	and mask+4,y
+	ora byte
+	sta byte		; store pixel bit
+	dey		; 8 bits
+	bpl rl
+
+	jsr write		; and write to disk as bitmap byte
+
+	lda src		; proceed to next video ram
+	clc
+	adc #4
+	sta src
+	bne s26
+	inc src+1
+s26	dec zlcnt		; count 8
+	beq s27
+	jmp zlloop
+
+s27	lda src+1
+	cmp #>sy_bigbuffer	; vram accomplished?
+	beq ok121
+	jmp bmloop	; no, proceed to next card in first video ram
+
+ok121	ldy #192		; yes, add gap
+l192	jsr write
+	dey
+	bne l192
+	rts		; and leave
+
+; ----------------------------------------- Write Byte
+
+write	pha		; save regs
+	txa
+	pha
+	tya
+	pha
+	jsr action	; activity
+	pla		; re-get regs
+	tay
+	pla
+	tax
+	pla
+	jmp bsout		; write .a to disk
+
+; ----------------------------------------- Create Color Combis
+
+makec64	ldy #0
+mc64	tya
+	lsr
+	lsr
+	lsr
+	lsr
+	tax
+	lda cols64,x
+	and #$f0
+	sta bbuf
+	tya
+	and #$0f
+	tax
+	lda cols64,x
+	and #$0f
+	ora bbuf
+	sta c64,y
+	iny
+	bne mc64
+	rts
+
+; ----------------------------------------- Data
+
+mask	!by $40,$10,$04,$01
+	!by $80,$20,$08,$02
+
+cols64	!by $00,$66,$99,$bb,$22,$44,$88,$cc
+	!by $ee,$aa,$55,$ff,$33,$77,$dd,$11
+
+col0	!by 0,0
+blcnt	!by 0
+vrcnt	!by 0
+zlcnt	!by 0
+cright	!tx "##.#v   revaS ILFA toDoG"
+
+; ----------------------------------------- 
+
+modend	!eof
