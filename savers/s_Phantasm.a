@@ -1,12 +1,12 @@
 
-	!src "godotlib.lib"	; Label-Library einbinden
+	!src "godotlib.lib"		; Label-Library einbinden
 	*= $c000			; generelle Startadresse für alle Module
 	!ct pet			; Texte werden in PETSCII assembliert
 ;	!sl "labels.txt"
 
 ; ----------------------------------------- 
 ;
-; svr.Phantasm, wird mal: svr.MultiClp
+; svr.Phantasm, wird mal: svr.MultiClip
 ;     Saver für Bilder des unvollendeten Adventurespiels
 ;     Phantasm&Fantasy von Todd Elliott, USA
 ;     http://csdb.dk/release/?id=13562&show=notes
@@ -19,6 +19,7 @@
 ;
 ; 1.00: 01.02.98, first release
 ; 1.01: 28.03.18, changed: opportunity to switch to variable width and height
+; 1.02: 12.08.18, bugfix: background color was missing
 ;
 ; ----------------------------------------- 
 
@@ -52,8 +53,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "Phantasm&Fantasy"
-	!tx "1.01"
-	!tx "28.03.18"
+	!tx "1.02"
+	!tx "12.08.18"
 	!tx "A.Dettke        "
 
 ; ----------------------------------------- 
@@ -112,7 +113,7 @@ st1	pla 		; Modul-Handling
 ; --------------------------- Input Routines (erforderlich!)
 ; --------------------------- 
 
-!src "input.inc"
+!src "..\input.inc"
 
 ; --------------------------- 
 ; --------------------------- 
@@ -429,6 +430,9 @@ wr1	lda width		; 96 Bytes zählen (12 Kacheln)
 	jsr toff2		; Offset von oben; .y=0
 	jsr cmloop	; ausgeben
 
+	lda back		; and finally the background color
+	jsr bsout
+
 	lda #<colors	; GoDots Farbram rekonstruieren
 	sta sc_texttab
 	lda #<videoram1
@@ -522,4 +526,3 @@ width	!by pfclp
 height	!by pfclp
 
 modend	!eof 
-
