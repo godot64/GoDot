@@ -11,6 +11,8 @@
 ;        1.00, 22.04.01: first release
 ;        1.01, 23.04.01: added ERROR messages
 ;        1.02, 05.05.01: added safe filetype destinction
+;        1.03, 14.08.18: added another PM filetype
+;                        changed image information display
 ;
 ; ----------------------------------- 
 
@@ -50,8 +52,8 @@ godheader	jmp start
 	!wo modend
 	!wo 0
 	!tx "PMaster/PShopA&B"
-	!tx "1.02"
-	!tx "05.05.01"
+	!tx "1.03"
+	!tx "14.08.18"
 	!tx "A.Dettke        "
 
 ; ----------------------------------- 
@@ -65,6 +67,8 @@ start	jsr getcols	; set color assignments
 	lda flen+1	; more than 255 blocks?
 	bne fail		; must be wrong then
 
+	jsr setpmname	; (re-)set Type name to "PMaster"
+	jsr setmodetx	; (re-)set Mode Data
 	jsr gd_xopen	; open file for input
 	ldx #0		; Start at $4000
 	ldy #>sy_4bit
@@ -80,7 +84,7 @@ start	jsr getcols	; set color assignments
 
 	ldy #52		; height is 52 pixels (PM or PSA)
 	sty height
-	ldy #11		; width is 11 tiles
+	ldy #11		; width is 11 tiles (88 pixels)
 
 	jsr onebyte	; get first byte
 	bne jerror
@@ -90,19 +94,28 @@ start	jsr getcols	; set color assignments
 	beq pm0		; yes
 
 ps0	jsr onebyte	; no, get second byte (of Printshop file)
-	bne jerror
+	bne jerror	; (should be "X", $58)
 	sta gbyte
+	jsr setpsname	; set image information
+	ldy #11		; then, re-get correct width
+	inx		; re-set Printshop Flag to $00
 	lda flen		; Printshop A?
 	cmp #3
 	beq pm1		; yes
 
+	inc which
 	lda gbyte
 	ldy #45		; no, Printshop B is 45 pixels high
+	ldx #$34		; "4"
+	stx modetx+1
+	stx modetx+5
+	inx
+	stx modetx+6
 	cmp #$58		; Printshop B?
-	bne fail		; no, not a valid file
+je1	bne fail		; no, not a valid file
 
 	sty height
-	ldy #6		; B is 5.5 tiles wide
+	ldy #6		; B is 6 tiles wide (48 pixels)
 	ldx #0
 
 pm1	txa
@@ -110,11 +123,13 @@ pm1	txa
 	beq st1
 
 pm0	jsr onebyte	; get second byte (of Printmaster file)
-	bne jerror
+je0	bne jerror
+	cmp #$87		; signature "G"?
+	beq +
 	cmp #$77		; signature "M"?
-	bne fail
+	bne je1
 
-	sta ftype		; Printmaster is type $77 (not zero)
++	sta ftype		; Printmaster is type $77 (not zero)
 	ldx #12
 
 st1	sty width		; width either 11 (PM/PSA) or 6 (PSB)
@@ -124,10 +139,12 @@ st1	sty width		; width either 11 (PM/PSA) or 6 (PSB)
 	beq st3
 	ldy #2
 st2	jsr onebyte	; get Printshop header and skip
-	bne jerror
+	bne je0
 	iny
 	cpy #7		; 7 bytes header
 	bne st2
+
+; ----------------------------------- 
 
 st3	lda #8		; set # of lines per tile (8)
 	sta lines
@@ -359,6 +376,28 @@ gf0	lda ls_nambuf,x
 	cli
 	jmp gd_spron	; mouse pointer on
 
+; ----------------------------------- 
+
+setmodetx	ldy #20
+	ldx #6
+-	lda pmaster,y
+	sta modetx,x
+	dey
+	dex
+	bpl -
+	rts
+
+setpmname	ldy #6
+	!by $2c
+setpsname	ldy #13
+	ldx #6
+-	lda pmaster,y
+	sta typetx,x
+	dey
+	dex
+	bpl -
+	rts
+
 ; ----------------------------------- Save Filename for Image Information
 
 getname	ldx #0
@@ -406,12 +445,16 @@ si5	rts
 
 nbuf	!fill 16,32
 	!by 0
-	!scr "PMaster@"
-modetx	!scr "320x200@"
+typetx	!scr "PMaste"
+which	!scr "r@"
+modetx	!scr "088x052@"
 datatype	!scr "Color@"
 
 ; ----------------------------------- 
 
+pmaster	!scr "PMaster"
+	!scr "PShop A"
+	!scr "088x052"
 dollar	!tx "$:"
 filename	!fill 16,32
 
