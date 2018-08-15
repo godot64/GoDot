@@ -10,6 +10,8 @@
 ;   Loader for standard C64 Hires Bitmaps
 ;
 ;  1.00, 15.11.92, first release
+;  1.01, 15.08.18, reorganized loader
+;                  bugfixes: in merge and in getcols
 ;
 ; ----------------------------------------- 
 
@@ -36,8 +38,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "HiBitmapSpecial!"
-	!tx "1.00"
-	!tx "19.11.92"
+	!tx "1.01"
+	!tx "15.08.18"
 	!tx "A.Dettke/W.Kling"
 
 ; ----------------------------------------- 
@@ -54,38 +56,39 @@ jerror	jmp error
 
 ; ----------------------------------------- 
 
-start	jsr getcols	; care for PICKED and set ink color accordingly
-	ldx used
+start	ldx used
 	bmi jrequ		; requester on first start
 	beq cancel
 	cpx #3
 	bcs cancel
 
 	dec used
-	jsr gd_xopen
-	ldx sc_vekt20
+	jsr getcols	; care for PICKED and set ink color accordingly
+	jsr gd_xopen	; open file to read
+	ldx sc_vekt20	; set target address (=4bit)
 	ldy sc_vekt20+1
 	stx sc_texttab
 	sty sc_texttab+1
-	jsr onebyte
+	jsr onebyte	; skip start address in file
 	bne jerror
 	jsr onebyte
 	bne jerror
-	ldx which
+
+	ldx which		; Replace or Compose?
 	bne ld6
 
-	ldx #<(pureraw)	; reset to no-processing of bytes
+	ldx #<(pureraw)	; Replace, reset to no-processing of bytes
 	ldy #>(pureraw)
 	jsr setdoit
 	jsr getname	; save filename for image information
 
-ld6	jsr gd_clrms
-	stx offy
-	lda #200
+ld6	jsr gd_clrms	; don't save filename on Compose
+	stx offy		; .x=0
+	lda #200		; set activity 
 	sta adcnt
 	lda #7
 	sta offx
-	lda #1
+	lda #1		; prepare pixel counter
 	sta btcnt
 	ldy #0		; count 32000 bytes
 	sty ls_vekta8
@@ -93,88 +96,38 @@ ld6	jsr gd_clrms
 	sty ls_vekta8+1
 
 ld0	ldy #0
-	jsr getbyte
-	jsr readbytes
-	sta (sc_texttab),y
+	jsr getbyte	; read byte and convert to 4Bit
+	jsr readbytes	; process data 
+	sta (sc_texttab),y	; store to 4Bit
 
-	inc sc_texttab
-	bne ld1
-	inc sc_texttab+1
-ld1	lda ls_vekta8
-	bne ld2
-	dec ls_vekta8+1
-ld2	dec ls_vekta8
-	lda ls_vekta8
-	ora ls_vekta8+1
-	beq ld3
+	jsr count		; proceed and count
+	beq ld3		; finish after last byte
 
-	dec adcnt		; Activity
-	bne ld4
-	lda #200
-	sta adcnt
-	ldy offy
-	ldx offx
-	lda filltab,x
-	sta mess,y
-	jsr messout
-	dec offx
-	bpl ld4
-	inc offy
-	lda #7
-	sta offx
-ld4	lda status
-	beq ld0
+	jsr action	; move gauge
+
+	lda status	; get disk status
+	beq ld0		; loop if ok
+	bne ld0		; otherwise don't care
+
+; ----------------------------------------- Finish
+
+ld3	jsr cancel	; reset recursion flag
+	ldx which		; Replace or Compose?
 	bne ld7
+	jsr setinfo	; on Replace: set Image Information
 
-ld3	jsr cancel
-	ldx which
-	bne ld7
-	jsr setinfo
-ld7	jsr gd_xclose
-	lda #$03		; = jsr gd_spron
-	sta $d015
-	jsr gd_xmess
+ld7	jsr gd_xclose	; close file
+	jsr gd_spron	; mouse pointer on
+	jsr gd_xmess	; show disk message
 
-	ldx #20
-	lda #32
-ld5	sta mess,x
-	dex
-	bpl ld5
-
-	sec
+	jsr clrmess	; reset gauge
+	sec		; leave loader
 	rts
-
-; ----------------------------------------- 
-
-readbytes	jmp (doit)
-
-; ----------------------------------------- 
-
-getbyte	dec btcnt
-	bne gbskip
-	lda #4
-	sta btcnt
-	jsr basin
-	sta bybuf
-gbskip	lda #0
-	asl bybuf
-	rol
-	asl bybuf
-	rol
-	tax
-	lda col0,x
-	rts
-
-; ----------------------------------------- 
-
-messout	ldx #<(message)
-	ldy #>(message)
-	jmp gd_xtxout2
 
 ; ----------------------------------------- 
 
 error	jsr ld7
-	clc
+	clc		; after error: stay in loader
 	rts
 
 ; ----------------------------------------- 
@@ -183,51 +136,32 @@ onebyte	jsr basin
 	ldx status
 	rts
 
-; ----------------------------------------- 
-
-mflag	!by 0
-abuf	!by 0
-bbuf	!by 0
-byte	!by 0
-doit	!wo 0
-used	!by $ff
-which	!by 0
-dreifach	!by 0,3,6,9,12,15,18,21
-	!by 24,27,30,33,36,39,42,45
-ratenum	!tx "255075"
-
-; ----------------------------------------- 
-
-filltab	!by 160,93,103,127,126,124,105,109
-message	!scr " Reading  "
-mess	!fill 22,32
-	!by 0
-
 ; ----------------------------------------- Output Requester
 
 requ	inc used		; set USED to $00
-	ldx #<(fourlst)
-	ldy #>(fourlst)
+	ldx #<fourlst
+	ldy #>fourlst
 	jsr gd_xmloop	; wait for clicks
 rq0	jmp start		; recursion
 
 ; ----------------------------------------- Event: Compose
 
-sevcomp	inc used
+sevcomp	inc used		; set USED to $02
 
 ; ----------------------------------------- Event: Replace
 
-sevrepl	inc used
+sevrepl	inc used		; set USED to $01
 	ldx used
 	dex
-	stx which
+	stx which		; WHICH is one less than USED
 	bne compose
 
 ; ----------------------------------------- Show Filerequester
 
 filereq	ldx #1
 	jsr gd_xload
-cn3	lda #3
+
+cn3	lda #3		; set USED to $03 ("returned from filerequester")
 	sta used
 	sec
 	rts
@@ -238,9 +172,9 @@ compose	ldx #<complst	; change requester
 	ldy #>complst
 	jsr gd_xmloop	; wait for clicks
 	ldx used
-	cpx #3
+	cpx #3		; returned?
 	bcs rq0
-	jmp filereq	; recursion
+	jmp filereq	; no, start over requester
 
 ; ----------------------------------------- Event: Merge 
 
@@ -264,57 +198,35 @@ setdoit	stx doit
 	sec
 	rts
 
-; ----------------------------------------- Set Ink and Paper Colors
-
-getcols	lda #0
-	sta col0
-	lda gr_picked
-	and #$0f
-	tax
-	bne gc0
-	lda which
-	bne gc0
-	ldx #1
-gc0	lda gdcols,x
-	sta col3
-	tax
-	and #$0f
-	sta col1
-	txa
-	and #$f0
-	sta col2
-	rts
-
-; ----------------------------------------- C64 Colors in GoDot Order
-
-gdcols	!by $00,$ff,$44,$cc,$55,$aa,$11,$dd
-	!by $66,$22,$99,$33,$77,$ee,$88,$bb
-
 ; ----------------------------------------- Process: Foreground
 
-front	stx btbuf
-	tax
-	lda (sc_texttab),y
-	sta byte
+front	stx btbuf		; .x: 0..3 (index to current double pixel)
+	tax		; in .a: current double pixel (fgr!)
+	lda (sc_texttab),y	; in .y: 0, get current 4Bit (bgr!)
+	sta byte		; and store
 	txa
-	and #$0f
+	and #$0f		; isolate *right* 4Bit pixel
 	lsr btbuf
-	bcc next
-	sta bbuf
-	lda byte
+	bcc next		; fgr set?
+
+	sta bbuf		; yes, save
+	lda byte		; and merge with left one
 	and #$f0
 	ora bbuf
 	sta byte
-next	txa
+
+next	txa		; then, isolate *left* 4Bit pixel
 	and #$f0
 	lsr btbuf
-	bcc ok
-	sta bbuf
-	lda byte
+	bcc ok		; fgr set?
+
+	sta bbuf		; yes, save
+	lda byte		; and merge with right one
 	and #$0f
 	ora bbuf
 	sta byte
-ok	lda byte
+
+ok	lda byte		; return processed byte
 nix	rts
 
 ; ----------------------------------------- Process: Background
@@ -338,6 +250,32 @@ nextb	pla
 	ora bbuf
 	sta byte
 okb	lda byte
+	rts
+
+nback	lda (sc_texttab),y	; get current 4Bit (fgr)
+	sta byte
+	pha
+
+	and #$0f		; isolate *right* 4Bit pixel
+	beq nextb		; set?
+
+	sta bbuf		; yes, save
+	lda byte		; merge with with left bgr
+	and #$f0
+	ora bbuf
+	sta byte
+
+nnextb	pla		; re-get 4Bit
+	and #$f0		; isolate *left* pixel
+	beq okb		; set?
+
+	sta bbuf		; yes, save
+	lda byte		; merge with left bgr
+	and #$0f
+	ora bbuf
+	sta byte
+
+nokb	lda byte		; return processed byte
 	rts
 
 ; ----------------------------------------- Process: Merge
@@ -378,28 +316,85 @@ nop1	asl
 
 pureraw	rts
 
+; ----------------------------------------- 
+
+readbytes	jmp (doit)
+
 ; ----------------------------------------- Subroutine to Merge
 
-bewerten	ldx mflag
-	beq bwt0
-	bpl bwt1
-	tax
-	lda dreifach,x
+bewerten	ldx mflag		; Aufruf von MERGE
+	beq bwt0		; 50%?
+	bpl bwt1		; 75%?
+
+	tax		; nein, 25%
+	lda dreifach,x	; Farbwert mal 3
 	sta abuf
 	txa
-	bne bwt2
-bwt1	ldx bbuf
+	jmp bwt2
+
+bwt1	ldx bbuf		; 75%
 	lda dreifach,x
 	sta bbuf
 	txa
-	bne bwt2
-bwt0	asl abuf
+	jmp bwt2
+
+bwt0	asl abuf		; 50%
 	asl bbuf
+
 bwt2	clc
 	lda abuf
 	adc bbuf
 	lsr
 	lsr
+	rts
+
+; ----------------------------------------- Set Ink and Paper Colors
+
+getcols	lda #0		; paper: BLK
+	sta col0
+	lda gr_picked
+	and #$0f
+	tax
+	bne gc0
+	ldx #1		; ink: WHT (or gr_picked)
+gc0	lda gdcols,x	; produces: $00
+	sta col3		;           $ff
+	tax
+	and #$0f		;           $0f
+	sta col1
+	txa
+	and #$f0		;       and $f0
+	sta col2
+	rts
+
+; ----------------------------------------- 
+
+count	inc sc_texttab
+	bne ld1
+	inc sc_texttab+1
+ld1	lda ls_vekta8
+	bne ld2
+	dec ls_vekta8+1
+ld2	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	rts
+
+; ----------------------------------------- 
+
+getbyte	dec btcnt
+	bne gbskip
+	lda #4		; resolve one byte to 4 double pixels
+	sta btcnt
+	jsr basin
+	sta bybuf
+gbskip	lda #0
+	asl bybuf		; rotate two pixels to .a
+	rol
+	asl bybuf
+	rol
+	tax		; as index into pixel masks (see getcols)
+	lda col0,x	; (in .x: 0..3)
 	rts
 
 ; ----------------------------------------- Event: Set Merge Rate
@@ -413,11 +408,11 @@ mrt0	inc mflag
 	lda mflag
 	beq mrt1
 	bmi mrt2
-	ldx #5
+	ldx #5		; 75% ($01)
 	!by $2c
-mrt1	ldx #3
+mrt1	ldx #3		; 50% ($00)
 	!by $2c
-mrt2	ldx #1
+mrt2	ldx #1		; 25% ($ff)
 	ldy #1
 mrt3	lda ratenum,x
 	sta ratetx,y
@@ -430,7 +425,7 @@ mrt3	lda ratenum,x
 
 ; ----------------------------------------- Text Output Handler
 
-gettab	lda #<rate
+gettab	lda #<rate	; only one text provided (rate)
 	sta sc_screentab
 	lda #>rate
 	sta sc_screentab+1
@@ -443,6 +438,58 @@ gt0	jsr gd_setpos
 	stx sc_ho
 	jsr gd_trim
 	jmp gd_initmove
+
+; ----------------------------------------- 
+
+messout	ldx #<message
+	ldy #>message
+	jmp gd_xtxout2
+
+action	dec adcnt		; Activity
+	bne ld4
+	lda #200
+	sta adcnt
+	ldy offy
+	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts
+
+clrmess	ldx #21
+	lda #32
+ld5	sta mess,x
+	dex
+	bpl ld5
+	rts
+
+filltab	!by 160,93,103,127,126,124,105,109
+message	!scr " Reading  "
+mess	!fill 22,32
+	!by 0
+
+; ----------------------------------------- C64 Colors in GoDot Order
+
+gdcols	!by $00,$ff,$44,$cc,$55,$aa,$11,$dd
+	!by $66,$22,$99,$33,$77,$ee,$88,$bb
+
+; ----------------------------------------- 
+
+mflag	!by 0
+abuf	!by 0
+bbuf	!by 0
+byte	!by 0
+doit	!wo 0
+used	!by $ff
+which	!by 0
+dreifach	!by 0,3,6,9,12,15,18,21
+	!by 24,27,30,33,36,39,42,45
+ratenum	!tx "255075"
 
 ; ----------------------------------------- Screenlist Main
 
@@ -500,19 +547,7 @@ si0	lda ls_lastname,x
 	bcc si0
 si1	rts
 
-getdatac	ldx #4
-	!by $2c
-getdatag	ldx #9
-	ldy #4
-sinfo0	lda dtextc,x
-	sta datatype,y
-	dex
-	dey
-	bpl sinfo0
-	rts
-
-setinfo	jsr getdatag
-	jsr setname
+setinfo	jsr setname
 	jsr setloader
 	jsr setmode
 	jmp setdata
@@ -549,11 +584,6 @@ nbuf	!fill 16,32
 	!scr "HiBtMap@"
 modetx	!scr "320x200@"
 datatype	!scr "Color@"
-	!scr "text   "
-htext	!scr "320x200"
-	!scr "160x200"
-dtextc	!scr "Color"
-dtextg	!scr "Grey "
 
 ; ----------------------------------------- 
 
