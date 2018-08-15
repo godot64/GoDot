@@ -252,32 +252,6 @@ nextb	pla
 okb	lda byte
 	rts
 
-nback	lda (sc_texttab),y	; get current 4Bit (fgr)
-	sta byte
-	pha
-
-	and #$0f		; isolate *right* 4Bit pixel
-	beq nextb		; set?
-
-	sta bbuf		; yes, save
-	lda byte		; merge with with left bgr
-	and #$f0
-	ora bbuf
-	sta byte
-
-nnextb	pla		; re-get 4Bit
-	and #$f0		; isolate *left* pixel
-	beq okb		; set?
-
-	sta bbuf		; yes, save
-	lda byte		; merge with left bgr
-	and #$0f
-	ora bbuf
-	sta byte
-
-nokb	lda byte		; return processed byte
-	rts
-
 ; ----------------------------------------- Process: Merge
 
 merge	stx btbuf
