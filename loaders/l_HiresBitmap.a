@@ -1,0 +1,560 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ----------------------------------------- 
+;
+;  ldr.HiresBitmap
+;   Loader for standard C64 Hires Bitmaps
+;
+;  1.00, 15.11.92, first release
+;
+; ----------------------------------------- 
+
+; ----------------------------------------- Equates
+
+	adcnt	= $30
+	bybuf	= $35
+	btcnt	= $36
+	col0	= $37
+	col1	= $38
+	col2	= $39
+	col3	= $3a
+	btbuf	= $3b
+
+	offx	= ls_adrmisc
+	offy	= offx+1
+
+; ----------------------------------------- 
+
+header	jmp start
+	!by $80
+	!by 4
+	!by 0
+	!wo modend
+	!wo 0
+	!tx "HiBitmapSpecial!"
+	!tx "1.00"
+	!tx "19.11.92"
+	!tx "A.Dettke/W.Kling"
+
+; ----------------------------------------- 
+
+cancel	lda #$ff
+	sta used
+cn2	sec
+	rts
+
+; ----------------------------------------- 
+
+jrequ	jmp requ
+jerror	jmp error
+
+; ----------------------------------------- 
+
+start	jsr getcols	; care for PICKED and set ink color accordingly
+	ldx used
+	bmi jrequ		; requester on first start
+	beq cancel
+	cpx #3
+	bcs cancel
+
+	dec used
+	jsr gd_xopen
+	ldx sc_vekt20
+	ldy sc_vekt20+1
+	stx sc_texttab
+	sty sc_texttab+1
+	jsr onebyte
+	bne jerror
+	jsr onebyte
+	bne jerror
+	ldx which
+	bne ld6
+
+	ldx #<(pureraw)	; reset to no-processing of bytes
+	ldy #>(pureraw)
+	jsr setdoit
+	jsr getname	; save filename for image information
+
+ld6	jsr gd_clrms
+	stx offy
+	lda #200
+	sta adcnt
+	lda #7
+	sta offx
+	lda #1
+	sta btcnt
+	ldy #0		; count 32000 bytes
+	sty ls_vekta8
+	ldy #$7d
+	sty ls_vekta8+1
+
+ld0	ldy #0
+	jsr getbyte
+	jsr readbytes
+	sta (sc_texttab),y
+
+	inc sc_texttab
+	bne ld1
+	inc sc_texttab+1
+ld1	lda ls_vekta8
+	bne ld2
+	dec ls_vekta8+1
+ld2	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	beq ld3
+
+	dec adcnt		; Activity
+	bne ld4
+	lda #200
+	sta adcnt
+	ldy offy
+	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	lda status
+	beq ld0
+	bne ld7
+
+ld3	jsr cancel
+	ldx which
+	bne ld7
+	jsr setinfo
+ld7	jsr gd_xclose
+	lda #$03		; = jsr gd_spron
+	sta $d015
+	jsr gd_xmess
+
+	ldx #20
+	lda #32
+ld5	sta mess,x
+	dex
+	bpl ld5
+
+	sec
+	rts
+
+; ----------------------------------------- 
+
+readbytes	jmp (doit)
+
+; ----------------------------------------- 
+
+getbyte	dec btcnt
+	bne gbskip
+	lda #4
+	sta btcnt
+	jsr basin
+	sta bybuf
+gbskip	lda #0
+	asl bybuf
+	rol
+	asl bybuf
+	rol
+	tax
+	lda col0,x
+	rts
+
+; ----------------------------------------- 
+
+messout	ldx #<(message)
+	ldy #>(message)
+	jmp gd_xtxout2
+
+; ----------------------------------------- 
+
+error	jsr ld7
+	clc
+	rts
+
+; ----------------------------------------- 
+
+onebyte	jsr basin
+	ldx status
+	rts
+
+; ----------------------------------------- 
+
+mflag	!by 0
+abuf	!by 0
+bbuf	!by 0
+byte	!by 0
+doit	!wo 0
+used	!by $ff
+which	!by 0
+dreifach	!by 0,3,6,9,12,15,18,21
+	!by 24,27,30,33,36,39,42,45
+ratenum	!tx "255075"
+
+; ----------------------------------------- 
+
+filltab	!by 160,93,103,127,126,124,105,109
+message	!scr " Reading  "
+mess	!fill 22,32
+	!by 0
+
+; ----------------------------------------- Output Requester
+
+requ	inc used		; set USED to $00
+	ldx #<(fourlst)
+	ldy #>(fourlst)
+	jsr gd_xmloop	; wait for clicks
+rq0	jmp start		; recursion
+
+; ----------------------------------------- Event: Compose
+
+sevcomp	inc used
+
+; ----------------------------------------- Event: Replace
+
+sevrepl	inc used
+	ldx used
+	dex
+	stx which
+	bne compose
+
+; ----------------------------------------- Show Filerequester
+
+filereq	ldx #1
+	jsr gd_xload
+cn3	lda #3
+	sta used
+	sec
+	rts
+
+; ----------------------------------------- Compose Mode
+
+compose	ldx #<complst	; change requester
+	ldy #>complst
+	jsr gd_xmloop	; wait for clicks
+	ldx used
+	cpx #3
+	bcs rq0
+	jmp filereq	; recursion
+
+; ----------------------------------------- Event: Merge 
+
+sevmerge	ldx #<merge
+	ldy #>merge
+	bne setdoit
+
+; ----------------------------------------- Event: Background
+
+sevback	ldx #<back
+	ldy #>back
+	bne setdoit
+
+; ----------------------------------------- Event: Foreground
+
+sevfront	ldx #<front
+	ldy #>front
+
+setdoit	stx doit
+	sty doit+1
+	sec
+	rts
+
+; ----------------------------------------- Set Ink and Paper Colors
+
+getcols	lda #0
+	sta col0
+	lda gr_picked
+	and #$0f
+	tax
+	bne gc0
+	lda which
+	bne gc0
+	ldx #1
+gc0	lda gdcols,x
+	sta col3
+	tax
+	and #$0f
+	sta col1
+	txa
+	and #$f0
+	sta col2
+	rts
+
+; ----------------------------------------- C64 Colors in GoDot Order
+
+gdcols	!by $00,$ff,$44,$cc,$55,$aa,$11,$dd
+	!by $66,$22,$99,$33,$77,$ee,$88,$bb
+
+; ----------------------------------------- Process: Foreground
+
+front	stx btbuf
+	tax
+	lda (sc_texttab),y
+	sta byte
+	txa
+	and #$0f
+	lsr btbuf
+	bcc next
+	sta bbuf
+	lda byte
+	and #$f0
+	ora bbuf
+	sta byte
+next	txa
+	and #$f0
+	lsr btbuf
+	bcc ok
+	sta bbuf
+	lda byte
+	and #$0f
+	ora bbuf
+	sta byte
+ok	lda byte
+nix	rts
+
+; ----------------------------------------- Process: Background
+
+back	sta byte
+	lda (sc_texttab),y
+	pha
+	and #$f0
+	beq nextb
+	sta bbuf
+	lda byte
+	and #$0f
+	ora bbuf
+	sta byte
+nextb	pla
+	and #$0f
+	beq okb
+	sta bbuf
+	lda byte
+	and #$f0
+	ora bbuf
+	sta byte
+okb	lda byte
+	rts
+
+; ----------------------------------------- Process: Merge
+
+merge	stx btbuf
+	pha
+	and #$0f
+	sta bbuf
+	lda (sc_texttab),y
+	and #$0f
+	lsr btbuf
+	bcc nop0
+	sta abuf
+	jsr bewerten
+nop0	sta byte
+	pla
+	lsr
+	lsr
+	lsr
+	lsr
+	sta bbuf
+	lda (sc_texttab),y
+	lsr
+	lsr
+	lsr
+	lsr
+	lsr btbuf
+	bcc nop1
+	sta abuf
+	jsr bewerten
+nop1	asl
+	asl
+	asl
+	asl
+	ora byte
+
+; ----------------------------------------- Process: No Processing
+
+pureraw	rts
+
+; ----------------------------------------- Subroutine to Merge
+
+bewerten	ldx mflag
+	beq bwt0
+	bpl bwt1
+	tax
+	lda dreifach,x
+	sta abuf
+	txa
+	bne bwt2
+bwt1	ldx bbuf
+	lda dreifach,x
+	sta bbuf
+	txa
+	bne bwt2
+bwt0	asl abuf
+	asl bbuf
+bwt2	clc
+	lda abuf
+	adc bbuf
+	lsr
+	lsr
+	rts
+
+; ----------------------------------------- Event: Set Merge Rate
+
+sevmrate	lda mflag
+	cmp #1
+	bne mrt0
+	lda #$fe
+	sta mflag
+mrt0	inc mflag
+	lda mflag
+	beq mrt1
+	bmi mrt2
+	ldx #5
+	!by $2c
+mrt1	ldx #3
+	!by $2c
+mrt2	ldx #1
+	ldy #1
+mrt3	lda ratenum,x
+	sta ratetx,y
+	dex
+	dey
+	bpl mrt3
+	jsr gettab
+	ldy #6
+	jmp gd_xtxout1
+
+; ----------------------------------------- Text Output Handler
+
+gettab	lda #<rate
+	sta sc_screentab
+	lda #>rate
+	sta sc_screentab+1
+	lda #0
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #3
+	bne gt0
+	stx sc_ho
+	jsr gd_trim
+	jmp gd_initmove
+
+; ----------------------------------------- Screenlist Main
+
+fourlst	!by 0
+	!by 4,11,18,16,$81
+	!wo 0
+	!scr "Load HiRes BMap@"
+	!by 9,11,18,3,$ca
+	!wo sevrepl
+	!scr "Replace@"
+	!by 12,11,18,3,$ca
+	!wo sevcomp
+	!scr "Compose@"
+	!by 15,11,18,3,$ca
+	!wo cn2
+	!scr "Cancel Load@"
+	!by $c0,6,13,11
+	!scr "Select Mode@"
+	!by $80
+
+; ----------------------------------------- Screenlist Compose
+
+complst	!by 0
+	!by 4,11,18,16,$81
+	!wo 0
+	!scr "Compose@"
+	!by 8,11,18,3,$ca
+	!wo sevback
+	!scr "Background@"
+	!by 11,11,18,3,$ca
+	!wo sevfront
+	!scr "Foreground@"
+	!by 14,11,11,3,$c8
+	!wo sevmerge
+	!scr "Mixed@"
+rate	!by 14,22,7,3,$cf
+	!wo sevmrate
+	!by 32
+ratetx	!scr "50% @"
+	!by 17,11,18,3,$c9
+	!wo cn3
+	!scr "Cancel Load@"
+	!by $c0,6,15,7
+	!scr "Load as@"
+	!by $80
+
+; ----------------------------------------- Image Information Handler
+
+getname	ldx #0
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+getdatac	ldx #4
+	!by $2c
+getdatag	ldx #9
+	ldy #4
+sinfo0	lda dtextc,x
+	sta datatype,y
+	dex
+	dey
+	bpl sinfo0
+	rts
+
+setinfo	jsr getdatag
+	jsr setname
+	jsr setloader
+	jsr setmode
+	jmp setdata
+
+setname	lda #0
+	ldx #<ls_picname
+	ldy #>ls_picname
+	bne si3
+setloader	lda #17
+	ldx #<ls_iloader
+	ldy #>ls_iloader
+	bne si3
+setmode	lda #25
+	ldx #<ls_imode
+	ldy #>ls_imode
+	bne si3
+setdata	lda #33
+	ldx #<ls_idrive
+	ldy #>ls_idrive
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!fill 16,32
+	!by 0
+	!scr "HiBtMap@"
+modetx	!scr "320x200@"
+datatype	!scr "Color@"
+	!scr "text   "
+htext	!scr "320x200"
+	!scr "160x200"
+dtextc	!scr "Color"
+dtextg	!scr "Grey "
+
+; ----------------------------------------- 
+
+modend	!eof
