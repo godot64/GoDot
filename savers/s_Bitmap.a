@@ -1,0 +1,254 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ----------------------------------------- 
+;
+;  svr.HiresBitmap
+;  saver for Hires Bitmaps
+;
+;  1.00,         , first release
+;  1.01, 18.11.92, 
+;
+; ----------------------------------------- 
+
+
+; ----------------------------------------- Equates
+
+	adcnt		= $3e
+
+	offx		= ls_adrmisc
+	offy		= offx+1
+
+	rendered		= $2000
+
+; ----------------------------------------- 
+
+header	jmp start
+	!by $40
+	!by 0
+	!by 1
+	!wo modend
+	!wo 0
+	!tx "Bitmap $2000    "
+version	!tx "1.01"
+	!tx "18.11.92"
+	!tx "A.Dettke        "
+
+; ----------------------------------------- 
+
+start	ldx gr_nr		; Funktionsnummer testen:
+	dex
+	bne saver		; Null, dann eigentlichen Saver aufrufen
+
+	jmp initinp	; eins, dann "Input" ausführen (Label in "input.inc")
+
+; ----------------------------------------- 
+
+saver	lda gd_modswitch	; Memory Management
+	pha
+
+	jsr gd_sproff
+	lda ls_flen	; Filename wurde vom Filerequester übergeben?
+	beq st1		; nein (dann Cancel)
+	sta wflen
+
+	lda #1
+	sta adcnt
+	lda #50
+	sta cntwert
+	jsr wopen
+	bne st2
+
+	jsr getname
+	ldx #12
+	jsr ckout
+	jsr gd_clrms	; Fortschrittsbalken und Statusausgaben vorbereiten
+	ldx #0		; Anzeigetext #1 (Offset .x=0) eintragen
+	jsr tcopy
+
+	jsr writefile
+
+st2	jsr clrch
+	lda #12
+	jsr close
+	jsr err9
+	bne st1
+	jsr setname
+
+st1	pla 
+	sta gd_modswitch
+
+	jsr gd_spron	; Mauszeiger wieder an
+	sec		; Leave-Flag setzen
+	rts		; fertig, Saver verlassen
+
+; ---------------------------
+; --------------------------- Input Routines
+; ---------------------------
+
+	!src "input.inc"
+
+; ---------------------------
+; ---------------------------
+; ---------------------------
+
+pw	!tx "w,p,"
+drinit	!tx "i0"
+wflen	!by 0
+
+wopen	jsr inull		; Initialize
+	bne err8
+	ldy wflen		; ",p,w" anhängen
+	ldx #3
+wo1	lda pw,x
+	sta ls_nambuf,y
+	iny
+	dex
+	bpl wo1
+	sty wflen
+	lda #12		; OPEN 12,drive,12,"name,p,w"
+	tay
+	ldx ls_drive
+	jsr filpar
+	lda wflen
+	ldx #<ls_nambuf
+	ldy #>ls_nambuf
+	jsr filnam
+	jsr copen
+	jmp err9
+
+inull	ldx #<drinit	; Initialize Drive
+	ldy #>drinit
+	lda #2
+	jsr gd_sendcom
+
+err9	jsr gd_xmess
+	lda ls_err2	; liefert Fehlernummer der Floppy
+	and #15		; und zwar als Bytewert (wenn <>0, dann Fehler)
+err8 	sec
+	rts
+
+; ----------------------------------------- Text- und Activity-Handler
+
+messout	ldx #<message	; Textausgabe
+	ldy #>message
+	jmp gd_xtxout2
+
+tcopy	ldy #0
+tc0	lda txt,x
+	beq clrmess
+	sta message,y
+	inx 
+	iny 
+	bne tc0
+
+action	dec adcnt
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy		; Offset auf Balkenende
+	cpy #21		; Ende der Ausgabezeile erreicht?
+	bne act0
+	jsr clrmess	; ja, re-Init des Status-Bereichs
+act0	ldx offx		; offx: Index auf aktuelles Zeichen für Dicke des Balkenendstücks
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts 
+
+clrmess	ldx #21
+	lda #32
+cl0	sta mess,x
+	dex 
+	bpl cl0
+	ldy #0
+	ldx #7
+	sty offy
+	stx offx
+	rts 
+
+filltab	!by 160,93,103,127,126,124,105,109
+cntwert	!by 50
+txt	!scr " Bitmap@"
+message	!fill 10,32
+mess	!fill 22,32
+	!by 0
+
+; ----------------------------------------- Filename Handler
+
+getname	ldx #0		; aktuellen Filenamen sichern
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+setname	lda #0		; Namen in Image Info eintragen
+	ldx #<ls_picname
+	ldy #>ls_picname
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!fill 16,32	; Namenspuffer
+	!by 0
+
+; ----------------------------------------- 
+
+count	inc sc_vekt20
+	bne cou5
+	inc sc_vekt20+1
+cou5	inc sc_texttab
+	bne cou6
+	inc sc_texttab+1
+cou6	lda ls_vekta8
+	bne cou7
+	dec ls_vekta8+1
+cou7	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	rts
+
+; ----------------------------------------- Save Hires Bitmap
+
+writefile	lda #<rendered	; start at $2000
+	sta sc_texttab
+	jsr bsout
+	lda #>rendered
+	sta sc_texttab+1
+	jsr bsout
+	lda #<8000	; write 8000 bytes
+	ldx #>8000
+	sta ls_vekta8
+	stx ls_vekta8+1
+
+wr0	ldy #0		; perform
+	lda (sc_texttab),y
+	jsr bsout
+	jsr action
+	jsr cou5
+	bne wr0
+	sec
+	rts
+
+; ----------------------------------------- 
+
+modend	!eof
