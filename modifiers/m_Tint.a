@@ -1,0 +1,346 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ----------------------------------------- 
+;
+;     mod.tint
+;
+;
+; ----------------------------------------- 
+
+; ----------------------------------------- Equates
+
+	adcnt		= $30
+	hold		= $31
+	ptemp		= $32
+	src		= $35
+	bbuf		= $39
+	col1		= $3c
+	col2		= $3d
+	zeile		= sc_merk
+	spalte		= zeile+1
+
+	sprptr		= $07f8
+	spr255		= $3fc0
+
+	spr2x		= $d004
+	spr2y		= $d005
+	msbx		= $d010
+	spren		= $d015
+	sprxe		= $d01d
+	border		= $d020
+	sprcol2		= $d029
+
+; ----------------------------------------- 
+
+	jmp start
+	!by $20
+	!wo 0
+	!wo modend
+	!wo 0
+	!tx "Add Color 2 4Bit"
+	!tx "1.01"
+	!tx "08.11.93"
+	!tx "W.Kling/A.Dettke"
+
+; ----------------------------------------- 
+
+start	ldx #<tintlst
+	ldy #>tintlst
+	jsr gd_screen
+
+	sta sc_loop	; care for text mode
+	ldx palgad	; palette gadget values
+	inx
+	stx palzl
+	stx sc_zl
+	ldx palgad+1
+	inx
+	stx palsp
+	stx sc_sp
+	ldx #4		; 4x4 area (color chooser)
+	stx sc_br
+	stx sc_ho
+	jsr gd_esm3		; compute address and invert
+
+	lda gr_picked	; get previously selected color to .x
+	and #15		; (will be marked by "+")
+	tax
+	jsr initpal	; and show colors
+	jmp gd_eloop	; wait for clicks
+
+; ----------------------------------------- 
+
+evtint	jsr prep
+	jsr initad
+	lda #<sy_4bit
+	ldy #>sy_4bit
+	sta src
+	sty src+1
+
+	ldy #0
+avloop	lda (src),y
+	and #$f0
+	ora col1
+	tax 
+	lda coltab,x
+	and #$f0
+	sta bbuf
+
+	lda (src),y
+	and #$0f
+	ora col2
+	tax 
+	lda coltab,x
+	and #$0f
+	ora bbuf
+
+	sta (src),y
+	iny 
+	bne avloop
+
+	jsr adinc
+	inc src+1
+	lda src+1
+	cmp #>sy_bigbuffer
+	bne avloop
+	jsr exit
+
+; ----------------------------------------- 
+
+evcan	sec
+	rts
+
+; ----------------------------------------- 
+
+prep	lda gr_picked
+	and #$0f
+	tax 
+	lda gdcols,x
+	tax 
+	and #$0f
+	sta col1
+	txa 
+	and #$f0
+	sta col2
+	rts
+
+; ----------------------------------------- Pick Color
+
+evgetcol	sec 
+	lda zeile
+	sbc palzl
+	asl 
+	asl 
+	sta ptemp
+	sec 
+	lda spalte
+	sbc palsp
+	clc 
+	adc ptemp
+	tax 
+	lda gr_basepal,x
+	tax 
+	ora #$80
+	sta gr_picked
+
+; ----------------------------------------- 
+
+makepal	lda gr_picked	; get current color
+	and #15
+	sta plast		; and store
+
+	lda palsp		; create chooser, first column
+	sta sc_sp
+	pha
+	ldx #1		; width and height = 1
+	stx sc_br
+	stx sc_ho
+	dex
+	stx cnty		; counters = 0
+	stx hold
+
+mp1	stx cntx
+	ldy hold
+	jsr colorize	; colorize area (1x1)
+	sec		; is PICKED color?
+	lda sc_vekt20
+	sbc #40
+	sta sc_vekt20
+	lda sc_vekt20+1
+	sbc #$d4
+	sta sc_vekt20+1
+	ldy sc_chgcol
+	cpy plast
+	beq mp2
+	lda #160		; no, write shift space
+	bne mp3
+mp2	lda #171		; yes, write "+"
+mp3	ldy #0
+	sta (sc_vekt20),y
+	inc sc_sp		; next column
+	inc hold
+	ldx cntx
+	inx
+	cpx #4
+	bne mp1
+
+	pla		; re-get start column
+	pha
+	sta sc_sp
+	ldx #0
+	inc sc_zl		; next row
+	inc cnty
+	lda cnty
+	cmp #4
+	bne mp1
+
+	pla		; clear stack
+	clc 
+	rts 
+
+; ----------------------------------------- 
+
+colorize	lda gr_basepal,y	; get color
+	sta sc_chgcol
+	ldx #4
+	jmp gd_fcol	; colorize area (1x1)
+
+; ------------------------------------------------
+
+initpal	lda gdcols,x	; re-display palette
+	sta col		; unused variable
+	jsr makepal
+	clc
+	rts
+
+; ----------------------------------------- 
+;   sprite activity display
+; ----------------------------------------- 
+
+adinc	dec adcnt
+	bne +
+	inc spr2y
+	inc spr2y+2
+	lda #3
+	sta adcnt
++	rts 
+
+exit	lda spren		; Wanderbalken aus
+	and #$f3
+	sta spren
+	lda msbx
+	and #$f3
+	sta msbx
+	lda #$ff		; Grafik verändert
+	sta gr_redisp
+	clc 		; fertig
+	rts 
+
+initad	ldy #60
+	lda #0
+-	sta spr255+3,y	; Spriteblock 255 vorbereiten
+	dey 
+	bpl -
+	sty spr255	; dünner Strich
+	sty spr255+1
+	sty spr255+2
+	lda #$0f		; Farbe hellgrau
+	sta sprcol2
+	sta sprcol2+1
+	lda sprxe		; doppelt breit
+	ora #$0c
+	sta sprxe
+
+	lda msbx		; x über 255
+	ora #$0c
+	sta msbx
+	lda #8		; x-Ordinate: 8 (plus 256)
+	sta spr2x
+	lda #$20
+	sta spr2x+2
+	lda #$92		; y-Ordinate: 146
+	sta spr2y		; (im Image Information Fenster)
+	sta spr2y+2
+
+	sty sprptr+2	; Sprite 255
+	sty sprptr+3
+	lda spren
+	ora #$0c		; Activity-Balken aktivieren
+	sta spren
+	lda #3
+	sta adcnt
+	rts 
+
+; ----------------------------------------- 
+
+palzl	!by 0
+palsp	!by 0
+plast	!by 0
+col	!by 0
+cntx	!by 0
+cnty	!by 0
+cntmk	!wo 0
+
+; ----------------------------------------- 
+
+gdcols	!by $00,$ff,$44,$cc,$55,$aa,$11,$dd
+	!by $66,$22,$99,$33,$77,$ee,$88,$bb
+
+; ----------------------------------------- 
+
+coltab	!by $00,$00,$00,$00,$22,$33,$22,$33
+	!by $33,$33,$33,$33,$33,$33,$33,$77
+	!by $00,$11,$33,$11,$33,$11,$33,$33
+	!by $88,$55,$33,$77,$88,$77,$77,$88
+	!by $00,$22,$22,$22,$44,$33,$22,$33
+	!by $77,$66,$33,$77,$77,$66,$aa,$77
+	!by $00,$11,$22,$33,$22,$33,$22,$33
+	!by $77,$77,$33,$77,$77,$77,$aa,$77
+	!by $22,$55,$44,$22,$44,$44,$44,$33
+	!by $55,$66,$33,$77,$77,$66,$33,$99
+	!by $33,$11,$44,$33,$44,$55,$44,$55
+	!by $88,$55,$77,$77,$88,$99,$33,$99
+	!by $22,$22,$22,$22,$44,$44,$66,$66
+	!by $77,$99,$66,$99,$77,$99,$aa,$99
+	!by $33,$33,$33,$33,$33,$55,$66,$77
+	!by $88,$99,$77,$77,$bb,$bb,$ee,$bb
+	!by $33,$88,$55,$77,$55,$88,$77,$88
+	!by $88,$99,$77,$88,$cc,$bb,$bb,$bb
+	!by $33,$55,$66,$77,$66,$55,$99,$99
+	!by $99,$99,$77,$bb,$bb,$99,$bb,$bb
+	!by $33,$11,$aa,$33,$22,$11,$66,$77
+	!by $88,$bb,$aa,$ee,$ee,$ee,$aa,$bb
+	!by $33,$77,$77,$77,$77,$77,$99,$77
+	!by $88,$bb,$ee,$bb,$bb,$dd,$bb,$ff
+	!by $33,$88,$ee,$77,$77,$88,$ee,$bb
+	!by $cc,$bb,$ee,$bb,$cc,$bb,$ee,$ff
+	!by $33,$77,$66,$77,$66,$99,$99,$bb
+	!by $bb,$99,$ee,$dd,$bb,$dd,$ee,$ff
+	!by $33,$11,$aa,$aa,$22,$55,$aa,$ee
+	!by $cc,$bb,$aa,$bb,$ee,$ee,$ee,$bb
+	!by $77,$88,$77,$77,$99,$99,$99,$bb
+	!by $bb,$bb,$bb,$ff,$ff,$ff,$bb,$ff
+
+; ----------------------------------------- 
+
+tintlst	!by 0
+	!by 16,14,16,8,$91
+	!wo 0
+	!scr "Tint@"
+palgad	!by 18,15,6,6,$4c
+	!wo evgetcol
+	!by 18,21,8,3,$c0
+	!wo evtint
+	!scr " Exec @"
+	!by 21,21,8,3,$cc
+	!wo evcan
+	!scr "Cancel@"
+	!by $80
+
+; ----------------------------------------- 
+
+modend	!eof
