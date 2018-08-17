@@ -160,7 +160,7 @@ action	dec adcnt		; show gauge
 	lda cntwert
 	sta adcnt
 	ldy offy		; ### 1.01 ab hier --
-	cpy #22		; catch Gauge Overflow
+	cpy #21		; catch Gauge Overflow
 	bne act0
 	jsr clrmess
 act0	ldx offx		; ### 1.01 bis hier --
@@ -331,4 +331,3 @@ mv0	lda (sc_texttab),y
 	rts
 
 modend	!eof
-
