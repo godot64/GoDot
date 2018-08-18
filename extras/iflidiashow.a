@@ -1,5 +1,5 @@
 
-	!src "..\godotlib.lib"
+	!src "godotlib.lib"
 	*= $0801
 
 ; ------------------------------------------ 
@@ -7,7 +7,7 @@
 ; IFLI-Diashow
 ;  Display FunpainterII images in a loop
 ;
-; 1.01, 30.03.97:  Parser zugefügt
+; 1.01, 30.03.97:  Parser zugefÃ¼gt
 ; 1.02, 03.06.17:  mehrere Logos nacheinander
 ;
 ; ------------------------------------------ 
@@ -219,7 +219,7 @@ gf1	sta namout,x
 	dex
 	bpl gf1
 
-	ldy #0		; Länge des Filenamens ermitteln
+	ldy #0		; LÃ¤nge des Filenamens ermitteln
 	lda (vekt),y
 	beq gfend		; wenn 0, kein File, Ende
 	sta flen		; sonst: setzen
@@ -264,29 +264,29 @@ action	lda stopkey	; STOP?
 	pla
 	jmp wrong
 
-ac2	dec cnt		; Activityzähler abgelaufen?
+ac2	dec cnt		; ActivityzÃ¤hler abgelaufen?
 	bne noaction
-	lda mlen		; Maskenzähler abgelaufen?
+	lda mlen		; MaskenzÃ¤hler abgelaufen?
 	beq noaction
 
-	lda cntwert	; ja, Zähler neu setzen
+	lda cntwert	; ja, ZÃ¤hler neu setzen
 	sta cnt
-	lsr cnt8		; Bitmaske rücken
+	lsr cnt8		; Bitmaske rÃ¼cken
 	bcc ac0
 	ror cnt8		; wenn Bitmaske abgelaufen: neu setzen
-	dec mlen		; Maskenzähler herunterzählen
+	dec mlen		; MaskenzÃ¤hler herunterzÃ¤hlen
 	beq noaction
 
 	inc index		; wenn abgelaufen: Maskenindex bewegen
 	ldy index
-	lda (mvekt),y	; nächstes Maskenbyte holen
+	lda (mvekt),y	; nÃ¤chstes Maskenbyte holen
 	sta mbyte		; merken
 
 ac0	lda pport
 	pha
 	lda #$36
 	sta pport
-	asl mbyte		; Maskenbyte rücken
+	asl mbyte		; Maskenbyte rÃ¼cken
 	bcs ac1
 	lda #$a3		; %0: Zeichen 163
 	!by $2c
@@ -306,7 +306,7 @@ prepact	ldx pass
 	sta mvekt
 	lda maskehi,x
 	sta mvekt+1
-	inx		; nächste Maske
+	inx		; nÃ¤chste Maske
 	cpx #3
 	bne +
 	ldx #0		; nach drei: von vorne
@@ -317,14 +317,14 @@ prepact	ldx pass
 	sty indx		; auf die 16 Zeilen Ausgabe
 	sty lscreen
 	lda (mvekt),y	; erstes Byte holen
-	sta mlen		; ist Länge
+	sta mlen		; ist LÃ¤nge
 	inc mlen
 	inc mvekt
 	bne +
 	inc mvekt+1
-+	lda (mvekt),y	; nächstes Byte holen
++	lda (mvekt),y	; nÃ¤chstes Byte holen
 	sta mbyte		; ist Maskenbyte
-	lda cntwert	; Zähler setzen
+	lda cntwert	; ZÃ¤hler setzen
 	sta cnt
 	dey		; -1
 	sty index		; auf Index
@@ -400,20 +400,20 @@ d2	cmp #$22		; was quote?
 d4	dey
 	tya
 	ldy #0
-	sta (vekt),y	; Länge davor
+	sta (vekt),y	; LÃ¤nge davor
 	iny
 	lda (vekt),y
 	cmp #$5e		; Hochpfeil am Namensanfang?
 	beq d6		; ja, zweites Zeichen auch Hochpfeil?
-	dey		; nein, 0 setzen (nächster Eintrag überschreibt diesen)
+	dey		; nein, 0 setzen (nÃ¤chster Eintrag Ã¼berschreibt diesen)
 	tya
 	sta (vekt),y
-	beq d5		; und nächstes Zeichen holen
+	beq d5		; und nÃ¤chstes Zeichen holen
 
 d6	iny
 	eor (vekt),y	; zweites Zeichen auch Hochpfeil?
 	bne d5		; nein, weiter
-	lda vekt		; ja, Vektor auf nächsten Eintrag
+	lda vekt		; ja, Vektor auf nÃ¤chsten Eintrag
 	clc
 	adc #17
 	sta vekt
@@ -460,7 +460,7 @@ logodis	lda #0		; alles schwarz
 
 ; ------------------------------------------ GoDot Logo
 
-logo1	!by $8e,$08,$1e,$92			; Groß/Grafik, fix, grün, RVS off
+logo1	!by $8e,$08,$1e,$92			; GroÃŸ/Grafik, fix, grÃ¼n, RVS off
 	!by $d5,$c0,$c0,$c9,$20,$20,$20,$b0	; 1. Zeile (40 Zeichen)
 	!by $c0,$c0,$c9,$20,$20,$20,$20,$20
 	!by $d5,$c0,$c0,$c9,$20,$20,$20,$20
@@ -491,7 +491,7 @@ logo1	!by $8e,$08,$1e,$92			; Groß/Grafik, fix, grün, RVS off
 	!by $20,$20,$dd,$20,$20,$20,$20,$20
 	!by $20,$20,$20,$20,$20,$20,$20,$20,0	; (0=fertig)
 
-logo2	!by $8e,$08,$81,$92			; Groß/Grafik, fix, orange, RVS off
+logo2	!by $8e,$08,$81,$92			; GroÃŸ/Grafik, fix, orange, RVS off
 	!by $20,$20,$20,$20,$c0,$c0,$c0,$c0	; 1. Zeile (40 Zeichen)
 	!by $c0,$c0,$c0,$c0,$c0,$c0,$c0,$c0
 	!by $c0,$c0,$c0,$c0,$c0,$c0,$c0,$c0
@@ -530,7 +530,7 @@ logo2	!by $8e,$08,$81,$92			; Groß/Grafik, fix, orange, RVS off
 
 ; ------------------------------------------ Activity Logo
 
-maske1	!by 80			; 16 Zeilen á 5 Maskenbytes
+maske1	!by 80			; 16 Zeilen Ã¡ 5 Maskenbytes
 	!by $00,$00,$00,$00,$00	; jedes 1-Bit: Zeichen on Screen
 	!by $1e,$00,$00,$00,$00	; 5*8 Maskenbits = 40 Zeichen
 	!by $1e,$3f,$c7,$80,$78
@@ -548,7 +548,7 @@ maske1	!by 80			; 16 Zeilen á 5 Maskenbytes
 	!by $00,$00,$00,$00,$78
 	!by $00,$00,$00,$00,$00
 
-maske2	!by 80			; 16 Zeilen á 5 Maskenbytes
+maske2	!by 80			; 16 Zeilen Ã¡ 5 Maskenbytes
 	!by $00,$00,$00,$00,$00	; jedes 1-Bit: Zeichen on Screen
 	!by $00,$00,$00,$00,$00	; 5*8 Maskenbits = 40 Zeichen
 	!by $00,$00,$00,$00,$00
@@ -566,7 +566,7 @@ maske2	!by 80			; 16 Zeilen á 5 Maskenbytes
 	!by $00,$00,$00,$00,$00
 	!by $00,$00,$00,$00,$00
 
-maske3	!by 80			; 16 Zeilen á 5 Maskenbytes
+maske3	!by 80			; 16 Zeilen Ã¡ 5 Maskenbytes
 	!by $00,$00,$00,$00,$00	; jedes 1-Bit: Zeichen on Screen
 	!by $3e,$10,$00,$00,$00	; 5*8 Maskenbits = 40 Zeichen
 	!by $7f,$30,$00,$00,$00
@@ -603,7 +603,7 @@ maskehi	!by >maske1, >maske2, >maske3
 
 diaout	ldy #0		; in .a: Ausgabezeichen ($b8/$a3)
 	tax
-	inc lcnt		; Kachelzähler
+	inc lcnt		; KachelzÃ¤hler
 	lda lcnt
 	cmp #40		; bis 40
 	bne di2
@@ -688,7 +688,7 @@ countdown	ldx #0
 ++	lda cia1_keybrow	; Keyboard abfragen
 	and cia1_keybcol
 	and #$10
-	bne -		; nichts gedrückt: Loop
+	bne -		; nichts gedrÃ¼ckt: Loop
 +	rts
 
 pause	ldx #0
@@ -714,7 +714,7 @@ pause	ldx #0
 ++	lda cia1_keybrow	; Keyboard abfragen
 	and cia1_keybcol
 	and #$10
-	bne -		; nichts gedrückt: Loop
+	bne -		; nichts gedrÃ¼ckt: Loop
 +	rts
 
 ; ------------------------------------------ Show IFLI image
@@ -821,7 +821,7 @@ readfile	lda #$40		; store from $4000
 depack	jsr basin
 	cmp packbyte	; Packindikator?
 	bne +
-	jsr basin		; ja, Zähler
+	jsr basin		; ja, ZÃ¤hler
 	beq ++		; Ende, wenn $00
 	tax
 	jsr basin		; Byte
@@ -1144,10 +1144,10 @@ pms2	rts		; not found
 
 !ct pet {
 
-pms0	cpy #80		; BASIC-Zeilenlänge erreicht?
+pms0	cpy #80		; BASIC-ZeilenlÃ¤nge erreicht?
 	bcs pms2		; ja, Abbruch
 
-	jsr readeq	; nächstes gülitiges Zeichen holen
+	jsr readeq	; nÃ¤chstes gÃ¼litiges Zeichen holen
 	iny
 	jsr addy		; Vektor auf dieses Zeichen setzen
 
@@ -1155,17 +1155,17 @@ jm0	ldy #0
 	lda (vekt),y	; Zeichen holen (bis $00)
 	beq pms2
 
-	cmp #"u"		; "u" (für "Units")?
+	cmp #"u"		; "u" (fÃ¼r "Units")?
 	bne jm1
 	jsr drives	; dann Driveliste erstellen
 	bne jm0
 
-jm1	cmp #"w"		; "w" (für "Wait")?
+jm1	cmp #"w"		; "w" (fÃ¼r "Wait")?
 	bne jm2
 	jsr timeset	; dann Timer setzen
 	bne jm0
 
-jm2	cmp #"l"		; "l" (für "Loop")?
+jm2	cmp #"l"		; "l" (fÃ¼r "Loop")?
 	bne jm3
 	jsr setloop	; dann Schleife setzen
 	bne jm0
@@ -1179,14 +1179,14 @@ jm3	jsr incv		; weiterlesen bis $00
 
 drives	lda drive		; aktueller Drive
 	sta units		; ist Vorgabe
-	jsr readeq	; nächstes Zeichen überlesen ("=" und Space)
+	jsr readeq	; nÃ¤chstes Zeichen Ã¼berlesen ("=" und Space)
 	jsr gword		; Zahl einlesen
 	bcc dr0
 	cmp #8		; zwischen 8 und 12?
 	bcc dr0
 	cmp #12
 	bcs dr0
-	sta units		; dann gülig
+	sta units		; dann gÃ¼lig
 
 dr0	jsr getword	; mehrere Units?
 
@@ -1197,30 +1197,30 @@ dr0	jsr getword	; mehrere Units?
 	sta units,x
 	pla
 	plp
-	bcc dr1		; Nummer gülitig?
+	bcc dr1		; Nummer gÃ¼litig?
 	sta units,x	; dann Unitnummer setzen
 dr1	inx
 	stx zaehler	; noch eine?
-	cpx #4		; höchstens 4
+	cpx #4		; hÃ¶chstens 4
 	bne dr0
-	jmp incv		; Zeiger rücken
+	jmp incv		; Zeiger rÃ¼cken
 
 ; ------------------------------------------ Wait
 
-timeset	jsr readeq	; überlesen bis Zahl (Sekunden)
+timeset	jsr readeq	; Ã¼berlesen bis Zahl (Sekunden)
 	jsr gw
 	bcc dr2
-	sta time		; merken, wenn gülitig
+	sta time		; merken, wenn gÃ¼litig
 	jsr mal60		; mal 60
-dr2	jmp incv		; Zeiger rücken
+dr2	jmp incv		; Zeiger rÃ¼cken
 
 ; ------------------------------------------ Loop
 
-setloop	jsr readeq	; überlesen bis Zahl (0 oder 1)
+setloop	jsr readeq	; Ã¼berlesen bis Zahl (0 oder 1)
 	jsr gw
 	bcc dr3
-	sta dloop		; setzen, wenn gültig
-dr3	jmp incv		; Zeiger rücken
+	sta dloop		; setzen, wenn gÃ¼ltig
+dr3	jmp incv		; Zeiger rÃ¼cken
 
 ; ------------------------------------------ Wert mal 2
 
@@ -1253,7 +1253,7 @@ mal60	ldx #0
 	sta time+2
 	rts
 
-; ------------------------------------------ Überlesen
+; ------------------------------------------ Ãœberlesen
 
 readeq	iny
 	lda (vekt),y
