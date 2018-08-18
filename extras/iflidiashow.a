@@ -1,5 +1,5 @@
 
-	!src "..\godotlib.lib"
+	!src "../libraries/godotlib.lib"
 	*= $0801
 
 ; ------------------------------------------ 
