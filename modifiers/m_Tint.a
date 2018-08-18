@@ -8,6 +8,9 @@
 ;
 ;     mod.tint
 ;
+;  1.00,         , first release
+;  1.01, 08.11.93, added: color chooser
+;        18.08.18, completely re-organized code
 ;
 ; ----------------------------------------- 
 
@@ -48,12 +51,12 @@
 
 ; ----------------------------------------- 
 
-start	ldx #<tintlst
+start	ldx #<tintlst	; Requester
 	ldy #>tintlst
 	jsr gd_screen
 
-	sta sc_loop	; care for text mode
-	ldx palgad	; palette gadget values
+	sta sc_loop	; .a=0, care for text mode
+	ldx palgad	; get palette gadget values
 	inx
 	stx palzl
 	stx sc_zl
@@ -64,71 +67,72 @@ start	ldx #<tintlst
 	ldx #4		; 4x4 area (color chooser)
 	stx sc_br
 	stx sc_ho
-	jsr gd_esm3		; compute address and invert
+	jsr gd_esm3	; compute address and revert
 
 	lda gr_picked	; get previously selected color to .x
 	and #15		; (will be marked by "+")
 	tax
 	jsr initpal	; and show colors
-	jmp gd_eloop	; wait for clicks
 
-; ----------------------------------------- 
+	jmp gd_eloop	; now wait for clicks
 
-evtint	jsr prep
-	jsr initad
-	lda #<sy_4bit
+; ----------------------------------------- Event: Tint
+
+evtint	jsr prep		; prepare picked color for tinting
+	jsr initad	; prepare activity
+	lda #<sy_4bit	; set source address
 	ldy #>sy_4bit
 	sta src
 	sty src+1
 
 	ldy #0
-avloop	lda (src),y
+avloop	lda (src),y	; combine first pixel with picked color
 	and #$f0
 	ora col1
 	tax 
-	lda coltab,x
-	and #$f0
-	sta bbuf
+	lda coltab,x	; get its new color value from tab
+	and #$f0		; isolate left nibble
+	sta bbuf		; and store
 
-	lda (src),y
+	lda (src),y	; combine next pixel with picked color
 	and #$0f
 	ora col2
 	tax 
-	lda coltab,x
-	and #$0f
-	ora bbuf
+	lda coltab,x	; get its new color value from tab
+	and #$0f		; isolate right nibble
+	ora bbuf		; and combine left and right values...
 
-	sta (src),y
-	iny 
+	sta (src),y	; ...to store them as tint result
+	iny 		; process one page
 	bne avloop
 
-	jsr adinc
-	inc src+1
+	jsr adinc		; activity
+	inc src+1		; proceed to next page
 	lda src+1
 	cmp #>sy_bigbuffer
-	bne avloop
-	jsr exit
+	bne avloop	; until finished
+	jsr exit		; then, switch off activity
 
-; ----------------------------------------- 
+; ----------------------------------------- Event: Exit
 
-evcan	sec
+evcan	sec		; and leave modifier
 	rts
 
-; ----------------------------------------- 
+; ----------------------------------------- Prepare for Tinting
 
-prep	lda gr_picked
+prep	lda gr_picked	; get picked color
 	and #$0f
 	tax 
-	lda gdcols,x
+	lda gdcols,x	; convert to GoDot double nibbles
 	tax 
 	and #$0f
-	sta col1
+	sta col1		; and dissociate to upper (col2) and lower (col1) nibble
 	txa 
 	and #$f0
 	sta col2
 	rts
 
-; ----------------------------------------- Pick Color
+; ----------------------------------------- Pick Color from Chooser
 
 evgetcol	sec 
 	lda zeile
@@ -147,7 +151,7 @@ evgetcol	sec
 	ora #$80
 	sta gr_picked
 
-; ----------------------------------------- 
+; ----------------------------------------- Show Color Chooser
 
 makepal	lda gr_picked	; get current color
 	and #15
@@ -178,7 +182,7 @@ mp1	stx cntx
 	beq mp2
 	lda #160		; no, write shift space
 	bne mp3
-mp2	lda #171		; yes, write "+"
+mp2	lda #171		; yes, write reverted "+"
 mp3	ldy #0
 	sta (sc_vekt20),y
 	inc sc_sp		; next column
@@ -202,17 +206,17 @@ mp3	ldy #0
 	clc 
 	rts 
 
-; ----------------------------------------- 
+; ----------------------------------------- Color to the Chooser
 
 colorize	lda gr_basepal,y	; get color
 	sta sc_chgcol
 	ldx #4
 	jmp gd_fcol	; colorize area (1x1)
 
-; ------------------------------------------------
+; ----------------------------------------- First Init
 
-initpal	lda gdcols,x	; re-display palette
-	sta col		; unused variable
+initpal	lda gdcols,x	; display color chooser
+	sta col		; unused variable COL
 	jsr makepal
 	clc
 	rts
@@ -275,7 +279,7 @@ initad	ldy #60
 	sta adcnt
 	rts 
 
-; ----------------------------------------- 
+; ----------------------------------------- Data
 
 palzl	!by 0
 palsp	!by 0
@@ -285,47 +289,33 @@ cntx	!by 0
 cnty	!by 0
 cntmk	!wo 0
 
-; ----------------------------------------- 
+; ----------------------------------------- GoDot Colors in C64 Order
 
 gdcols	!by $00,$ff,$44,$cc,$55,$aa,$11,$dd
 	!by $66,$22,$99,$33,$77,$ee,$88,$bb
 
-; ----------------------------------------- 
+; ----------------------------------------- Tinted Colors Table
+; not always symmetric to have opportunity to darken by pixel exchange
+; every other double pixel
 
-coltab	!by $00,$00,$00,$00,$22,$33,$22,$33
-	!by $33,$33,$33,$33,$33,$33,$33,$77
-	!by $00,$11,$33,$11,$33,$11,$33,$33
-	!by $88,$55,$33,$77,$88,$77,$77,$88
-	!by $00,$22,$22,$22,$44,$33,$22,$33
-	!by $77,$66,$33,$77,$77,$66,$aa,$77
-	!by $00,$11,$22,$33,$22,$33,$22,$33
-	!by $77,$77,$33,$77,$77,$77,$aa,$77
-	!by $22,$55,$44,$22,$44,$44,$44,$33
-	!by $55,$66,$33,$77,$77,$66,$33,$99
-	!by $33,$11,$44,$33,$44,$55,$44,$55
-	!by $88,$55,$77,$77,$88,$99,$33,$99
-	!by $22,$22,$22,$22,$44,$44,$66,$66
-	!by $77,$99,$66,$99,$77,$99,$aa,$99
-	!by $33,$33,$33,$33,$33,$55,$66,$77
-	!by $88,$99,$77,$77,$bb,$bb,$ee,$bb
-	!by $33,$88,$55,$77,$55,$88,$77,$88
-	!by $88,$99,$77,$88,$cc,$bb,$bb,$bb
-	!by $33,$55,$66,$77,$66,$55,$99,$99
-	!by $99,$99,$77,$bb,$bb,$99,$bb,$bb
-	!by $33,$11,$aa,$33,$22,$11,$66,$77
-	!by $88,$bb,$aa,$ee,$ee,$ee,$aa,$bb
-	!by $33,$77,$77,$77,$77,$77,$99,$77
-	!by $88,$bb,$ee,$bb,$bb,$dd,$bb,$ff
-	!by $33,$88,$ee,$77,$77,$88,$ee,$bb
-	!by $cc,$bb,$ee,$bb,$cc,$bb,$ee,$ff
-	!by $33,$77,$66,$77,$66,$99,$99,$bb
-	!by $bb,$99,$ee,$dd,$bb,$dd,$ee,$ff
-	!by $33,$11,$aa,$aa,$22,$55,$aa,$ee
-	!by $cc,$bb,$aa,$bb,$ee,$ee,$ee,$bb
-	!by $77,$88,$77,$77,$99,$99,$99,$bb
-	!by $bb,$bb,$bb,$ff,$ff,$ff,$bb,$ff
+coltab	!by $00,$00,$00,$00,$22,$33,$22,$33,$33,$33,$33,$33,$33,$33,$33,$77
+	!by $00,$11,$33,$11,$33,$11,$33,$33,$88,$55,$33,$77,$88,$77,$77,$88
+	!by $00,$22,$22,$22,$44,$33,$22,$33,$77,$66,$33,$77,$77,$66,$aa,$77
+	!by $00,$11,$22,$33,$22,$33,$22,$33,$77,$77,$33,$77,$77,$77,$aa,$77
+	!by $22,$55,$44,$22,$44,$44,$44,$33,$55,$66,$33,$77,$77,$66,$33,$99
+	!by $33,$11,$44,$33,$44,$55,$44,$55,$88,$55,$77,$77,$88,$99,$33,$99
+	!by $22,$22,$22,$22,$44,$44,$66,$66,$77,$99,$66,$99,$77,$99,$aa,$99
+	!by $33,$33,$33,$33,$33,$55,$66,$77,$88,$99,$77,$77,$bb,$bb,$ee,$bb
+	!by $33,$88,$55,$77,$55,$88,$77,$88,$88,$99,$77,$88,$cc,$bb,$bb,$bb
+	!by $33,$55,$66,$77,$66,$55,$99,$99,$99,$99,$77,$bb,$bb,$99,$bb,$bb
+	!by $33,$11,$aa,$33,$22,$11,$66,$77,$88,$bb,$aa,$ee,$ee,$ee,$aa,$bb
+	!by $33,$77,$77,$77,$77,$77,$99,$77,$88,$bb,$ee,$bb,$bb,$dd,$bb,$ff
+	!by $33,$88,$ee,$77,$77,$88,$ee,$bb,$cc,$bb,$ee,$bb,$cc,$bb,$ee,$ff
+	!by $33,$77,$66,$77,$66,$99,$99,$bb,$bb,$99,$ee,$dd,$bb,$dd,$ee,$ff
+	!by $33,$11,$aa,$aa,$22,$55,$aa,$ee,$cc,$bb,$aa,$bb,$ee,$ee,$ee,$bb
+	!by $77,$88,$77,$77,$99,$99,$99,$bb,$bb,$bb,$bb,$ff,$ff,$ff,$bb,$ff
 
-; ----------------------------------------- 
+; ----------------------------------------- Screenlist
 
 tintlst	!by 0
 	!by 16,14,16,8,$91
