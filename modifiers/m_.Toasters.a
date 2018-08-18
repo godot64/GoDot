@@ -1,0 +1,266 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!initmem $aa
+	!ct pet
+;	!sl "labels.txt"
+
+; ----------------------------------------- 
+;
+;  mod..Toasters
+;    This is a Screen Blanker
+;
+;  1.00, 23.01.96, first release
+;
+; ----------------------------------------- 
+
+; ----------------------------------------- Equates
+
+	gdata		= $3f00	; Sprites
+	sdata		= $c200	; save 4bit area
+	dbuf		= $c400	; parameter buffer
+
+	stick		= $dc00	; Joystick 0
+	tialo		= $dc04	; timer a (lo)
+	irq		= $0314
+	irqalt		= $0f8c
+	spptr		= $07f8
+
+	posx		= $d000
+	posy		= $d001
+	xmsb		= $d010
+	spren		= $d015
+	yxpand		= $d017
+	mode		= $d01c
+	xxpand		= $d01d
+	border		= $d020
+	backgr		= $d021
+	scol		= $d027
+
+; ----------------------------------------- 
+
+	jmp start
+	!by $20
+	!wo 0
+	!wo modend
+	!wo 0
+	!tx "screen blanker  "
+	!tx "1.00"
+	!tx "23.01.96"
+	!tx "W.Kling         "
+
+; ----------------------------------------- Do the Thing
+
+start	jsr bak		; save VIC
+
+	lda irq		; save GoDot IRQ to stack
+	pha 
+	lda irq+1
+	pha 
+	lda irqalt	; restore system IRQ
+	ldx irqalt+1
+	sei 
+	sta irq
+	stx irq+1
+	cli 
+
+	lda #$ff		; all sprites on
+	sta spren
+	sta xmsb		; all on the right
+	lda #147		; clear screen
+	jsr $ffd2
+	lda #0		; prepare keyboard
+	sta sc_keyprs
+	sta mode
+	sta xxpand
+	sta yxpand
+	sta backgr	; screen black
+	sta border
+	jsr swapdata	; save 4bit
+
+	ldy #7
+iloop	lda tialo		; get timer value
+	sta posx,y	; as x- and y-positions sprites 0..3
+	eor #$ff		; revert value
+	sta posx+8,y	; as positions sprites 4..7
+	clc 
+	tya 
+	adc #1		; as sprite colors
+	sta scol,y
+	dey 		; set 8 times
+	bpl iloop
+
+; ----------------------------------------- Flying Toasters
+
+move	ldy #7
+
+loop	tya 		; decide which sprite
+	asl 
+	tax 
+	dec cnty,x	; y-pos:
+	bne skip1
+	inc posy,x	; if $00: inc y-pos
+	lda ycnt,y	; and set new counter
+	sta cnty,x
+skip1	dec cntx,x	; x-pos:
+	bne skip2
+	lda posx,x	; if $00: toggle x-msb
+	bne skip3
+	lda xmsb
+	eor mask,y
+	sta xmsb
+skip3	dec posx,x	; dec x-pos
+	lda xcnt,y
+	sta cntx,x
+
+	lda shpnr,x	; get shape number (divided by 8)
+	lsr 
+	lsr 
+	lsr 
+	clc 
+	adc sprite1	; add base address
+	sta spptr,y	; set as sprite pointer
+	dec shpnr,x	; decrease number
+	bne skip2
+	lda #31		; if $00: start over at 31
+	sta shpnr,x
+skip2	dey 
+	bpl loop
+
+	lda stick		; any key or button?
+	and #$10
+	beq +
+	lda sc_keyprs
+	beq move		; no, loop
+
+; ----------------------------------------- End it
+
++	jsr restore	; restore VIC
+	jsr swapdata	; restore 4Bit
+	pla 		; restore GoDot IRQ
+	tax 
+	pla 
+	sei 
+	sta irq
+	stx irq+1
+	cli 
+
+	sec 		; Leave
+	rts 
+
+; ----------------------------------------- Save/Restore 4Bit Data
+
+swapdata	ldy #0
+sloop	lda gdata,y
+	tax 
+	lda sdata,y
+	sta gdata,y
+	txa 
+	sta sdata,y
+	iny 
+	bne sloop
+	rts 
+
+; ----------------------------------------- Save VIC Data
+
+bak	ldy #7
+bloop	lda scol,y
+	sta dbuf,y
+	lda spptr,y
+	sta dbuf+8,y
+	lda posx,y
+	sta dbuf+16,y
+	lda posx+8,y
+	sta dbuf+24,y
+	dey 
+	bpl bloop
+	lda border
+	ldx backgr
+	sta dbuf+32
+	stx dbuf+33
+	lda xmsb
+	ldx spren
+	sta dbuf+34
+	stx dbuf+35
+	rts 
+
+; ----------------------------------------- Restore VIC Data
+
+restore	ldy #7
+rloop	lda dbuf,y
+	sta scol,y
+	lda dbuf+8,y
+	sta spptr,y
+	lda dbuf+16,y
+	sta posx,y
+	lda dbuf+24,y
+	sta posx+8,y
+	dey 
+	bpl rloop
+	lda dbuf+32
+	ldx dbuf+33
+	sta border
+	stx backgr
+	lda dbuf+34
+	ldx dbuf+35
+	sta xmsb
+	stx spren
+	rts 
+
+; ----------------------------------------- 
+
+sprite1	!by 252			; from $3f00
+
+cntx	!by 0			; counters
+cnty 	!by 0,1,1,2,2,3,3
+	!by 5,5,6,6,7,7,8
+	!by 8
+xcnt	!by 63,64,65,66,67,68,69,70
+ycnt	!by 71,72,73,74,75,76,77,78
+
+mask	!by 1,2,4,8,16,32,64,128
+
+shpnr	!by  3, 3, 7, 7,11,11,15,15
+	!by 19,19,23,23,27,27,31,31
+
+; ----------------------------------------- 
+
+	*= sdata
+
+shapes	!by $03,$e0,$00,$07,$ff,$c0,$0f,$c0	; wings up
+	!by $30,$0f,$38,$3c,$1c,$e7,$c2,$73
+	!by $9f,$9f,$be,$73,$01,$8f,$ee,$7e
+	!by $b3,$5c,$0c,$a9,$79,$f4,$85,$70
+	!by $64,$9d,$39,$c4,$91,$3f,$84,$91
+	!by $1e,$08,$91,$00,$10,$91,$00,$60
+	!by $51,$01,$80,$40,$06,$00,$31,$18
+	!by $00,$0f,$e0,$00,$00,$00,$00,$11
+
+	!by $00,$00,$00,$03,$ff,$c0,$0f,$c0	; wings 1 quarter down
+	!by $30,$0f,$38,$3c,$1c,$e7,$e4,$73
+	!by $9f,$fe,$be,$73,$e1,$8f,$ef,$8f
+	!by $b3,$5e,$01,$a9,$78,$7d,$85,$70
+	!by $02,$9d,$39,$fc,$91,$3f,$84,$91
+	!by $1e,$08,$91,$00,$10,$91,$00,$60
+	!by $51,$01,$80,$40,$06,$00,$31,$18
+	!by $00,$0f,$e0,$00,$00,$00,$00,$11
+
+	!by $00,$00,$00,$00,$3f,$c0,$01,$c0	; wings 2 quarters down
+	!by $30,$07,$38,$3c,$1c,$e7,$e4,$73
+	!by $9f,$fc,$be,$73,$fc,$8f,$ef,$fc
+	!by $b3,$5f,$fc,$a9,$78,$02,$85,$70
+	!by $7f,$9d,$38,$01,$91,$3f,$1f,$91
+	!by $1e,$81,$91,$00,$42,$91,$00,$7c
+	!by $51,$01,$80,$40,$06,$00,$31,$18
+	!by $00,$0f,$e0,$00,$00,$00,$00,$11
+
+	!by $00,$00,$00,$00,$3f,$c0,$01,$c0	; wings down
+	!by $30,$07,$38,$3c,$1c,$e7,$e4,$73
+	!by $9f,$fc,$be,$73,$fc,$8f,$ef,$fc
+	!by $b3,$5f,$f4,$a9,$79,$e4,$85,$70
+	!by $64,$9d,$38,$1c,$91,$38,$46,$91
+	!by $1c,$31,$91,$02,$0f,$91,$01,$21
+	!by $51,$01,$99,$40,$06,$47,$31,$18
+	!by $21,$0f,$e0,$1e,$00,$00,$00,$11
+
+modend	!eof 		; must be $c300
