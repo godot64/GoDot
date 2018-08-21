@@ -8,7 +8,7 @@
 ; GoDot Convolution Filters
 ; -> 18 convolution modifiers in one module
 ;
-; 1.00, 20.08.18, first release
+; 1.00, 21.08.18, first release
 ;
 ; ------------------------------------------------ 
 
@@ -93,7 +93,7 @@ umlagern	ldy #0		; von unten nach oben schieben
 
 ; ------------------------------------------------ Puffer füllen
 
-puffern	lda lcnt		; aktuelle Rasterzeile
+puffern	lda lcnt		; aktuelle Rasterzeile (rz)
 	pha 
 	lsr		; durch 8
 	lsr
@@ -267,7 +267,7 @@ init_sa	ldy #60
 	lda spren
 	ora #$0c		; Activity-Balken aktivieren
 	sta spren
-	lda #5
+	lda #5		; 5 x 40 = 200
 	sta adcnt
 	rts
 
@@ -279,17 +279,17 @@ evpreview	lda gd_modswitch
 	pla
 	sta gd_modswitch
 
-; ------------------------------------------------ 
+; ----------------------------------------- Event: Stay
 
 evstay	clc
 	rts
 
-; ------------------------------------------------ 
+; ----------------------------------------- Event: Cancel
 
 evcancel	sec
 	rts
 
-; ------------------------------------------------ 
+; ----------------------------------------- Execute Gadget
 
 blurhi	ldx #<evblurhi
 	ldy #>evblurhi
@@ -349,7 +349,7 @@ minimum	ldx #<evminimum
 +	stx event
 	sty event+1
 
-; ------------------------------------------------ 
+; ----------------------------------------- Konvolution
 
 exec	jsr init_sa
 	lda #0		; ab Rasterzeile 0
@@ -378,11 +378,11 @@ exec	jsr init_sa
 
 	jmp abschl	; fertig
 
-; ------------------------------------------------ 
+; ----------------------------------------- Process
 
 konvol	jmp (event)
 
-; --------------------------- Kringel definieren
+; ----------------------------------------- Kringel definieren
 
 chschr	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
 
@@ -393,7 +393,7 @@ makechr	ldx #7
 	bpl -
 	rts
 
-; ------------------------------------------------ 
+; ----------------------------------------- Requester einfärben
 
 help	!by 6,29,11,3
 
@@ -405,12 +405,7 @@ colrize	ldy #0
 	ldx #4
 	jmp gd_fcol
 
-out2	jsr settab
-	jsr gettab
-	ldy #6		; and display
-	jmp gd_xtxout1
-
-; ------------------------------------------------ Display Clip values
+; ----------------------------------------- Display Gadget Texts
 
 tabigad	!wo help
 	!wo modegad
@@ -438,15 +433,15 @@ gt0	jsr gd_setpos
 	jsr gd_trim
 	jmp gd_initmove
 
-; --------------------------------------- Set Mode
+; --------------------------------------- Event: Set Mode
 
 evmode	ldx mode		; 0: stay / 1: leave
 	beq ed0
 	ldx #$ff
 ed0	inx
 	stx mode
-ed4	bne +
-	lda #<evstay
+ed4	bne +		; Einsprung aus Main beim Start:
+	lda #<evstay	; setzt Abschlussvektor
 	ldy #>evstay
 	bne ++
 +	lda #<evcancel
@@ -465,7 +460,7 @@ ed2	lda modes,y
 	dex
 	bpl ed2
 	ldy #2
-	jsr settab
+out2	jsr settab
 	jsr gettab
 ed3	ldy #6
 	jmp gd_xtxout1
@@ -477,7 +472,9 @@ modes	!scr " Stay  Leave"
 ; ------------------------------------------------ List of Filters
 ; ------------------------------------------------ 
 
-evxhatch	ldy #0		; $c601
+; ------------------------------------------------ CrossHatch
+
+evxhatch	ldy #0
 
 -	lda buf_o-1,y
 	clc 
@@ -502,7 +499,7 @@ evxhatch	ldy #0		; $c601
 	bne -
 	rts 
 
-; ------------------------------------------------ 
+; ------------------------------------------------ LaPlacian
 
 evlaplace	ldy #0
 
@@ -541,9 +538,9 @@ evlaplace	ldy #0
 	bne -
 	rts 
 
-; ------------------------------------------------ 
+; ------------------------------------------------ Sharpen 1
 
-evsharp1	ldy #0		; $c601
+evsharp1	ldy #0
 
 -	lda buf_o-1,y
 	clc 
@@ -600,7 +597,7 @@ evsharp1	ldy #0		; $c601
 	bne -
 	rts 
 
-; ------------------------------------------------ 
+; ------------------------------------------------ Random
 
 evrandom	ldy #0
 
@@ -661,7 +658,7 @@ evrandom	ldy #0
 	bne -
 	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------ Smear
 
 evsmear	ldy #0		; erste Hälfte bearbeiten
 
@@ -726,7 +723,7 @@ kon3	sta buf_r+160,y	; und als Ergebnis speichern
 	bne -
 	rts 
 
-; ------------------------------------------------ 
+; ------------------------------------------------ WaterColor
 
 evwatrcol	ldy #0		; erste Hälfte bearbeiten
 
@@ -773,7 +770,7 @@ kon4	lda #0
 	tax
 	inc wbuf,x
 
-	ldx #15		; welcher war öfter als viermal?
+	ldx #15		; welcher war öfter als fünfmal?
 -	lda wbuf,x	; (0 mal: gleich wegschreiben)
 	beq +
 	cmp #6		; den als Ergebnis wegschreiben
@@ -854,11 +851,11 @@ kon4	lda #0
 	jmp kon4
 +	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------ Median
 
 evmedian	ldy #0
 
-kon5	lda buf_o-1,y
+kon5	lda buf_o-1,y	; aktuelle Matrix puffern
 	sta wbuf
 	lda buf_o,y
 	sta wbuf+1
@@ -878,8 +875,8 @@ kon5	lda buf_o-1,y
 	sta wbuf+8
 	sty mrkx
 
-	jsr auswerten
-	sta buf_r,y
+	jsr auswerten	; auswerten
+	sta buf_r,y	; Ergebnis schreiben
 
 	lda buf_o+160-1,y
 	sta wbuf
@@ -934,9 +931,9 @@ auswerten	ldx #4
 +	ldy mrkx
 	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------ Emboss
 
-evemboss	ldy #0		; $c601
+evemboss	ldy #0
 
 -	lda buf_u+1,y
 	eor #$0f
@@ -957,9 +954,9 @@ evemboss	ldy #0		; $c601
 	bne -
 	rts 
 
-; ------------------------------------------------ 
+; ------------------------------------------------ DeepPress
 
-evdeeppr	ldy #0		; $c601
+evdeeppr	ldy #0
 
 -	lda buf_m+1,y
 	clc 
@@ -1008,9 +1005,9 @@ evdeeppr	ldy #0		; $c601
 	bne -
 	rts 
 
-; ------------------------------------------------ 
+; ------------------------------------------------ Gaussian
 
-evgauss	ldy #0		; $c601
+evgauss	ldy #0
 
 -	lda buf_m,y
 	asl 
@@ -1053,9 +1050,9 @@ evgauss	ldy #0		; $c601
 	bne -
 	rts 
 
-; ------------------------------------------------ 
+; ------------------------------------------------ Sharpen 3
 
-evsharp3	ldy #0		; $c601
+evsharp3	ldy #0
 
 -	lda buf_o,y
 	clc 
@@ -1118,7 +1115,7 @@ evsharp3	ldy #0		; $c601
 	bne -
 	rts 
 
-; ------------------------------------------------ 
+; ------------------------------------------------ RemIsoPixels
 
 evrmisopx	ldy #0
 
@@ -1167,7 +1164,7 @@ evrmisopx	ldy #0
 	bne -
 	rts 
 
-; ------------------------------------------------ 
+; ------------------------------------------------ Cartoon
 
 evcartoon	ldy #0		; erste Hälfte bearbeiten
 -	lda buf_m,y	; Zentrum der Matrix mal 4
@@ -1205,7 +1202,7 @@ evcartoon	ldy #0		; erste Hälfte bearbeiten
 	bne -
 	rts 
 
-; ------------------------------------------------ 
+; ------------------------------------------------ Blur High
 
 evblurhi 	ldy #0
 -	lda buf_m,y	; matrixzentrum*2 (linke Hälfte)
@@ -1256,9 +1253,9 @@ evblurhi 	ldy #0
 	bne -
 	rts 
 
-; ------------------------------------------------ 
+; ------------------------------------------------ OutlineMono (LineArt)
 
-evoutlnm	ldy #0		; erste Hälfte bearbeiten $c600
+evoutlnm	ldy #0		; erste Hälfte bearbeiten
 
 -	lda buf_m,y	; Zentrum der Matrix mal 4
 	asl
@@ -1295,9 +1292,10 @@ evoutlnm	ldy #0		; erste Hälfte bearbeiten $c600
 	bne -
 	rts 
 
-; ------------------------------------------------ 
+; ------------------------------------------------ Minimum
 
 evminimum	ldy #0		; minimum unter dem konvolutionskern suchen (linke hälfte, 160 bytes)
+
 loop 	lda buf_m,y	; matrixzentrum (in der mittleren rasterzeile) testen
 	beq ++		; wenn bereits minimum, in den ergebnispuffer, keine bearbeitung erforderlich
 	sta bbuf		; nein, merken
@@ -1380,7 +1378,7 @@ loop 	lda buf_m,y	; matrixzentrum (in der mittleren rasterzeile) testen
 	jmp loop		; nein, loop
 +	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------ Maximum
 
 evmaximum	ldy #0
 
@@ -1472,7 +1470,7 @@ loop2 	lda buf_m,y
 	jmp loop2
 +	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------ Speckle
 
 evspeckle	ldy #0		; erste Hälfte bearbeiten
 
