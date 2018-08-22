@@ -1,0 +1,183 @@
+	!src "godotlib.lib"
+	*=$c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ------------------------------------------------ 
+;
+; ldr.Version
+;   Module to show the version numbers of mod, and upm
+;
+; 1.00, 21.08.18, first release
+;
+; ------------------------------------------------ 
+
+; ------------------------------------------------ 
+
+	pport		= $01
+
+	zeile		= $30
+	hivec		= $31
+
+; ------------------------------------------------ 
+
+header	jmp start
+	!by $80
+	!by 4		; ldr has requester
+	!by 0
+	!wo modend
+	!wo 0
+	!tx "Mod,      upmem "
+	!tx "1.00"
+	!tx "06.04.92"
+	!tx "A. Dettke       "
+
+; ------------------------------------------------ Main
+
+start	ldx #<verlst
+	ldy #>verlst
+	jsr gd_screen
+	jsr show
+	jsr gd_eloop
+
+; ------------------------------------------------ Event: Cancel
+
+evcan	sec 
+	rts 
+
+; ------------------------------------------------ Show Information
+
+show	sei 
+	jsr color		; Requester einfärben
+	lda #$30		; C64 auf RAM
+	sta pport
+
+	lda modul+$2000	; mod
+	cmp #$18		; Code für CLC? ( = kein mod)
+	beq sh0		; ja, skip
+
+	lda #8		; an Zeile 8
+	sta zeile
+	lda #>(modul+$2000)	; Hibyte der Quelladresse
+	sta hivec
+	jsr out		; Record ausgeben
+
+sh0	lda modul+$3000	; upmem
+	cmp #$18		; Code für CLC? ( = kein upmem)
+	beq sh1		; ja, skip
+
+	lda #14		; an Zeile 14
+	sta zeile
+	lda #>(modul+$3000)	; Hibyte der Quelladresse
+	sta hivec
+	jsr out		; Record ausgeben
+
+sh1	lda #$36		; C64 zurück auf GoDot
+	sta pport
+	cli 
+	rts 
+
+; ------------------------------------------------ Übertragen und ausgeben
+
+trans	stx sc_texttab	; Quelle setzen
+	sta sc_texttab+1
+	sty sc_br		; Breite
+	ldy #0
+tr0	lda (sc_texttab),y
+	sta sc_movetab,y	; in GoDots Ausgabepuffer
+	iny 
+	cpy sc_br
+	bne tr0
+	lda #0		; abschließen
+	sta sc_movetab,y
+	jsr gd_cnvbc	; nach BCode konvertieren
+	jmp gd_xtxout3	; und ausgeben
+
+; ------------------------------------------------ Set Position
+
+set	lda #15		; Spalte 15
+	sta sc_sp
+	lda zeile		; Zeile variabel
+	sta sc_zl
+	rts 
+
+; ------------------------------------------------ Output one Record
+
+out	jsr set		; Position setzen
+	ldx #10		; Index auf "name"
+	lda hivec
+	ldy #16		; 16 Zeichen
+	jsr trans		; in Requester ausgeben
+
+	inc zeile		; darunter:
+	jsr set		; Position setzen
+	ldx #26		; Index auf "version"
+	lda hivec
+	ldy #4		; 4 Zeichen
+	jsr trans		; ausgeben
+
+	inc zeile		; darunter:
+	jsr set		; Position setzen
+	ldx #30		; Index auf "date"
+	lda hivec
+	ldy #8		; 8 Zeichen
+	jsr trans		; ausgeben
+
+	inc zeile		; darunter:
+	jsr set		; Position setzen
+	ldx #38		; Index auf "author"
+	lda hivec
+	ldy #16		; 16 Zeichen
+	jmp trans		; ausgeben
+
+; ------------------------------------------------ Colorize
+
+color	ldx #2		; Index auf sc_normtext
+	lda #8		; an 8,15
+	sta zeile
+	jsr set		; Position setzen
+	lda #16		; 16 breit, 4 hoch
+	sta sc_br
+	lda #4
+	sta sc_ho
+	jsr gd_fcol	; einfärben
+
+	ldx #2		; dito an 14,15
+	lda #14
+	sta sc_zl
+	jmp gd_fcol
+
+; ------------------------------------------------ Screenlist
+
+verlst	!by 0
+	!by 5,7,25,14,$91
+	!wo 0
+	!scr "Version@"
+	!by 5,7,3,3,$c4
+	!wo evcan
+	!by 160,0
+	!by 7,14,18,6,$0f
+	!wo 0
+	!by 13,14,18,6,$0d
+	!wo 0
+	!by $c0,7,7,6
+	!scr "Module@"
+	!by $c0,8,10,3
+	!scr "Rev@"
+	!by $c0,9,9,4
+	!scr "Date@"
+	!by $c0,10,7,6
+	!scr "Author@"
+	!by $c0,13,8,5
+	!scr "UpMem@"
+	!by $c0,14,10,3
+	!scr "Rev@"
+	!by $c0,15,9,4
+	!scr "Date@"
+	!by $c0,16,7,6
+	!scr "Author@"
+	!by $80
+
+; ------------------------------------------------ 
+
+modend	!eof 
