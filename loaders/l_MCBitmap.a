@@ -1,0 +1,248 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ----------------------------------------- 
+;
+;  ldr.MCBitmap
+;   Loader for standard C64 Multicolor Bitmaps
+;
+;  1.00, 25.09.91, first release
+;  ...
+;  1.04, 15.07.95, changed substitution colors to grays
+;
+; ----------------------------------------- 
+
+; ----------------------------------------- Equates
+
+	adcnt	= $30
+	byte	= $31
+
+	offx	= ls_adrmisc
+	offy	= offx+1
+
+; ----------------------------------------- 
+
+header	jmp start
+	!by $80
+	!by 0
+	!by 0
+	!wo modend
+	!wo 0
+	!tx "MulticolorBitmap"
+	!tx "1.04"
+	!tx "15.07.95"
+	!tx "W.Kling (AD)    "
+
+; ----------------------------------------- 
+
+start	jsr getname	; save filename for image information
+	lda #50
+	sta cntwert
+
+	ldx sc_vekt20	; set target address (=4bit)
+	ldy sc_vekt20+1
+	stx sc_texttab
+	sty sc_texttab+1
+
+	lda ls_nambuf	; Koala-Spades as first char in filename?
+	cmp #$c1
+	bne stt1
+	lda #$81		; yes, change to readable char
+stt1	sta ls_nambuf
+	ldx ls_temp	; length is 15 chars? (standard koala length)
+	cpx #15
+	beq stt2
+	lda #$2a		; no, add wildcard
+	sta ls_nambuf,x	; (so prevent skipping of trailing spaces)
+	inc ls_temp
+
+stt2	jsr gd_xopen	; open file to read
+	jsr onebyte	; skip start address in file
+	bne error
+	jsr onebyte
+	bne error
+
+	jsr gd_clrms	; init gauge
+	ldx #18		; out: "Bitmap"
+	jsr tcopy
+	iny
+	sty adcnt
+
+	lda #<8000
+	sta ls_vekta8
+	lda #>8000
+	sta ls_vekta8+1
+
+loop	jsr onebyte
+	sta byte
+	txa
+	and #$bf
+	bne error
+
+	jsr action	; activity
+	ldx #4		; make 4 bytes from 1 (= 8 pixels)
+bloop	lda #0		; pre-convert to 4bit
+	asl byte
+	rol
+	asl byte
+	rol
+	tay
+	lda mccols,y
+	tay
+	lda dnibs,y
+	ldy #0
+	sta (sc_texttab),y
+	inc sc_texttab
+	bne sk
+	inc sc_texttab+1
+sk	dex
+	bne bloop
+
+	lda ls_vekta8	; count
+	bne sk1
+	dec ls_vekta8+1
+sk1	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	beq sk2
+	lda status
+	beq loop
+
+; ----------------------------------------- Finish
+
+sk2	ldx #18
+	jsr tcopy
+	jsr setname
+
+ld7	jsr gd_xclose	; close file
+	jsr gd_spron	; mouse pointer on
+	sec
+	rts
+
+; ----------------------------------------- 
+
+error	jsr ld7
+	clc		; after error: stay in loader
+	rts
+
+; ----------------------------------------- 
+
+onebyte	jsr basin
+	ldx status
+	rts
+
+; ----------------------------------------- 
+
+messout	ldx #<message
+	ldy #>message
+	jmp gd_xtxout2
+
+tcopy	ldy #0		; anwählen
+tc0	lda txt,x
+	beq clrmess
+	sta message,y
+	inx 
+	iny 
+	bne tc0
+
+action	dec adcnt
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	cpy #20		; this value must be the same as at CLRMESS
+	bne act0
+	jsr clrmess
+act0	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts
+
+clrmess   ldx #20		; clear gauge bar
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0		; init counters
+	ldx #7	
+	sty offy
+	stx offx
+	rts
+
+filltab	!by 160,93,103,127,126,124,105,109
+cntwert	!by 50
+txt	!scr " Colors @"
+	!scr " Convert@"
+	!scr " Bitmap @"
+message	!fill 11,32
+mess	!fill 21,32
+	!by 0
+
+; ----------------------------------------- C64 Colors in GoDot Order
+
+mccols	!by $00,$03,$07,$0f
+
+dnibs	!by $00,$11,$22,$33,$44,$55,$66,$77
+	!by $88,$99,$aa,$bb,$cc,$dd,$ee,$ff
+
+; ----------------------------------------- Image Information Handler
+
+getname	ldx #0
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+setinfo	jsr setname
+	jsr setloader
+	jsr setmode
+	jmp setdata
+
+setname	lda #0
+	ldx #<ls_picname
+	ldy #>ls_picname
+	bne si3
+setloader	lda #17
+	ldx #<ls_iloader
+	ldy #>ls_iloader
+	bne si3
+setmode	lda #25
+	ldx #<ls_imode
+	ldy #>ls_imode
+	bne si3
+setdata	lda #33
+	ldx #<ls_idrive
+	ldy #>ls_idrive
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!fill 16,32
+	!by 0
+	!scr "MCBMap @"
+modetx	!scr "160x200@"
+datatype	!scr "Color@"
+
+; ----------------------------------------- 
+
+modend	!eof
