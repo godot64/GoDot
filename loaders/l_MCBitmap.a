@@ -7,7 +7,7 @@
 ; ----------------------------------------- 
 ;
 ;  ldr.MCBitmap
-;   Loader for standard C64 Multicolor Bitmaps
+;   Loader for standard C64 Multicolor Bitmaps (w/o color information)
 ;
 ;  1.00, 25.09.91, first release
 ;  ...
@@ -115,7 +115,7 @@ sk1	dec ls_vekta8
 
 sk2	ldx #18
 	jsr tcopy
-	jsr setname
+	jsr setinfo
 
 ld7	jsr gd_xclose	; close file
 	jsr gd_spron	; mouse pointer on
@@ -187,7 +187,7 @@ message	!fill 11,32
 mess	!fill 21,32
 	!by 0
 
-; ----------------------------------------- C64 Colors in GoDot Order
+; ----------------------------------------- C64 Colors as Double Nibbles
 
 mccols	!by $00,$03,$07,$0f
 
