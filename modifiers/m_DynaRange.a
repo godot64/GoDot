@@ -1,0 +1,245 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ----------------------------------------- 
+;
+;  mod.DynaRange
+;   Modifier which expands the balancing range to the max
+;   (affects grey values, enhances contrast)
+;
+;  0.99, 14.11.92, first release
+;
+; ----------------------------------------- 
+
+; ----------------------------------------- Equates
+
+	adcnt		= $30
+	data		= $35
+	lower		= $39
+	upper		= $3a
+	bbuf		= $3a
+	range		= $3b
+
+	histlo		= $c400
+	histhi		= histlo+16
+	drtab		= histhi+16
+
+	sprptr		= $07f8
+	spr255		= $3fc0
+
+	spr2x		= $d004
+	spr2y		= $d005
+	msbx		= $d010
+	spren		= $d015
+	sprxe		= $d01d
+	border		= $d020
+	sprcol2		= $d029
+
+; ----------------------------------------- Header
+
+	jmp start
+	!by $20
+	!wo 0
+	!wo modend
+	!by $00,$00
+	!tx "expansion2max   "
+	!tx "0.99"
+	!tx "14.11.92"
+	!tx "W.Kling         "
+;
+; ----------------------------------------- Main
+
+start	jsr initad	; init activity
+	jsr histo		; compute histogram and new balancing table (drtab)
+	beq finish
+
+apply	lda #<sy_4bit
+	ldy #>sy_4bit
+	sta data
+	sty data+1
+
+	ldy #0
+-	lda (data),y	; get left pixel
+	pha 
+	lsr
+	lsr
+	lsr
+	lsr
+	tax 
+	lda drtab,x	; get according balancing value
+	asl
+	asl
+	asl
+	asl
+	sta bbuf		; and store
+	pla 		; get right pixel
+	and #$0f
+	tax 
+	lda drtab,x	; get according balancing value
+	ora bbuf		; combine with left pixel
+	sta (data),y	; and set as new value
+	iny 		; one page
+	bne -
+
+	jsr adinc		; activity
+	inc data+1	; next page
+	lda data+1
+	cmp #>sy_bigbuffer
+	bne -
+
+finish	jsr clearad	; end activity
+	clc		; end of modifier
+	rts 
+
+; ----------------------------------------- Preparations
+
+histo	lda #0		; clear histogram
+	ldx #31
+-	sta histlo,x
+	dex 
+	bpl -
+
+	lda #<sy_4bit	; examine 4Bit data
+	ldx #>sy_4bit
+	sta data
+	stx data+1
+
+	ldy #0		; count colors:
+aloop	lda (data),y	; left pixel
+	pha 
+	lsr
+	lsr
+	lsr
+	lsr
+	tax 
+	inc histlo,x
+	bne +
+	inc histhi,x
++	pla 		; right pixel
+	and #$0f
+	tax 
+	inc histlo,x
+	bne +
+	inc histhi,x
++	iny 		; one page
+	bne aloop
+
+	inc data+1	; next page
+	lda data+1
+	cmp #>sy_bigbuffer	; until end of 4bit
+	bne aloop
+
+	ldx #$ff		; find start of range
+-	inx 		; (lowest gray value)
+	lda histlo,x
+	ora histhi,x
+	beq -
+	stx lower
+
+	ldx #16		; find end of range
+-	dex 		; (highest gray value)
+	lda histlo,x
+	ora histhi,x
+	beq -
+	stx range
+
+	lda range		; range is already to the max?
+	sec 
+	sbc lower
+	cmp #15
+	beq +		; yes, finish
+
+	tay 		; no, compute new balancing table
+	ldx lower		; .y: index to distance (starting w/ 8)
+	lda #8
+-	pha 
+	lsr
+	lsr
+	lsr
+	lsr
+	sta drtab,x
+	pla 
+	clc 
+	adc distab,y
+	inx 
+	cpx range
+	bne -
+
+	lda #15		; last entry is 15
+	sta drtab,x
++	rts 
+
+; ----------------------------------------- 
+
+distab	!by 0,240,120,80
+	!by 60,48,40,34
+	!by 30,27,24,22
+	!by 20,18,17,16
+
+; ------------------------------------------------ Abschluss Activity
+
+clearad	lda spren		; Wanderbalken aus
+	and #$f3
+	sta spren
+	lda msbx
+	and #$f3
+	sta msbx
+	lda #$ff		; Grafik verändert
+	sta gr_redisp
+	clc 		; fertig
+	rts 
+
+; ------------------------------------------------ Init Activity
+
+initad	ldy #60
+	lda #0
+-	sta spr255+3,y	; Spriteblock 255 vorbereiten
+	dey 
+	bpl -
+	sty spr255	; dünner Strich
+	sty spr255+1
+	sty spr255+2
+	lda #$0f		; Farbe hellgrau
+	sta sprcol2
+	sta sprcol2+1
+	lda sprxe		; doppelt breit
+	ora #$0c
+	sta sprxe
+
+	lda msbx		; x über 255
+	ora #$0c
+	sta msbx
+	lda #8		; x-Ordinate: 8 (plus 256)
+	sta spr2x
+	lda #$20
+	sta spr2x+2
+	lda #$92		; y-Ordinate: 146
+	sta spr2y		; (im Image Information Fenster)
+	sta spr2y+2
+
+	sty sprptr+2	; Sprite 255
+	sty sprptr+3
+	lda spren
+	ora #$0c		; Activity-Balken aktivieren
+	sta spren
+	lda #3		; Startzähler (5 mal 40 = 200)
+	sta adcnt
+	rts
+
+; ----------------------------------------- 
+
+adinc	dec adcnt
+	bne +
+	inc spr2y
+	inc spr2y+2
+	lda #3
+	sta adcnt
++	rts 
+
+; ----------------------------------------- 
+
+modend	!eof
+
