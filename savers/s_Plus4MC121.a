@@ -1,0 +1,708 @@
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ------------------------------------------------     
+;
+; svr.Plus4MC121
+;
+;   1.00, 14.03.18, first release
+;   1.01, 05.08.94, added: signature in saved file
+;
+; ------------------------------------------------ 
+
+; ------------------------------------------------ Equates
+
+	src		= $30	; /$31
+	src3		= $32	; /$33
+	zlcnt		= $34
+	mincol		= $35
+	col0		= $36	; /..$39
+	adcnt		= $3a
+	dif		= $3b	; /..$3e
+	bbuf		= $3f
+	mask		= $40	; /..$43
+	maxcol		= $44
+	maxcol1		= $45
+	bgcol0		= $46
+	bgcol3		= $47
+	byte		= $48
+	min		= $49
+	dst		= src3
+	dst1		= $4a	; $4b
+	src4		= dst1
+
+	offx		= $b2
+	offy		= offx+1
+
+	hist		= $2000
+	hist0		= hist+128
+	vram		= $3800
+	vram1		= $3c00
+	htab		= sy_global
+
+	chroma		= sy_bigbuffer
+	luma		= chroma+$80
+	p4pal		= chroma+$120
+
+; ------------------------------------------------ Header
+
+header	jmp start
+	!by $40
+	!by 0
+	!by 1
+	!wo modend
+	!wo 0
+	!tx "+4 MC All Colors"
+ver	!tx "1.01"
+	!tx "05.08.94"
+	!tx "A.Dettke/W.Kling"
+addtxt	!tx "col3/lum3: $1bfe"
+	!tx "col0/lum0: $1bff"
+	!by 0
+
+; ------------------------------------------------ Main
+
+start	ldx gr_nr
+	dex 
+	bne st1
+	jmp initinp
+
+; ------------------------------------------------ 
+
+st1	jsr gd_sproff
+	lda gd_modswitch
+	pha 
+	lda ls_flen
+	beq st3
+
+	sta wflen
+	lda #1
+	sta adcnt
+	jsr gd_clrms
+
+	jsr writeted
+
+	jsr clrch
+	lda #12
+	jsr close
+	jsr err9
+	bne st3
+	jsr setname
+
+st3	pla 
+	sta gd_modswitch
+	jsr gd_spron
+
+; ------------------------------------------------ Event: Cancel
+
+cn2	sec 
+	rts 
+
+; --------------------------- 
+; --------------------------- Input Routines
+
+!src "input.inc"
+
+; --------------------------- 
+; --------------------------- 
+
+pw	!tx "w,p,"
+drinit	!tx "i0"
+wflen	!by 0
+
+; ------------------------------------------------ 
+
+wopen	jsr inull
+	bne err8
+	ldy wflen
+	ldx #3
+wo1	lda pw,x
+	sta ls_nambuf,y
+	iny 
+	dex 
+	bpl wo1
+	sty wflen
+	lda #12
+	tay 
+	ldx ls_drive
+	jsr filpar
+	lda wflen
+	ldx #<ls_nambuf
+	ldy #>ls_nambuf
+	jsr filnam
+	jsr copen
+	jmp err9
+
+inull	ldx #<drinit
+	ldy #>drinit
+	lda #2
+	jsr gd_sendcom
+err9	jsr gd_xmess
+	lda ls_err2
+	and #15
+err8	sec 
+	rts 
+
+; ------------------------------------------------ Gauge Activity Handler
+
+messout	ldx #<message
+	ldy #>message
+	jmp gd_xtxout2
+
+tcopy	ldy #0
+tc0	lda txt,x
+	beq clrmess
+	sta message,y
+	inx 
+	iny 
+	bne tc0
+
+action	dec adcnt
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	cpy #20
+	bne act0
+	jsr clrmess
+act0	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts 
+
+clrmess	ldx #20
+	lda #32
+cl0	sta mess,x
+	dex 
+	bpl cl0
+	ldy #0
+	ldx #7
+	sty offy
+	stx offx
+	rts 
+
+filltab	!by 160,93,103,127,126,124,105,109
+
+cntwert	!by 63
+
+txt	!scr " TEDmulti  @"
+making	!scr "Making histograms.@"
+
+message	!fill 11,32
+mess	!fill 21,32
+	!by 0
+
+; ----------------------------------------- Image Information Handler
+
+getname	ldx #0
+si0	lda ls_lastname,x	; name of loaded picture
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+setname	lda #0
+	ldx #<ls_picname
+	ldy #>ls_picname
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4 	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!fill 16,32
+	!by 0
+
+; ------------------------------------------------ Write File: Preparations
+
+writeted	ldx #<making	; first: histograms
+	ldy #>making
+	jsr gd_xtxout2
+
+	ldy #3
+mskl	lda mask1,y
+	sta mask,y
+	dey 
+	bpl mskl
+
+	lda #0		; clear histogram
+	ldy #0
+cl1	sta hist0,y
+	iny 
+	bne cl1
+
+	lda #<sy_4bit	; count 7bit colors
+	ldx #>sy_4bit
+	sta src
+	stx src+1
+
+loop0	lda #0		; clear buffer
+	ldy #127
+cl2	sta hist,y
+	dey 
+	bpl cl2
+
+	ldy #31		; prepare one tile (clear bit 7)
+hl0	lda (src),y
+	and #127
+	sta (src),y
+	tax 
+	inc hist,x	; and count
+	dey 
+	bpl hl0
+
+	ldx #2
+	ldy #127		; every 4th counted value...
+hm1	lda hist,y
+	beq hms
+	dex 
+	bmi add
+hms	dey 
+	bpl hm1
+	bmi addskip
+
+add	ldx #127
+hl1	lda hist,x	; ...fills 2nd histogram
+	clc 
+	adc hist0,x
+	sta hist0,x
+	bcc as0
+	inc hist0+128,x
+as0	dex 
+	bpl hl1
+
+addskip	lda src		; next tile
+	clc 
+	adc #32
+	sta src
+	bcc loop0
+	inc src+1
+as1	lda src+1
+	cmp #>sy_bigbuffer	; until 4bit ends
+	bne loop0
+
+; ------------------------------------------------ 
+
+	lda #0
+	sta max
+	sta max+1
+	lda #$ff		; dummy
+	sta bgcol0
+
+	ldy #127
+ml0	lda hist0+128,y	; find most frequent color
+	cmp max+1
+	bcc next0
+	beq tstlo0
+	ldx hist0,y
+	bcs set0
+tstlo0	lda hist0,y
+	cmp max
+	bcc next0
+	beq next0
+	tax 
+	lda hist0+128,y
+set0	stx max
+	sta max+1
+	sty bgcol0	; set it
+next0	dey 
+	bpl ml0
+
+	lda bgcol0	; found one?
+	bpl ok1
+	lda sy_4bit	; no, take any
+	sta bgcol0
+ok1	tax 
+	lda #0		; and clear it from histogram
+	sta hist0,x
+	sta hist0+128,x
+
+noclr	lda #0		; find 2nd most color
+	sta max
+	sta max+1
+	lda #$ff
+	sta bgcol3
+	ldy #127
+ml1	lda hist0+128,y
+	cmp max+1
+	bcc next1
+	beq tstlo1
+	ldx hist0,y
+	bcs set1
+tstlo1	lda hist0,y
+	cmp max
+	bcc next1
+	beq next1
+	tax 
+	lda hist0+128,y
+set1	stx max
+	sta max+1
+	sty bgcol3	; set it
+next1	dey 
+	bpl ml1
+
+; ------------------------------------------------ 
+
+	lda #<sy_4bit
+	ldx #>sy_4bit
+	sta src
+	stx src+1
+	lda #<vram
+	ldx #>vram
+	sta dst
+	stx dst+1
+	lda #<vram1
+	ldx #>vram1
+	sta dst1
+	stx dst1+1
+
+loop3	ldy #127		; clear histogram again
+	lda #0
+ch1	sta hist,y
+	dey 
+	bpl ch1
+
+	ldy #31
+hl2	lda (src),y	; clear bgcol0 from count
+	tax 
+	inc hist,x
+	dey 
+	bpl hl2
+	lda #0
+	ldx bgcol0
+	sta hist,x
+	ldx bgcol3	; and also bgcol3 (if any)
+	bmi noclr2
+	sta hist,x
+
+noclr2	lda src		; proceed to next tile
+	clc 
+	adc #32
+	sta src
+	bcc s9
+	inc src+1
+
+s9	lda #$ff		; first find 3rd most frequent color
+	sta maxcol
+	sta maxcol1
+
+	lda #0
+	sta max
+	ldy #127
+m3	lda hist,y
+	beq s10
+	cmp max
+	beq s10
+	bcc s10
+	sta max
+	sty maxcol
+s10	dey 
+	bpl m3
+
+	lda #0
+	ldx maxcol
+	bmi noclr3
+	sta hist,x
+
+	sta max
+	ldy #127
+m31	lda hist,y
+	beq s101
+	cmp max
+	beq s101
+	bcc s101
+	sta max
+	sty maxcol1	; and set it
+s101	dey 
+	bpl m31
+
+noclr3	lda maxcol
+	ldy #0
+	sta (dst),y	; fill buffers
+	inc dst
+	bne s102
+	inc dst+1
+s102	lda maxcol1
+	ldy #0
+	sta (dst1),y
+	inc dst1
+	bne s11
+	inc dst1+1
+
+s11	lda src+1		; now proceed
+	cmp #>sy_bigbuffer	; until end of 4bit
+	beq ok3
+	jmp loop3
+
+; ------------------------------------------------ Write File to Disk
+
+st2	rts 
+
+ok3	jsr wopen		; open 12,dr,12,"name,p,w"
+	bne st2
+	jsr getname
+	ldx #12
+	jsr ckout
+	jsr gd_clrms
+	lda #<$1800	; write start address
+	jsr bsout
+	lda #>$1800
+	jsr bsout
+	ldx #0
+	jsr tcopy
+	jsr writevram	; write chroma
+	jsr writevram	; write luma
+
+	lda #<sy_4bit	; and bitmap
+	ldx #>sy_4bit
+	sta src
+	stx src+1
+	lda #<vram
+	ldx #>vram
+	sta src3
+	stx src3+1
+	lda #<vram1
+	ldx #>vram1
+	sta src4
+	stx src4+1
+
+	lda bgcol0
+	sta col0
+	lda bgcol3
+	sta col0+3
+
+bmloop	ldy #0		; first generate according pixel patterns
+	lda (src3),y
+	sta col0+2
+s18	lda (src4),y
+	sta col0+1
+
+s25	lda #8
+	sta zlcnt
+zlloop	lda #0
+	sta byte
+
+	ldy #3
+rl	lda (src),y
+	ldx #3
+lop1	cmp col0,x
+	beq setit
+	dex 
+	bpl lop1
+	and #7
+	sta bbuf
+	ldx #3
+lop2	lda col0,x
+	bmi skp1
+	and #7
+	sec 
+	sbc bbuf
+	beq setit
+	bcs skp1
+	eor #$ff
+	adc #1
+skp1	sta dif,x
+	dex 
+	bpl lop2
+	lda #8
+	sta min
+	ldx #3
+lop3	lda dif,x
+	cmp min
+	bcs skp2
+	sta min
+	stx mincol
+skp2	dex 
+	bpl lop3
+
+	ldx mincol
+setit	lda bits,x	; get pattern
+	and mask,y
+	ora byte
+	sta byte
+	dey 
+	bpl rl
+
+	jsr write		; and write to disk (with activity)
+
+	lda src		; proceed to next byte in tile
+	clc 
+	adc #4
+	sta src
+	bcc s26
+	inc src+1
+s26	dec zlcnt
+	bne zlloop
+
+	inc src3		; proceed to next tile
+	bne s28
+	inc src3+1
+s28	inc src4
+	bne s281
+	inc src4+1
+s281	lda src+1
+	cmp #>sy_bigbuffer	; until end of 4bit
+	beq ok121
+	jmp bmloop
+
+ok121	rts 		; finished
+
+; ------------------------------------------------ 
+
+writevram	lda bgcol0
+	asl 
+	and #$f0
+	sta bbuf
+	lda bgcol0
+	and #$07
+	ora bbuf
+	sta c03+1
+
+	lda bgcol3
+	asl 
+	and #$f0
+	sta bbuf
+	lda bgcol3
+	and #$07
+	ora bbuf
+	sta c03
+
+	ldy #3
+vl	lda ver,y
+	sta vv0,y
+	dey 
+	bpl vl
+
+	lda #<vram1
+	ldx #>vram1
+	sta src3
+	stx src3+1
+	lda #<vram
+	ldx #>vram
+	sta src4
+	stx src4+1
+	lda #4
+	sta cnt4
+vrloop0	ldy #0
+vrloop	lda (src3),y
+	tax 
+	lda (src4),y
+	bit nib
+	bmi lc1
+	jsr lumlum	; n=0: luma
+	bpl ordie
+lc1	jsr chrchr	; chroma
+
+ordie	jsr write
+
+	iny 
+	cpy #250
+	bne vrloop
+	lda src3
+	clc 
+	adc #250
+	sta src3
+	bcc vrs
+	inc src3+1
+vrs	lda src4
+	clc 
+	adc #250
+	sta src4
+	bcc vrs1
+	inc src4+1
+vrs1	dec cnt4
+	bne vrloop0
+
+	ldy #0		; fill gap with saver signature
+-	lda bottab,y
+	jsr write
+	iny 
+	cpy #24
+	bne -
+
+	lda nib
+	eor #$ff
+	sta nib
+	rts 
+
+; ------------------------------------------------ 
+
+bottab	!tx "GoDot7BitSaver"
+vv0	!tx "0.00"
+	!tx "mult"
+c03	!by $00,$17
+
+bits	!by $00,$55,$aa,$ff
+
+mask1	!by $c0		; %11000000
+	!by $30		; %00110000
+	!by $0c		; %00001100
+	!by $03		; %00000011
+
+; ------------------------------------------------ 
+
+write	pha 
+	txa 
+	pha 
+	tya 
+	pha 
+	jsr action
+	pla 
+	tay 
+	pla 
+	tax 
+	pla 
+	jmp bsout
+
+; ------------------------------------------------ 
+
+chrchr	lsr 
+	lsr 
+	lsr 
+	and #$0f
+	sta bbuf
+	txa 
+	asl 
+	and #$f0
+	ora bbuf
+	rts 
+
+; ------------------------------------------------ 
+
+lumlum	asl 
+	and #$0f
+	asl 
+	asl 
+	asl 
+	sta bbuf
+	txa 
+	and #$07
+	ora bbuf
+	rts 
+
+; ------------------------------------------------ 
+
+max	!wo 0
+nib	!by $0f
+
+cnt4	!by 0
+
+; ------------------------------------------------ 
+
+modend	!eof
