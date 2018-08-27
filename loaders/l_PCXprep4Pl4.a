@@ -12,6 +12,7 @@
 ;    erwartet PCX im Format 320x200 oder 160x200
 ;
 ;    1.00: 06.08.94, first release
+;    1.01: 26.08.18, optimized Plus4 RGB values
 ;
 ; ---------------------------
 
@@ -76,8 +77,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "PCX VGA->TED7bit"
-	!tx "1.00"
-	!tx "06.08.94"
+	!tx "1.01"
+	!tx "26.08.18"
 	!tx "W.Kling/A.Dettke"
 addtext	!pet "160/320 Breite  "
 	!pet "8 Bit/1 Plane   "
@@ -340,7 +341,7 @@ col0	lda grayold,x
 	sta pal,x
 	dex 
 	bpl col0
-	rts 		; fertig, Basis-Palette erzeugt
+	rts 		; fertig, Basis-Palette (pal) erzeugt
 
 grayold	!by $00,$00,$00,$00,$00,$00,$00,$00 
 	!by $00,$00,$00,$00,$00,$00,$00,$00 
@@ -351,7 +352,10 @@ getp	ldy #0
 gpl4	sty gpy
 	jsr adinc2
 	jsr basin		; Rotwert
-	lsr 
+	cmp #$f8		; >247?
+	bcs +
+	adc #8		; nein, aufrunden
++	lsr 
 	lsr 
 	lsr 
 	lsr 
@@ -361,7 +365,10 @@ gpl4	sty gpy
 
 	jsr adinc2
 	jsr basin		; Grünwert
-	lsr 
+	cmp #$f8		; >247?
+	bcs +
+	adc #8		; nein, aufrunden
++	lsr 
 	lsr 
 	lsr 
 	lsr 
@@ -371,7 +378,10 @@ gpl4	sty gpy
 
 	jsr adinc2
 	jsr basin		; Blauwert
-	lsr 
+	cmp #$f8		; >247?
+	bcs +
+	adc #8		; nein, aufrunden
++	lsr 
 	lsr 
 	lsr 
 	lsr 
@@ -379,7 +389,7 @@ gpl4	sty gpy
 	lda gr_btab,x	; mit Balancing
 	sta blu
 
-	jsr convcol	; in IFLI-Combi verwandeln
+	jsr convcol	; in Plus4-Farbe verwandeln
 	ldy gpy		; und in die (IFLI-) Palette schreiben
 	sta pal,y
 
@@ -500,76 +510,86 @@ ms2	inx
 
 quad	!by 0,1,4,9,16,25,36,49,64,81,100,121,144,169,196,225
 
-gray	!by $00,$08,$08,$09,$09,$0a,$0a,$0b,$0b,$0c,$0c,$0d,$0d,$0e,$0e,$0f
+gray	!by $00,$08,$09,$0a,$0a,$0b,$0b,$0b
+	!by $0c,$0c,$0d,$0d,$0e,$0e,$0e,$0f
 
 p4red	!by $00,$00,$00,$00,$00,$00,$00,$00 
-	!by $32,$4f,$6c,$89,$a7,$c4,$e1,$ff
-	!by $32,$4f,$6c,$89,$a7,$c4,$e1,$ff 
-	!by $00,$08,$17,$2d,$49,$6b,$94,$c4 
-	!by $32,$4f,$6c,$89,$a7,$c4,$e1,$ff 
-	!by $00,$08,$17,$2d,$49,$6b,$94,$c4 
-	!by $00,$08,$17,$2d,$49,$6b,$94,$c4 
-	!by $32,$4f,$6c,$89,$a7,$c4,$e1,$ff 
-	!by $3d,$58,$74,$90,$ab,$c7,$e3,$ff 
-	!by $32,$4f,$6c,$89,$a7,$c4,$e1,$ff 
-	!by $19,$2b,$41,$5b,$78,$97,$ba,$e1
-	!by $32,$4f,$6c,$89,$a7,$c4,$e1,$ff 
-	!by $00,$08,$17,$2d,$49,$6b,$94,$c4 
-	!by $00,$08,$17,$2d,$49,$6b,$94,$c4 
-	!by $19,$2a,$40,$59,$76,$96,$b9,$e1
-	!by $19,$2b,$42,$5b,$78,$98,$bb,$e1
+	!by $16,$26,$37,$49,$7b,$9b,$e0,$fe
+	!by $45,$58,$6c,$81,$b8,$db,$fe,$fe 
+	!by $00,$01,$0c,$19,$44,$60,$9f,$ce
+	!by $3d,$50,$64,$78,$ae,$d1,$fe,$fe 
+	!by $03,$05,$11,$20,$4b,$69,$a9,$fe 
+	!by $0f,$1d,$2d,$3f,$6f,$8f,$d2,$ce
+	!by $1f,$2f,$41,$54,$86,$a7,$ed,$fe 
+	!by $3d,$50,$64,$78,$ae,$d1,$fe,$fe 
+	!by $30,$41,$54,$68,$9d,$be,$fe,$fe 
+	!by $0f,$1d,$2d,$3f,$6f,$8f,$d2,$ce 
+	!by $45,$58,$6c,$81,$b8,$db,$ed,$fe  
+	!by $00,$01,$0c,$19,$44,$60,$9f,$de 
+	!by $03,$0e,$1d,$2d,$5b,$79,$bb,$de
+	!by $1f,$2f,$41,$54,$86,$a7,$fe,$ee 
+	!by $05,$0e,$1d,$2d,$5b,$79,$bb,$fe 
 
 p4grn	!by $00,$00,$00,$00,$00,$00,$00,$00 
-	!by $32,$4f,$6c,$89,$a7,$c4,$e1,$ff 
-	!by $00,$08,$17,$2d,$49,$6b,$94,$c4 
-	!by $32,$4f,$6c,$89,$a7,$c4,$e1,$ff 
-	!by $00,$08,$17,$2d,$49,$6b,$94,$c4 
-	!by $32,$4f,$6c,$89,$a7,$c4,$e1,$ff 
-	!by $00,$08,$17,$2d,$49,$6b,$94,$c4 
-	!by $32,$4f,$6c,$89,$a7,$c4,$e1,$ff 
-	!by $21,$34,$4b,$64,$80,$a0,$c2,$e8 
-	!by $19,$2a,$40,$59,$76,$96,$b9,$e1
-	!by $32,$4f,$6c,$89,$a7,$c4,$e1,$ff 
-	!by $00,$08,$17,$2d,$49,$6b,$94,$c4 
-	!by $32,$4f,$6c,$89,$a7,$c4,$e1,$ff 
-	!by $19,$2b,$41,$5b,$78,$97,$ba,$e1
-	!by $00,$08,$17,$2d,$49,$6b,$94,$c4 
-	!by $32,$4f,$6c,$89,$a7,$c4,$e1,$ff 
+	!by $16,$26,$37,$49,$7b,$9b,$e0,$fe 
+	!by $06,$13,$22,$33,$62,$80,$c3,$ce
+	!by $2a,$3b,$4d,$61,$95,$b6,$fd,$fe
+	!by $01,$0c,$1a,$2a,$57,$75,$b7,$ee 
+	!by $30,$45,$58,$6b,$a1,$c3,$fe,$fe 
+	!by $0d,$1b,$2b,$3c,$6d,$8c,$cf,$ee
+	!by $21,$31,$43,$56,$89,$aa,$f0,$fe 
+	!by $0d,$1c,$2c,$3d,$6d,$8d,$d0,$fe 
+	!by $17,$26,$37,$49,$7b,$9b,$e0,$ee 
+	!by $2a,$3b,$4e,$61,$96,$b7,$fe,$fe 
+	!by $02,$0e,$1c,$12,$5a,$78,$c2,$ee 
+	!by $30,$42,$55,$69,$9d,$bf,$fe,$fe 
+	!by $16,$26,$37,$49,$7a,$9b,$df,$ee 
+	!by $06,$13,$22,$32,$61,$80,$ba,$ee 
+	!by $33,$42,$55,$69,$9e,$c0,$fe,$fe 
 
 p4blu	!by $00,$00,$00,$00,$00,$00,$00,$00 
-	!by $32,$4f,$6c,$89,$a7,$c4,$e1,$ff 
-	!by $00,$08,$17,$2d,$49,$6b,$94,$c4 
-	!by $32,$4f,$6c,$89,$a7,$c4,$e1,$ff 
-	!by $32,$4f,$6c,$89,$a7,$c4,$e1,$ff 
-	!by $00,$08,$17,$2d,$49,$6b,$94,$c4 
-	!by $32,$4f,$6c,$89,$a7,$c4,$e1,$ff 
-	!by $00,$08,$17,$2d,$49,$6b,$94,$c4 
-	!by $19,$2a,$3f,$58,$75,$95,$ba,$e1
-	!by $00,$08,$17,$2d,$49,$6b,$94,$c4 
-	!by $00,$08,$17,$2d,$49,$6b,$94,$c4 
-	!by $19,$2b,$41,$5b,$78,$97,$ba,$e1
-	!by $19,$2a,$40,$59,$76,$96,$b9,$e1
-	!by $32,$4f,$6c,$89,$a7,$c4,$e1,$ff 
-	!by $32,$4f,$6c,$89,$a7,$c4,$e1,$ff 
-	!by $19,$2b,$42,$5b,$78,$98,$bb,$e1
+	!by $16,$26,$37,$49,$7b,$9b,$e0,$fe 
+	!by $09,$17,$26,$37,$66,$85,$c8,$ee
+	!by $26,$37,$49,$5c,$90,$b1,$f7,$fe 
+	!by $46,$59,$6d,$81,$b8,$db,$fe,$fe 
+	!by $00,$01,$0b,$19,$43,$60,$9f,$ce  
+	!by $70,$75,$9a,$b1,$eb,$fe,$fe,$fe 
+	!by $00,$00,$00,$00,$1e,$37,$71,$de 
+	!by $00,$01,$0b,$19,$43,$60,$9f,$fc 
+	!by $00,$00,$00,$06,$2b,$45,$81,$de 
+	!by $00,$00,$00,$00,$1e,$37,$71,$ce 
+	!by $19,$2b,$41,$5b,$78,$97,$fe,$f0
+	!by $09,$17,$26,$37,$66,$85,$c8,$ee 
+	!by $61,$75,$8a,$a0,$d9,$fd,$fe,$fe  
+	!by $70,$85,$9a,$b1,$eb,$fe,$f7,$fe 
+	!by $00,$00,$00,$06,$2b,$45,$81,$de 
 
 ; --------------------------- Read Palette and Convert
 
 downshift	ldy #127		; shift all palette entries to lower nibble:
--	lda p4red,y	; r
-	lsr
+-	lda p4red,y	; red
+	cmp #$f8		; >247?
+	bcs +
+	adc #8		; nein, aufrunden
++	lsr		; und durch 16
 	lsr
 	lsr
 	lsr
 	sta p4red,y
-	lda p4grn,y	; g
-	lsr
+	lda p4grn,y	; green
+	cmp #$f8
+	bcs +
+	adc #8
++	lsr
 	lsr
 	lsr
 	lsr
 	sta p4grn,y
-	lda p4blu,y	; b
-	lsr
+	lda p4blu,y	; blue
+	cmp #$f8
+	bcs +
+	adc #8
++	lsr
 	lsr
 	lsr
 	lsr
@@ -667,6 +687,7 @@ gs51	asl 		; sonst: anpassen (wie oben bei der Farbzuweisung)
 	sta gsum
 	lda rtab+1,y
 	sta gsum+1
+
 	lda grn
 	asl 
 	tay 
@@ -677,27 +698,30 @@ gs51	asl 		; sonst: anpassen (wie oben bei der Farbzuweisung)
 	lda gtab+1,y
 	adc gsum+1
 	sta gsum+1
+
 	lda blu
 	asl 
 	tay 
-	lda bltab,y
+	lda btab,y
 	clc 
 	adc gsum
 	sta gsum
-	lda bltab+1,y
+	lda btab+1,y
 	adc gsum+1
 	sta gsum+1
+
 	lda gsum
 	clc 
 	adc #128
-	lda gsum+1
+	lda gsum+1	; result in gsum (hi)
 	adc #0
+
 grok0	tay 
 	lda igray,y
 	rts 
 
-igray	!by $00,$03,$03,$33,$33,$37,$37,$77 
-	!by $77,$b7,$b7,$bb,$bb,$bf,$bf,$ff 
+igray	!by $00,$03,$03,$33,$33,$37,$37,$77
+	!by $77,$7b,$7b,$bb,$bb,$bf,$bf,$ff
 
 ; --------------------------- Read Image Data
 
@@ -784,9 +808,9 @@ rdx1	sta mess,x
 	sta offx
 	jsr getpal	; ...mit Konvertierung
 
-	ldy #0		; und jetzt IFLI-DoppelNibs eintragen
+	ldy #0		; und jetzt Multi-DoppelNibs eintragen
 	sty dst
-	ldx #$40
+	ldx #>sy_4bit
 	stx dst+1
 hloop	lda (dst),y
 	tax 
@@ -801,23 +825,17 @@ hloop	lda (dst),y
 	rts 		; fertig, Bild geladen und konvertiert nach IFLI
 
 ; --------------------------- 
-; --------------------------- RGB Table
+; --------------------------- RGB Table for Gray Conversion
 ; --------------------------- 
 
-rtab	!by $00,$00,$4d,$00,$9a,$00,$e7,$00 
-	!by $34,$01,$81,$01,$ce,$01,$1b,$02 
-	!by $68,$02,$b5,$02,$02,$03,$4f,$03 
-	!by $9c,$03,$e9,$03,$36,$04,$83,$04 
+rtab	!wo $0000,$004d,$009a,$00e7,$0134,$0181,$01ce,$021b	; dist: $4d (77)
+	!wo $0268,$02b5,$0302,$034f,$039c,$03e9,$0436,$0483
 
-gtab	!by $00,$00,$97,$00,$2e,$01,$c5,$01
-	!by $5c,$02,$f3,$02,$8a,$03,$21,$04 
-	!by $b8,$04,$4f,$05,$e6,$05,$7d,$06
-	!by $14,$07,$ab,$07,$42,$08,$d9,$08
+gtab	!wo $0000,$0097,$012e,$01c5,$025c,$02f3,$038a,$0421	; dist: $97 (151)
+	!wo $04b8,$054f,$05e6,$067d,$0714,$07ab,$0842,$08d9
 
-bltab	!by $00,$00,$1c,$00,$38,$00,$54,$00 
-	!by $70,$00,$8c,$00,$a8,$00,$c4,$00 
-	!by $e0,$00,$fc,$00,$18,$01,$34,$01
-	!by $50,$01,$6c,$01,$88,$01,$a4,$01
+btab	!wo $0000,$001c,$0038,$0054,$0070,$008c,$00a8,$00c4	; dist: $1c (28)
+	!wo $00e0,$00fc,$0118,$0134,$0150,$016c,$0188,$01a4	; adds to 256
 
 dnib	!by $00,$11,$22,$33,$44,$55,$66,$77 
 	!by $88,$99,$aa,$bb,$cc,$dd,$ee,$ff 
