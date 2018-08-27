@@ -1,0 +1,1015 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ---------------------------
+;
+;    ldr.PCXprep4Pl4
+;    Lader für PCX, 256 Farben
+;    liefert Plus4-Pixel (121 Farben)
+;    erwartet PCX im Format 320x200 oder 160x200
+;
+;    1.00: 06.08.94, first release
+;
+; ---------------------------
+
+; --------------------------- Equates
+
+	red		= $35
+	grn		= $36
+	blu		= $37
+	minx		= $3a
+	counter		= $3c
+	gpx		= $3d
+	gpy		= $3e
+	gbyte		= $3f
+	min		= $40
+	gsum		= min
+	zp0		= $42
+	zp1		= $44
+	zp2		= $46
+	zp3		= $48
+	zp4		= $4a
+	ap0		= $4c
+	ap1		= $4d
+	ap2		= $4e
+	ap3		= $4f
+	ap4		= $50
+	adcnt		= $51
+	nflg		= $52
+	zflg		= $53
+	bcount		= $54
+
+	numicols		= 128	; Konstante für Anzahl Plus4-Farben
+
+	name		= $b0
+	dst		= name
+	spalte		= $b1
+	offy		= $b2
+	offx		= $b3
+
+	dst0		= $f7
+	bbuf		= $f9
+	lcnt8		= $fa
+	lcnt		= $fb
+	bcnt		= $fc
+	planes		= $fd
+	hamnib		= planes
+	bytes		= $fe
+
+	pal		= $ca00
+	p0		= $cc00
+	dbuf		= $cd00
+	dbuf1		= dbuf+128
+
+	status		= $90
+	shift		= $028d
+
+; --------------------------- Header
+
+header	jmp start
+	!by $80
+	!by 4
+	!by 1
+	!wo modend
+	!wo 0
+	!tx "PCX VGA->TED7bit"
+	!tx "1.00"
+	!tx "06.08.94"
+	!tx "W.Kling/A.Dettke"
+addtext	!pet "160/320 Breite  "
+	!pet "8 Bit/1 Plane   "
+	!by 0
+
+; --------------------------- Main
+
+start	lda p4red+15	; Palette noch original?
+	bpl stt1
+	jsr downshift	; ja, dann alle Werte umshiften 
+
+stt1	ldx used		; Modul-Handling
+	bmi requ		; erster Start (used=$ff): User-Requester ausgeben, warten auf Klicks
+	beq cancel	; (used=0): "Cancel" geklickt, Modul beenden
+	cpx #3
+	bcs cancel
+
+	dec used		; sonst (used=3): 
+	jsr getname	; Filenamen für Image Information eintragen
+	jsr gd_xopen
+	jsr gd_clrms
+	ldx #6		; Message: "PCX" und Gauge Bar
+cl0	lda pcx,x
+	sta message,x
+	dex 
+	bpl cl0
+	lda #32		; clear message
+	ldx #24
+cl	sta mess,x
+	dex 
+	bpl cl
+	lda #200
+	sta adcnt
+	lda #0
+	sta offy
+	sta sflg
+	sta counter
+
+	jsr gethd		; PCX-Header einlesen
+	jsr checkpcx	; Informationen entnehmen
+	jsr getbody	; Bilddaten entsprechend einlesen
+
+	lda which		; Zielformat Graustufen? (Wert=0)
+	beq cl01		; ja
+	jsr getdatac	; nein, Image Information vervollständigen
+	beq cl02
+cl01	jsr getdatag
+
+cl02	jsr cancel	; abschließende Initialisierungen
+err	jsr gd_xclose	; Datei schließen
+	lda #$03		; Zeiger-Sprite wieder an
+	sta $d015
+	jsr gd_xmess	; Floppy-Meldung zum Abschluss
+	bcc cn2		; zurück zum Hauptbildschirm
+
+; --------------------------- Exit Loader
+
+cancel	lda #$ff		; SE: Leave Loader
+	sta used
+	lda shift		; Shift (-Lock) gedrückt?
+	and #1
+	bne cn2		; ja, Sprung
+
+	ldy #16		; sonst: Balancing-Tabelle initialisieren
+	sty gr_ctr
+	sty gr_brt
+lll	dey 
+	tya 
+	sta gr_btab,y
+	bne lll
+
+cn2	sec 		; Leave Loader to Main Screen
+	rts 
+
+; --------------------------- Service Routines
+
+requ	inc used		; User Interface ausgeben (used=0)
+	ldx #<pcxlst
+	ldy #>pcxlst
+	jsr gd_xmloop
+	jmp stt1
+
+; --------------------------- Auswahl des Zielformats
+
+sevcol	inc used		; Farbe (used=2)
+sevgray	inc used		; Grauwerte (used=1)
+	ldx used
+	dex 
+	stx which
+	ldx #1		; Filerequester ausgeben
+	jsr gd_xload
+	lda #3
+	sta used		; (auf jeden Fall: used=3)
+	sec 
+	rts 
+
+; --------------------------- Action
+
+adinc	ldy offy		; während Body-Load
+	dec adcnt
+	lda adcnt
+	and #7
+	bne adskip
+	lda filltab
+	sta mess,y
+	inc offy
+	bne messout
+adskip	tax 
+	lda filltab,x
+	sta mess,y
+
+messout	ldx #<message
+	ldy #>message
+	jmp gd_xtxout2
+
+cntwert	!by 4
+c124 	!scr " Cols  "
+filltab	!by 160,93,103,127,126,124,105,109
+
+colors	!scr " Cols  "
+pcx	!scr " PCX   "
+message	!fill 7,32
+mess	!fill 25,32
+	!by 0
+
+err1	!scr "ERROR: Width must be 320 or 160."
+err2	!scr "    ERROR: Not a PCX file.      "
+err4	!scr " ERROR: Wrong number of colors. "
+err5	!scr "       Use ldr.PCX-EGA.         "
+
+; --------------------------- Check Type of PCX
+
+checkpcx	lda colplanes	; >5 planes?
+	cmp #5
+	bcs faild		; dann ERR4
+	adc bits		; EGA?
+	cmp #5
+	beq faile		; dann ERR5
+	sec 
+	lda #<319
+	sbc xmax
+	sta sflg+1
+	lda #>319
+	sbc xmax+1
+	bcc failc
+	ora sflg+1
+	beq set1
+	sec 
+	lda xmax
+	sbc #160		; Width-Flag
+set1	ror sflg
+	jsr setcnt
+
+noe	ldx used
+	beq il3
+	lda #<assigncol
+	ldy #>assigncol
+	bne il4
+il3	lda #<makegray
+	ldy #>makegray
+il4	sta convmode
+	sty convmode+1
+	rts 
+
+convcol	jmp (convmode)
+
+convmode	!by 0,0
+
+; --------------------------- Error ausgeben
+
+faila	ldx #32
+	!by $2c
+failc	ldx #0
+	!by $2c
+faild	ldx #64
+	!by $2c
+faile	ldx #96
+	ldy #0
+fl0	lda err1,x
+	sta message,y
+	inx 
+	iny 
+	cpy #32
+	bne fl0
+	jsr err
+	jsr gd_clrms
+	jsr messout
+	clc 
+	jmp fail3
+
+fl1	jsr err
+	jmp fail3
+
+; --------------------------- Read File Header
+
+gethd	ldx #0
+	stx status
+	jsr basin
+	cmp #$0a		; PCX? 
+	bne faila		; nein, ERR2
+	sta hdbuf
+	inx 
+	stx colplanes
+
+hdloop	lda status
+	bne hd1
+	jsr basin
+	sta hdbuf,x
+	inx 
+	cpx #128
+	bne hdloop
+hd1	bmi fl1
+
+	lsr bytepline+1	; Bytes/Line halbieren
+	ror bytepline
+	lda colplanes	; zu viele Planes?
+	beq faild		; dann ERR4
+	cmp #2		; nur 1 Plane durchlassen
+	bcs faild
+
+	sta planes
+	ldy #0
+	sty zp0
+	lda #>(p0)	; Palettenpuffer ansteuern ($cc00)
+	sta zp0+1
+	rts 
+
+; --------------------------- Zähler für eine Zeile setzen
+
+setcnt	lda bytepline
+	ldx sflg
+	bmi hd0
+	asl 
+hd0	sta bytes
+	rts 
+
+; --------------------------- Read Base Palette
+
+getpal	ldx type		; Graustufenpalette? (Wert=2) Farbe bzw. S/W? (Wert=1)
+	dex 
+	bmi getp		; 0?
+	beq getp		; war 1, dann Palette einlesen
+	dex 
+	bne getp		; war >2, dann Palette einlesen
+
+	ldx which		; Grau (2), sollen denn Graustufen ausdrücklich erzeugt werden?
+	bne col1		; ja, Sprung
+
+gr1	ldx #15		; sonst: die ersten 16 Farben in der Palette = original C64-Farben
+gr0	lda dnib,x	; (was bei Type=2 den 16 4Bit-Graustufen entspricht)
+	sta pal,x
+	dex 
+	bpl gr0
+	rts 
+
+col1	ldx #15		; bzw.: Grauwerte (5) für die Farben
+col0	lda grayold,x
+	tay 
+	lda dnib,y
+	sta pal,x
+	dex 
+	bpl col0
+	rts 		; fertig, Basis-Palette erzeugt
+
+grayold	!by $00,$00,$00,$00,$00,$00,$00,$00 
+	!by $00,$00,$00,$00,$00,$00,$00,$00 
+
+; --------------------------- Read Palette and Convert
+
+getp	ldy #0
+gpl4	sty gpy
+	jsr adinc2
+	jsr basin		; Rotwert
+	lsr 
+	lsr 
+	lsr 
+	lsr 
+	tax 
+	lda gr_btab,x	; Balancing einbeziehen
+	sta red
+
+	jsr adinc2
+	jsr basin		; Grünwert
+	lsr 
+	lsr 
+	lsr 
+	lsr 
+	tax 
+	lda gr_btab,x	; mit Balancing
+	sta grn
+
+	jsr adinc2
+	jsr basin		; Blauwert
+	lsr 
+	lsr 
+	lsr 
+	lsr 
+	tax 
+	lda gr_btab,x	; mit Balancing
+	sta blu
+
+	jsr convcol	; in IFLI-Combi verwandeln
+	ldy gpy		; und in die (IFLI-) Palette schreiben
+	sta pal,y
+
+	iny 		; 256 Werte
+	bne gpl4
+	rts 		; fertig, Palette konvertiert
+
+; --------------------------- Farben zuweisen
+
+assigncol	lda red		; zuerst Grautest: Rotwert gleich Grünwert?
+	cmp grn
+	bne cl51		; nein, konvertieren
+	cmp blu		; gleich Blauwert? (Dann wäre es ein Grauwert)
+	bne cl51		; nein, konvertieren
+
+	tax 		; Grau, also: Grau-Combi holen (9 Graus)
+	lda gray,x
+	rts
+
+cl51	ldy level
+	ldx lvlval,y
+cl6	lda #0
+	sta dbuf1,x
+
+	lda p4red,x	; Rotanteil gewichten
+	sec 
+	sbc red
+	bne rd0
+	inc zflg		; ist gleich: Flag setzen
+rd0	bcs rpos		; ist größer, gleich weiter
+	eor #$ff		; ist kleiner, negativ machen
+	adc #1
+	inc nflg		; und Flag setzen
+rpos	tay 		; Wert quadrieren
+	lda quad,y
+	sta dbuf,x	; und puffern
+
+	lda p4grn,x	; das Gleiche in Grün
+	sec 
+	sbc grn
+	bne gn0
+	inc zflg
+gn0	bcs gpos
+	eor #$ff
+	adc #1
+	inc nflg
+gpos	tay 
+	lda quad,y
+	clc 
+	adc dbuf,x	; aber aufaddieren
+	sta dbuf,x
+	bcc gsk
+	inc dbuf1,x
+
+gsk	lda p4blu,x	; und noch mal in Blau
+	sec 
+	sbc blu
+	bne bl0
+	inc zflg
+bl0	bcs bpos
+	eor #$ff
+	adc #1
+	inc nflg
+bpos	tay 
+	lda nflg		; kein Wert kleiner?
+	beq nopf
+
+	clc 
+	adc zflg
+	cmp #3		; alle größer?
+	beq nopf
+
+	lda #2		; entsprechend aufaddieren
+	!by $2c
+nopf	lda #0
+	clc 
+	adc quad,y
+	adc dbuf,x
+	sta dbuf,x
+	bcc bsk
+	inc dbuf1,x
+
+bsk	inx
+	cpx #numicols	; 128
+	bne cl6
+
+	stx min+1
+
+	ldy level
+	ldx lvlval,y
+ml1	lda dbuf1,x
+	tay 
+	cmp min+1
+	beq ms1
+	bcs ms2
+	bcc ms3
+
+ms1	lda dbuf,x
+	cmp min
+	beq ms4
+	bcs ms2
+ms3	lda dbuf,x
+ms4	sty min+1
+	sta min
+	stx minx
+ms2	inx 
+	cpx #numicols	; 128
+	bne ml1
+
+	lda minx
+
+	cmp #8
+	bcs +
+	lda #0
++	rts 
+
+; --------------------------- Farbwerte usw.
+
+quad	!by 0,1,4,9,16,25,36,49,64,81,100,121,144,169,196,225
+
+gray	!by $00,$08,$08,$09,$09,$0a,$0a,$0b,$0b,$0c,$0c,$0d,$0d,$0e,$0e,$0f
+
+p4red	!by $00,$00,$00,$00,$00,$00,$00,$00 
+	!by $32,$4f,$6c,$89,$a7,$c4,$e1,$ff
+	!by $32,$4f,$6c,$89,$a7,$c4,$e1,$ff 
+	!by $00,$08,$17,$2d,$49,$6b,$94,$c4 
+	!by $32,$4f,$6c,$89,$a7,$c4,$e1,$ff 
+	!by $00,$08,$17,$2d,$49,$6b,$94,$c4 
+	!by $00,$08,$17,$2d,$49,$6b,$94,$c4 
+	!by $32,$4f,$6c,$89,$a7,$c4,$e1,$ff 
+	!by $3d,$58,$74,$90,$ab,$c7,$e3,$ff 
+	!by $32,$4f,$6c,$89,$a7,$c4,$e1,$ff 
+	!by $19,$2b,$41,$5b,$78,$97,$ba,$e1
+	!by $32,$4f,$6c,$89,$a7,$c4,$e1,$ff 
+	!by $00,$08,$17,$2d,$49,$6b,$94,$c4 
+	!by $00,$08,$17,$2d,$49,$6b,$94,$c4 
+	!by $19,$2a,$40,$59,$76,$96,$b9,$e1
+	!by $19,$2b,$42,$5b,$78,$98,$bb,$e1
+
+p4grn	!by $00,$00,$00,$00,$00,$00,$00,$00 
+	!by $32,$4f,$6c,$89,$a7,$c4,$e1,$ff 
+	!by $00,$08,$17,$2d,$49,$6b,$94,$c4 
+	!by $32,$4f,$6c,$89,$a7,$c4,$e1,$ff 
+	!by $00,$08,$17,$2d,$49,$6b,$94,$c4 
+	!by $32,$4f,$6c,$89,$a7,$c4,$e1,$ff 
+	!by $00,$08,$17,$2d,$49,$6b,$94,$c4 
+	!by $32,$4f,$6c,$89,$a7,$c4,$e1,$ff 
+	!by $21,$34,$4b,$64,$80,$a0,$c2,$e8 
+	!by $19,$2a,$40,$59,$76,$96,$b9,$e1
+	!by $32,$4f,$6c,$89,$a7,$c4,$e1,$ff 
+	!by $00,$08,$17,$2d,$49,$6b,$94,$c4 
+	!by $32,$4f,$6c,$89,$a7,$c4,$e1,$ff 
+	!by $19,$2b,$41,$5b,$78,$97,$ba,$e1
+	!by $00,$08,$17,$2d,$49,$6b,$94,$c4 
+	!by $32,$4f,$6c,$89,$a7,$c4,$e1,$ff 
+
+p4blu	!by $00,$00,$00,$00,$00,$00,$00,$00 
+	!by $32,$4f,$6c,$89,$a7,$c4,$e1,$ff 
+	!by $00,$08,$17,$2d,$49,$6b,$94,$c4 
+	!by $32,$4f,$6c,$89,$a7,$c4,$e1,$ff 
+	!by $32,$4f,$6c,$89,$a7,$c4,$e1,$ff 
+	!by $00,$08,$17,$2d,$49,$6b,$94,$c4 
+	!by $32,$4f,$6c,$89,$a7,$c4,$e1,$ff 
+	!by $00,$08,$17,$2d,$49,$6b,$94,$c4 
+	!by $19,$2a,$3f,$58,$75,$95,$ba,$e1
+	!by $00,$08,$17,$2d,$49,$6b,$94,$c4 
+	!by $00,$08,$17,$2d,$49,$6b,$94,$c4 
+	!by $19,$2b,$41,$5b,$78,$97,$ba,$e1
+	!by $19,$2a,$40,$59,$76,$96,$b9,$e1
+	!by $32,$4f,$6c,$89,$a7,$c4,$e1,$ff 
+	!by $32,$4f,$6c,$89,$a7,$c4,$e1,$ff 
+	!by $19,$2b,$42,$5b,$78,$98,$bb,$e1
+
+; --------------------------- Read Palette and Convert
+
+downshift	ldy #127		; shift all palette entries to lower nibble:
+-	lda p4red,y	; r
+	lsr
+	lsr
+	lsr
+	lsr
+	sta p4red,y
+	lda p4grn,y	; g
+	lsr
+	lsr
+	lsr
+	lsr
+	sta p4grn,y
+	lda p4blu,y	; b
+	lsr
+	lsr
+	lsr
+	lsr
+	sta p4blu,y
+	dey 
+	bpl -
+	rts 
+
+; --------------------------- Bildzeile einlesen
+
+readline	ldy #0
+next	jsr readpcx	; dekodieren (linkes Pixel)
+	sta p0,y
+	iny 
+	jsr readpcx	; (rechtes Pixel)
+	ldx sflg		; rechtes verwerfen?
+	bmi rls0
+	sta p0,y		; nein, auch puffern
+	iny 
+rls0	cpy bytes		; bis Breite erreicht
+	bcc next
+	rts 
+
+; --------------------------- Dekodieren
+
+readpcx	lda comp		; komprimiert?
+	beq getit0	; nein
+
+	lda counter	; läuft Wiederholungszähler?
+	bne getit2	; ja
+	inc counter	; sonst: auf 1
+	jsr basin
+	ldx status	; alles ok?
+	bne fail4		; nein, Abbruch
+b1	tax 		
+	and #$c0		; oberste Bits gesetzt? (Kompressindikator)
+	cmp #$c0
+	bne getit1
+	txa 
+	and #$3f		; ja, dann Zähler
+	sta counter	; und nächstes Byte zum Wiederholen 
+getit0	jsr basin
+	ldx status	; alles ok?
+	bne fail5		; nein, Abbruch
+b2	tax 
+getit1	txa 		; Byte merken
+	sta gbyte
+getit2	dec counter	; Zähler minus 1
+	lda gbyte		; Byte holen
+	rts 		; zurück
+
+fail4	pha 
+	txa 		; Grund des Fehlers?
+	and #$4f
+	bne b3
+	pla 
+	jmp fail2		; schwerwiegend, Abbruch
+b3	pla 		; sonst weiter
+	jmp b1
+
+fail5	pha 		; dasselbe
+	txa 
+	and #$4f
+	bne b4
+	pla 
+	jmp fail2
+b4	pla 
+	jmp b2
+
+; --------------------------- Abbruch
+
+fail2	pla 
+	pla 
+fail3	pla 
+	pla 
+	inc used
+	rts 
+
+; --------------------------- Leveltabelle
+
+pltab	!by 0,1,3,7,15
+
+; --------------------------- Gray
+
+makegray	lda red		; Rot=Grün=Blau?
+	cmp grn
+	bne gs51
+	cmp blu
+	bne gs51
+	jmp grok0		; umso besser!
+
+gs51	asl 		; sonst: anpassen (wie oben bei der Farbzuweisung)
+	tay 
+	lda rtab,y
+	sta gsum
+	lda rtab+1,y
+	sta gsum+1
+	lda grn
+	asl 
+	tay 
+	lda gtab,y
+	clc 
+	adc gsum
+	sta gsum
+	lda gtab+1,y
+	adc gsum+1
+	sta gsum+1
+	lda blu
+	asl 
+	tay 
+	lda bltab,y
+	clc 
+	adc gsum
+	sta gsum
+	lda bltab+1,y
+	adc gsum+1
+	sta gsum+1
+	lda gsum
+	clc 
+	adc #128
+	lda gsum+1
+	adc #0
+grok0	tay 
+	lda igray,y
+	rts 
+
+igray	!by $00,$03,$03,$33,$33,$37,$37,$77 
+	!by $77,$b7,$b7,$bb,$bb,$bf,$bf,$ff 
+
+; --------------------------- Read Image Data
+
+getbody	lda #<sy_4bit	; Ziel: 4Bit
+	ldx #>sy_4bit
+	sta dst0
+	sta dst
+	stx dst0+1
+	stx dst+1
+	lda #25		; 25 Blockzeilen
+	sta lcnt8
+lnloop8	lda #8		; 8 Zeilen pro Kachel
+	sta lcnt
+lnloop	jsr adinc
+	jsr readline
+lcs	ldy #0
+	lda #4		; vier Doppelpixel (Nibbles) pro Kachelzeile
+	sta bcnt
+	ldx #0
+byloop	cpy bytes
+	bcs s6
+	lda p0,y
+	sta (dst,x)
+s6	inc dst
+	bne s3
+	inc dst+1
+s3	dec bcnt
+	bne s4
+	lda #4 		; nächste Kachel
+	sta bcnt
+	lda dst
+	clc 
+	adc #28
+	sta dst
+	bcc s4
+	inc dst+1
+s4	iny		; 160 Bytes durch (halbe Auflösung)
+	cpy #160
+	bne byloop
+	lda dst0		; nächste Kachelzeile
+	clc 
+	adc #4
+	sta dst0
+	sta dst
+	bcc s5
+	inc dst0+1
+s5	lda dst0+1
+	sta dst+1
+	dec lcnt
+	beq rdy		; nächste Blockzeile
+	jmp lnloop
+
+rdy	lda dst0
+	clc 
+	adc #<1248
+	sta dst0
+	sta dst
+	lda dst0+1
+	adc #>1248
+	sta dst0+1
+	sta dst+1
+	dec lcnt8		; bis alle durch
+	beq rdy1
+	jmp lnloop8
+
+rdy1	jsr basin		; $0c (PCX-Trennflag zwischen Body und Palette, Teil 2)
+
+	ldx #6		; Message
+rdx0	lda colors,x
+	sta message,x
+	dex 
+	bpl rdx0
+	lda #32
+	ldx #24
+rdx1	sta mess,x
+	dex 
+	bpl rdx1
+
+	lda #4		; Rest der Palette holen
+	sta adcnt
+	lda #0
+	sta offy
+	lda #7
+	sta offx
+	jsr getpal	; ...mit Konvertierung
+
+	ldy #0		; und jetzt IFLI-DoppelNibs eintragen
+	sty dst
+	ldx #$40
+	stx dst+1
+hloop	lda (dst),y
+	tax 
+	lda pal,x
+	sta (dst),y
+	iny 
+	bne hloop
+	inc dst+1
+	lda dst+1
+	cmp #>sy_bigbuffer
+	bne hloop
+	rts 		; fertig, Bild geladen und konvertiert nach IFLI
+
+; --------------------------- 
+; --------------------------- RGB Table
+; --------------------------- 
+
+rtab	!by $00,$00,$4d,$00,$9a,$00,$e7,$00 
+	!by $34,$01,$81,$01,$ce,$01,$1b,$02 
+	!by $68,$02,$b5,$02,$02,$03,$4f,$03 
+	!by $9c,$03,$e9,$03,$36,$04,$83,$04 
+
+gtab	!by $00,$00,$97,$00,$2e,$01,$c5,$01
+	!by $5c,$02,$f3,$02,$8a,$03,$21,$04 
+	!by $b8,$04,$4f,$05,$e6,$05,$7d,$06
+	!by $14,$07,$ab,$07,$42,$08,$d9,$08
+
+bltab	!by $00,$00,$1c,$00,$38,$00,$54,$00 
+	!by $70,$00,$8c,$00,$a8,$00,$c4,$00 
+	!by $e0,$00,$fc,$00,$18,$01,$34,$01
+	!by $50,$01,$6c,$01,$88,$01,$a4,$01
+
+dnib	!by $00,$11,$22,$33,$44,$55,$66,$77 
+	!by $88,$99,$aa,$bb,$cc,$dd,$ee,$ff 
+
+; --------------------------- Data
+
+used 	!by $ff
+which	!by 0
+level	!by 0
+lvlnum	!tx "01234589"
+lvlval	!by $00,$08,$09,$0a,$0b,$0c,$0d,$0e,$0f,$10
+
+sflg	!wo 0
+
+; --------------------------- Screen List
+
+pcxlst	!by 0
+	!by 4,11,18,16,$81,0,0
+	!scr "Load MsDos PCX@"
+	!by 9,11,18,3,$ca
+	!wo sevgray
+	!scr "Grey Scale@"
+	!by 12,11,11,3,$c8
+	!wo sevcol
+	!scr "Color@"
+lvlgad	!by 12,22,7,3,$cf
+	!wo sevlvl
+	!scr "Lvl "
+lvltx	!by $30,0
+	!by 15,11,18,3,$ca
+	!wo cn2
+	!scr "Cancel Load@"
+	!by $c0,6,11,16
+	!scr "Prepare f. Plus4@"
+	!by $80
+
+; --------------------------- SE: Set Level
+
+sevlvl	lda spalte
+	cmp #25
+	bcs lvlinc
+lvldec	dec level
+	bpl lvl0
+	lda #8
+	sta level
+lvlinc	inc level
+lvl0	ldx level
+	cpx #10
+	bcc lvl1
+	ldx #0
+	stx level
+lvl1	lda lvlnum,x
+	sta lvltx
+	jsr gettab
+	ldy #6
+	jmp gd_xtxout1
+
+gettab	lda #<lvlgad
+	sta sc_screentab
+	lda #>lvlgad
+	sta sc_screentab+1
+	lda #0
+	tax 
+	tay 
+gt0	jsr gd_setpos
+	cpx #3
+	bne gt0
+	stx sc_ho
+	jsr gd_trim
+	jmp gd_initmove
+
+; --------------------------- Image Information Handler
+
+getname	ldx #0
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx 
+	cpx #16
+	bcc si0
+si1	rts 
+
+getdatac	ldx #4
+	!by $2c
+getdatag	ldx #9
+	ldy #4
+sinfo0	lda dtextc,x
+	sta datatype,y
+	dex 
+	dey 
+	bpl sinfo0
+
+	jsr setname
+	jsr setloader
+	jsr setmode
+	jmp setdata
+
+setname	lda #0
+	ldx #<ls_picname
+	ldy #>ls_picname
+	bne si3
+setloader	lda #17
+	ldx #<ls_iloader
+	ldy #>ls_iloader
+	bne si3
+setmode	lda #25
+	ldx #<ls_imode
+	ldy #>ls_imode
+	bne si3
+setdata	lda #33
+	ldx #<ls_idrive
+	ldy #>ls_idrive
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax 
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx 
+	iny 
+	bne si4
+si5	rts 
+
+nbuf	!fill 16,32
+	!by 0
+
+	!scr "B.celli@"
+	!scr "160x200@"
+datatype	!scr "Color@"
+dtextc	!scr "Color"
+dtextg	!scr "Grey "
+
+; --------------------------- PCX-Header
+
+hdbuf	!by 0
+version	!by 0
+comp	!by 0
+bits	!by 0
+xmin	!wo 0
+ymin	!wo 0
+xmax	!wo 0
+ymax	!wo 0
+xsize	!wo 0
+ysize	!wo 0
+palette	!by 0,0,0
+	!by 0,0,0
+	!by 0,0,0
+	!by 0,0,0
+	!by 0,0,0
+	!by 0,0,0
+	!by 0,0,0
+	!by 0,0,0
+	!by 0,0,0
+	!by 0,0,0
+	!by 0,0,0
+	!by 0,0,0
+	!by 0,0,0
+	!by 0,0,0
+	!by 0,0,0
+	!by 0,0,0
+reserved	!by 0
+colplanes	!by 0
+bytepline	!wo 0
+type	!wo 0
+dummy	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+	!by 0,0
+
+; ---------------------------
+
+adinc2	dec adcnt		; während Paletten-Konvertierung
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts 
+
+; ---------------------------
+
+modend	!eof
