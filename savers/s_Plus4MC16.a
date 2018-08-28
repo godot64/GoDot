@@ -1,0 +1,988 @@
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ------------------------------------------------     
+;
+; svr.Plus4MC16
+;
+;   1.00,         , first release
+;   1.01,         ,
+;   1.02, 28.11.93, added: signature in saved file
+;
+; ------------------------------------------------ 
+
+; ------------------------------------------------ Equates
+
+	zlcnt		= $30
+	hstart		= $31
+	src		= $32
+	src3		= $34
+	dst		= src3
+	col0		= $37
+	nr0		= $3e
+	xbuf		= $3c
+	adcnt		= $3d
+	mask		= $42	; /..$45
+	maxcol		= $46
+	maxcol1		= $47
+	bgcol0		= $48
+	bgcol3		= $49
+	bbuf		= $4a
+	byte		= $4b
+	hend		= $4c
+
+	offx		= ls_adrmisc
+	offy		= offx+1
+
+	hist		= sy_global
+	hist0		= hist+16
+	htab		= hist0+32
+	ted		= sy_bigbuffer
+	chroma		= ted+$0100
+	luma		= chroma+16
+	p4pal		= luma+16
+
+	vram		= $ca00
+
+; ------------------------------------------------ 
+
+header	jmp start
+	!by $40
+	!by 0
+	!by 1
+	!wo modend
+	!wo 0
+	!tx "Plus4 MultiColor"
+ver	!tx "1.02"
+	!tx "28.11.93"
+	!tx "A.Dettke/W.Kling"
+addtxt	!tx "col3/lum3: $1bfe"
+	!tx "col0/lum0: $1bff"
+	!by 0
+
+; ------------------------------------------------ 
+
+start	ldx gr_nr
+	dex 
+	bne saver
+	jmp initinp
+
+; ------------------------------------------------ 
+
+saver	ldx #31
+	jsr creset
+
+st0	ldx used
+	bmi requ
+	cpx #3
+	bcs canc
+
+	jsr gd_sproff
+	lda gd_modswitch
+	pha 
+	lda ls_flen
+	beq st3
+
+	sta wflen
+	lda #1
+	sta adcnt
+
+	jsr wopen
+	bne st2
+	jsr getname
+	ldx #12
+	jsr ckout
+	jsr gd_clrms
+
+	jsr writeted
+
+st2	jsr clrch
+	lda #12
+	jsr close
+	jsr err9
+	bne st3
+	jsr setname
+
+st3	pla 
+	sta gd_modswitch
+	jsr gd_spron
+
+; ------------------------------------------------ 
+
+canc	lda #$ff
+	sta used
+cn2	sec 
+	rts 
+
+; ------------------------------------------------ 
+
+requ	inc used
+	ldx #<p4lst
+	ldy #>p4lst
+	jsr gd_xmloop
+	jmp st0
+
+; --------------------------- 
+; --------------------------- Input Routines
+
+!src "input.inc"
+
+; --------------------------- 
+; --------------------------- 
+
+pw	!tx "w,p,"
+drinit	!tx "i0"
+wflen	!by 0
+
+; ------------------------------------------------ 
+
+wopen	jsr inull
+	bne err8
+	ldy wflen
+	ldx #3
+wo1	lda pw,x
+	sta ls_nambuf,y
+	iny 
+	dex 
+	bpl wo1
+	sty wflen
+	lda #12
+	tay 
+	ldx ls_drive
+	jsr filpar
+	lda wflen
+	ldx #<ls_nambuf
+	ldy #>ls_nambuf
+	jsr filnam
+	jsr copen
+	jmp err9
+
+inull	ldx #<drinit
+	ldy #>drinit
+	lda #2
+	jsr gd_sendcom
+err9	jsr gd_xmess
+	lda ls_err2
+	and #15
+err8	sec 
+	rts 
+
+; --------------------------- Activity Gauge
+
+action	dec adcnt
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	cpy #20
+	bne act0
+	jsr clrmess
+act0	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts
+
+; --------------------------- Message Display
+
+tcopy	ldy #0		; Select message
+tc0	lda txt,x		; in .x: offset to message
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+
+clrmess   ldx #20		; clear gauge bar
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0		; init counters
+	ldx #7	
+	sty offy
+	stx offx
+	rts
+
+messout   ldx #<message	; display message and gauge
+	ldy #>message
+	jmp gd_xtxout2
+
+filltab	!by 160,93,103,127,126,124,105,109
+
+cntwert	!by 63
+
+txt	!scr " TEDmulti  @"
+making	!scr "Making histograms.@"
+
+message	!fill 11,32
+mess	!fill 21,32
+	!by 0
+
+; ----------------------------------------- Image Information Handler
+
+getname	ldx #0
+si0	lda ls_lastname,x	; name of loaded picture
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+setname	lda #0
+	ldx #<ls_picname
+	ldy #>ls_picname
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4 	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!fill 16,32
+	!by 0
+
+; ------------------------------------------------ 
+
+; ------------------------------------------------ Write File: Preparations
+
+writeted	ldx #<making	; first: histograms
+	ldy #>making
+	jsr gd_xtxout2
+
+	lda #<$1800
+	jsr bsout
+	lda #>$1800
+	jsr bsout
+
+	ldy #3
+mskl	lda mask1,y
+	sta mask,y
+	dey 
+	bpl mskl
+
+	lda #0
+	ldy #31
+cl1	sta hist0,y
+	dey 
+	bpl cl1
+
+	lda #<sy_4bit	; count 7bit colors
+	ldx #>sy_4bit
+	sta src
+	stx src+1
+
+loop0	lda #0		; clear buffer
+	ldy #15
+cl2	sta hist,y
+	dey 
+	bpl cl2
+
+	ldy #31
+hl0	lda (src),y
+	and #$0f
+	tax 
+	inc hist,x
+	dey 
+	bpl hl0
+
+	ldx #2
+	ldy #15
+hm1	lda hist,y
+	beq hms
+	dex 
+	bmi add
+hms	dey 
+	bpl hm1
+	bmi addskip
+
+add	ldx #15
+hl1	lda hist,x
+	clc 
+	adc hist0,x
+	sta hist0,x
+	bcc as0
+	inc hist0+16,x
+as0	dex 
+	bpl hl1
+
+addskip	lda src
+	clc 
+	adc #32
+	sta src
+	bcc loop0
+	inc src+1
+as1	lda src+1
+	cmp #>sy_bigbuffer	; until 4bit ends
+	bne loop0
+
+; ------------------------------------------------ 
+
+	lda #0
+	sta max
+	sta max+1
+	lda #32
+	sta bgcol0
+
+	ldy #15
+ml0	lda hist0+16,y
+	cmp max+1
+	bcc next0
+	beq tstlo0
+	ldx hist0,y
+	bcs set0
+tstlo0	lda hist0,y
+	cmp max
+	bcc next0
+	tax 
+	lda hist0+16,y
+set0	stx max
+	sta max+1
+	sty bgcol0
+next0	dey 
+	bpl ml0
+
+	lda #0
+	ldx bgcol0
+	sta hist0,x
+	sta hist0+16,x
+
+	lda #0
+	sta max
+	sta max+1
+	lda #32
+	sta bgcol3
+	ldy #15
+ml1	lda hist0+16,y
+	cmp max+1
+	bcc next1
+	beq tstlo1
+	ldx hist0,y
+	bcs set1
+tstlo1	lda hist0,y
+	cmp max
+	bcc next1
+	beq next1
+	tax 
+	lda hist0+16,y
+set1	stx max
+	sta max+1
+	sty bgcol3
+next1	dey 
+	bpl ml1
+
+	lda #32
+	sta col0+4
+
+; ------------------------------------------------ 
+
+	lda #<sy_4bit
+	ldx #>sy_4bit
+	sta src
+	stx src+1
+	lda #<vram
+	ldx #>vram
+	sta dst
+	stx dst+1
+
+loop3	ldy #15
+	lda #0
+ch1	sta hist,y
+	dey 
+	bpl ch1
+
+	ldy #31
+hl2	lda (src),y
+	and #$0f
+	tax 
+	inc hist,x
+	dey 
+	bpl hl2
+	lda #0
+	ldx bgcol0
+	sta hist,x
+	ldx bgcol3
+	sta hist,x
+
+	lda src
+	clc 
+	adc #32
+	sta src
+	bcc s9
+	inc src+1
+
+s9	lda bgcol0
+	sta maxcol
+	sta maxcol1
+
+	lda #0
+	sta max
+	ldy #15
+m3	lda hist,y
+	beq s10
+	cmp max
+	beq s10
+	bcc s10
+	sta max
+	sty maxcol
+s10	dey 
+	bpl m3
+
+	lda #0
+	ldx maxcol
+	sta hist,x
+
+	sta max
+	ldy #15
+m31	lda hist,y
+	beq s101
+	cmp max
+	beq s101
+	bcc s101
+	sta max
+	sty maxcol1
+s101	dey 
+	bpl m31
+
+	lda maxcol1
+	asl 
+	asl 
+	asl 
+	asl 
+	ora maxcol
+	ldy #0
+	sta (dst),y
+	inc dst
+	bne s11
+	inc dst+1
+
+s11	lda src+1		; now proceed
+	cmp #>sy_bigbuffer	; until end of 4bit
+	beq ok3
+	jmp loop3
+
+; ------------------------------------------------ Write File to Disk
+
+ok3	jsr gd_clrms
+	ldx #0
+	jsr tcopy
+	lda #<luma
+	ldx #>luma
+	jsr writevram	; write luma
+	lda #<chroma
+	ldx #>chroma
+	jsr writevram	; write chroma
+
+	lda #<sy_4bit	; and bitmap
+	ldx #>sy_4bit
+	sta src
+	stx src+1
+	lda #<(vram)
+	ldx #>(vram)
+	sta src3
+	stx src3+1
+
+bmloop	ldy #3
+hl51	lda bits,y
+	sta nr0,y
+	lda #32
+	sta col0,y
+	dey 
+	bpl hl51
+
+	lda bgcol0
+	sta col0
+	lda bgcol3
+	sta col0+3
+
+	ldy #0
+	lda (src3),y
+	lsr 
+	lsr 
+	lsr 
+	lsr 
+	cmp bgcol0
+	beq s18
+	sta col0+2
+s18	lda (src3),y
+	and #$0f
+	cmp bgcol0
+	beq s19
+	sta col0+1
+
+s19	ldx #0
+lx	stx xbuf
+	ldy #3
+ly	lda col0,x
+	cmp col0,y
+	bcc s23
+	beq s23
+	pha 
+	lda col0,y
+	sta col0,x
+	pla 
+	sta col0,y
+	lda nr0,x
+	pha 
+	lda nr0,y
+	sta nr0,x
+	pla 
+	sta nr0,y
+s23	dey 
+	cpy xbuf
+	bne ly
+	inx 
+	cpx #3
+	bne lx
+	ldy #$ff
+	sty hstart
+htl	iny 
+	lda col0,y
+	clc 
+	adc col0+1,y
+	lsr 
+	cmp #16
+	bcc s24
+	lda #15
+s24	sta hend
+	lda nr0,y
+	ldx hstart
+htl1	inx 
+	sta htab,x
+	cpx hend
+	bcc htl1
+	cpx #15
+	bcs s25
+	stx hstart
+	cpy #3
+	bne htl
+
+s25	lda #8
+	sta zlcnt
+zlloop	lda #0
+	sta byte
+	ldy #3
+rl	lda (src),y
+	and #$0f
+	tax 
+	lda htab,x
+	and mask,y
+	ora byte
+	sta byte
+	dey 
+	bpl rl
+
+	jsr write
+
+	lda src
+	clc 
+	adc #4
+	sta src
+	bcc s26
+	inc src+1
+s26	dec zlcnt
+	bne zlloop
+
+	inc src3
+	bne s28
+	inc src3+1
+s28	lda src+1
+	cmp #>sy_bigbuffer	; until end of 4bit
+	beq ok121
+	jmp bmloop
+
+ok121	rts 
+
+; ------------------------------------------------ 
+
+writevram	sta src
+	stx src+1
+	jsr maketed
+
+	ldx bgcol0
+	lda luma,x
+	and #$0f
+	sta bbuf
+	lda chroma,x
+	and #$f0
+	ora bbuf
+	sta c03+1
+
+	ldx bgcol3
+	lda luma,x
+	and #$0f
+	sta bbuf
+	lda chroma,x
+	and #$f0
+	ora bbuf
+	sta c03
+
+	ldy #3
+vl	lda ver,y
+	sta vv0,y
+	dey 
+	bpl vl
+
+	lda #<vram
+	ldx #>vram
+	sta src3
+	stx src3+1
+	lda #4
+	sta cnt4
+vrloop0	ldy #0
+vrloop	lda (src3),y
+	tax 
+	lda ted,x
+
+	jsr write
+
+	iny 
+	cpy #250
+	bne vrloop
+	lda src3
+	clc 
+	adc #250
+	sta src3
+	bcc vrs
+	inc src3+1
+vrs	dec cnt4
+	bne vrloop0
+
+	ldy #0		; fill gap with saver signature
+l241	lda bottab,y
+	jsr write
+	iny 
+	cpy #24
+	bne l241
+
+	lda nib1
+	ldx nib2
+	stx nib1
+	sta nib2
+
+	rts 
+
+; ------------------------------------------------ 
+
+bottab	!tx "GoDot TEDsaver"
+vv0	!tx "0.00"
+	!tx "mult"
+c03	!by $00,$17
+
+bits	!by $00,$55,$aa,$ff
+
+mask1	!by $c0		; %11000000
+	!by $30		; %00110000
+	!by $0c		; %00001100
+	!by $03		; %00000011
+
+; ------------------------------------------------ 
+
+write	pha 
+	txa 
+	pha 
+	tya 
+	pha 
+	jsr action
+	pla 
+	tay 
+	pla 
+	tax 
+	pla 
+	jmp bsout
+
+; ------------------------------------------------ 
+
+maketed	ldx #0
+mted	txa 
+	lsr 
+	lsr 
+	lsr 
+	lsr 
+	tay 
+	lda (src),y
+	and nib1
+	sta bbuf
+	txa 
+	and #$0f
+	tay 
+	lda (src),y
+	and nib2
+	ora bbuf
+	sta ted,x
+	inx 
+	bne mted
+	rts 
+
+; ------------------------------------------------ 
+
+max	!by 0,0
+data	!by 0
+cnt	!by 0
+nib1	!by $f0
+nib2	!by $0f
+pmode	!by 0
+x	!by 0
+cnt4	!by 0
+roffs	!by 63,31
+used	!by $ff
+pal	!tx "p4p.*"
+	!by 0
+nmbuf	!fill 16,32
+name2	!fill 16,32
+mflen	!by 0
+mdrive	!by 8
+
+; ------------------------------------------------ 
+
+farbe	!by $00,$66,$99,$11
+	!by $22,$44,$88,$11
+	!by $dd,$bb,$55,$11
+	!by $33,$77,$ff,$11
+
+	!by $00,$00,$22,$22
+	!by $22,$33,$33,$33
+	!by $44,$44,$44,$55
+	!by $55,$66,$66,$77
+
+; ------------------------------------------------ 
+
+grau	!by $00,$11,$11,$11
+	!by $11,$11,$11,$11
+	!by $11,$11,$11,$11
+	!by $11,$11,$11,$11
+
+	!by $00,$00,$00,$11
+	!by $11,$22,$22,$33
+	!by $33,$44,$44,$55
+	!by $55,$66,$66,$77
+
+; ------------------------------------------------ 
+
+dnibs	!by $00,$11,$22,$33,$44,$55,$66,$77
+	!by $88,$99,$aa,$bb,$cc,$dd,$ee,$ff
+
+; ------------------------------------------------ Event: Save Color
+
+sevcol	inc used
+
+; ------------------------------------------------ Event: Save GRay
+
+sevgrey	inc used
+	ldx used
+	dex 
+	lda roffs,x
+	tax 
+	lda pmode
+	bne svc1
+
+; ------------------------------------------------ 
+
+creset	ldy #31
+svc0	lda farbe,x
+	sta chroma,y
+	dex 
+	dey 
+	bpl svc0
+svc1	sec 
+	rts 
+
+; ------------------------------------------------ Event: Load Custom Palette
+
+sevpload	jsr chgdrv
+	lda ls_drive
+	sta mdrive
+	lda ls_flen
+	sta mflen
+	jsr getnmbuf
+	jsr namegt
+
+	lda sc_screenvek
+	pha 
+	lda sc_screenvek+1
+	pha 
+	ldx #<p4pal
+	ldy #>p4pal
+	stx ls_adrmisc
+	sty ls_adrmisc+1
+	lda #0
+	sta ls_flen
+	lda gd_modswitch
+	pha 
+	jsr lddir
+	jsr gd_eloop
+	lda ls_flen
+	beq lp0
+
+	jsr readpal
+	jsr makepal
+
+lp0	pla 
+	sta gd_modswitch
+
+	jsr chgdrv
+	pla 
+	tay 
+	sta sc_screenvek+1
+	pla 
+	tax 
+	sta sc_screenvek
+	jsr gd_screen
+	lda mdrive
+	sta ls_drive
+	lda mflen
+	sta ls_flen
+	jsr getnmbuf
+	jsr namebk
+	lda #2
+	sta used
+	sec 
+	rts 
+
+; ------------------------------------------------ 
+
+lddir	lda #<pal
+	pha 
+	lda #>pal
+	pha 
+	lda #8
+	jmp gd_xloadsave
+
+; ------------------------------------------------ 
+
+readpal	jsr gd_xopen
+	jsr onebyte
+	bne lderr
+	jsr onebyte
+	bne lderr
+ld6	lda status
+	bne lderr
+	jsr basin
+	sta (sc_vekt20),y
+	iny 
+	cpy #16
+	bne ld6
+
+; ------------------------------------------------ 
+
+lderr	jsr gd_xclose
+	jsr gd_spron
+	sec 
+	rts 
+
+; ------------------------------------------------ 
+
+onebyte	jsr basin
+	ldy #0
+	ldx status
+	rts 
+
+; ------------------------------------------------ 
+
+makepal	ldx #0
+mp0	stx x
+	lda p4pal,x
+	tay 
+	and #$f0
+	lsr 
+	lsr 
+	lsr 
+	lsr 
+	tax 
+	lda dnibs,x
+	ldx x
+	sta luma,x
+	tya 
+	and #$0f
+	tax 
+	lda dnibs,x
+	ldx x
+	sta chroma,x
+	inx 
+	cpx #16
+	bne mp0
+	rts 
+
+; ------------------------------------------------ 
+
+chgdrv	lda ls_sysdrive
+	ldx ls_bootdrive
+	sta ls_bootdrive
+	stx ls_sysdrive
+	rts 
+
+; ------------------------------------------------ Event: Cancel
+
+sevcanc	lda #3
+	sta used
+	sec 
+	rts 
+
+; ------------------------------------------------ 
+
+getnmbuf	ldy #15
+gnb0	lda ls_nambuf,y
+	ldx nmbuf,y
+	sta nmbuf,y
+	txa 
+	sta ls_nambuf,y
+	dey 
+	bpl gnb0
+	rts 
+
+; ------------------------------------------------ 
+
+namebk	ldy #15
+nb0	lda name2,y
+	sta ls_lastname,y
+	dey 
+	bpl nb0
+	rts 
+
+; ------------------------------------------------ 
+
+namegt	ldy #15
+ng0	lda ls_lastname,y
+	sta name2,y
+	dey 
+	bpl ng0
+	rts 
+
+; ------------------------------------------------ 
+
+p4lst	!by 0
+	!by 4,11,18,14,$81
+	!wo 0
+	!scr "Save Plus4MColor@"
+	!by 9,11,18,3,$ca
+	!wo sevgrey
+	!scr "Gray 9@"
+	!by 11,11,18,3,$cb
+	!wo sevcol
+	!scr "Color C64@"
+	!by 13,11,18,3,$cb
+	!wo sevpload
+	!scr " Custom Palette @"
+	!by 15,11,18,3,$cb
+	!wo sevcanc
+	!scr "Cancel Save@"
+	!by $c0,6,14,11
+	!scr "Select Mode@"
+	!by $80
+
+; ------------------------------------------------ 
+
+modend	!eof
