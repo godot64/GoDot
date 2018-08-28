@@ -10,6 +10,7 @@
 ;   1.00,         , first release
 ;   1.01,         ,
 ;   1.02, 28.11.93, added: signature in saved file
+;   1.03, 28.08.18, enhanced palettes
 ;
 ; ------------------------------------------------ 
 
@@ -44,7 +45,7 @@
 	luma		= chroma+16
 	p4pal		= luma+16
 
-	vram		= $ca00
+	vram		= $cb00
 
 ; ------------------------------------------------ 
 
@@ -55,8 +56,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "Plus4 MultiColor"
-ver	!tx "1.02"
-	!tx "28.11.93"
+ver	!tx "1.03"
+	!tx "28.08.18"
 	!tx "A.Dettke/W.Kling"
 addtxt	!tx "col3/lum3: $1bfe"
 	!tx "col0/lum0: $1bff"
@@ -280,7 +281,7 @@ cl1	sta hist0,y
 	dey 
 	bpl cl1
 
-	lda #<sy_4bit	; count 7bit colors
+	lda #<sy_4bit	; count 4bit colors
 	ldx #>sy_4bit
 	sta src
 	stx src+1
@@ -292,7 +293,7 @@ cl2	sta hist,y
 	bpl cl2
 
 	ldy #31
-hl0	lda (src),y
+hl0	lda (src),y	; count in each tile
 	and #$0f
 	tax 
 	inc hist,x
@@ -735,7 +736,7 @@ cnt	!by 0
 nib1	!by $f0
 nib2	!by $0f
 pmode	!by 0
-x	!by 0
+xmrk	!by 0
 cnt4	!by 0
 roffs	!by 63,31
 used	!by $ff
@@ -745,30 +746,31 @@ nmbuf	!fill 16,32
 name2	!fill 16,32
 mflen	!by 0
 mdrive	!by 8
+drstate	!by 0
 
 ; ------------------------------------------------ 
 
-farbe	!by $00,$66,$99,$11
+farbe	!by $00,$66,$88,$11		; chroma
 	!by $22,$44,$88,$11
-	!by $dd,$bb,$55,$11
+	!by $dd,$22,$55,$11
 	!by $33,$77,$ff,$11
 
-	!by $00,$00,$22,$22
-	!by $22,$33,$33,$33
-	!by $44,$44,$44,$55
-	!by $55,$66,$66,$77
+	!by $00,$00,$11,$00		; according luma
+	!by $11,$44,$55,$33
+	!by $44,$44,$44,$66
+	!by $66,$66,$55,$77
 
 ; ------------------------------------------------ 
 
-grau	!by $00,$11,$11,$11
+grau	!by $00,$11,$11,$11		; chroma
 	!by $11,$11,$11,$11
 	!by $11,$11,$11,$11
 	!by $11,$11,$11,$11
 
-	!by $00,$00,$00,$11
-	!by $11,$22,$22,$33
-	!by $33,$44,$44,$55
-	!by $55,$66,$66,$77
+	!by $00,$00,$00,$00		; according luma
+	!by $11,$22,$33,$33
+	!by $44,$44,$55,$55
+	!by $66,$66,$66,$77
 
 ; ------------------------------------------------ 
 
@@ -820,6 +822,7 @@ sevpload	jsr chgdrv
 	sty ls_adrmisc+1
 	lda #0
 	sta ls_flen
+	sta drstate
 	lda gd_modswitch
 	pha 
 	jsr lddir
@@ -828,9 +831,15 @@ sevpload	jsr chgdrv
 	beq lp0
 
 	jsr readpal
+	lda drstate
+	bne lp0
 	jsr makepal
 
-lp0	pla 
+	lda #2
+	!by $2c
+lp0	lda #3
+	sta used
+	pla 
 	sta gd_modswitch
 
 	jsr chgdrv
@@ -841,14 +850,14 @@ lp0	pla
 	tax 
 	sta sc_screenvek
 	jsr gd_screen
+
 	lda mdrive
 	sta ls_drive
 	lda mflen
 	sta ls_flen
 	jsr getnmbuf
 	jsr namebk
-	lda #2
-	sta used
+
 	sec 
 	rts 
 
@@ -867,8 +876,10 @@ readpal	jsr gd_xopen
 	jsr onebyte
 	bne lderr
 	jsr onebyte
+	stx drstate
 	bne lderr
 ld6	lda status
+	sta drstate
 	bne lderr
 	jsr basin
 	sta (sc_vekt20),y
@@ -893,7 +904,7 @@ onebyte	jsr basin
 ; ------------------------------------------------ 
 
 makepal	ldx #0
-mp0	stx x
+mp0	stx xmrk
 	lda p4pal,x
 	tay 
 	and #$f0
@@ -903,13 +914,13 @@ mp0	stx x
 	lsr 
 	tax 
 	lda dnibs,x
-	ldx x
+	ldx xmrk
 	sta luma,x
 	tya 
 	and #$0f
 	tax 
 	lda dnibs,x
-	ldx x
+	ldx xmrk
 	sta chroma,x
 	inx 
 	cpx #16
