@@ -1,0 +1,473 @@
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ------------------------------------------------     
+;
+; mod.Gradient
+;
+;   1.00, 06.04.93, first official release
+;
+; ------------------------------------------------ 
+
+; ------------------------------------------------ Equates
+
+	adcnt		= $30
+	src		= $35
+	dst		= $37
+	lcnt		= $39
+	ccnt		= $3a
+	xchg		= $3b
+	oben		= $3c
+	pmask		= $3d
+
+	sprptr		= $07f8
+	invpalet		= sy_global
+	spr255		= $3fc0
+
+	balanced		= $c600
+	color2		= $c800
+	color1		= $ca00
+	gradline		= $cc00
+
+	spr2x		= $d004
+	spr2y		= $d005
+	msbx		= $d010
+	spren		= $d015
+	sprxe		= $d01d
+	border		= $d020
+	sprcol2		= $d029
+
+	oszi3		= $d40e
+	wave		= $d412
+	filter		= $d418
+	rausch		= $d41b
+
+; ------------------------------------------------ 
+
+	jmp start
+	!by 20
+	!by 00
+	!by 00 
+	!wo modend
+	!wo 0
+	!tx "gradientbackdrop"
+	!tx "1.00"
+	!tx "06.04.93"
+	!tx "W.Kling         "
+addtext	!tx "palette colors  "
+	!tx "dither modes    "
+	!tx "color mode      "
+	!by 0
+
+; ------------------------------------------------ 
+
+start	jsr initad	; Init Activity
+	lda #$80		; Zufallsgenerator an,
+	sta filter	; Wert abholen in "rausch"
+	sta oszi3
+	sta oszi3+1
+	lda #0
+	sta wave
+	lda #$81
+	sta wave
+
+	jsr makecols	; Farbtabellen erstellen
+	jsr setdither	; Dithermodus anwählen
+
+	lda #0
+	sta lcnt
+-	jsr gradient	; Verlauf (als Backdrop) erzeugen
+	jsr adinc		; Activity
+	inc lcnt
+	lda lcnt
+	cmp #200
+	bne -
+
+	jmp clearad	; Activity beenden, Modul verlassen
+
+; ------------------------------------------------ 
+
+makecols	ldy gr_howmany	; aktuelle Palette holen
+	dey 
+-	lda gr_palette,y
+	tax 
+	lda c64cols,x
+	sta invpalet,y
+	dey 
+	bpl -
+
+	lda is_on
+	beq +
+	jsr mirror	;  beim ersten Aufruf: Palette spiegeln
+
++	ldy #0
+	ldx gr_howmany	; Anzahl Farben
+	lda gr_dither	; Dither aus?
+	bne +
+	inx 		; dann Index plus 1
++	stx somany
+
+	lda spreads-2,x	; Faktoren bestimmen
+	sta vdist
+	lda addfak-2,x
+	sta addit
+
+	lda #1		; durchführen:
+	sta passes	; zählt die Anzahl der Farbdurchgänge
+
+--	lda vdist
+	sta dcnt
+	lda #0
+	sta lowsum
+	sta hisum
+
+-	lda hisum
+	clc 
+	bit lowsum
+	bpl +
+	sec 
++	rol
+	sta balanced,y	; Abstandstabelle erzeugen
+	lda lowsum
+	clc 
+	adc addit
+	sta lowsum
+	bcc +
+	inc hisum
++	ldx passes	; Tabellen für Farbe1 und Farbe2 erzeugen
+	lda invpalet,x
+	sta color2,y
+	lda invpalet-1,x
+	sta color1,y
+	iny 
+	dec dcnt
+	bne -
+
+	inc passes	; nächste Palettenfarbe
+	lda passes
+	cmp somany
+	bne --
+
+	cpy #200		; Ende bei 200 Zeilen
+	beq +
+
+-	lda #15		; sonst: den Rest jeweils mit Höchstwert auffüllen
+	sta balanced,y
+	lda invpalet,x
+	sta color2,y
+	lda invpalet-1,x
+	sta color1,y
+
+	iny 		; Zeilen zählen
+	cpy #200
+	bne -
+
++	rts 
+
+; ------------------------------------------------ Mirror Palette
+
+mirror	lda gr_howmany	; Anzahl Farben
+	tax 
+	lsr		; durch zwei
+	sta oben
+	dex 		; minus 1 in .x
+	ldy #0
+-	lda invpalet,y	; vorne holen
+	sta xchg
+	lda invpalet,x	; hinten holen
+	sta invpalet,y	; austauschen
+	lda xchg
+	sta invpalet,x
+	dex 
+	iny 
+	cpy oben
+	bne -
+	rts 
+
+; ------------------------------------------------ Data
+
+c64cols	!by $00,$0f,$04,$0c,$05,$0a,$01,$0d 
+	!by $06,$02,$09,$03,$07,$0e,$08,$0b
+
+spreads	!by $c8,$64,$42,$32,$28,$21,$1c,$19
+	!by $16,$14,$12,$10,$0f,$0e,$0d,$0c
+ 
+addfak	!by $0a,$14,$1e,$28,$33,$3d,$49,$51
+	!by $5c,$66,$71,$7a,$85,$8f,$99,$aa
+
+dithrout	!wo nodith,ordered,pattern,noise,random
+
+patoffs	!by $00,$10,$20,$30
+
+mmask	!by $00,$03,$0c,$0f 
+	!by $30,$33,$3c,$3f 
+	!by $c0,$c3,$cc,$cf
+	!by $f0,$f3,$fc,$ff
+
+blinehi	!by $40,$45,$4a,$4f,$54,$59,$5e,$63 
+	!by $68,$6d,$72,$77,$7c,$81,$86,$8b 
+	!by $90,$95,$9a,$9f,$a4,$a9,$ae,$b3,$b8 
+
+dither	!wo 0 
+
+addit	!by 0 
+vdist	!by 0 
+lowsum	!by 0 
+hisum	!by 0
+dcnt	!by 0 
+passes	!by 0 
+somany	!by 0
+is_on	!by 1
+
+; ------------------------------------------------ Set Dither Routines
+
+setdither	lda gr_dither
+	asl
+	tax 
+	lda dithrout,x
+	sta dither
+	lda dithrout+1,x
+	sta dither+1
+	rts 
+
+; ------------------------------------------------ Dither: Off
+
+nodith	lda color1,x
+	rts 
+
+; ------------------------------------------------ Dither: Ordered
+
+ordered	lda balanced,x
+	sta xchg
+	txa 
+	and #$03
+	tax 
+	lda patoffs,x
+	ora xchg
+	tax 
+	lda gr_orderedpat,x
+	jmp modes1
+
+; ------------------------------------------------ Dither: Pattern
+
+pattern	and #$07
+	sta xchg
+	lda balanced,x
+	asl
+	asl
+	asl
+	ora xchg
+	tax 
+	lda gr_pattern,x
+
+; ------------------------------------------------ Ausmaskieren
+
+modes1	ldx gr_cmode	; Modus?
+	beq +
+	and #$0f		; multi
+	tax 
+	lda mmask,x	; Multipattern erzeugen
++	ldx lcnt		; hires
+	and pmask		; abhängig von der Zeile: Pixel ausmaskieren
+	beq ++
+	bne +++
+
+; ------------------------------------------------ Dither: Random
+
+random	lda balanced,x	; 0?
+	beq ++
+	cmp #8		; 1..7?
+	bcs +++		; nein, Farbe2
+	lda balanced+1,x	; ja, Nachbar 0?
+	beq +
+	cmp #8		; nein, 1..7?
+	bcc ++		; ja, Farbe1
++	jsr modes2	; ausmaskieren (0, 8..15)
+
+	lda xchg		; wenn Wert gerade:
+	and #$01
+	beq ++		; Farbe1
+	bne +++		; sonst Farbe2
+
+noise	lda balanced,x	; 0?
+	beq ++		; dann Farbe1
+	sta oben		; Wert merken
+	jsr modes2	; ausmaskieren
+	lda oben		; vergleichen
+	cmp xchg		; entsprechende Farbe anwählen
+	bcs +++
+
+++	lda color1,x
+	rts
+
++++	lda color2,x
+	rts 
+
+; ------------------------------------------------ Ausmaskieren
+
+modes2	lda gr_cmode	; Modus?
+	beq +
+	lda pmask		; multi
+	and #$55
+	bne ++
++	lda rausch	; hires
+	and #$0f
+	sta xchg
+++	rts 
+
+; ------------------------------------------------ Verlauf erzeugen
+
+gradient	ldy #0		; generieren:
+	lda #$80		; %10000000
+	sta pmask		; Pixelmaske setzen
+
+-	lda lcnt		; Zeile holen
+	tax 
+	jsr generate	; dithern
+	sta gradline,y	; Pixel eintragen
+	lsr pmask		; Maske nach rechts rücken
+	bcc +
+	ror pmask		; wenn ausgelaufen, links wieder reinholen
+
++	iny 		; erste Hälfte zählen
+	cpy #160
+	bne -
+
+	ldy #0		; Maske neu setzen
+	lda #$80
+	sta pmask
+
+-	lda lcnt
+	tax 
+	jsr generate	; dithern
+	sta gradline+160,y	; zweite Hälfte füllen
+	lsr pmask
+	bcc +
+	ror pmask
+
++	iny 
+	cpy #160
+	bne -
+
+; ------------------------------------------------ 
+
+	lda lcnt		; ins 4Bit übertragen:
+	pha		; 4Bit-Adresse berechnen:
+	lsr 		; Zeile duch 8 (für Hibyte)
+	lsr
+	lsr
+	tax 
+	pla 
+	and #$07		; (and 7)*4
+	asl
+	asl
+	sta dst		; ist Lowbyte
+	lda blinehi,x	; Hibyte aus Tabelle holen
+	sta dst+1
+
+	lda #<gradline	; Backdroppuffer anwählen
+	ldx #>gradline
+	sta src
+	stx src+1
+
+	ldx #0
+	lda #40		; 40 Kacheln zählen
+	sta ccnt
+
+--	ldy #0		; 1 Kachel (8 Pixel)
+-	lda (src,x)	; shift up
+	asl
+	asl
+	asl
+	asl
+	inc src
+	bne +
+	inc src+1
++	ora (src,x)	; verbinden
+	inc src
+	bne +
+	inc src+1
++	sta (dst),y	; speichern im 4Bit
+	iny 
+	cpy #4
+	bne -
+
+	lda dst		; nächste Kachel
+	clc 
+	adc #32
+	sta dst
+	bcc +
+	inc dst+1
++	dec ccnt		; eine Kachelzeile
+	bne --
+	rts 
+
+; ------------------------------------------------ Dithern
+
+generate	jmp (dither)
+
+; ------------------------------------------------ Abschluss Activity
+
+clearad	lda spren		; Wanderbalken aus
+	and #$f3
+	sta spren
+	lda msbx
+	and #$f3
+	sta msbx
+	lda #$ff		; Grafik verändert
+	sta gr_redisp
+	clc 		; fertig
+	rts 
+
+; ------------------------------------------------ Init Activity
+
+initad	ldy #60
+	lda #0
+-	sta spr255+3,y	; Spriteblock 255 vorbereiten
+	dey 
+	bpl -
+	sty spr255	; dünner Strich
+	sty spr255+1
+	sty spr255+2
+	lda #$0f		; Farbe hellgrau
+	sta sprcol2
+	sta sprcol2+1
+	lda sprxe		; doppelt breit
+	ora #$0c
+	sta sprxe
+
+	lda msbx		; x über 255
+	ora #$0c
+	sta msbx
+	lda #8		; x-Ordinate: 8 (plus 256)
+	sta spr2x
+	lda #$20
+	sta spr2x+2
+	lda #$92		; y-Ordinate: 146
+	sta spr2y		; (im Image Information Fenster)
+	sta spr2y+2
+
+	sty sprptr+2	; Sprite 255
+	sty sprptr+3
+	lda spren
+	ora #$0c		; Activity-Balken aktivieren
+	sta spren
+	lda #5		; Startzähler (5 mal 40 = 200)
+	sta adcnt
+	rts
+
+; ------------------------------------------------ Activity
+
+adinc	dec adcnt		; Balken wandern lassen
+	bne +
+	inc spr2y
+	inc spr2y+2
+	lda #5
+	sta adcnt
++	rts 
+
+; ------------------------------------------------ 
+
+modend	!eof
