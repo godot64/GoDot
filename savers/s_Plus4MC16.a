@@ -750,13 +750,13 @@ drstate	!by 0
 
 ; ------------------------------------------------ 
 
-farbe	!by $00,$66,$88,$11		; chroma, GoDot-Reihenfolge
+farbe	!by $00,$66,$99,$11		; chroma, GoDot-Reihenfolge
 	!by $22,$44,$88,$11
 	!by $dd,$22,$55,$11
 	!by $33,$77,$ff,$11
 
-	!by $00,$00,$00,$00		; according luma
-	!by $00,$33,$33,$33
+	!by $00,$00,$11,$00		; according luma
+	!by $22,$33,$33,$33
 	!by $44,$44,$44,$66
 	!by $66,$66,$55,$77
 
