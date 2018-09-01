@@ -6,12 +6,13 @@
 ; ------------------------------------------------     
 ;
 ; svr.Plus4MC16
+;  Saver to convert any C64 multicolor image to Plus4 Botticelli
 ;
 ;   1.00,         , first release
 ;   1.01,         ,
 ;   1.02, 28.11.93, added: signature in saved file
 ;   1.03, 28.08.18, enhanced palettes
-;   1.04, 31.08.18, now chooseable palettes
+;   1.04, 01.09.18, now two chooseable palettes
 ;
 ; ------------------------------------------------ 
 
@@ -46,7 +47,7 @@
 	luma		= chroma+16
 	p4pal		= luma+16
 
-	vram		= $cc00
+	vram		= $cb00
 
 ; ------------------------------------------------ 
 
@@ -60,9 +61,6 @@ header	jmp start
 ver	!tx "1.04"
 	!tx "31.08.18"
 	!tx "A.Dettke/W.Kling"
-addtxt	!tx "col3/lum3: $1bfe"
-	!tx "col0/lum0: $1bff"
-	!by 0
 
 ; ------------------------------------------------ 
 
@@ -116,6 +114,7 @@ st3	pla
 
 canc	lda #$ff
 	sta used
+	sta gr_redisp	; rendered image gets affected by vram
 cn2	sec 
 	rts 
 
@@ -258,15 +257,13 @@ si5	rts
 nbuf	!fill 16,32
 	!by 0
 
-; ------------------------------------------------ 
-
 ; ------------------------------------------------ Write File: Preparations
 
 writeted	ldx #<making	; first: histograms
 	ldy #>making
 	jsr gd_xtxout2
 
-	lda #<$1800
+	lda #<$1800	; (write start address)
 	jsr bsout
 	lda #>$1800
 	jsr bsout
@@ -493,8 +490,8 @@ ok3	jsr gd_clrms
 	ldx #>sy_4bit
 	sta src
 	stx src+1
-	lda #<(vram)
-	ldx #>(vram)
+	lda #<vram
+	ldx #>vram
 	sta src3
 	stx src3+1
 
@@ -750,8 +747,8 @@ mflen	!by 0
 mdrive	!by 8
 drstate	!by 0
 
-pals	!scr " GoDot  Retrofan Deekay  Pepto  "
-poffs	!by 7,15,23,31
+pals	!scr " GoDot  Near Org"
+poffs	!by 7,15
 wpal	!by 0
 
 ; ------------------------------------------------ 
@@ -777,14 +774,8 @@ grau	!by $00,$11,$11,$11		; chroma
 paletten	!by $00,$66,$99,$11,$22,$44,$88,$11,$dd,$22,$55,$11,$33,$77,$ff,$11	; GoDot
 	!by $00,$00,$11,$00,$22,$33,$33,$33,$44,$44,$44,$66,$66,$66,$55,$77	; 31
 
-	!by $00,$66,$99,$11,$22,$44,$88,$11,$66,$88,$55,$11,$33,$77,$55,$11	; Retrofan
+	!by $00,$66,$99,$11,$22,$44,$88,$11,$66,$88,$55,$11,$33,$77,$55,$11	; near original
 	!by $00,$22,$33,$33,$33,$33,$33,$44,$44,$44,$44,$55,$55,$66,$66,$77	; 63
-
-	!by $00,$66,$99,$11,$22,$bb,$88,$11,$dd,$88,$ff,$11,$cc,$77,$55,$11	; Deekay
-	!by $00,$11,$11,$22,$00,$44,$33,$44,$55,$55,$44,$66,$66,$66,$66,$77	; 95
-
-	!by $00,$ee,$77,$11,$88,$44,$99,$11,$ee,$88,$55,$11,$33,$99,$55,$11	; Pepto
-	!by $00,$11,$11,$33,$22,$33,$33,$44,$44,$55,$55,$55,$55,$66,$66,$77	; 127
 
 ; ------------------------------------------------ 
 
@@ -818,10 +809,10 @@ svc0	lda farbe,x
 svc1	sec 
 	rts 
 
-; ------------------------------------------------ Event: Set New RGB Values
+; ------------------------------------------------ Event: Set New Palette Values
 
-evsetpal	lda wpal
-	cmp #3
+evsetpal	lda wpal		; (kann erweitert werden)
+	cmp #1
 	bcc +
 	lda #$ff
 	sta wpal
