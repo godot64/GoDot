@@ -312,7 +312,7 @@ nbuf	!fill 16,32	; 16 Bytes Puffer für "Filename"
 	!by 0
 
 modname	!scr "MCSdat @"
-modetx	!scr "320x200@"	; resolution "Hires"
+modetx	!scr "160x200@"	; resolution "Multi"
 datatype	!scr "Color@"	; datatype "Color"
 
 mtext	!scr "160x200"
