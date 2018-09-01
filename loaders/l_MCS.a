@@ -1,0 +1,441 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ---------------------------
+;
+;    ldr.M.C.S.
+;    Lader für den Fraktalgenerator Mandelbrot Construction Set (MCS)
+;
+;    1.00: 28.02.93, first release
+;
+; ---------------------------
+
+; --------------------------- Equates
+
+	target		= sc_vekt20
+	adcnt		= $30
+	dst0		= $35
+	dst		= $37
+	byte		= $39
+	vrcnt		= $3b
+	pack		= $3c
+	pcnt		= $3d
+	data		= $3e
+
+	offx		= ls_adrmisc
+	offy		= offx+1
+
+; ------------------------------------------------ 
+
+	jmp start
+	!by $80
+	!wo 0
+	!wo modend
+	!wo 0
+	!tx "M.C.S. FracGen  "
+	!tx "1.00"
+	!tx "28.02.93"
+	!tx "W.Kling/A.Dettke"
+
+; ------------------------------------------------ 
+
+jerror	jmp error
+
+; ------------------------------------------------ 
+
+start	lda #50
+	sta cntwert
+	ldx target
+	ldy target+1
+	stx dst0
+	sty dst0+1
+
+	lda ls_nambuf	; Koala-Name?
+	cmp #$c1
+	bne stt1
+	lda #$81		; ja, spades ersetzen
+stt1	sta ls_nambuf
+	ldx ls_temp
+	cpx #16
+	beq stt2
+	lda #$2a		; Stern anhängen
+	sta ls_nambuf,x
+	inc ls_temp
+stt2	jsr getname	; Namen sichern
+
+; ------------------------------------------------ Videorams lesen
+
+	jsr gd_xopen	; Datei öffnen
+	jsr onebyte	; Startadresse überlesen
+	bne jerror
+	jsr onebyte
+	bne jerror
+	jsr gd_clrms
+	jsr basin		; Packindikator einlesen
+	sta pack		; und merken
+
+	ldx #0
+	stx pcnt
+	jsr tcopy
+	iny
+	sty adcnt
+
+	jsr setdst0
+	lda #8		; 8 Kachelzeilen (= 8 Videorams)
+	sta vrcnt
+vloop	lda dst0
+	ldy dst0+1
+	sta dst
+	sty dst+1
+
+vloop0	jsr action
+	jsr pload		; Byte aus Datei holen
+
+	ldy #3		; nach 4Bit wandeln
+vloop1	sta (dst),y
+	dey 
+	bpl vloop1
+
+	lda dst		; nächste Kachel
+	clc 
+	adc #32
+	sta dst
+	bcc vskip0
+	inc dst+1
+vskip0	lda dst+1		; bis Ende des 4Bit
+	cmp #>sy_bigbuffer
+	bne vloop0
+
+	ldy #24		; Gap überlesen
+	jsr dumy
+	lda dst0		; nächste Kachelzeile anwählen
+	clc 
+	adc #4
+	sta dst0
+	dec vrcnt		; bis alle 8 durch
+	bne vloop		; Videorams eingelesen
+
+; ------------------------------------------------ Bitmap lesen
+
+	ldx #7
+	jsr tcopy
+	iny
+	sty adcnt
+	lda #50
+	sta cntwert
+
+	jsr setdst0
+bloop0	jsr pload		; Byte einlesen
+	sta byte
+	jsr action
+
+	ldy #0
+bloop1	lda #0		; Pixel für Konversion vorbereiten
+	asl byte
+	rol 
+	asl byte
+	rol 
+	beq null		; %00 (Background)
+	cmp #3
+	beq drei		; %11 (Colorram)
+	cmp #1
+	beq eins		; %01
+
+	lda (dst0),y	; %10 (zwei)
+	and #$0f
+	ora #$20
+	sta (dst0),y
+	bne next
+
+eins	lda (dst0),y
+	lsr 
+	lsr 
+	lsr 
+	lsr 
+	ora #$10
+	sta (dst0),y
+	bne next
+
+drei	lda #$30		; kennzeichnen (Colorram kommt noch)
+	sta (dst0),y
+	bne next
+
+null	sta (dst0),y
+
+next	iny 
+	cpy #4
+	bne bloop1
+
+	lda dst0		; nächste Kachel
+	clc 
+	adc #4
+	sta dst0
+	bcc bskip0
+	inc dst0+1
+bskip0	lda dst0+1
+	cmp #>sy_bigbuffer	; bis Ende 4Bit
+	bne bloop0
+
+	ldy #192		; Gap überlesen
+	jsr dumy
+
+; ------------------------------------------------ Colorram lesen
+
+	lda #7
+	sta cntwert
+	ldx #14
+	jsr tcopy
+	iny
+	sty adcnt
+
+	jsr setdst0
+cloop0	jsr pload		; Byte holen
+	and #$0f
+	ora #$30		; kennzeichnen als Colorram-Byte
+	sta byte
+	jsr action
+
+	ldy #31		; eine 4Bit-Kachel bearbeiten
+cloop1	lda (dst0),y
+	cmp #$30		; hier: Colorram-Byte?
+	bne cskip0
+	lda byte		; ja, in 4Bit eintragen
+	sta (dst0),y
+cskip0	dey 
+	bpl cloop1
+
+	lda dst0		; nächste Kachel
+	clc 
+	adc #32
+	sta dst0
+	bcc cskip1
+	inc dst0+1
+cskip1	lda dst0+1
+	cmp #>sy_bigbuffer	; bis Ende 4Bit
+	bne cloop0
+
+	ldy #24		; Gap überlesen
+	jsr dumy
+
+; ------------------------------------------------ Hintergrundfarbe einarbeiten
+
+	lda #200
+	sta cntwert
+	ldx #21
+	jsr tcopy
+	iny
+	sty adcnt
+
+	jsr setdst0
+	jsr pload		; Rahmenfarbe überlesen
+
+	jsr pload		; Hintergrundfarbe holen
+	and #$0f
+	tax 
+	lda dnib,x	; nach GoDot umdefinieren
+	sta byte		; merken
+
+nloop0	jsr action
+	ldy #0
+	lda (dst0),y	; Hintergrundfarbe? ($00)
+	beq nskip0	; ja, Sprung
+	and #$0f		; nein, dann Farbe nach GoDot umdefinieren
+	tax 
+	lda dnib,x
+	!by $2c
+nskip0	lda byte
+	sta (dst0),y	; und zurückschreiben
+	inc dst0		; nächstes Byte
+	bne nskip1
+	inc dst0+1
+nskip1	lda dst0+1
+	cmp #>sy_bigbuffer	; bis Ende 4Bit
+	bne nloop0
+
+; ------------------------------------------------ Abschluss
+
+	jsr setinfo	; Image Information
+sk10	jsr gd_xmess	; (kurz) Floppymeldung
+	jsr gd_xclose	; Datei schließen
+	jsr gd_spron	; Mauszeiger an
+	sec 		; Modul verlassen
+	rts 
+
+; ------------------------------------------------ Decode File
+
+pload	lda pcnt		; Wiederholungszähler läuft noch?
+	beq pskip0
+	lda data		; ja, Byte aufnehmen und zurück
+	dec pcnt
+	rts 
+
+; ------------------------------------------------ 
+
+pskip0	jsr basin		; nein, neues Byte einlesen und dekodieren
+	cmp pack
+	bne pskip1
+	jsr basin
+	sta pcnt
+	cmp #4
+	lda pack
+	bcc pskip2
+	jsr basin
+pskip2	sta data
+	dec pcnt
+pskip1	rts 
+
+; ------------------------------------------------ Überlesen
+
+dumy	jsr pload		; skip .y Bytes
+	dey 
+	bne dumy
+	rts 
+
+; ------------------------------------------------ Zeiger auf 4Bit setzen
+
+setdst0	lda #<sy_4bit
+	ldy #>sy_4bit
+	sta dst0
+	sty dst0+1
+	rts 
+
+; ------------------------------------------------ Byte und Status lesen
+
+onebyte	jsr basin
+	ldx status
+	rts 
+
+; ------------------------------------------------ Disk-Error
+
+error	jsr sk10
+	clc 
+	rts 
+
+; --------------------------- Message Display Handler
+
+messout   ldx #<message	; display message and gauge
+	ldy #>message
+	jmp gd_xtxout2
+
+tcopy	ldy #0		; Select message
+tc0	lda txt,x		; in .x: offset to message
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+
+action	dec adcnt
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	cpy #20
+	bne act0
+	jsr clrmess
+act0	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts
+
+clrmess   ldx #20		; clear gauge bar
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0		; init counters
+	ldx #7	
+	sty offy
+	stx offx
+	rts
+
+
+filltab   !by 160,93,103,127,126,124,105,109
+cntwert   !by 50
+
+txt	!scr " VRams@"	, 0
+	!scr " BMap @"	; 7
+	!scr " CRam @"	; 14
+	!scr " Col0 @"	; 21
+
+message   !fill 11,32
+mess	!fill 21,32
+	!by 0
+
+dnib	!by $00,$ff,$44,$cc,$55,$aa,$11,$dd
+	!by $66,$22,$99,$33,$77,$ee,$88,$bb
+
+; ----------------------------------------- Image Information Handler
+
+getname	ldx #0
+si0	lda ls_lastname,x	; name of loaded picture
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+getdatac	ldx #4		; Datatype: Color
+	ldy #4
+sinfo0	lda dtextc,x
+	sta datatype,y
+	dex
+	dey
+	bpl sinfo0
+	rts
+
+setinfo	jsr getdatac	; this one: Color
+	jsr setname
+	jsr setloader
+	jsr setmode
+	jmp setdata
+
+setname	lda #0
+	ldx #<ls_picname
+	ldy #>ls_picname
+	bne si3
+setloader	lda #17
+	ldx #<ls_iloader
+	ldy #>ls_iloader
+	bne si3
+setmode	lda #25
+	ldx #<ls_imode
+	ldy #>ls_imode
+	bne si3
+setdata	lda #33
+	ldx #<ls_idrive
+	ldy #>ls_idrive
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4 	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!fill 16,32	; 16 Bytes Puffer für "Filename"
+	!by 0
+modname	!scr "M.C.S. @"
+modetx	!scr "320x200@"	; resolution "Hires"
+datatype	!scr "Color@"	; datatype "Color"
+
+mtext	!scr "160x200"
+dtextc	!scr "Color"
+
+; ------------------------------------------------ 
+
+modend	!eof 
