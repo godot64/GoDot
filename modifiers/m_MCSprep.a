@@ -1,0 +1,248 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ------------------------- 
+;
+;  mod.MCSPrep
+;  Vorbereiten eines MCS-FLI-Bildes (richtige FLI-Gap-Farbe finden)
+;  die FLI-Gap-Farbe ist die Hintergrundfarbe für das ganze Bild
+; 
+;  0.99, 29.04.94: first release
+; 
+; ------------------------- 
+
+; --------------------------- Equates
+
+	adcnt		= $30
+	dst0		= $35
+	maxlo		= $37
+	maxhi		= $38
+	result		= $39
+	pcnt		= $3a
+
+	sprptr		= $07f8
+	hist0		= sy_global
+	hist1		= hist0+16
+	spr255		= $3fc0
+
+	spr2x		= $d004
+	spr2y		= $d005
+	msbx		= $d010
+	spren		= $d015
+	sprxe		= $d01d
+	border		= $d020
+	sprcol2		= $d029
+
+; ------------------------------------------------ Header
+
+	jmp start
+	!by $20
+	!wo 0
+	!wo modend
+	!wo 0
+	!tx "Prepare for MCS "	; name
+	!tx "0.99"		; version
+	!tx "29.04.94"		; date
+	!tx "W.Kling         "	; author
+
+; ------------------------- Main
+
+start	jsr initad	; Init Sprite Activity
+	ldx #0		; vorbelegen des FLI-Gaps mit schwarz ($00)
+	jsr prepgap
+	jsr findcol	; häufigste Problemfarbe suchen
+	tay 
+	ldx dnib,y	; einen DNib daraus machen
+	jsr prepgap	; und FLI-Gap mit dieser Farbe löschen
+	jmp clearad	; Exit
+
+; ------------------------- Prepare FLI Gap
+
+prepgap	lda #<sy_4bit
+	ldy #>sy_4bit
+	sta dst0
+	sty dst0+1
+--	ldy #95		; je 96 Bytes (drei Kacheln)
+	txa 		; mit .x (beim ersten Mal $00) löschen
+-	sta (dst0),y	; beim zweiten Mal endgültig
+	dey 
+	bpl -
+	lda dst0+1	; nächste Kachelzeile (plus $500)
+	clc
+	adc #>1280
+	sta dst0+1
+	cmp #>sy_bigbuffer	; bis alle durch
+	bne --
+	rts 
+
+; ------------------------- Double Nibs für gefundene Farbe
+
+dnib	!by $00,$11,$22,$33,$44,$55,$66,$77
+	!by $88,$99,$aa,$bb,$cc,$dd,$ee,$ff
+
+; ------------------------- Sprite Activity
+
+adinc	dec adcnt
+	bne +
+	inc spr2y
+	inc spr2y+2
+	lda #5
+	sta adcnt
++	rts 
+
+; ------------------------- Exit
+
+clearad	lda spren		; Wanderbalken aus
+	and #$f3
+	sta spren
+	lda msbx
+	and #$f3
+	sta msbx
+	lda #$ff		; Grafik verändert
+	sta gr_redisp
+	clc 		; fertig
+	rts 
+
+; ------------------------- Init Sprite Activity
+
+initad	ldy #60
+	lda #0
+-	sta spr255+3,y	; Spriteblock 255 vorbereiten
+	dey 
+	bpl -
+	sty spr255	; dünner Strich
+	sty spr255+1
+	sty spr255+2
+	lda #$0f		; Farbe hellgrau
+	sta sprcol2
+	sta sprcol2+1
+	lda sprxe		; doppelt breit
+	ora #$0c
+	sta sprxe
+
+	lda msbx		; x über 255
+	ora #$0c
+	sta msbx
+	lda #8		; x-Ordinate: 8 (plus 256)
+	sta spr2x
+	lda #$20
+	sta spr2x+2
+reinit	lda #$92		; y-Ordinate: 146
+	sta spr2y		; (im Image Information Fenster)
+	sta spr2y+2
+
+	sty sprptr+2	; Sprite 255
+	sty sprptr+3
+	lda spren
+	ora #$0c		; Activity-Balken aktivieren
+	sta spren
+	lda #3
+	sta adcnt
+	rts
+
+; ------------------------- Finde häufigste Problemfarbe
+
+findcol	lda #4		; je vier Bytes (eine Block-Rasterzeile) untersuchen:
+	sta pcnt		; Farbe suchen, die am häufigsten Schwierigkeiten macht
+	lda #$20		; Farbindex für $00 als unbenutzt markieren
+	sta result	; enthält also das Ergebnis der Suche
+
+refind	lda #<sy_4bit
+	ldy #>sy_4bit
+	sta dst0
+	sty dst0+1
+
+	ldy #31		; 32 Bytes auf 00 (init global histogram)
+	lda #0
+-	sta hist1,y
+	dey 
+	bpl -
+
+lloop	ldy #15		; 16 Bytes auf 00 (init local histogram)
+	lda #0
+-	sta hist0,y
+	dey 
+	bpl -
+
+	ldy #3		; vier Bytes (ab $4000) holen (8 Pixel):
+-	lda (dst0),y
+	and #$0f		; rechten Pixel isolieren (in Multi reicht das)
+	tax 
+	inc hist0,x	; Farbe (lokal) zählen:
+	dey 
+	bpl -
+
+	ldx #0		; in .x: Farbanzahl pro 8 Pixel
+	ldy #15
+-	lda hist0,y	; skip ungezählte Farbe
+	beq +
+	inx 		; zähle vorkommende Farben
++	dey 
+	bpl -		; alle Bytes durch?
+
+	cpx pcnt		; mehr als vier Farben gefunden?
+	bcc ++		; nein, skip Histogram, problemlos
+
+	ldy #3		; ja, Histogramm nochmal (für alle Pixel)
+-	lda (dst0),y	; Farben zählen (später: häufigste Farbe davon bestimmen)
+	and #$0f
+	tax 
+	inc hist1,x	; Farbe 16-bittig zählen
+	bne +
+	inc hist1+16,x
++	dey 
+	bpl -
+
+++	lda dst0		; dann: nächste Rasterzeile ansteuern
+	clc 
+	adc #4
+	sta dst0
+	bcc lloop		; und untersuchen
+
+	jsr adinc		; nach 25 Durchgängen: Activity Display
+
+	inc dst0+1	; Zeiger erhöhen
+	lda dst0+1
+	cmp #>sy_bigbuffer	; Ende 4Bit erreicht?
+	bne lloop		; nein, weiter untersuchen
+
+; ----------------------------------------- 
+
+	lda #0		; fertig, jetzt Auswertung:
+	sta maxlo		; meistvorkommende Farbe bestimmen
+	sta maxhi
+
+	ldy #15		; highbyte 16-Bit-Zähler
+-	lda hist1+16,y
+	tax 
+	cmp maxhi		; max?
+	bcc ++
+	beq +++
+
+	lda hist1,y	; größer als max, dann max neu
+	bcs +
++++	lda hist1,y	; nein, lowbyte
+	cmp maxlo
+	bcc ++
+	beq ++
+
++	sta maxlo		; max merken
+	txa 
+	sta maxhi
+	sty result	; und die zugehörige Farbe merken
+++	dey 
+	bpl -		; bis das Bild ganz durch ist
+
+	lda result	; result hat sich nicht verändert, wenn häufigste Farbe $00
+	cmp #$20
+	bne +		; wenn verändert: mit dieser Farbe Gap löschen
+	dec pcnt		; sonst: das Ganze noch einmal:  
+	jsr reinit	; Re-Init Activity
+	jmp refind	; diesmal suchen nach mehr als *drei* (dann: zwei) Farben
++	rts
+
+modend	!eof
+
