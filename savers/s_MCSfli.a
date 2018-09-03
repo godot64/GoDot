@@ -1,0 +1,852 @@
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ------------------------------------------------     
+;
+; svr.MCSfli
+;  Saver for FLI images of Mandelbrot Construction Set
+;
+;   1.00, 02.03.93, first release
+;
+; ------------------------------------------------ 
+
+; ------------------------------------------------ Equates
+
+	compress		= $9b		; like Pagefox (constant)
+
+	src		= $32
+	src3		= $34
+	dst		= src3
+	adcnt		= $3e
+
+	offx		= ls_adrmisc
+	offy		= offx+1
+
+	hist		= sy_global
+	hist0		= hist+16
+	htab		= hist0+32
+	c64		= sy_bigbuffer
+
+	cram		= $ca00
+
+; ------------------------------------------------ 
+
+header	jmp start
+	!by $40
+	!by 0
+	!by 1
+	!wo modend
+	!wo 0
+	!tx "MCS FLI-Mode Svr"
+	!tx "1.00"
+	!tx "02.03.93"
+	!tx "A.Dettke/W.Kling"
+
+; ------------------------------------------------ 
+
+start	ldx gr_nr
+	dex 
+	bne saver
+	jmp initinp
+
+; ------------------------------------------------ 
+
+saver	jsr gd_sproff
+	lda gd_modswitch
+	pha 
+	lda ls_flen
+	beq st3
+
+	sta wflen
+	lda #1
+	sta adcnt
+
+	jsr wopen
+	bne st2
+	jsr getname
+	ldx #12
+	jsr ckout
+	jsr gd_clrms
+
+	jsr writemcs
+
+st2	jsr clrch
+	lda #12
+	jsr close
+	jsr err9
+	bne st3
+	jsr setname
+
+st3	pla 
+	sta gd_modswitch
+	jsr gd_spron
+
+	sec 
+	rts 
+
+; --------------------------- 
+; --------------------------- Input Routines
+
+!src "input.inc"
+
+; --------------------------- 
+; --------------------------- 
+
+pw	!tx "w,p,"
+drinit	!tx "i0"
+wflen	!by 0
+
+; ------------------------------------------------ 
+
+wopen	jsr inull
+	bne err8
+	ldy wflen
+	ldx #3
+wo1	lda pw,x
+	sta ls_nambuf,y
+	iny 
+	dex 
+	bpl wo1
+	sty wflen
+	lda #12
+	tay 
+	ldx ls_drive
+	jsr filpar
+	lda wflen
+	ldx #<ls_nambuf
+	ldy #>ls_nambuf
+	jsr filnam
+	jsr copen
+	jmp err9
+
+inull	ldx #<drinit
+	ldy #>drinit
+	lda #2
+	jsr gd_sendcom
+err9	jsr gd_xmess
+	lda ls_err2
+	and #15
+err8	sec 
+	rts 
+
+; --------------------------- Activity Gauge
+
+messout   ldx #<message	; display message and gauge
+	ldy #>message
+	jmp gd_xtxout2
+
+tcopy	ldy #0		; Select message
+tc0	lda txt,x		; in .x: offset to message
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+
+action	dec adcnt
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	cpy #20
+	bne act0
+	jsr clrmess
+act0	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts
+
+clrmess   ldx #20		; clear gauge bar
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0		; init counters
+	ldx #7	
+	sty offy
+	stx offx
+	rts
+
+filltab	!by 160,93,103,127,126,124,105,109
+
+cntwert	!by 109
+
+txt	!scr " MCSfli    @"
+making	!scr "Making histograms.@"
+
+message	!fill 11,32
+mess	!fill 21,32
+	!by 0
+
+; ----------------------------------------- Image Information Handler
+
+getname	ldx #0
+si0	lda ls_lastname,x	; name of loaded picture
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+setname	lda #0
+	ldx #<ls_picname
+	ldy #>ls_picname
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4 	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!fill 16,32
+	!by 0
+
+; ------------------------------------------------ Write File
+
+;        write mcs-fli
+
+writemcs	ldx #<making	; first: histograms
+	ldy #>making
+	jsr gd_xtxout2
+
+	jsr makec64
+	lda #<sy_4bit	; (write start address)
+	jsr bsout
+	lda #>sy_4bit
+	jsr bsout
+	lda #compress
+	jsr bsout
+
+	ldy #3
+mskl	lda mask1,y
+	sta mask,y
+	dey 
+	bpl mskl
+
+	lda #4
+	sta comp0
+	lda #32
+	sta col0+4
+	sta maxcol
+hist00	lda #<sy_4bit	; count 4bit colors
+	ldx #>sy_4bit
+	sta src
+	stx src+1
+
+	ldy #31
+	lda #0
+ch0	sta hist0,y
+	dey 
+	bpl ch0
+
+loop1	ldy #15
+	lda #0
+ch	sta hist,y
+	dey 
+	bpl ch
+
+	ldy #3
+h1	lda (src),y
+	and #$0f
+	tax 
+	inc hist,x
+	dey 
+	bpl h1
+
+	ldx #0
+	ldy #15
+hm1	lda hist,y
+	beq s1
+	inx 
+s1	dey 
+	bpl hm1
+
+	cpx comp0
+	bcc s2
+	ldy #3
+h0	lda (src),y
+	and #$0f
+	tax 
+	inc hist0,x
+	bne s3
+	inc hist0+16,x
+s3	dey 
+	bpl h0
+
+s2	lda src
+	clc 
+	adc #4
+	sta src
+	bcc loop1
+	inc src+1
+	lda src+1
+	cmp #>sy_bigbuffer	; until 4bit ends
+	bne loop1
+
+; ------------------------------------------------ 
+
+	lda #0
+	sta max
+	sta max+1
+
+	ldy #15
+m0	lda hist0+16,y
+	tax 
+	cmp max+1
+	bcc s4
+	beq s5
+	lda hist0,y
+	bcs s6
+s5	lda hist0,y
+	cmp max
+	bcc s4
+	beq s4
+s6	sta max
+	txa 
+	sta max+1
+	sty maxcol
+s4	dey 
+	bpl m0
+
+	lda maxcol
+	cmp #32
+	bne ok0
+	dec comp0
+	jmp hist00
+
+ok0	sta bktmp
+
+; ------------------------------------------------ 
+
+	lda #<sy_4bit
+	ldx #>sy_4bit
+	sta src
+	stx src+1
+	lda #<cram
+	ldx #>cram
+	sta dst
+	stx dst+1
+
+loop3	ldy #15
+	lda #0
+ch1	sta hist,y
+	dey 
+	bpl ch1
+
+	lda #8
+	sta blcnt
+blloop	ldy #15
+	lda #0
+ch2	sta hist,y
+	dey 
+	bpl ch2
+
+	ldy #3
+hl2	lda (src),y
+	and #$0f
+	tax 
+	inc hist,x
+	dey 
+	bpl hl2
+	lda #0
+	ldx bktmp
+	sta hist,x
+
+	ldx #0
+	ldy #15
+hm2	lda hist,y
+	beq s7
+	inx 
+s7	dey 
+	bpl hm2
+
+	cpx #3
+	bcc s8
+	ldy #3
+hl3	lda (src),y
+	and #$0f
+	tax 
+	inc hist0,x
+	dey 
+	bpl hl3
+
+s8	lda src
+	clc 
+	adc #4
+	sta src
+	bcc s9
+	inc src+1
+s9	dec blcnt
+	bne blloop
+
+	lda #0
+	ldx #32
+	sta max
+	stx maxcol
+	ldy #15
+m3	lda hist0,y
+	beq s10
+	cmp max
+	beq s10
+	bcc s10
+	sta max
+	sty maxcol
+s10	dey 
+	bpl m3
+
+	lda maxcol
+	ldy #0
+	sta (dst),y
+	inc dst
+	bne s11
+	inc dst+1
+s11	lda src+1
+	cmp #>sy_bigbuffer	; until end of 4bit
+	beq ok3
+	jmp loop3
+
+; ------------------------------------------------ Write File to Disk
+
+ok3	jsr gd_clrms
+	ldx #0
+	jsr tcopy
+
+	lda #0
+	sta data
+	sta cnt
+	sta vrcnt
+vrloop	lda vrcnt
+	ldx #>sy_4bit
+	sta src
+	stx src+1
+	lda #<cram
+	ldx #>cram
+	sta src3
+	stx src3+1
+
+loop12	ldy #15
+	lda #0
+ch3	sta hist,y
+	dey 
+	bpl ch3
+
+	ldy #3
+hl4	lda (src),y
+	and #$0f
+	tax 
+	inc hist,x
+	dey 
+	bpl hl4
+
+	lda #0
+	ldx bktmp
+	sta hist,x
+	tay 
+	lda (src3),y
+	tax 
+	cpx #32
+	beq s12
+	lda #0
+	sta hist,x
+s12	sty max
+	stx col0+3
+	lda #32
+	sta col0+1
+	ldy #15
+m1	lda hist,y
+	beq s13
+	cmp max
+	beq s13
+	bcc s13
+	sta max
+	sty col0+1
+s13	dey 
+	bpl m1
+	lda col0+1
+	cmp #32
+	beq s14
+	tax 
+	lda #0
+	sta hist,x
+	sta max
+
+	ldy #15
+m2	lda hist,y
+	beq s15
+	cmp max
+	beq s15
+	bcc s15
+	sta max
+	sty col0+2
+s15	dey 
+	bpl m2
+
+s14	lda col0+1
+	asl 
+	asl 
+	asl 
+	asl 
+	ora col0+2
+	tax 
+	lda c64,x
+
+	jsr write
+
+	inc src3
+	bne s16
+	inc src3+1
+s16	lda src
+	clc 
+	adc #32
+	sta src
+	bcc s17
+	inc src+1
+s17	lda src+1
+	cmp #>sy_bigbuffer	; until end of 4bit
+	beq s18
+	jmp loop12
+
+s18	lda c64,x
+	ldy #24
+
+l24	jsr write
+
+	dey 
+	bne l24
+	lda vrcnt
+	clc 
+	adc #4
+	sta vrcnt
+	cmp #32
+	beq ok12
+	jmp vrloop
+
+; ------------------------------------------------ 
+
+ok12	lda #<sy_4bit
+	ldx #>sy_4bit
+	sta src
+	stx src+1
+	lda #<cram
+	ldx #>cram
+	sta src3
+	stx src3+1
+
+bmloop	lda #8
+	sta zlcnt
+
+zlloop	ldy #15
+	lda #0
+ch4	sta hist,y
+	dey 
+	bpl ch4
+
+	ldy #3
+hl5	lda (src),y
+	and #$0f
+	tax 
+	inc hist,x
+	lda bits,y
+	sta nr0,y
+	lda #32
+	sta col0,y
+	dey 
+	bpl hl5
+
+	ldx bktmp
+	lda #0
+	sta hist,x
+	stx col0
+	ldy #0
+	lda (src3),y
+	cmp #32
+	beq s19
+	tax 
+	tya 
+	sta hist,x
+	stx col0+3
+s19	sty max
+
+	ldy #15
+m11	lda hist,y
+	beq s20
+	cmp max
+	beq s20
+	bcc s20
+	sta max
+	sty col0+1
+s20	dey 
+	bpl m11
+
+	lda col0+1
+	cmp #32
+	beq s21
+
+	tax 
+	lda #0
+	sta hist,x
+	sta max
+	ldy #15
+m21	lda hist,y
+	beq s22
+	cmp max
+	beq s22
+	bcc s22
+	sta max
+	sty col0+2
+s22	dey 
+	bpl m21
+
+s21	ldx #0
+lx	stx xbuf
+	ldy #3
+ly	lda col0,x
+	cmp col0,y
+	bcc s23
+	beq s23
+	pha 
+	lda col0,y
+	sta col0,x
+	pla 
+	sta col0,y
+	lda nr0,x
+	pha 
+	lda nr0,y
+	sta nr0,x
+	pla 
+	sta nr0,y
+s23	dey 
+	cpy xbuf
+	bne ly
+	inx 
+	cpx #3
+	bne lx
+
+	ldy #$ff
+	sty hstart
+htl	iny 
+	lda col0,y
+	clc 
+	adc col0+1,y
+	lsr 
+	cmp #16
+	bcc s24
+	lda #15
+s24	sta hend
+	lda nr0,y
+	ldx hstart
+htl1	inx 
+	sta htab,x
+	cpx hend
+	bcc htl1
+	cpx #15
+	bcs s25
+	stx hstart
+	cpy #3
+	bne htl
+s25	lda #0
+	sta byte
+	ldy #3
+rl	lda (src),y
+	and #$0f
+	tax 
+	lda htab,x
+	and mask,y
+	ora byte
+	sta byte
+	dey 
+	bpl rl
+
+	jsr write
+
+	lda src
+	clc 
+	adc #4
+	sta src
+	bne s26
+	inc src+1
+s26	dec zlcnt
+	beq s27
+	jmp zlloop
+
+s27	inc src3
+	bne s28
+	inc src3+1
+s28	lda src+1
+	cmp #>sy_bigbuffer	; until end of 4bit
+	beq ok121
+	jmp bmloop
+
+ok121	ldy #0
+	lda byte
+l192	jsr write
+	iny 
+	cpy #192
+	bne l192
+
+	lda cram+999
+	ldy #23
+l241	sta cram+1000,y
+	dey 
+	bpl l241
+	lda #<cram
+	ldx #>cram
+	sta src3
+	stx src3+1
+	ldy #0
+crloop	lda (src3),y
+	tax 
+	lda c64,x
+
+	jsr write
+
+	iny 
+	bne crloop
+	inc src3+1
+	lda src3+1
+	cmp #>cram+1024
+	bne crloop
+
+	lda data
+	eor #$ff
+	jsr write
+
+	lda #0
+	jsr bsout
+
+	ldx bktmp
+	lda c64,x
+	jmp bsout
+
+; ------------------------------------------------ 
+
+bits	!by $00,$55,$aa,$ff
+
+mask1	!by $c0		; %11000000
+	!by $30		; %00110000
+	!by $0c		; %00001100
+	!by $03		; %00000011
+
+; ------------------------------------------------ 
+
+write	pha 
+	txa 
+	pha 
+	tya 
+	pha 
+	jsr action
+	pla 
+	tay 
+	pla 
+	tax 
+
+	lda cnt		; compress: 
+	cmp #255		; indicator ($9b), counter, byte
+	bne wrt0
+	lda #compress
+	jsr bsout
+	lda cnt
+	jsr bsout
+	lda data
+	jsr bsout
+	inc cnt
+	jmp null
+
+wrt0	pla 
+	cmp data
+	beq incr
+	pha 
+	lda cnt
+	beq null
+	cmp #4
+	bcc cr2
+crunch	lda #compress
+	jsr bsout
+	lda cnt
+	jsr bsout
+	lda #1
+	sta cnt
+single	lda data
+	jsr bsout
+	dec cnt
+	bne single
+null	pla 
+	sta data
+incr	inc cnt
+	rts 
+
+cr2	lda data
+	cmp #compress
+	bne single
+	jsr bsout
+	lda cnt
+	jsr bsout
+	lda #0
+	sta cnt
+	beq null
+
+; ------------------------------------------------ 
+
+makec64	ldy #0
+mc64	tya 
+	lsr 
+	lsr 
+	lsr 
+	lsr 
+	tax 
+	lda cols64,x
+	and #$f0
+	sta bbuf
+	tya 
+	and #$0f
+	tax 
+	lda cols64,x
+	and #$0f
+	ora bbuf
+	sta c64,y
+	iny 
+	bne mc64
+	rts 
+
+; ------------------------------------------------ 
+
+cols64	!by $00,$66,$99,$bb
+	!by $22,$44,$88,$cc
+	!by $ee,$aa,$55,$ff
+	!by $33,$77,$dd,$11
+
+bktmp	!by 0
+comp0	!by 0
+col0	!by 0,0,0,0,0
+nr0	!by 0,0,0,0
+mask	!by 0,0,0,0
+max	!by 0,0
+maxcol	!by 0
+bbuf	!by 0
+xbuf	!by 0
+blcnt	!by 0
+vrcnt	!by 0
+zlcnt	!by 0
+hstart	!by 0
+hend	!by 0
+byte	!by 0
+data	!by 0
+cnt	!by 0
+
+; ------------------------------------------------ 
+
+modend	!eof
