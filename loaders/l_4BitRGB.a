@@ -1,0 +1,624 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ----------------------------------------- 
+; ldr.4BitRGB
+;     Loader for digitized images split into rgb
+;
+; 1.00: 14.08.93, first release
+; 1.01: 02.01.02, added balancing feature
+; 1.02: 03.01.02, bugfix:  mouse wasn't switched off
+;                 changed: color level set to 3 (instead of 5)
+;
+; ----------------------------------------- 
+
+; ------------------------------------------------ Equates
+
+	packbyte		= $ad	; constant
+
+	filetype		= $30
+	counter		= $31
+	gbyte		= $33
+	adcnt		= $34
+	red		= $38
+	grn		= $39
+	blu		= $3a
+	pflg		= $3b
+	nflg		= $3c
+	minx		= $3d
+	min		= $3e
+
+	offx		= ls_adrmisc
+	offy		= offx+1
+
+	dbuf		= sy_global
+	dbuf1		= dbuf+16
+
+	rndtab		= $cc00
+	avrtab		= $cd00
+
+; ----------------------------------------- 
+
+header	jmp start
+	!by $80
+	!by 0
+	!by 1
+	!wo modend
+	!wo 0
+	!tx "Join RGB-Digis  "
+	!tx "1.02"
+	!tx "03.01.02"
+	!tx "A.Dettke/W.Kling"
+
+; ----------------------------------------- 
+
+start	jsr gd_sproff
+	inc used
+	ldx used
+	beq st2
+	dex
+	beq st3
+	dex
+	bne jcan
+	jmp st4
+
+st2	jsr getrgb
+	jsr maketabs
+	stx mflag
+	jsr tcopy
+	lda #<getred
+	ldx #>getred
+	sta doit
+	stx doit+1
+	lda ls_flen
+	sta mflen
+
+	lda ls_nambuf+1
+	cmp #$2e		; Punkt (".")?
+	beq st0
+	sta mflag
+	bne st1
+st0	lda #"r"		; zuerst "red"
+	sta ls_nambuf
+st1	jsr loadrgb
+	jsr checkerr
+	bne jcan
+
+	ldx #7
+	jsr tcopy
+	lda #<addgrn
+	ldx #>addgrn
+	sta doit
+	stx doit+1
+	lda mflag
+	bne next
+	lda #"g"		; dann "green"
+	sta ls_nambuf
+	jsr loadrgb2
+	jsr checkerr
+	bne jcan
+
+	lda #"b"		; zuletzt "blue"
+	sta ls_nambuf
+last	ldx #14
+	jsr tcopy
+	lda #<blurgb
+	ldx #>blurgb
+	sta doit
+	stx doit+1
+	jsr loadrgb2
+
+; ----------------------------------------- 
+
+jcan	jsr resetbal
+	sec
+	rts
+
+; ----------------------------------------- 
+
+st3	lda ls_flen
+	beq jcan
+	jsr loadrgb3	; load up to three single files
+	jsr checkerr
+	bmi jcan
+next	jsr gd_spron
+	lda #0
+	sta ls_flen
+	jmp gd_eloop	; go for next one
+
+; ----------------------------------------- 
+
+st4	lda ls_flen
+	beq jcan
+	sta mflen
+	jmp last
+
+; ----------------------------------------- Reset Balancing
+
+resetbal	ldx #$ff
+	stx used
+	stx gr_redisp
+	jsr gd_spron
+	ldy #16		; -- added in 1.01 (reset balancing)
+	sty gr_ctr
+	sty gr_brt
+xl0	dey
+	tya
+	sta gr_btab,y
+	bne xl0		; --
+	rts
+
+; ----------------------------------------- 
+
+checkerr	lda ls_err2
+	and #15
+	bne jerror
+	rts
+
+; ----------------------------------------- 
+
+jerror	jmp error
+
+loadrgb2	lda mflen
+	sta ls_flen
+	sta ls_temp
+
+loadrgb3	ldx #0
+	lda #2
+	stx ls_vekta8
+	sta ls_vekta8+1
+	stx sc_vekt20
+	lda #>sy_4bit
+	sta sc_vekt20+1
+
+loadrgb	jsr gd_xopen
+	ldx sc_vekt20
+	ldy sc_vekt20+1
+	stx sc_texttab
+	sty sc_texttab+1
+	jsr onebyte
+	bne jerror
+	tay
+	beq ld60
+	jsr onebyte
+	bne jerror
+	jsr onebyte
+	bne jerror
+
+ld60	jsr onebyte
+	bne jerror
+	sta filetype
+	tya
+	bne ld61
+	sta filetype
+ld61	asl filetype
+	jsr getname
+ld6	jsr gd_clrms
+	stx offy
+	stx counter
+	stx counter+1
+	lda #200
+	sta adcnt
+	lda #7
+	sta offx
+	stx ls_vekta8
+	ldy #$7d		; count 32000 bytes
+	sty ls_vekta8+1
+
+ld0	ldy #0
+	jsr readfile
+	tax
+	lda avrtab,x
+	jsr readbytes
+	sta (sc_texttab),y
+	inc sc_texttab
+	bne ld1
+	inc sc_texttab+1
+ld1	lda ls_vekta8	; now count
+	bne ld2
+	dec ls_vekta8+1
+ld2	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	beq ld3
+
+	jsr action
+	lda status
+	beq ld0
+	bne ld7
+
+ld3	jsr setinfo
+ld7	jsr gd_xclose
+	jsr gd_xmess
+	jsr clrmess
+
+; ----------------------------------------- 
+
+cn2	sec
+	rts
+
+; ----------------------------------------- 
+
+readbytes	jmp (doit)
+
+; ----------------------------------------- 
+
+getred	and #$f0
+	rts
+
+addgrn	and #$0f
+	ora (sc_texttab),y
+	rts
+
+blurgb	and #$0f
+	tax		; -- added in 1.01
+	lda gr_btab,x	; --
+	sta blu
+	lda (sc_texttab),y
+	and #$0f
+	tax		; -- added in 1.01
+	lda gr_btab,x	; --
+	sta grn
+	lda (sc_texttab),y
+	lsr
+	lsr
+	lsr
+	lsr
+	tax		; -- added in 1.01
+	lda gr_btab,x	; --
+	sta red
+	jsr assigncol
+	ldy #0
+	rts
+
+; ----------------------------------------- 
+
+messout   ldx #<message	; display message and gauge
+	ldy #>message
+	jmp gd_xtxout2
+
+tcopy	ldy #0		; Select message
+tc0	lda txt,x		; in .x: offset to message
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+
+clrmess   ldx #20		; clear gauge bar
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0		; init counters
+	ldx #7	
+	sty offy
+	stx offx
+	rts
+
+action	dec adcnt
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	cpy #20		; !!! this value must be the same as at CLRMESS
+	bne act0
+	jsr clrmess
+act0	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts
+
+filltab   !by 160,93,103,127,126,124,105,109
+cntwert   !by 200
+
+txt	!scr " Red  @"
+	!scr " Green@"
+	!scr " Blue @"
+
+message   !fill 11,32	; gauge bar: 32 bytes screencode
+mess	!fill 21,32	; value at MESS must be one more than at CLRMESS
+	!by 0
+
+; ----------------------------------------- 
+
+error	jsr ld7
+	jsr jcan
+	clc
+	rts
+
+; ----------------------------------------- 
+
+onebyte	jsr basin
+	ldx status
+	rts
+
+; ----------------------------------------- 
+
+mflag	!by 0
+mflen	!by 0
+abuf	!by 0
+bbuf	!by 0
+byte	!by 0
+doit	!by 0,0
+used	!by $ff
+level	!by 3
+
+; ----------------------------------------- 
+
+getrgb	ldx #$2f
+stt0	lda gr_rgb,x
+	sta cred,x
+	dex
+	bpl stt0
+	rts
+
+; ----------------------------------------- 
+
+readfile	lda counter
+	ora counter+1
+	bne getit2
+	inc counter
+	jsr basin
+	cmp #packbyte
+	bne getit1
+	bit filetype
+	bvc getit1
+	jsr basin
+	sta counter
+	beq rb2
+	lda #0
+	beq rb3
+rb2	lda #1
+rb3	sta counter+1
+	jsr basin
+getit1	sta gbyte
+getit2	lda counter
+	bne rb4
+	dec counter+1
+rb4	dec counter
+	lda gbyte
+	rts
+
+; ----------------------------------------- 
+
+getname	ldx #0
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+setinfo	jsr setname
+	jsr setloader
+	jsr setmode
+	jmp setdata
+
+setname	lda #0
+	ldx #<ls_picname
+	ldy #>ls_picname
+	bne si3
+setloader	lda #17
+	ldx #<ls_iloader
+	ldy #>ls_iloader
+	bne si3
+setmode	lda #25
+	ldx #<ls_imode
+	ldy #>ls_imode
+	bne si3
+setdata	lda #33
+	ldx #<ls_idrive
+	ldy #>ls_idrive
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!fill 16,32
+	!by 0
+	!scr "4BitRGB@"
+modetx	!scr "160x200@"
+datatype	!scr "Color@"
+
+; ----------------------------------------- 
+
+maketabs	ldx #0
+mtl	txa
+	and #$0f
+	sta bbuf
+	txa
+	lsr
+	lsr
+	lsr
+	lsr
+	clc
+	adc bbuf
+	lsr
+	rol rndtab,x
+	tay
+	lda dnib,y
+	sta avrtab,x
+	inx
+	bne mtl
+	rts
+
+; ----------------------------------------- 
+
+assigncol	lda red
+	clc
+	adc grn
+	adc blu
+	tax
+	lda avr,x
+	ldy #0
+	cmp red
+	bne as0
+	iny
+as0	cmp grn
+	bne as1
+	iny
+as1	cmp blu
+	bne as2
+	iny
+as2	cpy #2
+	bcc cl51
+
+	tax
+	lda gray,x
+	tax
+	lda cpref,x
+	tax
+	lda dnib,x
+	rts
+
+
+; ----------------------------------------- 
+
+cl51	ldx level
+cl6	lda #0
+	sta dbuf1,x
+	sta pflg
+	sta nflg
+	lda cred,x
+	sec
+	sbc red
+	bne rd0
+	inc nflg
+rd0	bcs rpos
+	eor #$ff
+	adc #1
+	inc pflg
+
+rpos	tay
+	lda quad,y
+	sta dbuf,x
+	lda cgrn,x
+	sec
+	sbc grn
+	bne gn0
+	inc nflg
+gn0	bcs gpos
+	eor #$ff
+	adc #1
+	inc pflg
+
+gpos	tay
+	lda quad,y
+	clc
+	adc dbuf,x
+	sta dbuf,x
+	bcc gsk
+	inc dbuf1,x
+gsk	lda cblu,x
+	sec
+	sbc blu
+	bne bl0
+	inc nflg
+bl0	bcs bpos
+	eor #$ff
+	adc #1
+	inc pflg
+
+bpos	tay
+	lda pflg
+	beq nopf
+	clc
+	adc nflg
+	cmp #3
+	beq nopf
+	lda #2
+	!by $2c
+nopf	lda #0
+	clc
+	adc quad,y
+	adc dbuf,x
+	sta dbuf,x
+	bcc bsk
+	inc dbuf1,x
+bsk	inx
+	cpx #16
+	bne cl6
+
+	stx min+1		; is 16 now
+	ldx level		; (sort colors:)
+ml1	lda dbuf1,x	; is 0 1st
+	tay
+	cmp min+1
+	beq ms1
+	bcs ms2
+	bcc ms3
+ms1	lda dbuf,x
+	cmp min
+	beq ms4
+	bcs ms2
+ms3	lda dbuf,x
+ms4	sty min+1
+	sta min
+	stx minx
+ms2	inx
+	cpx #16
+	bne ml1
+
+	lda minx
+	tay
+	lda cpref,y
+	tay
+	lda dnib,y
+	rts
+
+; ----------------------------------------- 
+
+avr	!by 0,0,1,1,1,2,2,2
+	!by 3,3,3,4,4,4,5,5,5
+	!by 6,6,6,7,7,7,8,8,8
+	!by 9,9,9,10,10,10
+	!by 11,11,11,12,12,12
+	!by 13,13,13,14,14,14
+	!by 15,15
+
+quad	!by 0,1,4,9,16,25,36,49,64,81,100,121,144,169,196,225
+
+cred	!by 11,7,3,0,15
+	!by 06,15,13,12,10,08
+	!by 00,00,00,10,14
+
+cgrn	!by 11,7,3,0,15
+	!by 04,07,08,04,15,00
+	!by 08,00,12,15,14
+
+cblu	!by 11,7,3,0,15
+	!by 00,07,05,12,14,00
+	!by 15,10,05,06,07
+
+cpref	!by 11,7,3,0,15
+	!by 2,9,6,5,12,4
+	!by 8,1,10,14,13
+
+gray	!by 3,3,2,2,2,2,1,1,1,1,0,0,0,0,4,4,4
+
+dnib	!by $00,$11,$22,$33
+	!by $44,$55,$66,$77
+	!by $88,$99,$aa,$bb
+	!by $cc,$dd,$ee,$ff,$bb
+
+; ----------------------------------------- 
+
+modend	!eof
