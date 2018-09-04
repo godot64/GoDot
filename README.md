@@ -1,5 +1,6 @@
-# GoDot
-GoDot C64 Image Processing
+# GoDot - C64 Image Processing
+
+[![Build Status](https://travis-ci.org/godot64/GoDot.svg?branch=master)](https://travis-ci.org/godot64/GoDot)
 
 ![GoDot GUI](https://www.godot64.de/german/pictures/godot2017.gif "GoDot Main Screen")
 
