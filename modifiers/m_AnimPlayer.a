@@ -1,0 +1,315 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ------------------------------------------------     
+;
+; mod.AnimPlayer
+;  Module to play a GoDot Full Screen Animation 
+;
+;   0.99, 10.04.95, first ever release
+;   1.00, 06.09.18, first running release
+;
+; ------------------------------------------------ 
+
+; ------------------------------------------------ Equates
+
+	passes		= $30
+	mehrfach		= $31
+
+	cram		= sy_4bit
+	bkgr		= $43e8
+	records		= $4400
+	reuwerte		= reubase+2
+
+	grafreg		= $d011
+	multreg		= $d016
+	charreg		= $d018
+	rahmen		= $d020
+	backgr		= $d021
+	coloram		= $d800
+
+; ------------------------------------------------ 
+
+	jmp start
+	!by $20
+	!wo 0
+	!wo modend
+	!wo 0
+	!tx "Animator        "
+	!tx "1.00"
+	!tx "06.09.18"
+	!tx "A.Dettke        "
+
+; ------------------------------------------------ 
+
+start	jsr chk4anim	; Anim vorhanden? (kehrt nicht zurück, wenn nicht)
+
+	lda gd_modswitch
+	sta mswitch
+
+	lda #$18		; grafik an
+	sta multreg
+	lda #$1b
+	sta charreg
+	lda #$3b
+	sta grafreg
+
+loop	lda #<records	; Vorbereitungen
+	sta recs1+1
+	sta recs2+1
+	lda #>records
+	sta recs1+2
+	sta recs2+2
+
+	ldx frames
+	stx passes
+	jsr buildtab
+
+	ldx gr_howmany	; Speed: normal 16 (gr_howmany ist Speed-Regler)
+	dex 
+	stx sc_pos
+	lda #0
+	sta sc_stop
+	sta sc_pos+1
+	jsr gd_mal5	; Faktor 5
+	lda sc_pos
+	sta mehrfach
+
+display	jsr setimgdta	; startrecord setzen
+
+	ldy #6		; bitmap (nach $2000)
+-	lda recbmap,y
+	sta reuwerte,y
+	dey 
+	bpl -
+	lda #$91
+	sta reucom
+
+	ldy #6		; video ram (nach $0400)
+-	lda recvram,y
+	sta reuwerte,y
+	dey 
+	bpl -
+	lda #$91
+	sta reucom
+
+	ldy #6		; color ram + bg (nach $4000)
+-	lda reccram,y
+	sta reuwerte,y
+	dey 
+	bpl -
+	lda #$91
+	sta reucom
+
+	lda bkgr		; background color
+	sta backgr
+
+-	iny 
+	lda cram,y	; 4 viertel (250)
+	sta coloram,y	; color ram füllen
+	lda cram+250,y
+	sta coloram+250,y
+	lda cram+500,y
+	sta coloram+500,y
+	lda cram+750,y
+	sta coloram+750,y
+	cpy #250
+	bne -
+
+	ldx mehrfach	; kurz warten
+	jsr gd_dl2	; slow down (Speed)
+	dec passes
+	beq +
+
+	clc 
+	lda recs2+1
+	adc #21		; nächster Record
+	sta recs2+1
+	bcc display
+	inc recs2+2
+	bcs display
+
++	jsr restore
+	lda sc_stop
+	bne leave
+	jmp loop
+
+; ------------------------------------------------ 
+
+leave	ldx #$13		; grafik aus
+	lda #$1b
+	stx charreg
+	sta grafreg
+	lda #$08
+	sta multreg
+	lda sc_maincolor
+	sta rahmen
+	sta backgr
+	lda mswitch
+	sta gd_modswitch
+	sec 		; finish
+	rts 
+
+; ------------------------------------------------ 
+
+setimgdta	ldy #20
+recs2	lda records,y
+	sta recbmap,y
+	dey 
+	bpl recs2
+	rts 
+
+; ------------------------------------------------ Playertabelle aufbauen
+
+buildtab	ldy #20
+-	lda recdata,y	; aktueller Frame
+recs1	sta records,y
+	dey 
+	bpl -
+
+	clc 		; nächster Frame:
+	lda recdata+2	; bitmap
+	adc #<10001	; 10001 weiter
+	sta recdata+2
+	lda recdata+3
+	adc #>10001
+	sta recdata+3
+	bcc +
+	inc recdata+4
+
++	clc 
+	lda recdata+9	; vram
+	adc #<10001	; 10001 weiter
+	sta recdata+9
+	lda recdata+10
+	adc #>10001
+	sta recdata+10
+	bcc +
+	inc recdata+11
+
++	clc 
+	lda recdata+16	; cram
+	adc #<10001	; 10001 weiter
+	sta recdata+16
+	lda recdata+17
+	adc #>10001
+	sta recdata+17
+	bcc +
+	inc recdata+18
+
++	clc 
+	lda recs1+1	; nächster record
+	adc #21		; 21 weiter
+	sta recs1+1
+	bcc +
+	inc recs1+2
++	dex 		; .x mal wiederholen
+	bne buildtab
+
+; ------------------------------------------------ 
+
+restore	ldy #20		; dann zurücksetzen
+-	lda recback,y
+	sta recdata,y
+	dey 
+	bpl -
+	rts 
+
+; ----------------------------------------------------- Blink the Border
+
+graphon	lda rahmen	; save border color
+	pha
+	sty rahmen	; set new color (in .y, e.g. "2" for red)
+	ldx #$40
+	jsr gd_dl2	; delay
+	pla
+	sta rahmen	; reset old border color
+	stx sy_tbuffer	; clear key strokes
+stay	clc
+	rts
+
+; ------------------------------------------------ Keine Animation vorhanden
+
+fail1	pla
+	pla
+	ldy #2		; rot
+	jsr graphon	; blink
+	sec
+	rts
+
+; ------------------------------------------------ Vorbereitungen
+
+chk4anim	ldy #6
+-	lda control,y
+	sta reuwerte,y
+	dey
+	bpl -
+	lda #$91		; $91: Fetch
+	sta reucom
+	lda frames+3	; frame record already filled?
+	cmp #$20
+	bcs fail1		; no, no anim in reu, leave mod
+
+	ldy #2
+-	lda ctrlrec,y	; get start (bmap)
+	sta recdata+2,y
+	sta recdata+9,y
+	sta recdata+16,y
+	dey
+	bpl -
+	clc
+	lda ctrlrec	; add 8000 for vram
+	adc #<8000
+	sta recdata+9
+	lda ctrlrec+1
+	adc #>8000
+	sta recdata+10
+	bcc +
+	inc recdata+11
++	clc
+	lda recdata+9	; add 1000 for cram
+	adc #<1000
+	sta recdata+16
+	lda recdata+10
+	adc #>1000
+	sta recdata+17
+	bcc store
+	inc recdata+18
+
+store	ldy #20		; zuerst sichern
+-	lda recdata,y
+	sta recback,y
+	dey 
+	bpl -
+	rts 
+
+; ------------------------------------------------ Data
+
+mswitch	!by 0
+
+frames	!by 0
+ctrlrec	!by 0,0,0
+
+; ------------------------------------------------ Player Records
+
+recback	!fill 21
+
+recdata	!by $00,$20,$00,$00,$04,$40,$1f	; nach bank 4: (Dummy-Einträge)
+	!by $00,$04,$40,$1f,$04,$e8,$03
+	!by $00,$40,$28,$23,$04,$e9,$03
+
+recbmap	!by $00,$20,$00,$00,$04,$40,$1f	; bitmap    (8000)
+recvram	!by $00,$04,$40,$1f,$04,$e8,$03	; video ram (1000)
+reccram	!by $00,$40,$28,$23,$04,$e9,$03	; color ram (1001)
+
+control	!by <frames,>frames			; nach: frames
+	!by $0e,$00,$00			; von REU: Byte 14, Bank 0
+	!by 4,0				; 4 Bytes
+
+; ------------------------------------------------ 
+
+modend	!eof
+
