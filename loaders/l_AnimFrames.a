@@ -1,0 +1,400 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ------------------------------------------------     
+;
+; ldr.AnimFrames
+;  Loader for Amica Paint images which are part of
+;  a GoDot Full Screen Animation. Can be up to 255 images
+;  Only works in combination with mod.AnimBatch:
+;
+;   0.99, 25.04.95, first release
+;
+; ------------------------------------------------ 
+
+; ------------------------------------------------ Equates
+
+	adcnt		= $30
+	gbyte		= $31
+	pcount		= $32
+	type		= $33
+
+	offx		= ls_adrmisc
+	offy		= offx+1
+
+	offlo		= ramrec+2
+	offhi		= ramrec+3
+	bank		= ramrec+4
+
+; ------------------------------------------------ 
+
+header	jmp start
+	!by $80
+	!wo 0
+	!wo modend
+	!wo 0
+	!tx "AnimFrames 2 REU"
+	!tx "0.99"
+	!tx "25.04.95"
+	!tx "A.Dettke        "
+;
+; ------------------------------------------------ 
+
+jerror	jmp error
+;
+; ------------------------------------------------ 
+
+start	jsr ramcheck	; reu present? (leaves loader if not)
+
+	jsr setastart	; automatic Undo, set start address in REU
+	lda #63
+	sta cntwert
+	jsr initfname	; init screen counter and filename counter
+	lda #0
+	sta pcount	; init pack counter
+	sta sy_framecount	; and frame counter
+
+loops	jsr setfname	; set pointer to ls_nambuf ans transfer filename there
+	ldx #1
+	stx adcnt
+
+	dex
+	stx sc_stop
+	ldy #>sy_4bit	; target address: 4Bit
+	stx sc_texttab
+	sty sc_texttab+1
+;
+stt2	jsr gd_xopen	; read image
+	jsr onebyte	; skip start address
+	bne sk3
+	jsr onebyte
+	bne jerror
+	asl		; take hi as filetype (for compress)
+	sta type
+	jsr gd_clrms
+	ldx #0
+	jsr tcopy
+	lda #<10001	; set counter (for a koala formatted result file)
+	sta ls_vekta8
+	lda #>10001
+	sta ls_vekta8+1
+;
+loop	jsr action
+	jsr unpack	; get image data
+	ldy #0
+	sta (sc_texttab),y	; write to 4Bit
+	inc sc_texttab
+	bne sk
+	inc sc_texttab+1
+sk	lda sc_stop
+	bne jerror
+	lda ls_vekta8
+	bne sk1
+	dec ls_vekta8+1	; now count
+sk1	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	beq sk2
+	lda status
+	beq loop
+
+sk2	jsr gd_xclose	; close file
+	jsr stash		; save image to REU (no control of limits yet!)
+	jsr incfname	; address next file
+	beq loops		; and read it
+
+sk3	jsr gd_xclose
+
+sk10	jsr getundo	; fetch Undo 4Bit
+	jsr gd_xmess	; show floppy message
+	jsr setfcount	; write final framecount into REU
+	jsr gd_spron	; mouse pointer on
+	sec		; leave loader
+	rts
+;
+; ------------------------------------------------ 
+
+onebyte	jsr basin
+	ldx status
+	rts
+;
+error	jsr gd_xclose
+	jsr sk10
+	clc
+	rts
+;
+; ------------------------------------------------ 
+
+messout   ldx #<message	; display message and gauge
+	ldy #>message
+	jmp gd_xtxout2
+
+tcopy	ldy #0		; Select message
+tc0	lda txt,x		; in .x: offset to message
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+
+action	dec adcnt
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	cpy #20
+	bne act0
+	jsr clrmess
+act0	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts
+
+clrmess   ldx #20		; clear gauge bar
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0		; init counters
+	ldx #7	
+	sty offy
+	stx offx
+	rts
+
+filltab   !by 160,93,103,127,126,124,105,109
+cntwert   !by 63
+
+txt	!scr " pi"
+current	!scr "c000 @"
+fname	!tx "a000.animations "
+
+message   !fill 11,32
+mess	!fill 21,32
+	!by 0
+
+; ------------------------------------------------ 
+
+initfname	ldx #15
+	lda #32		; clear filename
+inm3	cpx ls_flen
+	bmi inm0
+	sta fname,x
+	dex
+	bpl inm3
+
+inm0	lda ls_nambuf,x	; set current filename
+	sta fname,x
+	dex
+	bpl inm0
+
+setfn	ldx #1		; get current running number
+inm1	lda fname,x
+	sta current,x
+	inx
+	cpx #4
+	bne inm1
+
+setwerte	ldx #6		; set data for transfer
+inm4	lda ramrec,x
+	sta rm_werte,x
+	dex
+	bpl inm4
+	rts
+;
+; ------------------------------------------------ 
+
+setfname	ldx ls_flen
+	stx ls_temp
+	lda #>ls_nambuf
+	sta ls_vekta8+1
+	lda #<ls_nambuf
+	sta ls_vekta8
+inm2	lda fname,x
+	sta ls_nambuf,x
+	dex
+	bpl inm2
+	bmi setfn
+;
+; ------------------------------------------------ 
+
+incfname	ldx #$30
+	inc fname+3
+	lda fname+3
+	cmp #$3a
+	bcc ifn0
+	stx fname+3
+	inc fname+2
+	lda fname+2
+	cmp #$3a
+	bcc ifn0
+	stx fname+2
+	inc fname+1
+	lda fname+1
+	cmp #$3a
+	bcc ifn0
+	inc sc_stop
+ifn0	inc sy_framecount
+	lda sc_stop
+	rts
+;
+; ------------------------------------------------ Decompress Amica Paint
+
+unpack	lda pcount
+	bne getit2
+	inc pcount
+	jsr basin
+	cmp #$c2
+	bne getit1
+	bit type
+	bvs getit1
+	jsr basin
+	sta pcount
+	jsr basin
+getit1	sta gbyte
+getit2	dec pcount
+	lda gbyte
+	rts
+;
+; ------------------------------------------------ 
+
+stash	lda #$90		; Stash to REU
+	jsr gd_reu
+	clc		; proceed
+	lda offlo
+	adc #<10001
+	sta offlo
+	lda offhi
+	adc #>10001
+	sta offhi
+	bcc sts0
+	inc bank
+sts0	rts
+;
+; ------------------------------------------------ 
+
+ramcheck	lda ls_ramdrive
+	and #15
+	cmp #4
+	bcc fail
+	cmp #9
+	bcs fail
+	rts
+;
+; ------------------------------------------------ 
+
+fail	pla
+	pla
+	sec
+	rts
+;
+; ------------------------------------------------ 
+
+setundo	ldx #1		; set index to Undo 4Bit
+	stx rm_nextentry
+	lda rm_ramundo	; set Flag for for Undo 4Bit
+	and #$fe
+	ora #1
+	sta rm_ramundo
+	rts
+;
+; ------------------------------------------------ 
+
+setastart	jsr setundo	; set parameters
+	lda ls_flen	; save ls_flen
+	pha
+
+	ldx #64		; perform Undo 4Bit
+sts1	lda stst,x
+	sta sy_global,x
+	dex
+	bpl sts1
+	jsr sy_global
+	lda sc_merk	; and set REU address for first record
+	sta offlo
+	lda sc_merk+1
+	sta offhi
+	lda sc_merk+2
+	sta bank
+
+	pla
+	sta ls_flen
+	rts
+;
+; ------------------------------------------------ 
+
+stst	jsr gd_swapd	; REU einblenden
+
+	iny		; .y=0
+	sty rm_werte
+	sty rm_werte+4
+	sty rm_werte+2
+	lda #$10		; address "Undo 4Bit"
+	sta rm_werte+3
+	ldx #9		; save 4Bit to REU (perform Undo 4Bit)
+	jsr rm_ramvec
+
+	lda modul+1	; Offset
+	ldy modul+2
+	ldx modul+3	; Bank
+	sta modul+15	; transfer to REU frame record
+	sta sc_merk	; and to sc_merk
+	sty modul+16
+	sty sc_merk+1
+	stx modul+17
+	stx sc_merk+2
+	jmp gd_swapd	; REU ausblenden
+;
+; ------------------------------------------------ 
+
+getundo	jsr setundo	; set parameters
+
+	ldx #64		; transfer routine
+gu0	lda gtud,x
+	sta sy_global,x
+	dex
+	bpl gu0
+	jmp sy_global	; and perform
+;
+; ------------------------------------------------ 
+
+gtud	jsr gd_swapd	; switch REU on
+	iny
+	sty rm_werte	; set parameters for Undo 4bit
+	sty rm_werte+4
+	sty rm_werte+2
+	lda #$10
+	sta rm_werte+3
+	ldx #8		; load Undo 4Bit to C64
+	jsr rm_ramvec
+	jmp gd_swapd	; switch REU off
+;
+; ------------------------------------------------ 
+
+setfcount	ldx #11
+-	lda stfct,x
+	sta sy_global,x
+	dex
+	bpl -
+	jmp sy_global
+
+stfct	jsr gd_swapd
+	lda sy_framecount
+	sta modul+14
+	jmp gd_swapd
+
+; ------------------------------------------------ 
+
+ramrec	!by 0,$40,0,0,2,$11,$27	; 10001 Bytes from 4bit to $xxxx in bank x
+;
+; ------------------------------------------------ 
+
+modend	!eof
