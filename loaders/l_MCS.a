@@ -362,7 +362,7 @@ cl0	sta mess,x
 filltab   !by 160,93,103,127,126,124,105,109
 cntwert   !by 50
 
-txt	!scr " VRams@"	, 0
+txt	!scr " VRams@"	; 0
 	!scr " BMap @"	; 7
 	!scr " CRam @"	; 14
 	!scr " Col0 @"	; 21
