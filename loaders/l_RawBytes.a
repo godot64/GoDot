@@ -1,0 +1,329 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ------------------------------------------------ 
+;
+;  ldr.RawBytes
+;    loader for undetermined data
+; 
+;  1.00, 05.03.94, first release
+;  1.01, 09.09.18, added requester to choose mode
+;
+; ------------------------------------------------ 
+
+; ------------------------------------------------ Equates
+
+	adcnt		= $30
+	flen		= $31
+
+	offx		= ls_adrmisc
+	offy		= offx+1
+
+; ------------------------------------------------ 
+
+header	jmp start
+	!by $80
+	!by 0
+	!by 0
+	!wo modend
+	!wo 0
+	!tx "RawData to $4000"
+	!tx "1.01"
+	!tx "09.09.18"
+	!tx "A.Dettke/W.Kling"
+;
+; ------------------------------------------------ 
+
+start	lda ls_temp
+	sta flen
+	jsr makechr
+	ldx #<rawlst
+	ldy #>rawlst
+	jsr gd_xmloop
+	ldx sc_screenvek
+	ldy sc_screenvek+1
+	jsr gd_screen
+	sec
+	rts
+
+; ------------------------------------------------ 
+
+evload	jsr clearram
+	jsr setdst
+	jsr getname	; Namen sichern
+	ldx flen
+	stx ls_temp
+	lda #<ls_nambuf
+	ldx #>ls_nambuf
+	sta ls_vekta8
+	stx ls_vekta8+1
+	jsr gd_xopen	; Datei öffnen
+
+	jsr gd_clrms	; .x=0
+	jsr tcopy
+	iny
+	sty adcnt
+	jsr setcount
+
+	ldx mode
+	beq readfile
+
+	jsr onebyte	; if mode:
+	bne error 	; skip start address
+	jsr onebyte
+	bne error
+
+; ------------------------------------------------ 
+
+readfile	ldy #0
+	jsr basin
+	sta (sc_texttab),y	; write to 4Bit
+	jsr count
+	beq ld3
+	jsr action
+	lda status
+	beq readfile
+	and #$bf		; care for EOF
+	bne error
+
+; ------------------------------------------------ 
+
+ld3	jsr setinfo	; publish filename
+
+; ------------------------------------------------ 
+
+evcancel	jsr gd_xclose	; close file
+	jsr gd_xmess	; show floppy message
+	jsr gd_spron	; mouse pointer on
+	sec		; leave loader
+	rts
+
+; ------------------------------------------------ 
+
+error	jsr evcancel	; on error:
+	clc		; stay in requester
+	rts
+
+; -------------------------------------- Event: Set Dither
+
+evtogsadd	ldx mode		; 0: read - 1: skip start address
+	beq +
+	ldx #$ff
++	inx		; or increment
+
+dth1	stx mode		; offset auf mode merken
+	lda #<modetx
+	sta sc_texttab
+	lda #>modetx
+	sta sc_texttab+1
+	txa
+	asl
+	tay
+	lda modetxadr,y
+	tax
+	lda modetxadr+1,y
+	tay
+	jmp gd_xtxtggl
+
+; ------------------------------------------------ 
+
+onebyte	jsr basin
+	ldx status
+	rts
+
+; --------------------------- Kringel definieren
+
+chschr	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
+
+makechr	ldx #7
+-	lda chschr,x
+	sta sc_undochar,x
+	dex
+	bpl -
+	rts
+
+; ----------------------------------------- 
+
+messout   ldx #<message	; display message and gauge
+	ldy #>message
+	jmp gd_xtxout2
+
+tcopy	ldy #0		; Select message
+tc0	lda txt,x		; in .x: offset to message
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+
+clrmess   ldx #20		; clear gauge bar
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0		; init counters
+	ldx #7	
+	sty offy
+	stx offx
+	rts
+
+action	dec adcnt
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	cpy #20
+	bne act0
+	jsr clrmess
+act0	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts
+
+filltab   !by 160,93,103,127,126,124,105,109
+cntwert   !by 200
+
+txt	!scr " Reading@"	; 0
+	!scr " Clear  @"	; 9
+
+message   !fill 11,32
+mess	!fill 21,32
+	!by 0
+
+; ----------------------------------------- 
+
+getname	ldx #0
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+setinfo	jsr setname
+	jsr setloader
+	jsr setmode
+	jmp setdata
+
+setname	lda #0
+	ldx #<ls_picname
+	ldy #>ls_picname
+	bne si3
+setloader	lda #17
+	ldx #<ls_iloader
+	ldy #>ls_iloader
+	bne si3
+setmode	lda #25
+	ldx #<ls_imode
+	ldy #>ls_imode
+	bne si3
+setdata	lda #33
+	ldx #<ls_idrive
+	ldy #>ls_idrive
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!fill 16,32
+	!by 0
+	!scr "RawData@"
+
+modetxt	!scr "160x200@"
+datatype	!scr "Bytes@"
+
+; ------------------------------------------------ Counters
+
+setcount	lda #0
+	ldy #$7d		; count 32000 bytes
+	sta ls_vekta8
+	sty ls_vekta8+1
+	rts
+
+count	inc sc_texttab
+	bne cou6
+	inc sc_texttab+1
+cou6	lda ls_vekta8
+	bne cou7
+	dec ls_vekta8+1
+cou7	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	rts
+
+; ------------------------------------------------ 
+
+setdst	ldx #<sy_4bit
+	ldy #>sy_4bit	; target address: 4Bit
+	stx sc_texttab
+	sty sc_texttab+1
+	rts
+
+; ------------------------------------------------ 
+
+clearram	jsr gd_clrms
+	ldx #9
+	jsr tcopy
+	iny
+	sty adcnt
+	lda #200
+	sta cntwert
+	jsr setdst
+	jsr setcount
+-	ldy #0
+	lda #$aa
+	sta (sc_texttab),y
+	jsr action
+	jsr count
+	bne -
+	rts
+
+; ------------------------------------------------ 
+
+mode	!by 0
+modetxadr	!wo moderd
+	!wo modesk
+moderd	!scr 223,"In@"
+modesk	!scr 223,"Ex@"
+
+; ------------------------------------------------ Screenlist
+
+rawlst	!by 0
+	!by 10,7,25,8,$91
+	!wo 0
+	!scr "Load Raw Data@"
+	!by 12,7,5,3,$c8
+	!wo evtogsadd
+modetx	!scr 223,"In@"
+	!by 15,18,6,3,$cc
+	!wo evload
+	!scr "Load@"
+	!by 15,24,8,3,$cd
+	!wo evcancel
+	!scr "Cancel@"
+	!by $c0,12,11,19
+	!scr "clude start address@"
+	!by $c0,15,7,9
+	!scr "32000 B.:@"
+	!by $80
+	
+; ------------------------------------------------ 
+
+modend	!eof
