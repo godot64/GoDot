@@ -1,0 +1,147 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ----------------------------------------- 
+;
+;  mod.OddSwap
+;   Modifier to tesselate pixels
+;
+;  0.99, 14.11.92, first release
+;
+; ----------------------------------------- 
+
+; ----------------------------------------- Equates
+
+	adcnt		= $30
+	data		= $35
+	bbuf		= $39
+
+	sprptr		= $07f8
+	spr255		= $3fc0
+
+	spr2x		= $d004
+	spr2y		= $d005
+	msbx		= $d010
+	spren		= $d015
+	sprxe		= $d01d
+	sprcol2		= $d029
+
+; ----------------------------------------- Header
+
+	jmp start
+	!by $20
+	!wo 0
+	!wo modend
+	!wo 0
+	!tx "SwapOddLines    "
+	!tx "0.99"
+	!tx "19.06.94"
+	!tx "W.Kling         "
+
+; ----------------------------------------- Main
+
+start	jsr initad	; init activity
+	lda #<sy_4bit
+	ldy #>sy_4bit
+	sta data
+	sty data+1
+
+	ldy #0
+-	tya 
+	and #4		; choose every other raster line..
+	beq +
+
+	lda (data),y	; ...and exchange nibbles there
+	lsr
+	lsr
+	lsr
+	lsr
+	sta bbuf
+	lda (data),y
+	asl
+	asl
+	asl
+	asl
+	ora bbuf
+	sta (data),y
+
++	iny 
+	bne -
+
+	jsr adinc		; activity
+	inc data+1	; next page
+	lda data+1
+	cmp #>sy_bigbuffer	; until end of 4bit
+	bne -
+
+finish	jsr clearad	; end activity
+	clc		; end modifier
+	rts 
+
+; ------------------------------------------------ Abschluss Activity
+
+clearad	lda spren		; Wanderbalken aus
+	and #$f3
+	sta spren
+	lda msbx
+	and #$f3
+	sta msbx
+	lda #$ff		; Grafik verändert
+	sta gr_redisp
+	clc 		; fertig
+	rts 
+
+; ----------------------------------------- 
+
+adinc	dec adcnt
+	bne +
+	inc spr2y
+	inc spr2y+2
+	lda #3
+	sta adcnt
++	rts 
+
+; ------------------------------------------------ Init Activity
+
+initad	ldy #60
+	lda #0
+-	sta spr255+3,y	; Spriteblock 255 vorbereiten
+	dey 
+	bpl -
+	sty spr255	; dünner Strich
+	sty spr255+1
+	sty spr255+2
+	lda #$0f		; Farbe hellgrau
+	sta sprcol2
+	sta sprcol2+1
+	lda sprxe		; doppelt breit
+	ora #$0c
+	sta sprxe
+
+	lda msbx		; x über 255
+	ora #$0c
+	sta msbx
+	lda #8		; x-Ordinate: 8 (plus 256)
+	sta spr2x
+	lda #$20
+	sta spr2x+2
+	lda #$92		; y-Ordinate: 146
+	sta spr2y		; (im Image Information Fenster)
+	sta spr2y+2
+
+	sty sprptr+2	; Sprite 255
+	sty sprptr+3
+	lda spren
+	ora #$0c		; Activity-Balken aktivieren
+	sta spren
+	lda #3		; Startzähler (5 mal 40 = 200)
+	sta adcnt
+	rts
+
+; ----------------------------------------- 
+
+modend	!eof
+
