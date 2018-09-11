@@ -12,6 +12,7 @@
 ; 12.05.01, added: comments
 ; 15.11.10, added: Use of Balancing
 ;           changed: address of basebuf
+;           added: publication of CMY table (on 11.09.18)
 ; 
 ; ------------------------------------ 
 
@@ -63,7 +64,7 @@ header	jmp start
 	!by 0
 	!by 0
 	!wo modend
-	!wo 0		; reserved
+	!wo cyan		; new: publish CMY table
 	!tx "HP DJ 500 Series"
 	!tx "1.02"
 	!tx "15.11.10"
