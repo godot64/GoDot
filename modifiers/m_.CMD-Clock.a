@@ -1,0 +1,557 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ------------------------------------------------     
+;
+; mod..CMD-Clock
+;  System Module to retrieve and show the time from CMD RTCs
+;
+;   1.00, 09.12.95, first release
+;   1.01, 27.05.96, added RTC in CMD Smartmouse (different type)
+;
+; ------------------------------------------------ 
+
+; ------------------------------------------------ Equates
+
+	temp		= $30
+	distrib		= $31
+	ymrk		= $35
+
+	name		= $bb
+	namelen		= $b7
+
+	filetype		= $1d29
+
+	joypt1		= $dc01
+	ddr1		= joypt1+2
+
+	iecin		= $ffa5
+	untalk		= $ffab
+;
+; ------------------------------------------------ 
+
+header	jmp start
+	!by $20
+	!by 0
+	!by 0
+	!wo modend
+	!wo 0
+	!tx "CMD RT Clock    "
+	!tx "1.01"
+	!tx "27.05.96"
+	!tx "A.Dettke        "
+;
+; ------------------------------------------------ 
+
+clear	ldx #4		; Drivenummern löschen
+	lda #0
+chk2	sta cmd,x
+	dex 
+	bpl chk2
+	rts
+
+; ------------------------------------------------ 
+
+gettime	jmp (distrib)
+
+; ------------------------------------------------ 
+
+start	jsr clear
+	jsr chkmouse	; RTC in Smartmouse?
+	jsr clear
+	lda cmd
+	bne mousereq	; ja, dort weiter
+
+	ldy #11		; sonst: CMD-Geräte erkennen
+	ldx #4
+chk1	lda doffs-8,y
+	sty ymrk
+	tay
+	lda filetype,y
+	ldy ymrk
+	cmp #$3e		; ">"?
+	bne chk0
+	lda ls_units-8,y
+	and #$0f
+	sta cmd,x
+	sty cmd
+chk0	dey 
+	dex 
+	bne chk1
+
+	lda #<getcmd	; Vektor auf gettime setzen
+	sta distrib
+	lda #>getcmd
+	sta distrib+1
+	lda cmd		; ein CMD-Gerät dabei?
+	bne chk3
+	clc 		; nein, Modul verlassen
+	rts 
+;
+chk3	jsr evtime	; sonst: Zeit einlesen und anzeigen
+	jmp gd_eloop	; warten
+;
+mousereq	lda #<chkmouse	; Einlesevektor für RTC Smartmouse setzen
+	sta distrib
+	lda #>chkmouse
+	sta distrib+1
+	bne chk3
+
+; ------------------------------------------------ 
+
+getcmd	lda ls_drive	; aktuellen Drive retten
+	pha 
+
+	lda cmd		; Drive CMD-RTC setzen
+	sta ls_drive
+	jsr gd_sproff
+	sta status
+	ldx #<command	; Time-Read senden
+	ldy #>command
+	lda comlen
+	jsr gd_sendcom
+	lda #0
+	sta status
+	lda ls_drive
+	ldy #$6f
+	jsr gd_talk
+
+	ldx #0		; Antwort einlesen
+gtt0	jsr iecin
+	sta time,x
+	inx 
+	cpx #9
+	bne gtt0
+
+	jsr untalk
+	jsr gd_spron
+	pla 
+	sta ls_drive
+	rts 
+;
+; ------------------------------------------------ 
+
+showtime1	jsr makeday	; englisch:
+
+	lda time+1	; Jahr
+	jsr gd_xcnvdez
+	stx year3
+	sta year3+1
+
+	lda time+2	; Monat
+	jsr gd_xcnvdez
+	stx year1
+	sta year1+1
+	lda #47		; "/"
+	sta year1+2
+	sta year2+2
+
+	lda time+3	; Tag
+	jsr gd_xcnvdez
+	stx year2
+	sta year2+1
+
+zeit	lda time+4	; Stunde
+	jsr gd_xcnvdez
+	stx time1
+	sta time1+1
+
+	lda time+5	; Minute
+	jsr gd_xcnvdez
+	stx time2
+	sta time2+1
+
+	lda time+6	; Sekunde
+	jsr gd_xcnvdez
+	stx time3
+	sta time3+1
+
+	ldx #<clocklst	; Requester neu ausgeben
+	ldy #>clocklst
+	jsr gd_screen
+
+	lda sc_normtext	; und einfärben
+	sta sc_chgcol
+	lda #<daygad
+	ldx #>daygad
+	sta sc_screentab
+	stx sc_screentab+1
+	ldx #0
+	ldy #0
+gt0	jsr gd_setpos
+	cpx #4
+	bne gt0
+	ldx #4
+	jsr gd_fcol
+	clc 
+	rts 
+;
+; ------------------------------------------------ 
+
+makeday	lda time		; Wert mal 3
+	sta temp
+	asl 
+	clc 
+	adc temp
+	tax 
+	ldy #0
+md1	lda adays,x	; Kürzel holen
+	sta daytxt,y	; und in Requester schreiben
+	inx 
+	iny 
+	cpy #3
+	bne md1
+	lda time+7	; vor-/nachmittags?
+	bne md2
+	lda #1		; "a"
+	!by $2c
+md2	lda #16		; "p"
+	sta time0
+	lda #13		; "m"
+	sta time0+1
+	rts 
+;
+; ------------------------------------------------ 
+
+showtime2	jsr maketag	; deutsch
+
+	lda time+1	; Jahr
+	jsr gd_xcnvdez
+	stx year3
+	sta year3+1
+
+	lda time+2	; Monat
+	jsr gd_xcnvdez
+	stx year2
+	sta year2+1
+	lda #46		; "-"
+	sta year1+2
+	sta year2+2
+
+	lda time+3	; Tag
+	jsr gd_xcnvdez
+	stx year1
+	sta year1+1
+
+	jmp zeit		; weiter wie oben
+;
+; ------------------------------------------------ 
+
+maketag	lda time		; Wert mal 3
+	sta temp
+	asl 
+	clc 
+	adc temp
+	tax 
+	ldy #0
+md3	lda gdays,x	; Kürzel holen
+	sta daytxt,y	; in Requester
+	inx 
+	iny 
+	cpy #3
+	bne md3
+	lda time+7	; 12/24 Std?
+	beq md4
+	lda time+4	; nachm.: 12 addieren
+	clc 
+	adc #12
+	sta time+4
+md4	lda #32		; am/pm löschen
+	sta time0
+	sta time0+1
+	rts 
+;
+; ------------------------------------------------ 
+
+evmode	jsr gettime	; deutsch/englisch umschalten
+	ldx mode
+	inx 
+	beq em0
+	ldx #$ff
+em0	stx mode
+	bne em1
+	jmp showtime1	; und entsprechend anzeigen
+em1	jmp showtime2
+;
+; ------------------------------------------------ 
+
+evtime	jsr gettime	; Zeit einlesen
+	ldx mode		; und ausgeben
+	jmp em0
+;
+; ------------------------------------------------ 
+
+evcanc	sec 
+	rts 
+;
+; ------------------------------------------------ 
+
+clocklst	!by 0,10,15,18,9,$01
+	!wo 0
+	!by 11,16,16,5,$92
+	!wo 0
+	!scr " "
+daytxt	!scr "Thu "
+year1	!scr "12/"
+year2	!scr "07/"
+year3	!scr "95 @"
+	!by 16,16,6,3,$cc
+	!wo evmode
+	!scr "Mode@"
+	!by 16,22,5,3,$cc
+	!wo evtime
+	!scr "Get@"
+	!by 16,27,5,3,$cc
+	!wo evcanc
+	!scr "Ok!@"
+	!by $c0,13,16,14
+	!scr "  "
+time0	!scr "am "
+time1	!scr "06:"
+time2	!scr "24."
+time3	!scr "55 @"
+	!by $80
+;
+; ------------------------------------------------ 
+
+daygad	!by 12,17,5,3
+mode	!by 0
+;
+cmd	!by 0,0,0,0,0
+;
+command	!tx "t-rd"
+comlen	!by 4
+time	!by 0,0,0,0,0,0,0,0,0
+;
+adays	!scr "SunMonTueWedThuFriSat"
+gdays	!scr "SonMonDieMitDonFreSam"
+
+msflg	!by $ff
+doffs	!by 34,41,49,57
+
+iobyt	!by 0
+portsv	!by 0
+ddrsv	!by 0
+flgsv	!by 0
+bnum	!by 0
+clkdata	!by 0,0,0,0,0,0,0,0 
+
+mult	!by 0,10,20,30,40,50,60,70,80,90
+
+; ------------------------------------------------ CMD Smartmouse
+
+rdclk	jsr setup
+	jsr brclk
+	jmp exit
+
+; ------------------------------------------------ 
+
+brclk	lda #$bf
+	jsr sndcmd
+	lda #8
+	jmp gbyts
+
+; ------------------------------------------------ 
+
+sndcmd	pha 
+	jsr rdycmd1
+	pla 
+	jsr sbmb
+	jmp ioin
+
+; ------------------------------------------------ 
+
+gbyts	sta bnum
+	ldy #0
+gb0	jsr gbmb
+	sta (ls_vekta8),y
+	iny 
+	cpy bnum
+	bcc gb0
+	jmp rsthi
+
+; ------------------------------------------------ 
+
+gbmb	ldx #8
+gb1	jsr rdycmd2
+	lda joypt1
+	lsr
+	lsr
+	lsr
+	ror iobyt
+	jsr clkhi
+	dex 
+	bne gb1
+	lda iobyt
+	rts 
+
+; ------------------------------------------------ 
+
+sbmb	sta iobyt
+	ldx #8
+sb0	jsr rdycmd2
+	lda #0
+	ror iobyt
+	rol
+	asl
+	asl
+	ora #$f1
+	sta joypt1
+	jsr clkhi
+	dex 
+	bne sb0
+	rts 
+
+; ------------------------------------------------ 
+
+rdycmd1	jsr ioout
+	jsr rdycmd2
+	lda #$f7
+	!by $2c
+rdycmd2	lda #$fd
+	and joypt1
+	sta joypt1
+	rts 
+
+; ------------------------------------------------ 
+
+rsthi	lda #8
+	!by $2c
+clkhi	lda #2
+	ora joypt1
+	sta joypt1
+	rts 
+
+; ------------------------------------------------ 
+
+ioout	lda #14
+	!by $2c
+ioin	lda #10
+	sta ddr1
+	rts 
+
+; ------------------------------------------------ 
+
+setup	php 
+	sei 
+	sta iobyt
+	pla 
+	sta flgsv
+	lda joypt1
+	sta portsv
+	lda ddr1
+	sta ddrsv
+	lda #$ff
+	sta joypt1
+	lda #10
+	sta ddr1
+	lda iobyt
+	rts 
+
+; ------------------------------------------------ 
+
+exit	sta iobyt
+	lda portsv
+	sta joypt1
+	lda ddrsv
+	sta ddr1
+	lda flgsv
+	pha 
+	lda iobyt
+	plp 
+	cli 
+	rts 
+
+; ------------------------------------------------ 
+
+chkmouse	lda #<clkdata
+	ldx #>clkdata
+	sta ls_vekta8
+	stx ls_vekta8+1
+	jsr rdclk
+
+	ldy #$ff		; Flag für Maus-RTC da
+	lda clkdata+5
+	beq nomouse
+	cmp #8
+	bcs nomouse
+	lda clkdata+4
+	beq nomouse
+	cmp #13
+	bcs nomouse
+
+; ------------------------------------------------ 
+
+getmouse	ldy #6
+	sty cmd
+
+	lda clkdata	; Sekunden
+	and #$7f
+	jsr wandeln
+
+	lda clkdata+1	; Minuten
+	jsr wandeln
+
+	ldx #0
+	lda clkdata+2	; Stunde
+	pha 
+	and #$80
+	beq gm1
+	pla 
+	pha 
+	and #$20		; pm?
+	bne gm3
+	dex 
+gm3	pla 
+	and #$1f
+	jmp gm4
+gm1	pla 
+	and #$3f
+	cmp #$13
+	bcc gm2
+	sbc #$12
+gm4	inx 
+gm2	stx time+7
+	jsr wandeln
+
+	lda clkdata+3	; Datum
+	jsr wandeln
+
+	lda clkdata+4	; Monat
+	jsr wandeln
+
+	dey 
+	lda clkdata+5	; Tag der Woche
+	cmp #7
+	bne gm5
+	lda #0
+gm5	jsr wandeln
+
+	ldy #1
+	lda clkdata+6	; Jahr
+
+wandeln	pha 
+	and #$0f
+	sta msflg
+	pla 
+	lsr
+	lsr
+	lsr
+	lsr
+	sty ymrk
+	tay 
+	lda mult,y
+	clc 
+	adc msflg
+	ldy ymrk
+	sta time,y
+
+nomouse	dey 		; wenn am Ende nicht 0: keine Maus
+	rts
+
+; ------------------------------------------------ 
+
+modend	!eof
