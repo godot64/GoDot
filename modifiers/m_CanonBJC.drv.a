@@ -1,6 +1,8 @@
 
-	*= $c000
 	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
 
 ; ------------------------------------
 ;
@@ -46,12 +48,21 @@
 	lcnt	= $52
 	bcnt	= $53
 
-	status	= $90
 	geraet	= $9a
 
 	shift	= $028d
 
 	basebuf	= $ca00
+
+	sprptr	= $07f8
+	spr255	= $3fc0
+
+	spr2x	= $d004
+	spr2y	= $d005
+	msbx	= $d010
+	spren	= $d015
+	sprxe	= $d01d
+	sprcol2	= $d029
 
 ; ------------------------------------ Header
 
@@ -73,8 +84,8 @@ start	jsr makech	; Listbox-Kringel erzeugen
 	bvc st0
 	jsr initpar	; Initialize Parallel Connection
 
-st0	ldx #<(pflst)	; Requester
-	ldy #>(pflst)
+st0	ldx #<pflst	; Requester
+	ldy #>pflst
 	jsr gd_screen
 
 	ldy #3		; colorize main gadget
@@ -141,7 +152,7 @@ lnloop8	lda #0		; 8 Rasterzeilen pro Kachel
 
 lnloop	jsr adinc		; Activity
 
-ads0	lda #>(basebuf)	; kloop ist selbstmodifizierend (für weitere Durchgänge)
+ads0	lda #>basebuf	; kloop ist selbstmodifizierend (für weitere Durchgänge)
 	sta kloop+2
 
 	lda #0		; zählt eine Zeile (80 Druckbytes)
@@ -241,11 +252,11 @@ s5	lda src0+1
 
 s51	lda src0		; danach: neue Kachelzeile
 	clc
-	adc #<(1248)
+	adc #<1248
 	sta src0
 	sta src
 	lda src0+1
-	adc #>(1248)
+	adc #>1248
 	sta src0+1
 	sta src+1
 	dec lcnt8		; Kachelzeilen zählen
@@ -476,13 +487,13 @@ cent	jmp initpar	; Centronics Interface
 
 ; ------------------------------------ Textout Handler
 
-tabigad	!wo (pgad)
-	!wo (dpigad)
-	!wo (maingad)
-	!wo (hpgad)
-	!wo (shingad)
-	!wo (rasgad)
-	!wo (picnogad)
+tabigad	!wo pgad
+	!wo dpigad
+	!wo maingad
+	!wo hpgad
+	!wo shingad
+	!wo rasgad
+	!wo picnogad
 
 settext	lda #<(tabigad)
 	sta sc_texttab
@@ -733,23 +744,35 @@ maingad	!by 11,6,14,7
 ; ------------------------------------ Screenlist
 
 pflst	!by 0
-	!by 4,5,24,17,$81,0,0
+	!by 4,5,24,17,$81
+	!wo 0
 	!scr "Canon BJC600 Driver@"
-hpgad	!by 8,5,24,3,$ca,<(sevhp),>(sevhp),223
+hpgad	!by 8,5,24,3,$ca
+	!wo sevhp
+	!by 223
 hptx	!scr "       Color         @"
-dpigad	!by 10,23,6,3,$ce,<(sevdpi),>(sevdpi)
+dpigad	!by 10,23,6,3,$ce
+	!wo sevdpi
 dpitx	!scr "norm@"
-shingad	!by 12,23,6,3,$ce,<(sevshing),>(sevshing)
+shingad	!by 12,23,6,3,$ce
+	!wo sevshing
 shintx	!scr "   2@"
-picnogad	!by 14,23,6,3,$ce,<(sevpix),>(sevpix),32,32
+picnogad	!by 14,23,6,3,$ce
+	!wo sevpix
+	!scr "  "
 picnotx	!scr " 1@"
-rasgad	!by 16,20,9,3,$ce,<(sevras),>(sevras)
+rasgad	!by 16,20,9,3,$ce
+	!wo sevras
 rastx	!scr "Pattern@"
-pgad	!by 18,5,10,3,$c7,<(sevtype),>(sevtype),223
+pgad	!by 18,5,10,3,$c7
+	!wo sevtype
+	!by 223
 pgadt	!scr "Centron@"
-	!by 18,15,7,3,$cc,<(sevpfox),>(sevpfox)
+	!by 18,15,7,3,$cc
+	!wo sevpfox
 	!scr "Print@"
-	!by 18,22,7,3,$ce,<(sevcan),>(sevcan)
+	!by 18,22,7,3,$ce
+	!wo sevcan
 	!scr "Leave@"
 	!by $c0,6,5,22
 	!scr "Select Options & Print@"
@@ -786,8 +809,8 @@ shingfl	!by 1
 rasfl	!by 1
 pixfl	!by 0
 pixmx	!by 7
-pixx	!wo (tinyx),(normx),(lrgex)
-pixy	!wo (tinyy),(normy),(lrgey)
+pixx	!wo tinyx,normx,lrgex
+pixy	!wo tinyy,normy,lrgey
 ptext	!scr "Centron"
 	!scr " Wiesem"
 	!scr " Merlin"
@@ -806,66 +829,69 @@ lrgex	!by 25,15
 offs	!by $00,$10,$20,$30
 	!by $00,$10,$20,$30
 
-dlo	!by <(dithrst)
-	!by <(dithpat)
+dlo	!by <dithrst
+	!by <dithpat
 
-dhi	!by >(dithrst)
-	!by >(dithpat)
+dhi	!by >dithrst
+	!by >dithpat
 
 dmode	!wo 0
 
 ; ------------------------------------ Activity
 
 adinc	dec adcnt
-	bne adskip
-	inc $d005
-	inc $d007
+	bne +
+	inc spr2y
+	inc spr2y+2
 	lda #5
 	sta adcnt
-adskip	rts
++	rts 
 
 ; ------------------------------------ Initialize Activity Bar
 
 initad	sta adcnt
-	ldy #63
+	ldy #60
 	lda #0
-adl0	sta $3fc0,y
-	dey
-	bpl adl0
-	sty $3fc0
-	sty $3fc1
-	sty $3fc2
-	lda #15
-	sta $d029
-	sta $d02a
-	lda $d01d
-	ora #12
-	sta $d01d
-	lda $d010
-	ora #12
-	sta $d010
-	lda #8
-	sta $d004
-	lda #32
-	sta $d006
+-	sta spr255+3,y	; Spriteblock 255 vorbereiten
+	dey 
+	bpl -
+	sty spr255	; dünner Strich
+	sty spr255+1
+	sty spr255+2
+	lda #$0f		; Farbe hellgrau
+	sta sprcol2
+	sta sprcol2+1
+	lda sprxe		; doppelt breit
+	ora #$0c
+	sta sprxe
 
-	lda #146
-	sta $d005
-	sta $d007
-	sty $07fa
-	sty $07fb
-	lda $d015
-	ora #12
-	sta $d015
+	lda msbx		; x über 255
+	ora #$0c
+	sta msbx
+	lda #8		; x-Ordinate: 8 (plus 256)
+	sta spr2x
+	lda #$20
+	sta spr2x+2
+	lda #$92		; y-Ordinate: 146
+	sta spr2y		; (im Image Information Fenster)
+	sta spr2y+2
+
+	sty sprptr+2	; Sprite 255
+	sty sprptr+3
+	lda spren
+	ora #$0c		; Activity-Balken aktivieren
+	sta spren
+	lda #5		; Startzähler (5 mal 40 = 200)
+	sta adcnt
 	rts
 
 ; ------------------------------------ Switch off Activity Bar
 
 clearad	lda #3
-	sta $d015
-	lda $d010
+	sta spren
+	lda msbx
 	and #$f3
-	sta $d010
+	sta msbx
 	rts
 
 ; ------------------------------------ Start Printout
@@ -926,16 +952,16 @@ initpar	ldx $0326		; save C64 system vectors; bsout
 	ldy $0327
 	stx oldbsout
 	sty oldbsout+1
-	ldx #<(nbsout)	; set new bsout
-	ldy #>(nbsout)
+	ldx #<nbsout	; set new bsout
+	ldy #>nbsout
 	stx $0326
 	sty $0327
 	ldx $0320		; save ckout
 	ldy $0321
 	stx oldchkout
 	sty oldchkout+1
-	ldx #<(nchkout)	; set new ckout
-	ldy #>(nchkout)
+	ldx #<nchkout	; set new ckout
+	ldy #>nchkout
 	stx $0320
 	sty $0321
 	clc
@@ -1000,8 +1026,8 @@ parend	rts
 
 ; ------------------------------------ Parallel Timeout
 
-timeout	ldx #<(parend)	; nbsout zeigt nach Timeout auf RTS
-	ldy #>(parend)
+timeout	ldx #<parend	; nbsout zeigt nach Timeout auf RTS
+	ldy #>parend
 	stx $0326
 	sty $0327
 	bne bsy1		; Abschluss
@@ -1040,8 +1066,8 @@ svc0	lda (kbuf),y
 	iny
 	cpy #6
 	bne svc0
-	lda #<(basebuf)	; Zeiger auf Puffer setzen
-	ldy #>(basebuf)
+	lda #<basebuf	; Zeiger auf Puffer setzen
+	ldy #>basebuf
 	sta kbuf
 	sty kbuf+1
 	pla		; Vergrößerungsfaktor setzen
