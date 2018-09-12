@@ -1,0 +1,1056 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ------------------------------------ 
+; mod.Lexmark.drv for GoDot Image Processing
+; (c) 2001 by Arndt Dettke, Germany
+; 
+; 1.00: 19.05.01, first release
+; 1.01: 24.05.01, changed default value of COLORFL from 3 to 2 ( = 3 planes instead of 4 planes)
+; 1.02: 27.05.01, changed CMY values for BLU, BWN, PUR, ORA, and LBL
+;                 added balancing capability for color printout
+;                 re-inserted gadget for print quality, also its functionality 
+;                 changed timeout routine to raster beam driven one
+; 1.03: 27.05.01, bug: negative printout in color (fixed)
+; 1.04: 28.05.01, bug: change of balancing facility routines
+;                 withdrawal of new timeout routine
+; 1.05: 29.05.01, bug: balancing made darker instead of brighter and vv (fixed)
+; 
+; ------------------------------------ 
+
+	dst	= $30
+	dst0	= $32
+	cnt80	= $34
+	vertfak	= $35
+	vertcnt	= $36
+	byte	= $37
+	bitcnt	= $38
+	bcnt1	= $39
+	src	= $3a
+	src0	= $3c
+	adcnt	= $3e
+	hori	= $3f
+	kbuf	= $40
+	cbuf	= $42
+	mbuf	= $44
+	ybuf	= $46
+	dbl	= $48
+	oneline	= $49
+	index	= $4a
+	horifak	= $4b
+	fullbyte	= $4c
+	pixposx	= $4d
+	pixposy	= $4f
+	lcnt8	= $51
+	lcnt	= $52
+	bcnt	= $53
+
+	device	= $9a
+
+	basebuf	= $cb00
+
+	sprptr	= $07f8
+	spr255	= $3fc0
+
+	spr2x	= $d004
+	spr2y	= $d005
+	msbx	= $d010
+	spren	= $d015
+	sprxe	= $d01d
+	sprcol2	= $d029
+
+; ------------------------------------ Module header
+
+header	jmp start
+	!by $20
+	!by 0
+	!by 0
+	!wo modend
+	!wo cyan		; new: publish CMY table
+	!tx "Lexmark Optra 40"
+	!tx "1.05"
+	!tx "29.05.01"
+	!tx "Arndt Dettke    "
+
+; ------------------------------------ Main
+
+start	jsr makech	; Listbox-Kringel erzeugen
+	bit type		; Default: $40 (Centronics)
+	bvc st0
+	jsr initpar	; Initialize Parallel Connection
+
+st0	ldx #<pflst	; Requester
+	ldy #>pflst
+	jsr gd_screen
+
+	ldy #3		; colorize main gadget
+st01	lda maingad,y
+	sta sc_zl,y
+	dey
+	bpl st01
+	ldx #2		; with text color
+	jsr gd_fcol
+
+	lda dpiflag	; Bildgröße
+	asl		; mal 2: Index in Tabelle
+	tay
+	jsr setpixpos	; set picture positions accordingly
+
+	jsr gd_eloop	; wait
+
+	sec		; leave driver
+	rts
+
+; ------------------------------------ Render image to printer
+
+jdone	jmp done		; leave on error
+
+sevpfox	lda #0		; STOP: init
+	sta sc_stop
+	sta vertcnt
+	sta index
+	sta src0
+	sta src
+	lda #5		; activity: init
+	jsr initad
+	ldx rasfl		; init vector to dither routine
+	lda dlo,x
+	sta dmode
+	lda dhi,x
+	sta dmode+1
+	lda dpiflag	; Bildgröße
+	jsr setvecs	; Druckvorbereitung
+	jsr initprt	; Druck starten
+spf1	bne jdone		; (wenn kein Fehler)
+
+	ldx #>sy_4bit	; Bild ab $4000
+	stx src0+1
+	stx src+1
+	lda vertfak	; vertikaler Vergrößerungsfaktor mindestens: 2 (sonst 4 oder 6)
+	sta dbl
+	lda horifak	; entsprechend waagerecht (1, 2 oder 3)
+	sta hori
+
+	lda #25		; 25 Kachelzeilen
+	sta lcnt8
+lnloop8	lda #0		; 8 Rasterzeilen pro Kachel
+	sta lcnt
+
+lnloop	jsr adinc		; Activity
+
+ads0	lda #>basebuf	; kloop ist selbstmodifizierend (für weitere Durchgänge)
+	sta kloop+2
+
+	lda #0		; zählt eine Zeile (80 Druckbytes)
+	sta cnt80
+	ldx #4
+	tay
+kloop	sta basebuf,y	; Puffer löschen
+	iny
+	bne kloop
+	inc kloop+2
+	dex
+	bne kloop
+
+zloop	lda fullbyte	; Vergrößerungsfaktor (2, 4 oder 6)
+	sta bcnt1		; nach bcnt1 
+
+byloop	lda #$c0		; Pixelmuster: %11000000
+	sta bitcnt
+
+btloop	ldy index		; eine Druckzeile (Rasterlinie) aufbereiten
+	lda (src),y	; zwei Pixel holen
+	pha
+	lsr
+	lsr
+	lsr
+	lsr
+	tax
+	jsr colorize	; linkes Pixel rendern
+	lsr bitcnt	; Pixelmuster jetzt: %00110000 bzw. %00000011
+	lsr bitcnt
+	pla
+	and #$0f
+	tax
+	jsr colorize	; rechtes Pixel rendern
+	dec index
+	dec hori
+	bne s3
+	lda horifak
+	sta hori
+	inc index
+s3	inc index
+	lsr bitcnt	; Pixelmuster nun: %00001100 bzw. %00000000
+	lsr bitcnt
+	bcc btloop	; bis alle Pixel (8) durch
+
+	inc cnt80		; Druckbyte zählen
+	dec bcnt1		; Vergrößerung beachten
+	bne byloop	; dann nochmal
+
+	lda #0		; nächste Kachel
+	sta index
+	lda src
+	clc
+	adc #32
+	sta src
+	bcc s4
+	inc src+1
+s4	ldx cnt80		; Zeile fertig?
+	cpx oneline
+	bne zloop		; nein, weiter aufbereiten
+
+	ldx sc_stop	; STOP gedrückt?
+	bne done		; ja, Abbruch
+
+	jsr moveline	; eine Rasterzeile  drucken
+
+	ldx vertcnt	; Senkrechtzähler (bis 8)
+	inx
+	cpx #8
+	bne s411
+	ldx #0
+s411	stx vertcnt
+	dec dbl		; Vergrößerungsfaktor beachten
+	beq newline
+	lda src0		; dann Zeile nochmal drucken
+	sta src
+	lda src0+1
+	sta src+1
+	jmp ads0
+
+newline	lda vertfak	; danach: neue Rasterzeile
+	sta dbl
+	lda src0
+	clc
+	adc #4
+	sta src0
+	sta src
+	bcc s5
+	inc src0+1
+s5	lda src0+1
+	sta src+1
+	inc lcnt		; 8 Rasterzeilen?
+	lda #8
+	cmp lcnt
+	beq s51
+	jmp lnloop	; nein, Loop
+
+s51	lda src0		; danach: neue Kachelzeile
+	clc
+	adc #<1248
+	sta src0
+	sta src
+	lda src0+1
+	adc #>1248
+	sta src0+1
+	sta src+1
+	dec lcnt8		; Kachelzeilen zählen
+	beq done		; bis alle 25 durch
+	jmp lnloop8	; sonst: Loop
+
+done	jsr endoff	; Abschluss
+toutdone	jsr clearad	; Activity beenden
+	jsr clrch		; Drucker aus
+	lda #4
+	jsr close
+	jsr gd_spron	; Mauszeiger an
+
+	jmp sevpix	; increment print position, finished printing
+
+; ------------------------------------ Dither routines
+
+makebyte	jmp (dmode)	; distributor vector
+
+dithrst	ldy vertcnt
+	ora offs,y
+	tay
+	lda gr_orderedpat,y
+	and bitcnt
+	rts
+
+dithpat	asl
+	asl
+	asl
+	ora vertcnt
+	tay
+	lda gr_pattern,y
+	and bitcnt
+	rts
+
+; ------------------------------------ Output to printer
+
+moveline	ldx oneline	; get # of bytes per line (depends on picture size)
+	stx cnt80
+	lda colorfl	; get flag for # of colorplanes
+	sta colcnt
+	beq col0		; 0 = black&white
+	cmp #2		; 1 = CMYK
+	bne col1
+	lda cbuf
+	ldy cbuf+1
+	bne col2
+
+col0	inc trans0	; modify PCL command accordingly (set color flag)
+
+col1	lda #<basebuf	; Zeiger auf Puffer
+	ldy #>basebuf
+col2	sta dst
+	sty dst+1
+
+coll	ldy #0		; Farbauszug einleiten (Druckerkommando senden)
+col3	lda trans,y
+	jsr bsout
+	iny
+	cpy #7
+	bne col3
+
+	ldy #0		; Farbauszüge schicken
+colloop	lda (dst),y
+	jsr bsout
+	inc dst
+	bne wl6
+	inc dst+1
+wl6	dex		; eine ganze Zeile
+	bne colloop
+
+	ldx cnt80		; yes, re-get # of bytes
+	dec colcnt	; distinguish # of planes
+	bmi col4		; last color? finish line
+	bne coll		; nächste Farbe darüber drucken 
+	inc trans0
+	bne coll
+col4	dec trans0	; Abschluss 
+
+	rts
+
+; ------------------------------------ Create color dither
+
+colorize	lda colorfl	; no colors?
+	beq rasterize	; yes, dither only
+
+cz0	ldy cyan,x	; C (cyan)
+	jsr weighted	; care for balancing settings
+	jsr makebyte	; dither
+	ldy cnt80
+	sta byte
+	lda (cbuf),y
+	ora byte
+	sta (cbuf),y
+
+	ldy magenta,x	; M (magenta)
+	jsr weighted
+	jsr makebyte	; dither
+	ldy cnt80
+	sta byte
+	lda (mbuf),y
+	ora byte
+	sta (mbuf),y
+
+	ldy yellow,x	; Y (yellow)
+	jsr weighted
+	jsr makebyte	; dither
+	ldy cnt80
+	sta byte
+	lda (ybuf),y
+	ora byte
+	sta (ybuf),y
+
+cz1	rts
+
+; ------------------------------------ Create B&W dither
+
+rasterize	lda gr_btab,x	; gray can be balanced 
+	tax
+	lda invtab,x
+	jsr makebyte	; Grauwert puffern
+	ldy cnt80
+	sta byte
+	lda (kbuf),y
+	ora byte
+	sta (kbuf),y
+	rts
+
+; ------------------------------------ Give Weight for Balancing
+
+weighted	lda invtab,y	; get weighted balancing value
+	tay
+wght2	lda gr_btab,y
+	tay
+	lda invtab,y
+	rts
+
+; ------------------------------------ Disconnect Parallel driver
+
+paroff	ldx oldbsout	; kein Centronics aktiv?
+	beq p0
+	ldy oldbsout+1	; doch: Aufrufadressen setzen
+	stx $0326
+	sty $0327
+	ldx oldchkout
+	ldy oldchkout+1
+	stx $0320
+	sty $0321
+p0	rts
+
+; ------------------------------------ Event: Choose printer interface driver
+
+sevtype	jsr paroff	; close parallel port
+	lda tflag		; Typ in tflag (3 verschiedene)
+	cmp #2
+	bne et0
+	lda #$ff
+	sta tflag
+et0	inc tflag
+
+	ldx tflag
+	lda ptypes,x
+	sta type
+	lda ptoffs,x
+	tax
+	ldy #6
+et1	lda ptext,x
+	sta pgadt,y
+	dex
+	dey
+	bpl et1
+
+	iny
+	jsr settext	; anzeigen
+	ldy #6
+	jsr gd_xtxout1
+	bit type
+	bmi wies
+	bvs cent
+
+merl	lda #5		; Merlin (Xetec) has 5 as secondary address
+	!by $2c
+wies	lda #1		; Wiesemann has 1
+	sta sek
+	clc
+	rts
+
+cent	jmp initpar	; Centronics Interface
+
+; ------------------------------------ Output gadget text routines
+
+tabigad	!wo pgad
+	!wo dpigad
+	!wo maingad
+	!wo hpgad
+	!wo qualgad
+	!wo hpgad
+	!wo hpgad
+	!wo hpgad
+	!wo rasgad
+	!wo picnogad
+
+settext	lda #<tabigad
+	sta sc_texttab
+	lda #>tabigad
+	sta sc_texttab+1
+
+gettext	lda (sc_texttab),y
+	sta sc_screentab
+	iny
+	lda (sc_texttab),y
+	sta sc_screentab+1
+	lda #0
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #3
+	bne gt0
+	stx sc_ho
+	jsr gd_trim
+	jmp gd_initmove
+
+; ------------------------------------ Event: Choose size of printout
+
+sevdpi	lda dpiflag	; 0=tiny (21 Bilder), 1=norm (8 B.), 2=lrge (3 B.)
+	cmp #2
+	bne dp0
+	lda #$ff
+	sta dpiflag
+dp0	inc dpiflag
+	jsr setpixmx	; Anzahl Bilder pro Seite bestimmen
+	ldx dpiflag
+	lda gadoffs,x
+	tax
+	ldy #3
+dpi1	lda dpitext,x
+	sta dpitx,y
+	lda dpl,x
+	sta dpi,y
+	dex
+	dey
+	bpl dpi1
+	ldy #2
+dpi2	jsr settext
+	ldy #6
+	jmp gd_xtxout1
+
+; ------------------------------------ Event: Choose HP type
+
+sevhp	lda hpflag	; ...and set base options accordingly
+	cmp #1
+	bne hp0
+	lda #$ff
+	sta hpflag
+hp0	inc hpflag
+hp3	ldx hpflag
+	lda hpoffs,x
+	tax
+	ldy #20
+hp1	lda hptext,x
+	sta hptx,y
+	dex
+	dey
+	bpl hp1
+	ldx hpflag
+	lda hpplns,x
+	sta planes
+	and #15
+	tax
+	dex
+	stx colorfl
+	ldy #6
+hp5	jmp dpi2
+
+; ------------------------------------ Event: Choose print quality
+
+sevqual	lda qualfl
+	cmp #2
+	bne qa0
+	lda #$ff
+	sta qualfl
+qa0	inc qualfl
+	lda qualfl
+	tax
+	ora #$30
+	sta qual
+	lda gadoffs,x
+	tax
+	ldy #3
+qa1	lda qualtext,x
+	sta qualtx,y
+	dex
+	dey
+	bpl qa1
+	ldy #8
+	bne hp5
+
+; ------------------------------------ Event: Choose print dither type
+
+sevras	lda rasfl		; "Ordered" oder "Pattern"
+	beq ra0
+	lda #$ff
+	sta rasfl
+ra0	inc rasfl
+	ldx rasfl
+	lda ptoffs,x
+	tax
+	ldy #6
+ra1	lda rastext,x
+	sta rastx,y
+	dex
+	dey
+	bpl ra1
+	ldy #16
+hp8	bne hp5
+
+; ------------------------------------ Determine max # of images per sheet
+
+setpixmx	lda dpiflag	; Bildgröße?
+	asl
+	tay		; (nach .y für setpixpos)
+	bne spx0
+	lda #17		; 18 tiny
+	bne spx1
+spx0	cmp #2
+	beq spx1
+spx2	lda #1		; 2 lrge
+spx1	sta pixmx
+	sta pixfl
+	jsr setpixpos	; (Start-) Position festlegen
+
+; ------------------------------------ Event: Choose # of image to print (set position)
+
+sevpix	lda pixfl		; Maximum erreicht?
+	cmp pixmx
+	bcc spx3
+	lda #$ff		; dann auf 0
+	sta pixfl
+spx3	inc pixfl
+	ldx pixfl
+
+	lda dpiflag
+	beq spx31
+	ldy pixoffsx,x
+	bne spx32
+spx31	ldy pixoffsy,x
+spx32	ldx #3
+spx4	lda (pixposy),y
+	sta capy,x
+	dey
+	dex
+	bpl spx4
+	ldx pixfl
+	ldy pixoffsx,x
+	ldx #3
+spx41	lda (pixposx),y
+	sta capx,x
+	dey
+	dex
+	bpl spx41
+
+	ldx pixfl		; Nummer ausgeben
+	inx
+	txa
+	jsr gd_xcnvdez
+	sta picnotx+1
+	txa
+	and #15
+	bne spx5
+	ldx #32		; führende 0 zu Space
+spx5	stx picnotx
+	ldy #18
+	jmp dpi2
+
+; ------------------------------------ Set image print position
+
+setpixpos	ldx #0		; Bildgröße (*2) in .y
+spx10	lda pixx,y
+	sta pixposx,x	; Startpositionen eintragen
+	lda pixy,y
+	sta pixposy,x
+	iny
+	inx
+	cpx #2
+	bne spx10
+	rts
+
+; ------------------------------------ Event: Leave requester
+
+sevcan	jsr paroff
+	sec
+	rts
+
+; ------------------------------------ Create listbox character 223
+
+makech	ldx #7
+mc0	lda char,x
+	sta sc_undochar,x
+	dex
+	bpl mc0
+	rts
+
+; ------------------------------------ 
+
+char	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
+invtab	!by 15,14,13,12,11,10,9,8,7,6,5,4,3,2,1,0
+maingad	!by 8,6,14,7
+
+; ------------------------------------ Main Screenlist 
+
+pflst	!by 0
+	!by 1,5,24,17,$81
+	!wo 0
+	!scr " Lexmark Optra 40  @"
+hpgad	!by 5,5,24,3,$ca
+	!wo sevhp
+	!by 223
+hptx	!scr "        Color        @"
+dpigad	!by 7,23,6,3,$ce
+	!wo sevdpi
+dpitx	!scr "norm@"
+qualgad	!by 9,23,6,3,$ce
+	!wo sevqual
+qualtx	!scr "high@"
+picnogad	!by 11,23,6,3,$ce
+	!wo sevpix
+	!scr "  "
+picnotx	!scr " 1@"
+rasgad	!by 13,20,9,3,$ce
+	!wo sevras
+rastx	!scr "Pattern@"
+pgad	!by 15,5,10,3,$c7
+	!wo sevtype
+	!by 223
+pgadt	!scr "Centron@"
+	!by 15,15,7,3,$cc
+	!wo sevpfox
+	!scr "Print@"
+	!by 15,22,7,3,$ce
+	!wo sevcan
+	!scr "Leave@"
+	!by $c0,3,5,22
+	!scr "Select Options & Print@"
+	!by $c0,7,5,6
+	!scr "Format@"
+	!by $c0,9,5,13
+	!scr "Print Quality@"
+	!by $c0,11,5,8
+	!scr "Position@"
+	!by $c0,13,5,6
+	!scr "Raster@"
+	!by $80
+
+; ------------------------------------ Variables, values, texts, and constants
+
+ptypes	!by $40,$80,$00	; printer type flag values
+type	!by $40		; selected printer type 
+tflag	!by 0
+sek	!by 1		; secondary printer address
+dpioffs	!by 2,5,8,11
+gadoffs	!by 3,7,11,15,19
+dpiflag	!by 1		; image size
+colcnt	!by 0		; number of color planes
+ptoffs	!by 6,13,20
+hpoffs	!by 20,41
+hpplns	!tx "13"
+options	!by 60
+colorfl	!by 2
+hpflag	!by 1
+qualfl	!by 2
+rasfl	!by 1
+pixfl	!by 0
+pixmx	!by 2
+pixx	!wo tinytextx,normtextx,lrgetextx
+pixy	!wo tinytexty,normtexty,lrgetexty
+ptext	!scr "Centron"
+	!scr " Wiesem"
+	!scr " Merlin"
+dpitext	!scr "tinynormlrge"
+hptext	!scr "   Black and White   "
+	!scr "        Color        "
+qualtext	!scr "KPad lowhigh"
+rastext	!scr "OrderedPattern"
+
+dpl	!tx "064012801920"
+tinytexty	!tx "010006001100160021002600"
+tinytextx	!tx "015009401730"
+normtexty	!tx "010011002100"
+normtextx	!tx "056005600560"
+lrgetexty	!tx "01001600"
+lrgetextx	!tx "02400240"
+
+offs	!by $00,$10,$20,$30
+	!by $00,$10,$20,$30
+
+dlo	!by <dithrst
+	!by <dithpat
+
+dhi	!by >dithrst
+	!by >dithpat
+
+dmode	!wo 0
+
+; ------------------------------------ Activity display routines
+
+adinc	dec adcnt
+	bne +
+	inc spr2y
+	inc spr2y+2
+	lda #5
+	sta adcnt
++	rts 
+
+; ------------------------------------ Initialize Activity Bar
+
+initad	sta adcnt
+	ldy #60
+	lda #0
+-	sta spr255+3,y	; Spriteblock 255 vorbereiten
+	dey 
+	bpl -
+	sty spr255	; dünner Strich
+	sty spr255+1
+	sty spr255+2
+	lda #$0f		; Farbe hellgrau
+	sta sprcol2
+	sta sprcol2+1
+	lda sprxe		; doppelt breit
+	ora #$0c
+	sta sprxe
+
+	lda msbx		; x über 255
+	ora #$0c
+	sta msbx
+	lda #8		; x-Ordinate: 8 (plus 256)
+	sta spr2x
+	lda #$20
+	sta spr2x+2
+	lda #$92		; y-Ordinate: 146
+	sta spr2y		; (im Image Information Fenster)
+	sta spr2y+2
+
+	sty sprptr+2	; Sprite 255
+	sty sprptr+3
+	lda spren
+	ora #$0c		; Activity-Balken aktivieren
+	sta spren
+
+	rts
+
+; ------------------------------------ Switch off Activity Bar
+
+clearad	lda #3
+	sta spren
+	lda msbx
+	and #$f3
+	sta msbx
+	rts
+
+; ------------------------------------ Initialize printer
+
+initprt	lda #4		; OPEN 4,sek
+	tax
+	ldy sek
+	jsr filpar
+	ldy #0
+	sty $b7
+	jsr copen
+	ldx #4		; for output
+	jsr ckout
+	lda status	; ok?
+	bne enderr
+	ldx #0		; yes, send Initialize Graphics
+ini0	lda initp,x
+	jsr bsout
+	inx
+	cpx options
+	bne ini0
+	lda status	; ok?
+enderr	rts
+
+; ------------------------------------ "close printer" sequence
+
+endoff	ldx #0
+off0	lda endsequ,x	; send Stop Printer
+	jsr bsout
+	inx
+	cpx #10
+	bne off0
+	rts
+
+; ------------------------------------ PCL3 printer commands 
+
+endsequ	!by $1b,$2a,$72,$62,$43,$1b,$26,$6c,$30,$48
+
+initp	!by $1b,$45,$1b,$26,$6c,$30,$6f,$30,$4c
+	!by $1b,$2a,$72,$62,$63,$2d
+planes	!by $34,$55,$1b,$2a,$74,$33,$30,$30,$52,$1b,$2a,$72
+dpi	!by $31,$32,$38,$30,$53
+	!by $1b,$2a,$72
+qual	!by $32,$51,$1b,$2a,$70
+capy	!by $30,$31,$30,$30,$79
+capx	!by $30,$35,$36,$30,$58,$1b,$2a,$62,$30,$4d,$1b,$2a,$72,$31,$41
+
+; number of bytes to send on init: 60 (see label "options")
+
+trans	!by $1b,$2a,$62
+transw	!by $30,$38,$30
+trans0	!by $56
+
+; ------------------------------------ PCL3 commands used with GoDot
+; if the trailing character is lower case you can add more commands of the same start sequence, so: 
+; "1b 2a 72 62 43" is short for "1b 2a 72 42 1b 2a 72 43".
+; 
+; 1b 45 			: ESC E			: Reset printer
+; 1b 26 6c 30 48		: ESC & l 0 H		: Eject page
+; 1b 26 6c 30 4f		: ESC & l 0 O		: Set orientation to Portrait mode 
+; 1b 26 6c 30 4c		: ESC & l 0 L		: Set Skip Perforation to off
+; 1b 2a 62 31 42		: ESC * b 1 B		: Set gray balancing (to on) (n/a on Lexmarks)
+; 1b 2a 62 30 4d		: ESC * b 0 M		: Set compression mode (to off)
+; 1b 2a 62 36 34 30 56 ...	: ESC * b 640 V		: transfer 640 pixels to printer, planes 1-3, data following
+; 1b 2a 62 36 34 30 57 ...	: ESC * b 640 W		: transfer 640 pixels to printer, plane 4 (only 3 planes on Lexmarks)
+; 1b 2a 6f 32 44		: ESC * o 2 D		: Set depletion (to 25%) (n/a on Lexmarks)
+; 1b 2a 6f 32 51		: ESC * o 2 Q		: Set shingling (to 50%) (n/a on Lexmarks)
+; 1b 2a 70 34 4e		: ESC * p 4 N		: Set print mode to Smart Bidirectional (n/a on Lexmarks)
+; 1b 2a 70 30 35 36 30 58	: ESC * p 0560 X	: Set horizontal position to 560 
+; 1b 2a 70 30 31 30 30 59	: ESC * p 0100 Y	: Set vertical position to 100
+; 1b 2a 72 32 51		: ESC * r 2 Q		: Set print quality (to high) (n/a on Lexmarks)
+; 1b 2a 72 30 41		: ESC * r 0 A		: Start graphics (leftmost)
+; 1b 2a 72 62 43		: ESC * r b C		: End raster graphics
+; 1b 2a 72 2d 34 55		: ESC * r  -4 U		: Set # of planes to -4 (=CMYK; only -3 on Lexmarks)
+; 1b 2a 72 36 34 30 53		: ESC * r 640 S		: Set width of image to print to 640 pixels
+; 1b 2a 74 33 30 30 52		: ESC * t 300 R		: Set resolution to 300 dpi
+;
+; ------------------------------------ Initialize parallel port driver
+
+initpar	ldx $0326		; save C64 system vectors; bsout
+	ldy $0327
+	stx oldbsout
+	sty oldbsout+1
+	ldx #<nbsout	; set new bsout
+	ldy #>nbsout
+	stx $0326
+	sty $0327
+	ldx $0320		; save ckout
+	ldy $0321
+	stx oldchkout
+	sty oldchkout+1
+	ldx #<nchkout	; set new ckout
+	ldy #>nchkout
+	stx $0320
+	sty $0321
+	clc
+	rts
+
+; ------------------------------------ New BSOUT routine ($ffd2)
+
+nbsout	pha		; bsout, .a retten
+	sta outmerk
+	lda device	; welches Gerät?
+	cmp #4
+	beq parprint
+	jmp $f1cd
+
+; ------------------------------------ parallel cable driver
+
+parprint	sei
+	txa		; .x und .y retten
+	pha
+	tya
+	pha
+	lda #$ff		; $dd01: Ausgang
+	tax
+	tay
+	sta $dd03
+	lda $dd02		; Bit 2 von $dd00 auf Ausgang
+	ora #4
+	sta $dd02
+	lda $dd00		; setzen
+	ora #4
+	sta $dd00
+	lda #$10		; _FLAG_ setzen
+	sta $dd0d
+	lda $dd0d
+	cli
+
+	lda outmerk	; Byte für die Ausgabe auf den Drucker
+	sta $dd01		; setzen
+
+	lda $dd00		; Handshake
+	and #$fb
+	sta $dd00		; STROBE
+	ora #4
+	sta $dd00
+
+; ------------------------------------ Old delay routine
+
+busy	lda $dd0d
+	dex
+	bne bsy0
+	dey
+	beq timeout
+bsy0	and #$10		; warten auf BUSY
+	beq busy
+
+; ------------------------------------ 
+
+bsy1	lda #0		; dann weiter
+	sta status
+	pla		
+	tay		; .y, .x und .a rekonstruieren
+	pla
+	tax
+	pla
+	clc
+parend	rts
+
+; ------------------------------------ Timeout handler
+
+timeout	ldx #<parend	; nbsout zeigt nach Timeout auf RTS
+	ldy #>parend
+	stx $0326
+	sty $0327
+	bne bsy1		; Abschluss
+
+; ------------------------------------ New CKOUT routine ($ffc9)
+
+nchkout	jsr $f30f		; logische Filenummer suchen
+	beq ffound
+	jmp $f701		; fail: "33, file not open"
+ffound	jsr $f31f		; setlfs
+	lda $ba		; Gerätenummer 4?
+	cmp #4
+	beq parout
+	jmp $f25b		; nein: standard procedure
+
+parout	jmp $f275		; Gerätenummer in $9a (geraet) eintragen
+
+; ------------------------------------ 
+
+outmerk	!by 0
+oldbsout	!wo 0
+oldchkout	!wo 0
+
+; ------------------------------------ set printer driver vectors
+
+setvecs	pha		; .a=Größe
+	asl
+	tax
+	lda bufs,x	; Puffer entsprechend
+	sta kbuf
+	lda bufs+1,x
+	sta kbuf+1
+	ldy #0
+svc0	lda (kbuf),y
+	sta cbuf,y
+	iny
+	cpy #6
+	bne svc0
+	lda #<basebuf	; Zeiger auf Puffer setzen
+	ldy #>basebuf
+	sta kbuf
+	sty kbuf+1
+	pla		; Vergrößerungsfaktor setzen
+	tax
+	lda faktor,x
+	sta fullbyte
+	sta vertfak
+	lsr
+	sta horifak
+	lda counters,x	; Druckerkommandos anpassen
+	sta oneline
+	lda dpioffs,x
+	tax
+	ldy #2
+svc1	lda trwtext,x
+	sta transw,y
+	dex
+	dey
+	bpl svc1
+	rts
+
+; ------------------------------------ 
+
+bufs	!wo b0640,b1280,b1920
+
+b0640	!wo basebuf+80,basebuf+160,basebuf+240
+b1280	!wo basebuf+160,basebuf+320,basebuf+480
+b1920	!wo basebuf+240,basebuf+480,basebuf+720
+faktor	!by 2,4,6
+counters	!by 80,160,240
+trwtext	!tx "080160240"
+
+pixoffsy	!by 3,3,3,7,7,7,11,11,11,15,15,15,19,19,19,23,23,23
+pixoffsx	!by 3,7,11,3,7,11,3,7,11,3,7,11,3,7,11,3,7,11
+
+; ------------------------------------ color parameters for printout
+
+; offs:	     0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15
+
+cyan	!by 15,14,02,10,00,03,00,07,05,00,15,03,04,00,04,00
+magenta	!by 15,14,04,10,15,12,03,07,01,05,01,03,00,00,00,00
+yellow	!by 15,00,13,10,15,00,09,07,00,05,15,03,00,09,04,00
+
+; ------------------------------------ 
+
+modend	!eof
+
