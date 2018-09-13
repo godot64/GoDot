@@ -1,0 +1,1052 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ------------------------------------ 
+; mod.9Pin.drv for GoDot Image Processing
+;  printer driver for Standard Epson 9Pin Printers
+; 
+; 1.00, 25.08.94, first release
+; 
+; ------------------------------------ 
+
+; ------------------------------------ Declarations
+
+
+	dst	= $30
+	dst0	= $32
+	cnt80	= $34
+	cnt8	= $35
+	dbl	= $36
+	vertcnt	= $37
+	sammel	= $38
+	byte	= $39
+	bitcnt	= $3a
+	bcnt1	= $3b
+	src	= $3c
+	adcnt	= $3e
+	pcnt	= $3f
+	last	= $44
+	second	= $45
+	src0	= $46
+	hold	= $48
+
+	tabindex	= $46	; vars for dpi240
+	tabind2	= $47
+	merkx	= $48
+	blocks	= $49
+	lines	= $4a
+	vect	= $4b
+	sperr	= $4d
+
+	lcnt8	= $51
+	lcnt	= $52
+	bcnt	= $53
+
+	device	= $9a
+
+	firstbuf	= $bd00
+	buf	= $c900
+	destbuf	= $ca00
+
+	sprptr	= $07f8
+	spr255	= $3fc0
+
+	spr2x	= $d004
+	spr2y	= $d005
+	msbx	= $d010
+	spren	= $d015
+	sprxe	= $d01d
+	sprcol2	= $d029
+
+	oszi3	= $d40e
+	wave	= $d412
+	filter	= $d418
+	rausch	= $d41b
+
+; ------------------------------------ Module header
+
+header	jmp start
+	!by $20
+	!wo 0
+	!wo modend
+	!wo 0
+	!tx "Epson 9Pin      "
+	!tx "1.00"
+	!tx "25.08.94"
+	!tx "AD/WK/N.Ramek   "
+addtext	!tx "ESC * 4 $80 $02 "
+	!tx "ESC * 3 $80 $07 "
+	!by 0
+
+; ------------------------------------ Main
+
+start	jsr makech	; Listbox-Kringel erzeugen
+	bit type		; Default: $40 (Centronics)
+	bvc st0
+	jsr initpar	; Initialize Parallel Connection
+
+st0	ldx #<pflst	; Requester
+	ldy #>pflst
+	jmp gd_xmloop
+
+; ------------------------------------ Render image to printer
+
+jdone	jmp done		; leave on error
+
+sevpfox	lda #0		; mouse off
+	sta $d015
+	lda #5		; activity: init
+	jsr initad
+	lda gr_dither
+	tax 
+	lda dlo,x
+	sta dmode
+	lda dhi,x
+	sta dmode+1
+
+	lda #$80
+	sta filter
+	sta oszi3
+	sta oszi3+1
+	sta sc_texttab+1
+	lda #0
+	sta wave
+	sta sc_texttab
+	lda #$81
+	sta wave
+
+	lda dpiflag
+	bne spf0
+	jsr initprt
+	jmp spf1
+spf0	jsr init240
+spf1	bne jdone
+
+pfoxgb	lda #<sy_4bit
+	ldx #>sy_4bit	; Bild ab $4000
+	sta src0
+	sta src
+	stx src0+1
+	stx src+1
+	lda #0
+	sta dbl
+	sta vertcnt
+
+	lda #25
+	sta lcnt8
+	asl 
+	sta pcnt
+lnloop8	lda #0
+	sta lcnt
+
+lnloop	jsr adinc
+
+ads0	ldx #0
+zloop	lda #2
+	sta bcnt1
+
+byloop	lda #$c0
+	sta bitcnt
+
+	lda #0
+	sta byte
+btloop	ldy #0
+	lda (src),y
+	pha 
+	lsr 
+	lsr 
+	lsr 
+	lsr 
+	tay 
+	lda gr_btab,y
+	jsr makebyte
+	lsr bitcnt
+	lsr bitcnt
+	pla 
+	and #$0f
+	tay 
+	lda gr_btab,y
+	jsr makebyte
+
+	inc src
+	bne s3
+	inc src+1
+s3	lsr bitcnt
+	lsr bitcnt
+	bcc btloop
+	sta buf,x
+	inx 
+	dec bcnt1
+	bne byloop
+
+	lda src		; next tile
+	clc 
+	adc #28
+	sta src
+	bcc s4
+	inc src+1
+s4	cpx #80		; 2x40 bytes
+	bne zloop
+
+	jsr moveline	; print
+
+	ldx vertcnt
+	inx 
+	cpx #8
+	bne s41
+
+	ldx #0
+s41	stx vertcnt
+	lda dbl
+	eor #$ff
+	sta dbl
+	beq newline
+
+	lda src0
+	sta src
+	lda src0+1
+	sta src+1
+	bne ads0
+
+newline	lda src0		; next rasterline
+	clc 
+	adc #4
+	sta src0
+	sta src
+	bcc s5
+	inc src0+1
+s5	lda src0+1
+	sta src+1
+	inc lcnt
+	lda #8
+	cmp lcnt
+	beq s51
+	jmp lnloop
+
+s51	lda src0		; next block row
+	clc 
+	adc #<1248
+	sta src0
+	sta src
+	lda src0+1
+	adc #>1248
+	sta src0+1
+	sta src+1
+	dec lcnt8
+	beq done
+	jmp lnloop8
+
+done	lda dpiflag
+	beq don1
+	dec last
+	jsr dpi240
+
+don1	jsr endoff
+toutdone	jsr clearad
+	jsr clrch
+	lda #4
+	jsr close
+	lda #3		; mouse on
+	sta $d015
+	clc 
+	rts 
+
+; ------------------------------------ Dither routines
+
+makebyte	jmp (dmode)	; distributor vector
+
+dithoff	cmp #8
+	bpl do0
+	lda #0
+	!by $2c
+do0	lda bitcnt
+	ora byte
+	sta byte
+	rts 
+
+dithrst	ldy vertcnt
+	ora offs,y
+	tay 
+	lda gr_orderedpat,y
+	and bitcnt
+	ora byte
+	sta byte
+	rts 
+
+dithpat	asl 
+	asl 
+	asl 
+	ora vertcnt
+	tay 
+	lda gr_pattern,y
+	and bitcnt
+	ora byte
+	sta byte
+	rts 
+
+dithnoi	beq dn0
+	cmp #15
+	beq dn1
+	ldy #0
+	sta hold
+	lda rausch
+	and #$0f
+	cmp hold
+	bcs dn3
+	ldy #$aa
+dn3	lda rausch
+	and #$0f
+	cmp hold
+	tya 
+	bcs dn2
+	ora #$55
+dn2	!by $2c
+dn1	lda #$ff
+	and bitcnt
+dn0	ora byte
+	sta byte
+	rts 
+
+dithrnd	cmp #8
+	beq dr0
+	bcs dr1
+	bcc dr2
+dr0	lda rausch
+	!by $2c
+dr1	lda bitcnt
+	and bitcnt
+	!by $2c
+dr2	lda #0
+	ora byte
+	sta byte
+ml4	rts 
+
+; ------------------------------------ Output to printer
+
+moveline	lda vertcnt
+	bne ml0
+	lda #<destbuf
+	ldy #>destbuf
+	sta dst0
+	sty dst0+1
+	bne ml2
+ml0	inc dst0
+ml2	lda dst0
+	ldy dst0+1
+	sta dst
+	sty dst+1
+	ldy #0
+	ldx #0
+mlup	lda buf,x
+	sta (dst),y
+	lda dst
+	clc 
+	adc #8
+	sta dst
+	bcc ml3
+	inc dst+1
+ml3	inx 
+	cpx #80
+	bne mlup
+	ldy vertcnt
+	cpy #7
+	bne ml4
+
+	lda dpiflag
+	beq wrloop
+
+	dec second
+	bmi wr0
+movebuf	lda #>firstbuf
+	sta dst0+1
+	lda #>destbuf
+	sta dst+1
+	ldy #0
+	sty dst0
+	sty dst
+	ldx #3
+slup	lda (dst),y
+	sta (dst0),y
+	iny 
+	bne slup
+	inc dst0+1
+	inc dst+1
+	dex 
+	bne slup
+	rts 
+
+wr0	ldx #0
+	stx second
+	jmp dpi240
+
+wrloop	lda #80
+	sta cnt80
+	lda #<destbuf
+	ldy #>destbuf
+	sta dst0
+	sty dst0+1
+pout	lda #$80
+	sta cnt8
+wl6	ldy #0
+	sty sammel
+wloop	lda (dst0),y	; turn by 90deg
+	asl 
+	sta (dst0),y
+	rol sammel
+	iny 
+	cpy #8
+	bne wloop
+	lda sammel
+	eor #$ff
+	jsr bsout
+	lsr cnt8
+	bcc wl6
+	lda dst0
+	clc 
+	adc #8
+	sta dst0
+	bcc wl5
+	inc dst0+1
+wl5	dec cnt80
+	bne pout
+	jsr linefd
+	dec pcnt
+	ldx pcnt
+	bne wl51
+	ldx #12
+	ldy #1
+	jmp ini0
+
+wl51	jsr graphon
+	bne wl7
+	rts 
+
+wl7	pla 
+	pla 
+	jmp done
+
+; ------------------------------------ Disconnect Parallel driver
+
+paroff	ldx oldbsout	; kein Centronics aktiv?
+	beq p0
+	ldy oldbsout+1	; doch: Aufrufadressen setzen
+	stx $0326
+	sty $0327
+	ldx oldchkout
+	ldy oldchkout+1
+	stx $0320
+	sty $0321
+p0	rts
+
+; ------------------------------------ Event: Choose printer interface driver
+
+sevtype	jsr paroff	; close parallel port
+	lda tflag		; Typ in tflag (3 verschiedene)
+	cmp #2
+	bne et0
+	lda #$ff
+	sta tflag
+et0	inc tflag
+
+	ldx tflag
+	lda ptypes,x
+	sta type
+	lda ptoffs,x
+	tax
+	ldy #15
+et1	lda ptext,x
+	sta pgadt,y
+	dex 
+	dey 
+	bpl et1
+
+	iny 
+	jsr settext
+	jsr gettext
+	ldy #6
+	jsr gd_xtxout1
+
+	bit type
+	bmi wies
+	bvs cent
+
+merl	lda #5
+	!by $2c
+wies	lda #1
+	sta sek
+	clc 
+	rts 
+
+cent	jmp initpar
+
+; ------------------------------------ Output gadget text routines
+
+tabigad	!wo pgad
+	!wo dpigad
+
+settext	lda #<tabigad
+	sta sc_texttab
+	lda #>tabigad
+	sta sc_texttab+1
+	rts 
+
+gettext	lda (sc_texttab),y
+	sta sc_screentab
+	iny
+	lda (sc_texttab),y
+	sta sc_screentab+1
+	lda #0
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #3
+	bne gt0
+	stx sc_ho
+	jsr gd_trim
+	jmp gd_initmove
+
+; ------------------------------------ Event: Choose size of printout
+
+sevdpi	jsr paroff
+	lda dpiflag
+	beq dp0
+	lda #$ff
+	sta dpiflag
+dp0	inc dpiflag
+	ldx dpiflag
+	lda dpioffs,x
+	tax 
+	ldy #2
+dpi1	lda dpitext,x
+	sta dpitx,y
+	dex 
+	dey 
+	bpl dpi1
+	ldy #2
+	jsr settext
+	jsr gettext
+	ldy #6
+	jmp gd_xtxout1
+
+; ------------------------------------ Event: Leave requester
+
+sevcan	jsr paroff
+	sec
+	rts
+
+; ------------------------------------ Create listbox character 223
+
+makech	ldx #7
+mc0	lda char,x
+	sta sc_undochar,x
+	dex
+	bpl mc0
+	rts
+
+; ------------------------------------ 
+
+char	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
+
+; ------------------------------------ Main Screenlist 
+
+pflst	!by 0
+	!by 4,11,18,15,$81
+	!wo 0
+	!scr "9Pin PrintOut@"
+pgad	!by 9,11,18,3,$ca
+	!wo sevtype
+pgadt	!scr 223,"  Wiesemann    @"
+	!by 12,11,9,3,$c8
+	!wo sevpfox
+	!scr " Print @"
+dpigad	!by 12,20,9,3,$cf
+	!wo sevdpi
+dpitx	!scr " 80 dpi@"
+	!by 15,11,18,3,$ca
+	!wo sevcan
+	!scr "Leave@"
+	!by $c0,6,11,16
+	!scr "Select Interface@"
+	!by $80
+
+; ------------------------------------ Variables, values, texts, and constants
+
+ptypes	!by $40,$80,$00	; printer type flag values
+type	!by $80		; selected printer type 
+tflag	!by 0
+sek	!by 1		; secondary printer address
+dpiflag	!by 0
+ptoffs	!by 15,31,47
+dpioffs	!by 2,5
+ptext	!scr 223,"  Wiesemann    "
+	!scr 223,"  Centronics   "
+	!scr 223,"  Merlin C+    "
+dpitext	!scr " 80240"
+
+mess	!by 0,22,3,34,3,$02,0,0,$80
+
+offs	!by $00,$10,$20,$30
+	!by $00,$10,$20,$30
+
+dlo	!by <dithrst
+	!by <dithpat
+	!by <dithpat
+	!by <dithnoi
+	!by <dithrnd
+
+dhi	!by >dithrst
+	!by >dithpat
+	!by >dithpat
+	!by >dithnoi
+	!by >dithrnd
+
+dmode	!wo 0
+
+; ------------------------------------ Activity display routines
+
+adinc	dec adcnt
+	bne +
+	inc spr2y
+	inc spr2y+2
+	lda #5
+	sta adcnt
++	rts 
+
+; ------------------------------------ Initialize Activity Bar
+
+initad	sta adcnt
+	ldy #60
+	lda #0
+-	sta spr255+3,y	; Spriteblock 255 vorbereiten
+	dey 
+	bpl -
+	sty spr255	; dünner Strich
+	sty spr255+1
+	sty spr255+2
+	lda #$0f		; Farbe hellgrau
+	sta sprcol2
+	sta sprcol2+1
+	lda sprxe		; doppelt breit
+	ora #$0c
+	sta sprxe
+
+	lda msbx		; x über 255
+	ora #$0c
+	sta msbx
+	lda #8		; x-Ordinate: 8 (plus 256)
+	sta spr2x
+	lda #$20
+	sta spr2x+2
+	lda #$92		; y-Ordinate: 146
+	sta spr2y		; (im Image Information Fenster)
+	sta spr2y+2
+
+	sty sprptr+2	; Sprite 255
+	sty sprptr+3
+	lda spren
+	ora #$0c		; Activity-Balken aktivieren
+	sta spren
+
+	rts
+
+; ------------------------------------ Switch off Activity Bar
+
+clearad	lda spren		; Wanderbalken aus
+	and #$f3
+	sta spren
+	lda msbx
+	and #$f3
+	sta msbx
+	rts
+
+; ------------------------------------ Initialize printer
+
+initprt	lda #4		; OPEN 4,sek
+	tax
+	ldy sek
+	jsr filpar
+	ldy #0
+	sty $b7
+	jsr copen
+	ldx #4		; for output
+	jsr ckout
+	lda status	; ok?
+	bne enderr
+	ldx #0		; yes, send Initialize Graphics
+ini0	lda initp,x
+	jsr bsout
+	dex 
+	dey 
+	bpl ini0
+	lda status
+enderr	rts 
+
+; ------------------------------------ "close printer" sequence
+
+endoff	lda #2
+	sta initp
+	lda #4
+	sta initp+2
+	lda #$18
+	sta initp+5
+	ldx #12
+	ldy #4
+	bne ini0
+
+; ------------------------------------ 
+
+graphon	ldx #7
+	ldy #7
+	bne ini0
+
+; ------------------------------------ 
+
+initp	!by $02,$80,$04,$2a,$1b,$18,$33,$1b,$40,$1b,$18,$32,$1b
+
+; ------------------------------------ Initialize parallel port driver
+
+initpar	ldx $0326		; save C64 system vectors; bsout
+	ldy $0327
+	stx oldbsout
+	sty oldbsout+1
+	ldx #<nbsout	; set new bsout
+	ldy #>nbsout
+	stx $0326
+	sty $0327
+	ldx $0320		; save ckout
+	ldy $0321
+	stx oldchkout
+	sty oldchkout+1
+	ldx #<nchkout	; set new ckout
+	ldy #>nchkout
+	stx $0320
+	sty $0321
+	clc
+	rts
+
+; ------------------------------------ New BSOUT routine ($ffd2)
+
+nbsout	pha		; bsout, .a retten
+	sta outmerk
+	lda device	; welches Gerät?
+	cmp #4
+	beq parprint
+	jmp $f1cd
+
+; ------------------------------------ parallel cable driver
+
+parprint	sei
+	txa		; .x und .y retten
+	pha
+	tya
+	pha
+	lda #$ff		; $dd01: Ausgang
+	tax
+	tay
+	sta $dd03
+	lda $dd02		; Bit 2 von $dd00 auf Ausgang
+	ora #4
+	sta $dd02
+	lda $dd00		; setzen
+	ora #4
+	sta $dd00
+	lda #$10		; _FLAG_ setzen
+	sta $dd0d
+	lda $dd0d
+	cli
+
+	lda outmerk	; Byte für die Ausgabe auf den Drucker
+	sta $dd01		; setzen
+
+	lda $dd00		; Handshake
+	and #$fb
+	sta $dd00		; STROBE
+	ora #4
+	sta $dd00
+
+; ------------------------------------ Old delay routine
+
+busy	lda $dd0d
+	dex
+	bne bsy0
+	dey
+	beq timeout
+bsy0	and #$10		; warten auf BUSY
+	beq busy
+
+; ------------------------------------ 
+
+bsy1	lda #0		; dann weiter
+	sta status
+	pla		
+	tay		; .y, .x und .a rekonstruieren
+	pla
+	tax
+	pla
+	clc
+parend	rts
+
+; ------------------------------------ Timeout handler
+
+timeout	ldx #<parend	; nbsout zeigt nach Timeout auf RTS
+	ldy #>parend
+	stx $0326
+	sty $0327
+	bne bsy1		; Abschluss
+
+; ------------------------------------ New CKOUT routine ($ffc9)
+
+nchkout	jsr $f30f		; logische Filenummer suchen
+	beq ffound
+	jmp $f701		; fail: "33, file not open"
+ffound	jsr $f31f		; setlfs
+	lda $ba		; Gerätenummer 4?
+	cmp #4
+	beq parout
+	jmp $f25b		; nein: standard procedure
+
+parout	jmp $f275		; Gerätenummer in $9a (geraet) eintragen
+
+; ------------------------------------ 
+
+outmerk	!by 0
+oldbsout	!wo 0
+oldchkout	!wo 0
+
+; ------------------------------------ Zollraster by Norbert Ramek
+
+init240	ldx #7
+	stx initp
+	ldx #3
+	stx initp+2
+	ldx #1
+	stx second
+	stx sperr
+	stx initp+5
+	stx last
+	dex 
+	stx tabindex
+	lda #9
+	sta lines
+	jmp initprt
+
+; ------------------------------------ 
+
+dpi240	lda lines
+	bne dp2
+	lda #9
+	sta lines
+
+onepass	lda #0
+	sta tabindex
+dp2	lda sperr
+	bne dp1
+	jsr graphon
+dp1	jsr printline
+	jsr linefd
+	jsr graphon
+	inc tabindex
+	jsr printline
+	jsr linefd
+	jsr graphon
+	inc tabindex
+	jsr printline
+	ldx #0
+	stx sperr
+	dec lines
+	bne dp3
+	inx 
+	stx second
+dp3	clc 
+	lda tabindex
+	adc #$16
+	sta tabindex
+	jsr plus21
+	jmp movebuf
+
+; ------------------------------------ 
+
+printline	lda #80
+	sta blocks
+	lda #>destbuf
+	sta dst0+1
+	lda #>firstbuf
+	sta dst+1
+	ldx #0
+	stx dst0
+	stx dst
+
+pl0	lda tabindex
+	sta tabind2
+	lda dst+1
+	ldx dst
+	sta vect+1
+	stx vect
+
+	lda #0
+	ldy #7
+-	sta buffer,y
+	dey 
+	bpl -
+
+	ldy #0
+--	lda (vect),y
+	ldx #0
+-	asl 
+	bcc +
+	pha 
+	stx merkx
+	ldx tabind2
+	lda needles,x
+	lsr 
+	lsr 
+	lsr 
+	lsr 
+	tax 
+	lda werttab,x
+	ldx merkx
+	ora buffer,x
+	sta buffer,x
+	pla 
++	inx 
+	cpx #8
+	bne -
+
+	inc tabind2
+	inc tabind2
+	inc tabind2
+	iny 
+	cpy #8
+	bne --
+
+	lda dst0+1
+	ldx dst0
+	sta vect+1
+	stx vect
+	lda tabindex
+	sta tabind2
+
+	ldy #0
+	ldx last
+	bne pl1
+-	lda buffer,x
+	ora #1
+	sta buffer,x
+	inx 
+	cpx #8
+	bne -
+	beq ++
+
+pl1	lda (vect),y
+	ldx #0
+-	asl 
+	bcc +
+	pha 
+	stx merkx
+	ldx tabind2
+	lda needles,x
+	and #$0f
+	tax 
+	lda werttab,x
+	ldx merkx
+	ora buffer,x
+	sta buffer,x
+	pla 
++	inx 
+	cpx #8
+	bne -
+
+	inc tabind2
+	inc tabind2
+	inc tabind2
+	iny 
+	cpy #8
+	bne pl1
+
+++	clc 
+	lda dst0
+	adc #8
+	sta dst0
+	sta dst
+	bcc +
+	inc dst0+1
+	inc dst+1
+
++	ldx #0
+-	lda buffer,x
+	eor #$ff
+	jsr bsout
+	jsr bsout
+	jsr bsout
+	inx 
+	cpx #8
+	bne -
+	dec blocks
+	beq +
+	jmp pl0
+
++	rts 
+
+; ------------------------------------ 
+
+plus21	lda #$16
+	sta initp+5
+	ldx #7
+	ldy #2
+	jsr ini0
+	jsr linefd
+	lda #1
+	sta initp+5
+	rts 
+
+; ------------------------------------ 
+
+linefd	lda #$0d
+	jsr bsout
+	lda #$0a
+	jmp bsout
+
+; ------------------------------------ 
+
+werttab	!by $00,$80,$40,$20,$10,$08,$04,$02,$01
+
+; ------------------------------------ 
+
+needles	!by $18,$18,$18,$20,$20,$20,$30,$30
+	!by $20,$40,$40,$30,$50,$50,$40,$60
+	!by $50,$50,$70,$60,$60,$80,$70,$70
+	!by $08,$07,$07,$10,$18,$18,$20,$20
+	!by $20,$30,$30,$30,$40,$40,$30,$50
+	!by $50,$40,$60,$60,$50,$70,$60,$60
+	!by $07,$07,$06,$18,$07,$07,$10,$18
+	!by $18,$20,$20,$20,$30,$30,$30,$40
+	!by $40,$40,$50,$50,$40,$60,$60,$50
+	!by $06,$06,$05,$07,$07,$06,$18,$08
+	!by $07,$20,$18,$18,$20,$20,$20,$30
+	!by $30,$30,$40,$40,$40,$50,$50,$50
+	!by $05,$05,$05,$06,$06,$06,$07,$07
+	!by $06,$18,$08,$07,$20,$10,$18,$30
+	!by $20,$20,$30,$30,$30,$40,$40,$40
+	!by $04,$04,$04,$05,$05,$05,$06,$06
+	!by $06,$07,$07,$07,$18,$18,$07,$20
+	!by $10,$18,$30,$20,$20,$40,$30,$30
+	!by $04,$03,$03,$05,$04,$04,$05,$05
+	!by $05,$06,$06,$06,$07,$07,$07,$18
+	!by $18,$08,$20,$20,$18,$30,$20,$20
+	!by $03,$03,$02,$04,$03,$03,$05,$04
+	!by $04,$06,$05,$05,$06,$06,$06,$07
+	!by $07,$07,$18,$18,$08,$20,$20,$10
+	!by $02,$02,$01,$03,$03,$02,$04,$04
+	!by $03,$05,$04,$04,$06,$05,$05,$07
+	!by $06,$06,$07,$07,$07,$18,$18,$18
+
+; ------------------------------------ 
+
+buffer	!by 0,0,0,0,0,0,0,0
+
+; ------------------------------------ 
+
+modend	!eof
