@@ -1,0 +1,850 @@
+
+	!src "godotlib.lib"
+	*= $0801
+	!ct pet
+;	!sl "labels.txt"
+
+; ------------------------------------------ 
+;
+; pvers
+;  printout all information of GoDot's modules which are on a disk
+;
+; 1.00,         , first release
+; 1.01, 30.03.97, Parser zugefügt
+; 1.02, 16.09.18, Aufrufparameter auf "u" verkürzt
+;                 Bildschirmausgabe verbessert
+;                 Logo neu definiert
+;
+; ------------------------------------------ 
+
+; ------------------------------------ Declarations
+
+	int		= $14
+	sekadr		= $b9
+	drive		= $ba
+	lastkey		= $c5
+
+	dst		= $f7	; vars on params
+	src		= $f9
+	zaehler		= $fb
+	temp		= $fc
+	mint		= $fd
+	wordlo		= $ff
+
+	formok		= $fb	; vars on mainprg
+	flen		= $fc
+	ddrive		= $fe
+	qflag		= $ff
+	nambuf		= sy_numbers
+
+	backgr		= $d020
+	rahmen		= $d021
+
+	headbuf		= $6800
+	hdbufend		= headbuf+$0100
+	modlist		= $8000
+
+	pversmain		= modul
+	transend		= pversmain+$1000
+
+	ready		= $a474
+	strout		= $ab1e
+	sektlk		= $ff96
+	iecin		= $ffa5
+	untlk		= $ffab
+	talk		= $ffb4
+	plot		= $fff0
+
+; ------------------------------------ Basic Header
+
+	!wo link
+	!wo $ad
+	!by $9e		; SYS init
+	!tx "2061"
+	!by 0
+link	!wo 0
+
+; ------------------------------------ Copy main routine
+
+init	ldy #<modul	; Ziel: $c000
+	sty dst
+	lda #>modul
+	sta dst+1		; Quelle: Teil 2
+	lda #<mainprg
+	sta src
+	lda #>mainprg
+	sta src+1
+-	lda (src),y	; 4 KB übertragen
+	sta (dst),y
+	iny 
+	bne -
+	inc src+1
+	inc dst+1
+	lda dst+1
+	cmp #>transend
+	bne -
+	jsr params	; Parameter parsen
+	jmp pversmain	; und Teil 2 aufrufen (ist an $c000)
+
+; ------------------------------------------ 
+; ------------------------------------------ Parser
+; ------------------------------------------ 
+
+params	ldx #0		; Init Units
+	lda #$ff
+pm0	sta units,x
+	inx
+	cpx #4
+	bne pm0
+
+	lda #0
+	sta units,x
+
+	lda drive		; get bootdrive
+	sta units		; is default unit
+	lda #$93		; clr/home beim ersten Screen
+	sta clrhome
+
+	lda #>ls_nambuf	; Basic-Zeile anwählen
+	ldy #<ls_nambuf
+	sta dst+1
+	sty dst
+-	lda (dst),y	; .y=0
+	cmp #$3a		; look for ":" (begin of parameters)
+	beq +
+	iny 
+	bne -
+
+pms2	rts		; not found, end parsing
+
+; ------------------------------------------ Parameter einlesen
+
++	cpy #80		; mehr als 79 Zeichen?
+	bcs pms2		; dann Abbruch
+
+	jsr readeq	; nächstes gültiges Zeichen holen
+	iny
+	jsr addy		; Vektor auf dieses Zeichen setzen
+
+jm0	ldy #0		; Zeichen untersuchen
+	lda (dst),y
+	beq pms2
+
+	cmp #"u"		; "u" (für "Units")?
+	bne jm1
+	jsr drives	; dann Driveliste erstellen
+	bne jm0
+
+jm1	jsr incv		; sonst: weiterlesen bis $00
+	bne jm0
+
+; ------------------------------------------ Units
+
+drives	jsr readeq	; nächstes Zeichen überlesen ("=" und Space)
+	jsr gword		; Zahl einlesen (Start bei zaehler=1)
+	bcc dr0
+	cmp #8		; zwischen 8 und 12?
+	bcc dr0
+	cmp #12
+	bcs dr0
+	sta units		; dann gültig
+
+dr0	jsr getword	; mehrere Units?
+
+	ldx zaehler	; Anzahl festhalten
+	php
+	pha
+	lda #$ff		; Unit vorbesetzen mit -1
+	sta units,x
+	pla
+	plp
+	bcc dr1		; Nummer gültig?
+	sta units,x	; dann neue Unitnummer setzen
+dr1	inx
+	stx zaehler	; noch eine?
+	cpx #4		; höchstens 4
+	bne dr0
+	jmp incv		; Lesezeiger weiterrücken
+
+; ------------------------------------------ Basic-Zeichen einlesen
+
+readeq	iny
+	lda (dst),y
+	cmp #32		; Space?
+	beq readeq
+	cmp #$3d		; Gleichheitszeichen?
+	beq readeq
+	cmp #$b2		; oder Token von "="?
+	beq readeq
+	dey
+	rts
+
+; ------------------------------------------ Zeiger erhöhen
+
+incv	inc dst
+	bne in0
+	inc dst+1
+in0	rts
+
+; ------------------------------------------ Add .y
+
+addy	tya
+	clc
+	adc dst
+	sta dst
+	bcc a0
+	inc dst+1
+a0	rts
+
+; ------------------------------------------ More than 1 parameter
+
+getword	lda (dst),y
+	cmp #$2c		; Komma?
+	beq gw
+	clc
+	rts
+
+; ------------------------------------------ Get Word
+
+gword	lda #1		; Startwert setzen (1)
+	sta zaehler
+
+gw	ldx #0
+	stx int
+	stx int+1
+
+gw1	jsr incv
+gw2	lda (dst),y
+	cmp #32
+	beq gw1
+	cmp #$3a
+	bcs gw0
+	sec
+	sbc #$30
+	sec
+	sbc #$d0
+	bcs gw0
+	sbc #$2f
+	sta wordlo
+	lda int+1
+	sta temp
+	cmp #$19
+	bcs gw0
+	lda int
+	asl
+	rol temp
+	asl
+	rol temp
+	adc int
+	sta int
+	lda temp
+	adc int+1
+	sta int+1
+	asl int
+	rol int+1
+	lda int
+	adc wordlo
+	sta int
+	bcc gw1
+	inc int+1
+	bne gw1
+gw0	lda int
+	rts
+
+; ------------------------------------------ 
+; ------------------------------------------ Main
+; ------------------------------------------ 
+
+mainprg
+
+!pseudopc pversmain {
+
+	lda units		; preparations
+	sta ddrive
+	ldx #1		; Index in Units-Liste auf 1
+	stx dindx
+	dex
+	stx perr
+	stx sc_stop
+	jsr initprtr	; Printer vorbereiten
+
+	lda perr		; Fehler?
+	beq +
+	jmp meldung	; dann Meldung
+
++	lda #$1b		; sonst: init C= printer
+	jsr bsout
+	lda #$40
+	jsr bsout
+
+	jsr closeall
+
+	lda #$30		; "0"
+	sta hunderter	; Filezähler auf 000
+	sta zehner
+	sta einer
+
+; ------------------------------------------ Display Loop
+
+diashow	jsr logodis	; Ausgabe des Logos
+
+	lda #0		; Init Liste der Filenamen
+	sta modlist
+	lda #$30		; init Error number to "00"
+	sta errnum
+	sta errnum+1
+	jsr dirlist	; retrieve directory
+
+	lda modlist	; empty?
+	beq nextdisk	; then ask for next drive
+
+	jsr setplist	; set vector to directory
+
+; ------------------------------------------ 
+
+show	jsr logodis	; display logo
+	jsr getfname	; get (first) filename
+	bne ok		; read first page of file if present
+
+nextdisk	jsr next		; no, demand next drive
+	jmp diashow	; start over
+
+; ------------------------------------------ 
+
+ok	jsr fname		; show filename
+	jsr loadf		; load file header
+	lda formok	; is a valid GoDot module?
+	bne show		; no, skip, next file
+	jsr generate	; generate and output module information
+	jmp show		; loop
+
+; ------------------------------------------ Next Disk
+
+next	jsr switch	; if there's a next one: continue at "nextdisk"
+
+	jsr logodis	; otherwise: display logo
+	jsr clrline
+	lda #$93
+	sta clrhome
+	clc
+	ldx #3		; print at 3,9:
+	ldy #9
+	jsr plot
+	lda #<ndisk1	; "neue diskette einlegen"
+	ldy #>ndisk1
+	jsr strout
+	clc
+	ldx #5		; print at 5,14:
+	ldy #14
+	jsr plot
+	lda #<ndisk2	; "und space"
+	ldy #>ndisk2
+	jsr strout
+	clc
+	ldx #8		; print at 8,8
+	ldy #8
+	jsr plot
+	lda #<ndisk3	; "oder mit stop beenden"
+	ldy #>ndisk3
+	jsr strout
+
+; ------------------------------------------ Wait for keyboard
+
+wait	lda sc_keyprs	; Stop?
+	ora sy_tbuffer
+	beq wait
+	cmp #3		; yes, end prog
+	beq c64ready
+	lda #0
+	sta sc_keyprs
+	sta sy_tbuffer
+	rts		; no, continue
+
+; ------------------------------------------ Check for Loop (deprecated)
+
+switch	ldx dindx		; next drive
+swt1	inx
+	lda dindx,x
+	beq swt0		; no next drive? then check for loop
+	bmi swt1		; no drive? then proceed to end of list
+swt2	sta ddrive	; set new drive
+	stx dindx		; (store index)
+	pla		; not back to where we came from...
+	pla
+-	rts		; ...but back into the loop
+
+swt0	tax
+	lda dloop		; are we in endless loop?
+	beq -		; never, so end
+swt3	stx dindx		; yes, start over
+	jmp swt1
+
+; ------------------------------------------ Back to Ready Mode C64
+
+c64ready	jsr logodis
+	jmp ready		; ready.
+
+; ------------------------------------------ Set Directory Buffer
+
+setplist	ldy #<modlist	; set pointer
+	lda #>modlist
+	sty dst
+	sta dst+1
+	rts 
+
+; ------------------------------------------ Get Filename
+
+getfname	ldx #15		; clear last filename
+	lda #32
+gf1	sta namout,x
+	dex
+	bpl gf1
+
+	ldy #0		; Länge des Filenamens ermitteln
+	sty clrhome
+	lda (dst),y
+	beq gfend		; wenn 0, kein File, Ende
+	sta flen
+	inc dst
+	bne gf0
+	inc dst+1
+gf0	lda (dst),y
+	sta nambuf,y	; store new name
+	sta namout,y
+	iny
+	cpy flen
+	bne gf0
+
+	clc		; proceed to next file
+	lda dst
+	adc #16
+	sta dst
+	bcc gfend
+	inc dst+1
+gfend	rts
+
+; ------------------------------------------ 
+
+fname	clc		; print at 17,8:
+	ldx #17
+	ldy #8
+	jsr plot
+	lda #<name	; "loading: filename"
+	ldy #>name
+	jmp strout
+
+; ------------------------------------------ 
+
+clrline	clc		; print at 17,0:
+	ldx #17
+	ldy #0
+	jsr plot
+	lda #<clear	; Leerzeile
+	ldy #>clear
+	jmp strout
+
+; ------------------------------------------ 
+
+dirlist	jsr setplist	; set vector to directory buffer, returns .y=0
+
+	lda #13		; open 13, drive, 0, "$" for input
+	ldx ddrive
+	jsr filpar
+	lda #1
+	ldx #<dollar
+	ldy #>dollar
+	jsr filnam
+	jsr copen
+	bcs +
+	ldx #13
+	jsr chkin
+
+	lda #0
+	sta status
+	jsr basin		; get bytes until status us not $00
+	lda status
+	beq dir
+
+	jsr enddir	; otherwise close #13
+	jmp meldung	; and show floppy message
+
++	jmp enddir
+
+; ------------------------------------------ Read Directory
+
+dir	jsr basin		; skip Link
+	jsr basin
+	jsr basin		; skip Progtype
+
+loop	jsr basin		; skip track&sector
+	jsr basin
+
+d0	jsr basin		; skip spaces
+	cmp #32
+	beq d0
+
+	ldy #0		; look for quotes
+	sty qflag
+	iny
+	ldx #16		; length of entry name
+	bne d2
+
+d3	eor qflag		; last quote?
+	beq d4		; yes, advance
+	sta qflag
+
+d1	jsr basin		; read next byte
+d2	cmp #$22		; was quote?
+	beq d3		; yes, last quote?
+	cmp #18		; was reverse on?
+	beq d1		; yes, next byte
+
+	sta (dst),y
+	iny
+	dex		; count length of entry name
+	bne d1
+
+d4	dey
+	tya
+	ldy #0
+	sta (dst),y
+	ldy #4
+	lda (dst),y
+	cmp #$2e		; "." an 4. Stelle?
+	beq +
+
+	ldy #0		; nein, Eintrag löschen
+	tya 
+	sta (dst),y
+	beq d5
+
++	lda dst		; sonst: vorrücken auf nächsten
+	clc 
+	adc #17
+	sta dst
+	bcc d5
+	inc dst+1
+
+d5	jsr basin		; lesen bis Ende
+	tax 
+	bne d5
+
+	jsr basin		; Dateilänge überspringen
+	jsr basin
+
+	lda status	; Fehler?
+	beq loop		; nein, nächster Eintrag
+
+enddir	jsr clrch		; Abschluss
+	lda #13
+	jmp close
+
+; ------------------------------------------ Display Logo
+
+logodis	lda #0		; alles schwarz
+	sta rahmen
+	sta backgr
+	lda clrhome	; CLR/Home
+	jsr bsout
+	clc
+	ldy #0		; print at 19,0:
+	ldx #19
+	jsr plot
+	lda #<logo	; Logo
+	ldy #>logo
+	jmp strout
+
+; ------------------------------------ "Printout Versions"
+
+logo	!by $0e,$08,$1e,$92	; Groß/Klein, fix, grün, RVS off
+
+	!by $ac,$a2,$a2,$bb,$20,$20,$bb,$20,$20	; z1
+	!by $20,$12,$bc,$92,$bb,$20,$20,$20,$20,$20,$20,$12,$bc,$92 
+	!by $bb,$bb,$20,$bb,$20,$20,$20,$20,$20,$20 
+	!by $20,$ac,$20,$20,$20,$20,$20,$20,$20,$20,$20
+
+	!by $12,$a1,$92,$20,$20,$a1,$a2,$bb,$bb,$a2,$a2	; z2
+	!by $20,$a1,$ac,$a2,$a2,$bb,$bb,$20,$bb,$a1 
+	!by $20,$a1,$20,$a1,$a2,$a2,$bb,$a2,$bb,$ac 
+	!by $a2,$ac,$ac,$a2,$a2,$bb,$a2,$a2,$20,$ac,$a2
+
+	!by $12,$a1,$a2,$a2,$92,$be,$a1,$20,$a1,$a1,$20 	; z3
+	!by $a1,$a1,$12,$a1,$92,$20,$20,$a1,$a1,$20,$a1,$a1
+	!by $20,$a1,$20,$a1,$a1,$a2,$a1,$a1,$20,$bf
+	!by $bb,$12,$a1,$a1,$92,$20,$20,$a1,$a1,$20,$a1,$bf,$bb
+
+	!by $12,$a1,$92,$20,$20,$20,$a1,$20,$a1,$a1,$20	; z4
+	!by $a1,$a1,$12,$a1,$92,$a2,$a2,$a1,$12,$bc,$92,$a2,$a1,$a1
+	!by $20,$bc,$12,$bf,$92,$20,$12,$bc,$92,$a2,$bb,$a1,$20,$a2 
+	!by $12,$bf,$a1,$a1,$92,$a2,$a2,$a1,$a1,$20,$a1,$a2,$12,$bf,$92
+
+	!by $00
+
+; ------------------------------------------ Data
+
+clrhome	!by $93
+perr	!by 0
+
+valid	!by 0
+dloop	!by 0
+dindx	!by 1
+units	!by $ff,$ff,$ff,$ff,$00
+
+; ------------------------------------ Init Printer
+
+initprtr	lda #0
+	tax 
+	tay 
+	jsr filnam	; open 4,4,7
+	lda #4
+	tax 
+	ldy #7
+	jsr filpar
+	jsr copen
+	bcs closeprt
+	ldx #4
+	jmp ckout
+
+; ------------------------------------ Close
+
+closeprt	inc perr
+closeall	jsr clrch
+	lda #4
+	jmp close
+
+; ------------------------------------------ Messages
+
+cntwert	!by 51
+dollar	!tx "$"
+home	!by 19,155,18,0		; "home-lgr-RVSon@"
+
+ndisk1	!by $9b			; grau
+	!tx "Neue Diskette einlegen",0
+ndisk2	!tx "und <SPACE>",0
+ndisk3	!tx "oder mit <STOP> beenden",0
+
+derr	!by $12,$1c		; RVS on, rot
+	!tx " Fehler #"
+errnum	!tx "00 beim Laden! "
+	!by $92,0			; RVS off
+
+name	!by $98			; mittelgrau
+	!tx "Loading: "
+namout	!fill 16,32
+	!by 0
+
+clear	!fill 40,32		; Leerzeile
+	!by 0
+
+; ------------------------------------------ Load Module Header
+
+loadf	lda #0		; Flag für gültiges GoDot-Modul
+	sta formok
+	lda flen
+	ldx #<nambuf
+	ldy #>nambuf
+	jsr filnam
+	lda #13		; Open 13,drive,0,"filename" for input
+	ldx ddrive
+	ldy #0
+	jsr filpar
+	jsr copen
+	bcs +
+	ldx #13
+	jsr chkin
+	jsr basin		; Skip start address
+	jsr basin
+
+	sta valid		; Hibyte merken
+
+	lda status
+	beq readfile
+	jmp endread
+
++	jmp wrong
+
+; ------------------------------------ Fill Header Buffer
+
+readfile	ldy #<headbuf	; .y=0
+	sty src
+	lda #>headbuf
+	sta src+1
+-	jsr basin		; get 256 bytes (max.)
+	sta (src),y
+	inc src
+	bne +
+	inc src+1
++	lda src+1
+	cmp #>hdbufend
+	bcs endread
+	lda status
+	beq -
+
+endread	jsr enddir	; close files
+	lda status
+	beq +
+	cmp #$40		; EOF? message if not
+	bne meldung
++	rts
+
+; ------------------------------------------ Falsches Format
+
+wrong	lda #1
+	sta formok
+	jmp enddir
+
+; ------------------------------------------ Floppy Message
+
+meldung	lda #2		; roter Rahmen (blinkt)
+	sta rahmen
+	jsr closeall
+	lda ddrive
+	jsr talk
+	lda #$6f
+	sta sekadr
+	jsr sektlk
+	jsr iecin		; get error number 1+2
+	sta errnum
+	jsr iecin
+	sta errnum+1
+ml0	jsr iecin		; skip text
+	cmp #$0d
+	bne ml0
+	jsr untlk
+
+	jsr logodis
+
+	clc
+	ldx #7		; print at 7,8:
+	ldy #8
+	jsr plot
+	lda #<derr	; "fehler #xx beim laden"
+	ldy #>derr
+	jsr strout
+	jsr wait		; wait for key
+	pla
+	pla
+	jmp show		; back into loop
+
+-	rts 
+
+; ------------------------------------ Eintrag aufbereiten
+
+generate	lda headbuf
+	cmp is_mod	; =$4c (JMP) im Header?
+	bne -		; nein, kein GoDotmodul
+
+	inc einer		; laufende Nummer: Einer
+	lda einer		; ":"?
+	cmp #$3a
+	bne +
+
+	lda #$30		; dann "0"
+	sta einer
+	inc zehner	; Zehner
+	lda zehner	; ":"?
+	cmp #$3a
+	bne +
+
+	lda #$30		; dann "0"
+	sta zehner
+	inc hunderter	; Hunderter
+
++	ldx #0		; 68 Zeichen löschen
+	lda #32
+-	sta filename,x
+	inx 
+	cpx #$44
+	bne -
+
+	ldx #0
+	ldy #10		; Header-Offset 10 ("name")
+-	lda headbuf,y	; Modulnamen eintragen
+	sta modname,x
+	iny 
+	inx 
+	cpx #16
+	bne -		; .y zählt weiter
+
+	ldx #0		; next: Version eintragen
+-	lda headbuf,y
+	sta version,x
+	iny 
+	inx 
+	cpx #4
+	bne -
+
+	ldx #0		; next: Date eintragen
+-	lda headbuf,y
+	sta date,x
+	iny 
+	inx 
+	cpx #8
+	bne -
+
+	ldx #0		; next: Author eintragen
+-	lda headbuf,y
+	sta author,x
+	iny 
+	inx 
+	cpx #16
+	bne -
+
+	lda #32		; Modulnamen löschen
+-	dex 
+	sta filename,x
+	bne -
+
+-	lda nambuf,x	; und neu eintragen
+	sta filename,x
+	inx 
+	cpx flen
+	bne -
+
+	jsr initprtr	; Drucker an
+
+	ldx #0
+-	lda outstring,x	; outstring ansteuern (bis $00)
+	beq endout
+
+	cmp #$20		; Zeichen unter 32: ersetzen
+	bcc replace
+	cmp #$e0		; Zeichen ab C=*: ersetzen
+	bcs replace
+	cmp #$60		; ASCII-Zeichen: ersetzen
+	bcc out
+	cmp #$a0
+	bcs out
+
+replace	lda #$2e		; Ersatz: "."
+
+out	jsr bsout		; ausgeben
+	inx 
+	bne -
+
+endout	lda #$0d		; dann Return
+	jsr bsout
+
+	jmp closeall	; und Drucker aus
+
+; ------------------------------------ Ausgabestring
+
+is_mod	!by $4c
+
+outstring	!fill 5,32
+hunderter	!tx "0"
+zehner	!tx "0"
+einer	!tx "0"
+	!tx ": "
+filename	!fill 16,32
+	!tx ": "
+modname	!fill 16,32
+	!tx ": "
+version	!tx " .  "
+	!tx ": "
+date	!tx "  .  .  "
+	!tx ": "
+author	!fill 16,32
+	!by 0
+
+}
