@@ -1,0 +1,607 @@
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ------------------------------------------------     
+;
+; svr.HiManRaw
+;  Saver for unpacked images of Hires Manager
+;
+;   1.00, 03.05.93, first release
+;
+; ------------------------------------------------ 
+
+; ------------------------------------------------ Equates
+
+	src		= $35	; /$36
+	bbuf		= $37
+	byte		= $38
+	hend		= $3a
+	max		= $3b
+	nr0		= $3c	; /$3d
+	adcnt		= $3e
+
+	offx		= ls_adrmisc
+	offy		= offx+1
+
+	hist		= sy_global
+	hist0		= hist+16
+	htab		= hist0+32
+
+	c64		= sy_bigbuffer
+	cram		= $ca00
+
+; ------------------------------------------------ 
+
+header	jmp start
+	!by $40
+	!by 0
+	!by 1
+	!wo modend
+	!wo 0
+	!tx "HiresManager raw"
+	!tx "1.00"
+	!tx "03.05.93"
+	!tx "A.Dettke/W.Kling"
+addtxt	!tx "GoDotCouldMakeAB"
+	!tx "etterFLI!!!!!!!!"
+	!by 0
+
+; ------------------------------------------------ 
+
+start	ldx gr_nr
+	dex 
+	bne saver
+	jmp initinp
+
+; ------------------------------------------------ 
+
+saver	jsr gd_sproff
+	lda gd_modswitch
+	pha 
+	lda ls_flen
+	beq st3
+
+	sta wflen
+	lda #1
+	sta adcnt
+
+	jsr wopen
+	bne st2
+	jsr getname
+	ldx #12
+	jsr ckout
+	jsr gd_clrms
+
+	jsr dohmfli
+
+st2	jsr clrch
+	lda #12
+	jsr close
+	jsr err9
+	bne st3
+	jsr setname
+
+st3	pla 
+	sta gd_modswitch
+	jsr gd_spron
+
+	sec 
+	rts 
+
+; --------------------------- 
+; --------------------------- Input Routines
+
+!src "input.inc"
+
+; --------------------------- 
+; --------------------------- 
+
+pw	!tx "w,p,"
+drinit	!tx "i0"
+wflen	!by 0
+
+; ------------------------------------------------ 
+
+wopen	jsr inull
+	bne err8
+	ldy wflen
+	ldx #3
+wo1	lda pw,x
+	sta ls_nambuf,y
+	iny 
+	dex 
+	bpl wo1
+	sty wflen
+	lda #12
+	tay 
+	ldx ls_drive
+	jsr filpar
+	lda wflen
+	ldx #<ls_nambuf
+	ldy #>ls_nambuf
+	jsr filnam
+	jsr copen
+	jmp err9
+
+inull	ldx #<drinit
+	ldy #>drinit
+	lda #2
+	jsr gd_sendcom
+err9	jsr gd_xmess
+	lda ls_err2
+	and #15
+err8	sec 
+	rts 
+
+; --------------------------- Activity Gauge
+
+messout   ldx #<message	; display message and gauge
+	ldy #>message
+	jmp gd_xtxout2
+
+tcopy	ldy #0		; Select message
+tc0	lda txt,x		; in .x: offset to message
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+
+action	dec adcnt
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	cpy #20
+	bne act0
+	jsr clrmess
+act0	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts
+
+clrmess   ldx #20		; clear gauge bar
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0		; init counters
+	ldx #7	
+	sty offy
+	stx offx
+	rts
+
+filltab	!by 160,93,103,127,126,124,105,109
+
+cntwert	!by 109
+
+txt	!scr "HiresMraw  @"
+
+message	!fill 11,32
+mess	!fill 21,32
+	!by 0
+
+; ----------------------------------------- Image Information Handler
+
+getname	ldx #0
+si0	lda ls_lastname,x	; name of loaded picture
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+setname	lda #0
+	ldx #<ls_picname
+	ldy #>ls_picname
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4 	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!fill 16,32
+	!by 0
+
+; ------------------------------------------------ Write File
+;        write hiresmanager
+
+dohmfli	jsr gd_clrms
+	ldx #0
+	jsr tcopy
+
+	jsr dogod		; Write GoDot signature into file
+	jsr dobmap	; write bitmap
+	jsr dovrams	; write vrams
+	rts 
+
+; ------------------------------------------------ 
+
+dogod	jsr makec64
+
+	lda #<sy_4bit
+	jsr bsout
+	lda #>sy_4bit
+	jsr bsout
+
+	lda #$ff		; first row: indent
+	ldx #80
+gl0	jsr write
+	dex 
+	bne gl0
+
+	ldx #0		; signature ("GoDot!...")
+gl1	lda hmgod,x
+	jsr write
+	inx 
+	cpx #160
+	bne gl1
+
+	ldx #80		; outdent
+gl2	jsr write
+	dex 
+	bne gl2
+	rts 
+
+; ------------------------------------------------ Write VRams
+
+dovrams	lda #0
+	sta vrcnt
+
+vrloop	lda #0		; write FLI bug bytes
+	ldx #3
+vl0	jsr write
+	dex 
+	bne vl0
+
+	lda #$6f		; white on blue
+	ldx #37
+vl1	jsr write		; write first row colors
+	dex 
+	bne vl1
+
+	lda vrcnt
+	ldx #>$4500
+	sta src
+	stx src+1
+
+loop12	ldy #15
+	lda #0		; clear histogram
+ch3	sta hist,y
+	dey 
+	bpl ch3
+
+	ldy #3
+hl4	lda (src),y	; count colors in 1 rasterline
+	sta bbuf
+	and #$0f
+	tax 
+	inc hist,x	; right pixel
+	lda bbuf
+	lsr 
+	lsr 
+	lsr 
+	lsr 
+	tax 
+	inc hist,x	; left pixel (of 8 pixels)
+	dey 
+	bpl hl4
+
+	lda #0		; find most frequent one
+	sta max
+	ldy #15
+m1	lda hist,y
+	beq s13
+	cmp max
+	beq s13
+	bcc s13
+	sta max
+	sty col0		; and store it
+s13	dey 
+	bpl m1
+
+	lda #32
+	sta col0+1
+	ldx col0
+	lda #0
+	sta hist,x
+
+	sta max		; find next most frequent color
+	ldy #15
+m2	lda hist,y
+	beq s15
+	cmp max
+	beq s15
+	bcc s15
+	sta max
+	sty col0+1	; and store it
+s15	dey 
+	bpl m2
+
+s14	lda col0+1	; combine them
+	asl 
+	asl 
+	asl 
+	asl 
+	ora col0
+	tax 
+	lda c64,x		; get their c64 value from tab
+
+	jsr write		; write one byte
+
+	lda src		; proceed to next tile
+	clc 
+	adc #32
+	sta src
+	bcc s17
+	inc src+1
+s17	lda src+1
+	cmp #>sy_bigbuffer	; until end of 4bit
+	beq s18
+	jmp loop12
+
+s18	lda #0
+	ldy #24		; write 24 gap bytes
+l24	jsr write
+	dey 
+	bne l24
+
+	lda vrcnt		; proceed to next rasterline
+	clc 		; (thus to next VRam)
+	adc #4
+	sta vrcnt
+	cmp #32		; all through?
+	beq ok12
+	jmp vrloop	; no, loop
+
+ok12	rts 
+
+; ------------------------------------------------ Write Bitmap
+
+dobmap	lda #<$4500	; skip first blockrow
+	ldx #>$4500
+	sta src
+	stx src+1
+
+bmloop	lda #8		; count rasterlines
+	sta zlcnt
+
+zlloop	ldy #15		; clear histogram
+	lda #0
+ch4	sta hist,y
+	dey 
+	bpl ch4
+
+	ldy #3
+hl5	lda (src),y	; count # of colors in 8 pixels
+	sta bbuf
+	and #$0f
+	tax 
+	inc hist,x	; of right pixel
+	lda bbuf
+	lsr 
+	lsr 
+	lsr 
+	lsr 
+	tax 
+	inc hist,x	; of left pixel
+	dey 
+	bpl hl5
+
+	lda #32
+	sta col0+1
+	lda #0
+	sta max
+
+	ldy #15
+m11	lda hist,y	; find most frequent one
+	beq s20
+	cmp max
+	beq s20
+	bcc s20
+	sta max
+	sty col0		; and store
+s20	dey 
+	bpl m11
+
+	ldx col0		; clear it from tab
+	lda #0
+	sta hist,x
+	sta max
+
+	ldy #15
+m21	lda hist,y	; find second most frequent color
+	beq s22
+	cmp max
+	beq s22
+	bcc s22
+	sta max
+	sty col0+1	; store it
+s22	dey 
+	bpl m21
+
+	lda #0		; sort
+	sta nr0
+	lda #$ff
+	sta nr0+1
+	lda col0
+	cmp col0+1
+	bcc noswap
+	lda col0
+	tax 
+	lda nr0
+	tay 
+	lda col0+1
+	sta col0
+	lda nr0+1
+	sta nr0
+	stx col0+1
+	sty nr0+1
+noswap	lda col0
+	clc 
+	adc col0+1
+	lsr 
+	cmp #16
+	bcc s24
+	lda #15
+s24	sta hend
+
+	ldx #$ff
+	lda nr0
+htl	inx 
+	sta htab,x
+	cpx hend
+	bcc htl
+	cpx #15
+	bcs s25
+	lda nr0+1
+htl1	inx 
+	sta htab,x
+	cpx #15
+	bcc htl1
+
+s25	lda #0
+	sta byte
+	ldy #3		; now assign to pixel patterns
+rl	lda (src),y
+	sta bbuf
+	and #$0f
+	tax 
+	lda htab,x
+	and mask,y
+	ora byte
+	sta byte
+	lda bbuf
+	lsr 
+	lsr 
+	lsr 
+	lsr 
+	tax 
+	lda htab,x
+	and mask+4,y
+	ora byte
+	sta byte
+	dey 
+	bpl rl
+
+	jsr write		; and write to file
+
+	lda src		; next rasterline
+	clc 
+	adc #4
+	sta src
+	bne s26
+	inc src+1
+s26	dec zlcnt		; until 8
+	beq s27
+	jmp zlloop
+
+s27	lda src+1		; then proceed to next tile
+	cmp #>sy_bigbuffer	; until end of 4bit
+	beq ok121
+	jmp bmloop
+
+ok121	ldy #192
+l192	jsr write		; write 192 gap bytes 
+	dey 
+	bne l192
+	rts 
+
+; ------------------------------------------------ 
+
+mask	!by $40,$10,$04,$01
+	!by $80,$20,$08,$02
+
+; ------------------------------------------------ 
+
+write	pha 
+	txa 
+	pha 
+	tya 
+	pha 
+	jsr action
+	pla 
+	tay 
+	pla 
+	tax 
+	pla 
+	jmp bsout
+
+; ------------------------------------------------ 
+
+makec64	ldy #0
+mc64	tya 
+	lsr 
+	lsr 
+	lsr 
+	lsr 
+	tax 
+	lda cols64,x
+	and #$f0
+	sta bbuf
+	tya 
+	and #$0f
+	tax 
+	lda cols64,x
+	and #$0f
+	ora bbuf
+	sta c64,y
+	iny 
+	bne mc64
+	rts 
+
+; ------------------------------------------------ 
+
+cols64	!by $00,$66,$99,$bb
+	!by $22,$44,$88,$cc
+	!by $ee,$aa,$55,$ff
+	!by $33,$77,$dd,$11
+
+col0	!by 0,0
+blcnt	!by 0
+vrcnt	!by 0
+zlcnt	!by 0
+
+; ------------------------------------------------ Signature
+; first blockrow: GoDot! C64 iMAGE PROCESSiNG
+
+hmgod	!by $ff,$ff,$ff,$83,$3f,$32,$03,$ff	; 21 tiles
+	!by $ff,$ff,$ff,$fc,$0f,$64,$0c,$ff
+	!by $ff,$ff,$ff,$1f,$cc,$c9,$0c,$ff
+	!by $ff,$ff,$ff,$f9,$30,$99,$39,$ff
+	!by $ff,$ff,$ff,$e7,$67,$ff,$e7,$ff
+	!by $ff,$ff,$ff,$ff,$ff,$fe,$ff,$ff
+	!by $ff,$ff,$ff,$0c,$ff,$78,$0c,$ff
+	!by $ff,$ff,$ff,$27,$fc,$20,$7c,$ff
+	!by $ff,$ff,$ff,$fe,$ff,$fe,$fe,$ff
+	!by $ff,$ff,$ff,$40,$cf,$49,$49,$ff
+	!by $ff,$ff,$ff,$71,$3f,$20,$24,$ff
+	!by $ff,$ff,$ff,$c2,$9f,$92,$82,$ff
+	!by $ff,$ff,$ff,$0f,$ff,$3f,$0f,$ff
+	!by $ff,$ff,$ff,$86,$f3,$86,$9e,$ff
+	!by $ff,$ff,$ff,$1c,$c9,$19,$4c,$ff
+	!by $ff,$ff,$ff,$70,$3f,$27,$70,$ff
+	!by $ff,$ff,$ff,$82,$ff,$8f,$82,$ff
+	!by $ff,$ff,$ff,$79,$1c,$cf,$18,$ff
+	!by $ff,$ff,$ff,$e4,$7f,$24,$64,$ff
+	!by $ff,$ff,$ff,$38,$93,$92,$90,$ff
+	!by $ff,$ff,$ff,$7f,$ff,$7f,$7f,$ff
+
+; ------------------------------------------------ 
+
+modend	!eof
