@@ -9,6 +9,8 @@
 ;  Saver for unpacked images of Hires Manager
 ;
 ;   1.00, 03.05.93, first release
+;   1.01, 19.09.18, added forgotten image information
+;                   code slightly optimized
 ;
 ; ------------------------------------------------ 
 
@@ -41,8 +43,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "HiresManager raw"
-	!tx "1.00"
-	!tx "03.05.93"
+	!tx "1.01"
+	!tx "19.09.18"
 	!tx "A.Dettke/W.Kling"
 addtxt	!tx "GoDotCouldMakeAB"
 	!tx "etterFLI!!!!!!!!"
@@ -183,7 +185,7 @@ filltab	!by 160,93,103,127,126,124,105,109
 
 cntwert	!by 109
 
-txt	!scr "HiresMraw  @"
+txt	!scr " HiManRaw  @"
 
 message	!fill 11,32
 mess	!fill 21,32
@@ -240,10 +242,7 @@ dogod	jsr makec64
 	jsr bsout
 
 	lda #$ff		; first row: indent
-	ldx #80
-gl0	jsr write
-	dex 
-	bne gl0
+	jsr gl0
 
 	ldx #0		; signature ("GoDot!...")
 gl1	lda hmgod,x
@@ -252,7 +251,7 @@ gl1	lda hmgod,x
 	cpx #160
 	bne gl1
 
-	ldx #80		; outdent
+gl0	ldx #80		; outdent
 gl2	jsr write
 	dex 
 	bne gl2
@@ -265,15 +264,11 @@ dovrams	lda #0
 
 vrloop	lda #0		; write FLI bug bytes
 	ldx #3
-vl0	jsr write
-	dex 
-	bne vl0
+	jsr gl2
 
 	lda #$6f		; white on blue
 	ldx #37
-vl1	jsr write		; write first row colors
-	dex 
-	bne vl1
+	jsr gl2		; write first row colors
 
 	lda vrcnt
 	ldx #>$4500
@@ -356,10 +351,8 @@ s17	lda src+1
 	jmp loop12
 
 s18	lda #0
-	ldy #24		; write 24 gap bytes
-l24	jsr write
-	dey 
-	bne l24
+	ldx #24		; write 24 gap bytes
+	jsr gl2
 
 	lda vrcnt		; proceed to next rasterline
 	clc 		; (thus to next VRam)
@@ -516,11 +509,9 @@ s27	lda src+1		; then proceed to next tile
 	beq ok121
 	jmp bmloop
 
-ok121	ldy #192
-l192	jsr write		; write 192 gap bytes 
-	dey 
-	bne l192
-	rts 
+ok121	ldx #192
+	lda #0
+l192	jmp gl2		; write 192 gap bytes 
 
 ; ------------------------------------------------ 
 
