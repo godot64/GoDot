@@ -1,0 +1,663 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ------------------------------------------------ 
+;
+;  ldr.ScTDigitizer
+;    Lader für den Video-Digitizer von Scanntronik
+; 
+;  1.00, 27.10.93, first release
+;  1.01, 15.05.97,
+;  1.02, 25.04.97
+;  1.03, 19.07.99,
+;  ...
+;  1.06, 20.05.00, 
+;
+; ------------------------------------------------ 
+
+; ------------------------------------------------ Equates
+
+	fourbit		= $30
+	mask		= $32
+	skip		= $34
+	buf0		= $35
+	bycnt		= $37
+	blcnt		= $38
+	rcnt		= blcnt
+
+	src		= $b0
+	sadr		= $b2
+	off0		= $b4
+	off1		= $b5
+	dst		= $f7
+	buf		= dst
+	src0		= $f9
+	dst0		= $fb
+	adcnt		= $fd
+	cntl8		= $ff
+
+	sprptr		= $07f8
+	spr255		= $3fc0
+
+	spr2x		= $d004
+	spr2y		= $d005
+	msbx		= spritehi
+	scrcontrol	= $d011
+	spren		= $d015
+	sprxe		= $d01d
+	border		= $d020
+	sprcol2		= $d029
+
+	cia1porta		= $dc00
+	cia1portb		= $dc01
+	cia1ta		= $dc04
+	cia1ser		= $dc0c
+	cia1icr		= $dc0d
+	cia1cra		= $dc0e
+
+	cia2portb		= $dd01
+	cia2ddrb		= $dd03
+	cia2ta		= $dd04
+	cia2ser		= $dd0c
+	cia2icr		= $dd0d
+	cia2cra		= $dd0e
+
+	buf5		= $c900
+	buf4		= $c905
+	buffer		= $ca00
+
+
+; --------------------------------------------- Module Header
+
+header	jmp start
+	!by $80
+	!by 4
+	!by 0
+	!wo modend
+	!wo 0
+	!tx "ScTDigitizer p/n"
+	!tx "1.06"
+	!tx "20.05.00"
+	!tx "W.Kling/A.Dettke"
+
+; ----------------------------------------- Main
+
+start	ldx #0
+	stx status
+	ldx #<fourlst
+	ldy #>fourlst
+	jmp gd_xmloop
+
+; --------------------------------------------- Set Video Mode
+
+ev_video	lda video		; Toggle
+	cmp #1
+	bne ecl0
+	lda #$ff
+	sta video
+ecl0	inc video
+	ldx video
+	lda videoffs,x
+	tay
+	ldx #5
+ecl1	lda videotx,y
+	sta videotxt,x
+	dey
+	dex
+	bpl ecl1
+	ldx video
+	bne ecl2
+	lda #24
+	!by $2c
+ecl2	lda #12
+	sta skipval
+	jsr gettab
+	ldy #6
+	jmp gd_xtxout1	; show current state
+
+; --------------------------------------------- Digitize
+
+ev_dig	lda #0		; preparations: mouse pointer off
+	sta spren
+	sta sc_stop	; init Stop
+	lda #>sy_4bit	; start address $4000
+	sta fourbit+1
+	ldy #<sy_4bit	; .y=0
+	sty fourbit
+	lda skipval	; skip n pixels vertically (dep. on PAL or NTSC)
+	sta skip
+
+	ldx #128		; clear 128 pages of ram up to $bfff
+	tya		; .y=0
+dg0	sta (fourbit),y
+	iny
+	bne dg0
+	inc fourbit+1
+	dex
+	bne dg0
+
+	lda #$43		; start from $4300
+	sta fourbit+1	; (768 bytes 'indented'=3 more pages up to $bfff)
+
+	lda #160		; 160 double stripes (320 pixels width)
+	sta sc_merk
+	lda #$0b		; screen off
+	sta scrcontrol
+	bne dg01
+
+; ------------------------------------------------ 
+
+jende	jmp ende
+
+; --------------------------------------------- Read Digitizer
+
+dg01	sei
+	ldx #1
+	stx cia1ta
+	stx cia2ta
+	dex
+	stx cia1ta+1
+	stx cia2ta+1
+	lda #$41		; CIA mode: Serial, Start
+	sta cia1cra
+	sta cia2cra
+	stx cia2ser
+	dex
+	stx cia1ser
+
+	ldx #$7f		; initialize STOP
+	stx cia1porta
+
+	inx		; out: $80
+	stx cia2ddrb
+	stx cia2portb
+
+	lda #0		; initialize digitizer
+	sta cia2portb
+	ldx #12
+sdt1	lda #$aa
+	sta cia1ser
+sdt0	lda cia1icr	; read serial pin
+	and #8
+	beq sdt0
+	dex
+	bne sdt1
+
+loop1	lda #16		; index to mask for left pixel
+	sta mask
+	lda #1		; flag: read left pixel
+	sta sc_merk+1	; (loop1: 9 cycles so far)
+
+loop2	lda cia1portb	; STOP?
+	bpl dg21
+	bit cia2portb	; digitizer active?
+	bvs loop2
+
+dg2	lda cia1portb
+dg21	bpl jende
+	bit cia2portb
+	bvc dg2
+
+	ldx #$14		; synchronization
+dg3	bit cia2portb
+	bvc dg2
+	dex
+	bne dg3
+
+	lda #$99
+	sta cia1ser
+	ldx #$14
+sdt4	lda cia2icr
+	and #$10
+	beq sdt4
+	dex
+	bpl sdt4
+
+; --------------------------------------------- Get Data
+
+	ldy #0		; get data
+innen	lda cia2icr
+	and #$10
+	beq innen
+	lda cia2portb
+	cmp #$40		; until no more data
+	bcc ende
+
+	lsr		; make 16 grays
+	lsr
+
+	and #$0f		; assign to pixel pattern
+	ora mask		; pixel left/right
+	tax
+	lda tab16,x
+	tax
+
+	lda skip		; skip first 24 pixels
+	beq dg5		; don't skip rest
+
+	ldx #2		; waste time (20 cycles)
+dg51	dex		; exactly as much as at dg5
+	bne dg51
+	dec skip		; skip 24 pixels
+	bne innen		; (up to here)
+
+dg5	txa 		; otherwise store pixel pattern
+	ora (fourbit),y
+	sta (fourbit),y
+	
+	iny		; count vertical pixels
+	cpy #200		; downto bottom of screen
+	bne innen		; get 1 stripe (dg5 has 20 cycles)
+
+	lda skipval	; re-init skip counter
+	sta skip
+
+dg4	ldx sc_merk+1	; get flag
+	dex
+	bmi dg6		; stripe finished if negative
+
+	lda lire,x	; set mask to 'right pixel'
+	sta mask		; (13 cycles)
+	stx sc_merk+1	; set flag to 'right pixel'
+	ldx #5		; waste time (27 cycles, like dg6)
+dg41	dex
+	bne dg41
+	jmp loop2		; (40 cycles in all)
+
+dg6	nop		; waste time (2 cycles)
+	clc		; add 200 for next stripe
+	lda fourbit
+	adc #200
+	sta fourbit
+	lda fourbit+1
+	adc #0
+	sta fourbit+1
+
+dg7	dec sc_merk	; count 160 stripes (downto 0)
+	bne loop11	; (40 cycles incl. start of loop1)
+
+; --------------------------------------------- Disconnect from Digitizer
+
+ende	lda cia1portb
+	bmi ende1
+	inc sc_stop
+
+ende1	ldx #0		; restore CIAs
+	stx cia2ddrb
+	stx cia2cra
+	inx
+	stx cia1cra
+	lda ciat1l
+	sta cia1ta
+	lda ciat1h
+	sta cia1ta+1
+	lda ciat2l
+	sta cia2ta
+	lda ciat2h
+	sta cia2ta+1
+	cli
+
+	lda #$1b		; switch display on
+	sta scrcontrol
+
+	jsr getname	; generate image name
+	jsr setinfo
+	ldx sc_screenvek	; rebuild screen
+	ldy sc_screenvek+1
+	jsr gd_screen
+	jsr gd_spron	; switch mouse pointer on
+
+	lda sc_stop
+	bne ende2
+	jmp tofourbit	; transform data to 4bit image
+
+loop11	jmp loop1
+
+ende2	rts
+
+; --------------------------------------------- Tables
+
+lire	!by 0,16
+
+tab16	!by $00,$01,$02,$03,$04,$05,$06,$07
+	!by $08,$09,$0a,$0b,$0c,$0d,$0e,$0f
+	!by $00,$10,$20,$30,$40,$50,$60,$70
+	!by $80,$90,$a0,$b0,$c0,$d0,$e0,$f0
+
+ciat1l	!by $95
+ciat1h	!by $42
+ciat2l	!by 0
+ciat2h	!by 0
+video	!by 0
+videoffs	!by 5,11
+videotx	!scr " PAL   NTSC "
+skipval	!by 24
+
+; --------------------------------------------- Transform Image Data to 4Bit
+
+tofourbit	lda #4		; first, init progression bar
+	jsr initad
+	jsr convert	; transform digitized data to 4Bit data
+	jsr clearad	; progression bar off
+	lda #$ff		; flag: perform redisplay
+	sta gr_redisp
+
+; ----------------------------------------- Leave Module
+
+cn2	sec
+	rts
+
+; --------------------------------------------- Routines
+
+convert	ldx #0		; set source address to $4300
+	lda #$43
+	stx src0
+	sta src0+1
+	lda #>sy_4bit	; set destination address to $4000
+	stx dst0
+	sta dst0+1
+	lda #200		; set counter for 200 bytes per stripe
+	sta off0
+	lda #$3f		; Start address for stripping: $bf3f
+	ldx #$bf
+	sta sadr
+	stx sadr+1	; re-organize:
+	
+	lda #25		; 25 block lines
+	sta cntl8
+cloop	jsr make8		; make tiles from stripes (in $ca00)
+	lda off0		; store index (first: 200) 
+	sta off1
+	sec		; and subtract 8 (first result: 192)
+	sbc #8
+	sta off0
+	beq cok		; if 0: finished
+
+	lda src0+1	; move on to new start of digitized data 
+	clc
+
+; ------------------------------- new page
+
+	adc #5
+	sta src0+1
+
+	jsr strip8
+
+cok	jsr move8		; put processed data to 4Bit area
+	dec cntl8		; 25 times (number of block lines)
+	bne cloop
+	rts
+
+; --------------------------------------------- Make Tiles
+
+make8	lda src0		; starts from $4300
+	ldx src0+1
+	sta src
+	stx src+1
+	lda #<buffer	; buffer at $ca00
+	ldx #>buffer
+	sta buf0
+	stx buf0+1
+
+	ldx #0		; must be 0
+	lda #40 		; 40 tiles (= 320 pixels)
+	sta blcnt
+bloop	lda #4		; 4 bytes = 8 pixels
+	sta bycnt
+byloop	lda buf0		; set buffer address
+	sta buf
+	lda buf0+1
+	sta buf+1
+
+	ldy #0		; count 8 lines per tile
+mloop0	lda (src),y	; now make tile
+	sta (buf,x)
+	lda buf		; move on to byte below
+	clc
+	adc #4
+	sta buf
+	bcc mskip0
+	inc buf+1
+mskip0	iny		; all lines of a tile?
+	cpy #8
+	bne mloop0
+
+	inc buf0		; next byte to the right (4 times)
+	bne mskip1
+	inc buf0+1
+mskip1	lda src		; add 200 to move on to the next stripe
+	clc
+	adc off0
+	sta src
+	bcc mskip2
+	inc src+1
+mskip2	dec bycnt		; 4 bytes to the right?
+	bne byloop	; no, loop
+
+	lda buf0		; move on to next tile
+	clc
+	adc #28
+	sta buf0
+	bcc mskip3
+	inc buf0+1
+mskip3	dec blcnt		; 40 tiles?
+	bne bloop		; no, loop
+	rts
+
+; --------------------------------------------- Squeeze Data to achieve space
+
+strip8	lda sadr		; first: $bf3f
+	ldx sadr+1
+	sta src
+	stx src+1
+	sta dst
+	stx dst+1
+
+	ldx #160
+sloop0	ldy off0		; first: 192
+sloop1	lda (src),y	; get data from $bfff first ($bf3f+192)
+	sta (dst),y	; first pass: no change, then progressively stripping 8 bytes
+	dey
+	bne sloop1
+	lda src		; subtract 200 from src (first)
+	sec
+	sbc off1
+	sta src
+	bcs sskip0
+	dec src+1
+sskip0	lda dst		; subtract 192 from dst (first)
+	sec		; thus squeezing the data not being processed yet
+	sbc off0		; at the end of the data area
+	sta dst		; (processed data is filled in from the start later)
+	bcs sskip1
+	dec dst+1
+sskip1	dex		; 160 times
+	bne sloop0
+
+	lda sadr		; add 8 to startaddress (for 25 passes)
+	clc
+	adc #8
+	sta sadr
+	rts
+
+; --------------------------------------------- Put Processed Data to 4Bit
+
+move8	lda #<buffer	; set buffer address ($ca00)
+	ldx #>buffer
+	sta src
+	stx src+1
+
+	ldx #5		; 5 pages (= 1280 bytes)
+oloop0	dec adcnt		; decrement activity counter
+	bne oskip0
+	inc spr2y		; then move progression bar
+	inc spr2y+2
+	lda #4		; and re-init counter
+	sta adcnt
+oskip0	ldy #0
+oloop1	lda (src),y	; get data from buffer
+	sta (dst0),y	; put 1280 bytes to $4000
+	iny
+	bne oloop1
+	inc src+1
+	inc dst0+1
+	dex
+	bne oloop0
+	rts
+
+; --------------------------------------------- Generate Image Name
+
+getname	ldx #0
+si0	lda defname,x
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+getdatag	ldx #9
+	ldy #4
+sinfo0	lda dtextc,x
+	sta datatype,y
+	dex
+	dey
+	bpl sinfo0
+	rts
+
+setinfo	jsr getdatag
+	jsr setname
+	jsr setloader
+	jsr setmode
+	jmp setdata
+
+setname	lda #0
+	ldx #<ls_picname
+	ldy #>ls_picname
+	bne si3
+setloader	lda #17
+	ldx #<ls_iloader
+	ldy #>ls_iloader
+	bne si3
+setmode	lda #25
+	ldx #<ls_imode
+	ldy #>ls_imode
+	bne si3
+setdata	lda #33
+	ldx #<ls_idrive
+	ldy #>ls_idrive
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!fill 16,32
+	!by 0
+	!scr "ScTDigi@"
+modetx	!scr "320x200@"
+datatype	!scr "Color@"
+
+htext	!scr "320x200"
+dtextc	!scr "Color"
+dtextg	!scr "Gray "
+
+defname	!by 71,15,68,15,20,68,9,7,9,0 ; "GoDotDigi"
+
+; --------------------------------------------- 
+;
+;   sprite activity display
+;
+; --------------------------------------------- 
+
+clearad	lda spren		; Wanderbalken aus
+	and #$f3
+	sta spren
+	lda msbx
+	and #$f3
+	sta msbx
+	rts
+
+initad	sta adcnt
+	ldy #60
+	lda #0
+-	sta spr255+3,y	; Spriteblock 255 vorbereiten
+	dey 
+	bpl -
+	sty spr255	; dünner Strich
+	sty spr255+1
+	sty spr255+2
+	lda #$0f		; Farbe hellgrau
+	sta sprcol2
+	sta sprcol2+1
+	lda sprxe		; doppelt breit
+	ora #$0c
+	sta sprxe
+
+	lda msbx		; x über 255
+	ora #$0c
+	sta msbx
+	lda #8		; x-Ordinate: 8 (plus 256)
+	sta spr2x
+	lda #$20
+	sta spr2x+2
+	lda #$92		; y-Ordinate: 146
+	sta spr2y		; (im Image Information Fenster)
+	sta spr2y+2
+
+	sty sprptr+2	; Sprite 255
+	sty sprptr+3
+	lda spren
+	ora #$0c		; Activity-Balken aktivieren
+	sta spren
+	lda #5		; Startzähler (5 mal 40 = 200)
+	sta adcnt
+	rts
+
+; ----------------------------------------- Textausgabe
+
+gettab	lda #<videogad
+	sta sc_screentab
+	lda #>videogad
+	sta sc_screentab+1
+	lda #0
+	tax 
+	tay 
+gt0	jsr gd_setpos
+	cpx #3
+	bne gt0
+	stx sc_ho
+	jsr gd_trim
+	jmp gd_initmove
+
+; ----------------------------------------- Screenlist Requester
+
+fourlst	!by 0
+	!by 8,11,18,11,$91
+	!wo 0
+	!scr "ScT Video Digi@"
+videogad	!by 11,21,8,3,$cf
+	!wo ev_video
+videotxt	!scr " PAL  @"
+	!by 14,11,18,3,$ca
+	!wo ev_dig
+	!scr "Get Image@"
+	!by 17,11,18,3,$c9
+	!wo cn2
+	!scr "Cancel@"
+	!by $c0,11,12,6
+	!scr "Video:@"
+	!by $80 
+
+; --------------------------------------------- 
+
+modend	!eof
