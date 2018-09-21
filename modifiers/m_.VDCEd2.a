@@ -1,0 +1,754 @@
+
+	*= $c000
+	!src "..\godotlib.lib"
+	!ct pet
+
+; --------------------------------------
+;
+; mod.VDCEd
+;
+;   1.00,         : first release
+;   1.01, 
+;   1.02, 19.09.93: added Double
+;   1.03, 24.09.93:
+;   1.04, 03.09.95:
+;   1.05, 21.11.17: Update (new reg values, changed "Reset", removed Double)
+;
+; --------------------------------------
+
+; -------------------------------------- Equates
+
+	pport		= $01
+
+	xmrk		= $30
+	lfnr		= $31
+	find		= $32	; /$33
+	only		= $34
+
+	zeile		= sc_merk
+	spalte		= zeile+1
+	vctrl1		= $d011
+	vfast		= $d030
+	vdcstat		= $d600
+	vdcdata		= $d601
+	keybcol		= $dc01
+
+; -------------------------------------- Header
+
+header	jmp start
+	!by $20
+	!by 0
+	!by 0
+	!wo modend
+	!wo 0
+	!tx "VDCEditor       "
+	!tx "1.06"
+	!tx "20.09.18"
+	!tx "A. Dettke       "
+
+; -------------------------------------- Check machine
+
+start	lda rm_vdcflag
+	and #1		; running on a C128?
+	bne st1
+	clc		; no, leave
+	rts
+
+; -------------------------------------- Main
+
+st1	ldx #<vdclst
+	ldy #>vdclst
+	jsr gd_screen
+	jsr recolor
+
+	ldx #36
+st0	jsr readvdc
+	sta vdctab,x
+	sta onstart,x
+	dex
+	bpl st0
+
+st2	jsr shregs
+	jmp gd_eloop
+
+; -------------------------------------- Event: Leave
+
+evcan	sec
+	rts
+
+; -------------------------------------- Event: Reset
+
+evreset	ldx #0
+
+rs1	lda onstart,x
+	sta vdctab,x
+	stx vdcstat
+rs0	bit vdcstat
+	bpl rs0
+	sta vdcdata
+	inx
+	cpx #37
+	bne rs1
+
+	jsr shregs
+	clc
+	rts
+
+; -------------------------------------- Event: Set bitmap start address
+
+evreg12	ldx #13		; reg 12/13 (12=hi,13=lo)
+	lda spalte
+	cmp #18
+	bcc bm0
+	jmp rw0		; inc by 1
+
+bm0	dex		; now: reg 12
+	cmp #16
+	bcc bm1
+	jmp rw0		; inc by 256
+
+bm1	cmp #15
+	bcc bm2
+	jmp rw2		; dec by 256
+
+bm2	inx		; now: reg 13 again
+	jmp rw2		; dec by 1
+
+; -------------------------------------- Event: Set attribute start address
+
+evreg20	ldx #21		; reg 20/21 (20=hi,21=lo)
+	lda spalte
+	cmp #28
+	bcc bm00
+	jmp rw0		; inc by 1
+
+bm00	dex		; now: reg 12
+	cmp #26
+	bcc bm10
+	jmp rw0		; inc by 256
+
+bm10	cmp #25
+	bcc bm20
+	jmp rw2		; dec by 256
+
+bm20	inx		; now: reg 13 again
+	jmp rw2		; dec by 1
+
+; -------------------------------------- Event: Type of RAM
+
+evreg28	ldx #28		; reg 28, bit 4
+	lda vdctab,x
+	sta sc_merk
+	and #$10
+	beq tr0
+	lda sc_merk
+	and #$ef
+	bne tr1
+tr0	lda #$10
+	ora sc_merk
+tr1	sta vdctab,x
+	jmp rw1
+
+; -------------------------------------- Text output Handler
+
+tabigad	!wo reg0
+	!wo reg1
+	!wo reg2
+	!wo reg3
+	!wo reg4
+	!wo reg5
+	!wo reg6
+	!wo reg7
+	!wo reg8
+	!wo reg9
+	!wo reg10
+	!wo reg11
+	!wo reg12
+	!wo dummy
+	!wo reg14
+	!wo dummy
+	!wo reg16
+	!wo dummy
+	!wo reg18
+	!wo dummy
+	!wo reg20
+	!wo dummy
+	!wo reg22
+	!wo reg23
+	!wo reg24
+	!wo reg25
+	!wo reg26
+	!wo reg27
+	!wo reg28
+	!wo reg29
+	!wo reg30
+	!wo reg31
+	!wo reg32
+	!wo dummy
+	!wo reg34
+	!wo reg35
+	!wo reg36
+
+settab	lda #<tabigad
+	sta sc_texttab
+	lda #>tabigad
+	sta sc_texttab+1
+	rts
+
+gettab	lda (sc_texttab),y
+	sta sc_screentab
+	iny
+	lda (sc_texttab),y
+	sta sc_screentab+1
+	lda #0
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #3
+	bne gt0
+	stx sc_ho
+	jsr gd_trim
+	jmp gd_initmove
+
+; -------------------------------------- Show VDC Registers
+
+shregs	jsr settab
+	ldy #0
+	sty sc_loop
+	sty xmrk		; counter for regs in .y
+	sty lfnr
+
+sr0	ldx xmrk		; show vdc registers: regs in .x
+	lda vdctab,x
+
+	cpx #12		; reg 12/13, start_of_graphics?
+	beq sr2
+	cpx #14
+	beq sr2
+	cpx #16
+	beq sr2
+	cpx #18
+	beq sr2
+	cpx #20
+	beq sr2
+	cpx #32
+	bne sr1
+
+sr2	php		; yes, get start address:
+	inx		; .x erhöhen
+	tay		; hi: .y
+	lda vdctab,x	; lo: .a
+	stx xmrk
+	plp
+	beq sr3		; unconditional branch
+
+sr1	ldy #0		; hi_value to convert to decimals
+
+; -------------------------------------- Convert values to decimal numbers
+
+sr3	sty $62		; set hi
+	sta $63		; set lo
+
+	ldy #10		; init output buffer
+	lda #32
+sr4	sta sy_numbers,y
+	sta sc_movetab,y
+	dey
+	bpl sr4
+
+	inc pport		; convert (result in sy_numbers)
+	ldx #$90
+	sec
+	jsr $bc49
+	jsr $bddf
+	dec pport
+
+; -------------------------------------- Output numbers to screen
+
+	ldy #9		; find tail of number
+sr5	dey
+	lda sy_numbers,y
+	bne sr5
+	ldx #6		; make rightbound
+sr6	dex
+	sta sc_movetab,x
+	dey
+	bmi sr7
+	lda sy_numbers,y
+	bne sr6
+
+sr7	lda lfnr		; get current reg counter
+	asl		; double
+	tay		; use as index
+	jsr gettab	; output number
+	jsr gd_xtxout3
+
+	inc xmrk		; inc reg counter
+	ldx xmrk
+	stx lfnr
+	cpx #37		; all through?
+	bcc sr8
+	rts		; yes, finished
+
+sr8	jmp sr0		; no, loop 
+
+; -------------------------------------- Init VDC
+
+setvdc	ldx #0		; reg in .x (starting with reg 0)
+wr1	lda vdctab,x	; data in .a
+write	stx vdcstat
+wr2	bit vdcstat
+	bpl wr2
+	sta vdcdata	; set
+	inx
+	cpx #37
+	bne wr1
+	clc
+	rts
+
+; -------------------------------------- Read from VDC
+
+readvdc	stx vdcstat	; set reg
+tv2	bit vdcstat
+	bpl tv2
+	lda vdcdata	; get data
+	rts
+
+; -------------------------------------- Event: Char rows
+
+evreg6	ldx #6		; reg 6
+rw3	lda spalte
+	cmp #6
+	bcs rw0
+
+rw2	dec vdctab,x	; decrement reg
+
+rw1	jsr shregs	; show
+	jmp setvdc	; update regs
+
+rw0	inc vdctab,x	; increment reg
+	jmp rw1
+
+; -------------------------------------- Event: Chars per row (total)
+
+evreg0	ldx #0		; reg 0
+	!by $2c
+
+; -------------------------------------- Event: Left Border
+
+evreg2	ldx #2		; reg 2
+	!by $2c
+
+; -------------------------------------- Event: Lines total (vertical)
+
+evreg4	ldx #4		; reg 4
+	!by $2c
+
+; -------------------------------------- Event: Set upper border
+
+evreg7	ldx #7		; reg 7
+	!by $2c
+
+; -------------------------------------- Event: Chars per row
+
+evreg1	ldx #1		; reg 1: chars per row
+ch0	lda spalte	; clicked in which column?
+	cmp #7
+ch2	bcs rw0
+	bcc rw2
+
+; -------------------------------------- Event: Line Skip
+
+evreg27	ldx #27		; reg 27
+	lda spalte
+	cmp #26
+	jmp ch2
+
+; -------------------------------------- Event: Set start of horiz. blanking
+
+evreg34	ldx #34
+	!by $2c
+
+; -------------------------------------- Event: Refresh Cycles
+
+evreg36	ldx #36		; reg 36
+	!by $2c
+
+; -------------------------------------- Event: Set end of horiz. blanking
+
+evreg35	ldx #35
+	lda spalte
+	cmp #36
+	jmp ch2
+
+; -------------------------------------- Event: Char Width
+
+evreg22	ldx #22		; reg 22, upper nibble
+	lda spalte
+	cmp #26
+	php
+	jsr ch2
+	ldx #22
+	lda vdctab,x
+	plp
+	bcs +
+	sec
+	adc #32
+	bne ++
++	clc
+	sbc #32
+++	sta vdctab,x
+	jmp rw1
+
+; -------------------------------------- Event: Adjust Interlace mode
+
+evreg8	ldx #8
+	lda #$03
+	bne +
+
+; -------------------------------------- Event: Line height
+
+evreg9	ldx #9		; reg 9 (line height)
+	lda #$1f
++	sta only
+	jsr onlyvalid
+	lda spalte
+	cmp #16
+	jmp ch2
+
+; -------------------------------------- Event: Char height
+
+evreg23	ldx #23		; reg 23 (char height)
+	lda #$1f
+	sta only
+	jsr onlyvalid
+	lda spalte
+	cmp #26
+	jmp ch2
+
+; -------------------------------------- Event: Adjust lines total (vert.)
+
+evreg5	ldx #5		; reg 5
+	lda #$1f
+	sta only
+	jsr onlyvalid
+	lda spalte
+	cmp #6
+	jmp ch2
+
+; -------------------------------------- Event: Horizontal sync
+
+evreg3	ldx #3		; reg 3, lower nibble
+	lda vdctab,x
+	and #15
+	tay		; value to .y
+	lda spalte
+	cmp #6
+	bcc hw0
+hw3	iny
+	cpy #16		; delimit to 15
+	bne hw1
+	sty sc_merk
+hw0	dey
+	bmi hw3
+hw1	sty sc_merk
+
+	lda vdctab,x	; care for upper nibble
+	and #$f0
+hw2	ora sc_merk
+	sta vdctab,x
+	jsr shregs
+	jmp setvdc
+
+; -------------------------------------- Event: Rest
+
+evreg10	nop
+evreg11	nop
+evreg14	nop
+evreg16	nop
+evreg18	nop
+evreg24	nop
+evreg25	nop
+evreg26	nop
+evreg29	nop
+evreg30	nop
+evreg31	nop
+evreg32	nop
+	clc
+	rts
+
+; --------------------------------------
+
+onlyvalid	lda vdctab,x
+	and only
+	sta vdctab,x
+	rts
+
+; --------------------------------------
+
+recolor	ldx #0
+-	lda noregs,x
+	sta find
+	inx
+	lda noregs,x
+	sta find+1
+	stx xmrk
+	eor find
+	beq +
+	ldy #1
+	lda (find),y
+	sta sc_zl
+	inc sc_zl
+	iny
+	lda (find),y
+	sta sc_sp
+	inc sc_sp
+	ldx #2
+	stx sc_br
+	dex
+	stx sc_ho
+	lda sc_normtext
+	jsr colorize
+	ldx xmrk
+	inx
+	bne -
++	rts
+
+colorize	sta sc_chgcol
+	ldx #4
+	jmp gd_fcol	; colorize area (1x1)
+
+; --------------------------------------
+
+vdctab	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0
+
+onstart	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0
+
+noregs	!wo noreg10,noreg11,noreg14
+	!wo noreg16,noreg18,noreg24
+	!wo noreg25,noreg26,noreg29,noreg30
+	!wo noreg31,noreg32, $ffff
+
+; --------------------------------------
+
+skipmk	!by 0
+toff	!by 38,34,36
+
+; --------------------------------------
+
+vdclst	!by $93
+
+reg0	!by 0,3,7,3,$e0
+	!wo evreg0
+	!fill 5,32
+	!by 0
+reg1	!by 3,3,7,3,$e0
+	!wo evreg1
+	!fill 5,32
+	!by 0
+reg2	!by 6,3,7,3,$e0
+	!wo evreg2
+	!fill 5,32
+	!by 0
+reg3	!by 9,3,7,3,$e0
+	!wo evreg3
+	!fill 5,32
+	!by 0
+reg4	!by 12,3,7,3,$e0
+	!wo evreg4
+	!fill 5,32
+	!by 0
+reg5	!by 15,3,7,3,$e0
+	!wo evreg5
+	!fill 5,32
+	!by 0
+reg6	!by 18,3,7,3,$e0
+	!wo evreg6
+	!fill 5,32
+	!by 0
+reg7	!by 21,3,7,3,$e0
+	!wo evreg7
+	!fill 5,32
+	!by 0
+
+reg8	!by 0,13,7,3,$e0
+	!wo evreg8
+	!fill 5,32
+	!by 0
+reg9	!by 3,13,7,3,$e0
+	!wo evreg9
+	!fill 5,32
+	!by 0
+reg10	!by 6,13,7,3,$e0
+	!wo evreg10
+	!fill 5,32
+	!by 0
+reg11	!by 9,13,7,3,$e0
+	!wo evreg11
+	!fill 5,32
+	!by 0
+reg12	!by 12,13,7,3,$e0
+	!wo evreg12
+	!fill 5,32
+	!by 0
+reg14	!by 15,13,7,3,$e0
+	!wo evreg14
+	!fill 5,32
+	!by 0
+reg16	!by 18,13,7,3,$e0
+	!wo evreg16
+	!fill 5,32
+	!by 0
+reg18	!by 21,13,7,3,$e0
+	!wo evreg18
+	!fill 5,32
+	!by 0
+
+reg20	!by 0,23,7,3,$e0
+	!wo evreg20
+	!fill 5,32
+	!by 0
+reg22	!by 3,23,7,3,$e0
+	!wo evreg22
+	!fill 5,32
+	!by 0
+reg23	!by 6,23,7,3,$e0
+	!wo evreg23
+	!fill 5,32
+	!by 0
+reg24	!by 9,23,7,3,$e0
+	!wo evreg24
+	!fill 5,32
+	!by 0
+reg25	!by 12,23,7,3,$e0
+	!wo evreg25
+	!fill 5,32
+	!by 0
+reg26	!by 15,23,7,3,$e0
+	!wo evreg26
+	!fill 5,32
+	!by 0
+reg27	!by 18,23,7,3,$e0
+	!wo evreg27
+	!fill 5,32
+	!by 0
+reg28	!by 21,23,7,3,$e0
+	!wo evreg28
+	!fill 5,32
+	!by 0
+
+reg29	!by 0,33,7,3,$e0
+	!wo evreg29
+	!fill 5,32
+	!by 0
+reg30	!by 3,33,7,3,$e0
+	!wo evreg30
+	!fill 5,32
+	!by 0
+reg31	!by 6,33,7,3,$e0
+	!wo evreg31
+	!fill 5,32
+	!by 0
+reg32	!by 9,33,7,3,$e0
+	!wo evreg32
+	!fill 5,32
+	!by 0
+reg34	!by 12,33,7,3,$e0
+	!wo evreg34
+	!fill 5,32
+	!by 0
+reg35	!by 15,33,7,3,$e0
+	!wo evreg35
+	!fill 5,32
+	!by 0
+reg36	!by 18,33,7,3,$e0
+	!wo evreg36
+	!fill 5,32
+	!by 0
+
+	!by 21,30,6,3,$c0
+	!wo evreset
+	!scr "Rset@"
+	!by 21,36,4,3,$c0
+	!wo evcan
+	!scr "Ok@"
+
+	!by $c0,0,0,2
+	!scr " 0@"
+	!by $c0,3,0,2
+	!scr " 1@"
+	!by $c0,6,0,2
+	!scr " 2@"
+	!by $c0,9,0,2
+	!scr " 3@"
+	!by $c0,12,0,2
+	!scr " 4@"
+	!by $c0,15,0,2
+	!scr " 5@"
+	!by $c0,18,0,2
+	!scr " 6@"
+	!by $c0,21,0,2
+	!scr " 7@"
+noreg8	!by $c0,0,10,2
+	!scr " 8@"
+	!by $c0,3,10,2
+	!scr " 9@"
+noreg10	!by $c0,6,10,2
+	!scr "10@"
+noreg11	!by $c0,9,10,2
+	!scr "11@"
+	!by $c0,12,10,2
+	!scr "12@"
+noreg14	!by $c0,15,10,2
+	!scr "14@"
+noreg16	!by $c0,18,10,2
+	!scr "16@"
+noreg18	!by $c0,21,10,2
+	!scr "18@"
+noreg20	!by $c0,0,20,2
+	!scr "20@"
+	!by $c0,3,20,2
+	!scr "22@"
+	!by $c0,6,20,2
+	!scr "23@"
+noreg24	!by $c0,9,20,2
+	!scr "24@"
+noreg25	!by $c0,12,20,2
+	!scr "25@"
+noreg26	!by $c0,15,20,2
+	!scr "26@"
+	!by $c0,18,20,2
+	!scr "27@"
+	!by $c0,21,20,2
+	!scr "28@"
+noreg29	!by $c0,0,30,2
+	!scr "29@"
+noreg30	!by $c0,3,30,2
+	!scr "30@"
+noreg31	!by $c0,6,30,2
+	!scr "31@"
+noreg32	!by $c0,9,30,2
+	!scr "32@"
+	!by $c0,12,30,2
+	!scr "34@"
+	!by $c0,15,30,2
+	!scr "35@"
+	!by $c0,18,30,2
+	!scr "36@"
+	!by $80
+
+dummy	!by 18,13,7,3
+	!fill 5,32
+	!by 0
+
+; --------------------------------------
+
+modend	!eof
