@@ -1,0 +1,443 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ------------------------------------------------ 
+;
+;  mod.4Bit2VDC1
+;    Modul zum Anzeigen von Bildern auf dem VDC (monochrom)
+; 
+;  1.00, 22.10.00, first release
+;
+; ------------------------------------------------ 
+
+; ------------------------------------------------ Equates
+
+	vdcscreen		= 12	; VDC registers
+	update		= 18
+	gmode		= 25
+	color		= 26
+	bytes		= 30
+	data		= 31
+
+	plane		= $30
+	dbl		= $35
+	vertcnt		= $36
+
+	src		= $b0
+	ccnt		= src
+	bitcnt		= $b2
+	bcnt1		= $b3
+	src0		= $f7
+	hold		= $f9
+	lcnt8		= $fa
+	lcnt		= $fb
+	bcnt		= $fc
+	adcnt		= $fd
+	byte		= $ff
+
+	sprptr		= $07f8
+	spr255		= $3fc0
+
+	spr2x		= $d004
+	spr2y		= $d005
+	msbx		= spritehi
+	scrcontrol	= $d011
+	spren		= $d015
+	sprxe		= $d01d
+	border		= $d020
+	sprcol2		= $d029
+
+	oszi3		= $d40e
+	wave		= $d412
+	filter		= $d418
+	rausch		= $d41b
+
+	buf		= $c500
+
+	vdcstat		= $d600
+	vdcdata		= $d601
+
+; ------------------------------------------------------------ 
+
+header	jmp start
+	!by $20
+	!by 0
+	!by 0
+	!wo modend
+	!wo 0
+	!tx "VDC 640x200 mono"
+	!tx "1.01"
+	!tx "21.09.18"
+	!tx "W.Kling/A.Dettke"
+
+; ------------------------------------------------------------ 
+
+start	lda rm_vdcflag	; running on a 128?
+	beq novdc		; no, blink border & leave
+
+	lda gr_dither	; set dither mode
+	tax
+	lda dlo,x
+	sta dmode
+	lda dhi,x
+	sta dmode+1
+
+	jsr initvdc	; init vdc (if there is one)
+
+	lda #$80		; feed randomizer
+	sta filter
+	sta oszi3
+	sta oszi3+1
+	lda #0
+	sta wave
+	lda #$81
+	sta wave
+
+	jsr initad	; init activity bar
+
+	jsr vdcview	; render 4bit to vdc
+
+; ------------------------------------------------ Abschluss Activity
+
+clearad	lda spren		; Wanderbalken aus
+	and #$f3
+	sta spren
+	lda msbx
+	and #$f3
+	sta msbx
+	clc 		; fertig
+	rts 
+
+; ----------------------------------------------------- 
+
+novdc	lda border
+	pha
+	lda #2
+	sta border
+	ldx #$40
+	jsr gd_dl2
+	pla
+	sta border
+	clc
+	rts
+
+; ------------------------------------------------ Activity
+
+adinc	dec adcnt
+	bne +
+	inc spr2y
+	inc spr2y+2
+	lda #5
+	sta adcnt
++	rts 
+
+; ------------------------------------------------ Init Activity
+
+initad	ldy #60
+	lda #0
+-	sta spr255+3,y	; Spriteblock 255 vorbereiten
+	dey 
+	bpl -
+	sty spr255	; dünner Strich
+	sty spr255+1
+	sty spr255+2
+	lda #$0f		; Farbe hellgrau
+	sta sprcol2
+	sta sprcol2+1
+	lda sprxe		; doppelt breit
+	ora #$0c
+	sta sprxe
+
+	lda msbx		; x über 255
+	ora #$0c
+	sta msbx
+	lda #8		; x-Ordinate: 8 (plus 256)
+	sta spr2x
+	lda #$20
+	sta spr2x+2
+	lda #$92		; y-Ordinate: 146
+	sta spr2y		; (im Image Information Fenster)
+	sta spr2y+2
+
+	sty sprptr+2	; Sprite 255
+	sty sprptr+3
+	lda spren
+	ora #$0c		; Activity-Balken aktivieren
+	sta spren
+	lda #5		; Startzähler (5 mal 40 = 200)
+	sta adcnt
+	rts
+
+; ------------------------------------------------ 
+
+vdcview	lda #<sy_4bit
+	ldx #>sy_4bit
+	sta src0
+	sta src
+	stx src0+1
+	stx src+1
+
+	lda #0
+	sta dbl
+	sta vertcnt
+	lda #25
+	sta lcnt8
+
+lnloop8	lda #0
+	sta lcnt
+
+lnloop	jsr adinc		; activity
+ads0	ldx #0
+
+zloop	lda #2
+	sta bcnt1
+
+byloop	lda #$c0
+	sta bitcnt
+
+	lda #0
+	sta byte
+btloop	ldy #0
+	lda (src),y	; get left pixel
+	pha
+	lsr
+	lsr
+	lsr
+	lsr
+	tay
+	lda gr_btab,y	; care for balancing
+	jsr makebyte	; dither
+	lsr bitcnt
+	lsr bitcnt
+	pla
+	and #$0f		; get right pixel
+	tay
+	lda gr_btab,y
+	jsr makebyte	; dither
+
+	inc src
+	bne s3
+	inc src+1
+s3	lsr bitcnt
+	lsr bitcnt
+	bcc btloop
+
+	sta buf,x		; store double scaled pixel to buffer
+	inx
+	dec bcnt1
+	bne byloop
+
+	lda src		; proceed to next tile
+	clc
+	adc #28
+	sta src
+	bcc s4
+	inc src+1
+
+s4	cpx #80		; until 80 bytes (one rasterline)
+	bne zloop
+
+	jsr moveline	; render to vdc
+
+	lda src0		; and proceed to next one
+	clc
+	adc #4
+	sta src0
+	sta src
+	bcc s5
+	inc src0+1
+s5	lda src0+1
+	sta src+1
+	inc lcnt		; count rasterlines
+	lda #8
+	cmp lcnt
+	bne lnloop
+
+	lda src0		; proceed to next blockrow
+	clc
+	adc #<1248
+	sta src0
+	sta src
+	lda src0+1
+	adc #>1248
+	sta src0+1
+	sta src+1
+	dec lcnt8		; count blockrows
+	beq done
+	jmp lnloop8
+
+done	rts
+
+; ------------------------------------------------ 
+
+makebyte	jmp (dmode)
+
+dmode	!wo 0
+
+; ------------------------------------------------ 
+
+dithoff	cmp #8
+	bpl do0
+	lda #0
+	!by $2c
+do0	lda bitcnt
+	ora byte
+	sta byte
+	rts
+
+; ------------------------------------------------ 
+
+dithrst	ldy lcnt
+	ora offs,y
+	tay
+	lda gr_orderedpat,y
+	and bitcnt
+	ora byte
+	sta byte
+	rts
+
+; ------------------------------------------------ 
+
+dithpat	asl
+	asl
+	asl
+	ora lcnt
+	tay
+	lda gr_pattern,y
+	and bitcnt
+	ora byte
+	sta byte
+	rts
+
+; ------------------------------------------------ 
+
+dithnoi	beq dn0
+	cmp #15
+	beq dn1
+	ldy #0
+	sta hold
+	lda rausch
+	and #$0f
+	cmp hold
+	bcs dn3
+	ldy #$aa
+dn3	lda rausch
+	and #$0f
+	cmp hold
+	tya
+	bcs dn2
+	ora #$55
+dn2	!by $2c
+dn1	lda #$ff
+	and bitcnt
+dn0	ora byte
+	sta byte
+	rts
+
+; ------------------------------------------------ 
+
+dithrnd	cmp #8
+	beq dr0
+	bcs dr1
+	bcc dr2
+dr0	lda rausch
+	!by $2c
+dr1	lda bitcnt
+	and bitcnt
+	!by $2c
+dr2	lda #0
+	ora byte
+	sta byte
+	rts
+
+; ------------------------------------------------------------ 
+
+writedata	ldx #data
+setreg	stx vdcstat
+wll	bit vdcstat
+	bpl wll
+	sta vdcdata
+	rts
+
+; ------------------------------------------------------------ 
+
+initvdc	ldx #0		; 640x200 einstellen
+vi0	lda vdctab,x
+	jsr setreg
+	inx
+	cpx #37
+	bne vi0
+
+	sei
+	ldx #gmode
+	lda #$87
+	jsr setreg
+
+	ldx #update
+	lda #0
+	jsr setreg
+	inx
+	jsr setreg
+
+	jsr writedata
+
+	ldy #64
+	ldx #bytes
+ivl	jsr setreg
+	dey
+	bne ivl
+
+	ldx #update
+	jsr setreg
+	inx
+	jsr setreg
+
+	cli
+	rts
+
+; ------------------------------------------------------------ 
+
+vdctab	!by $7f,$50,$66,$49,$27,$e0,$19,$20
+	!by $fc,$e7,$a0,$e7,$00,$00,$00,$00
+	!by $00,$00,$00,$00,$08,$00,$78,$e8
+	!by $20,$87,$f0,$00,$2f,$e7,$00,$00
+	!by $00,$00,$7d,$64
+	!by $f5
+
+; ------------------------------------------------------------ 
+
+moveline	sei
+
+	ldy #0		; write rasterline to vdc
+mll	lda buf,y
+	jsr writedata
+	iny
+	cpy #80
+	bne mll
+
+	cli
+	rts
+
+; ------------------------------------------------ 
+
+offs	!by $00,$10,$20,$30
+	!by $00,$10,$20,$30
+
+dlo	!by <dithoff
+	!by <dithrst
+	!by <dithpat
+	!by <dithnoi
+	!by <dithrnd
+
+dhi	!by >dithoff
+	!by >dithrst
+	!by >dithpat
+	!by >dithnoi
+	!by >dithrnd
+
+; ------------------------------------------------ 
+
+modend	!eof
