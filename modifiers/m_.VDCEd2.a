@@ -15,6 +15,8 @@
 ;   1.04, 03.09.95:
 ;   1.05, 21.11.17: Update (new reg values, changed "Reset", removed Double)
 ;   1.06, 20.09.18: Changed completely, now showing *all* registers
+;   1.07, 22.09.18: added masking of values to get correct displays
+;                   added edit of reg 25
 ;
 ; --------------------------------------
 
@@ -26,6 +28,8 @@
 	lfnr		= $31
 	find		= $32	; /$33
 	only		= $34
+	mask		= $35
+	ymrk		= $36
 
 	zeile		= sc_merk
 	spalte		= zeile+1
@@ -44,8 +48,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "VDCEditor       "
-	!tx "1.06"
-	!tx "20.09.18"
+	!tx "1.07"
+	!tx "22.09.18"
 	!tx "A. Dettke       "
 
 ; -------------------------------------- Check machine
@@ -138,17 +142,17 @@ bm20	inx		; now: reg 13 again
 
 ; -------------------------------------- Event: Type of RAM
 
-evreg28	ldx #28		; reg 28, bit 4
+evreg28	ldx #28		; reg 28
 	lda vdctab,x
-	sta sc_merk
+	tay
 	and #$10
-	beq tr0
-	lda sc_merk
-	and #$ef
-	bne tr1
-tr0	lda #$10
-	ora sc_merk
-tr1	sta vdctab,x
+	sta ymrk
+	tya
+	and #$e0
+	clc
+	adc #32
+tr1	ora ymrk
+	sta vdctab,x
 	jmp rw1
 
 ; -------------------------------------- Text output Handler
@@ -221,7 +225,10 @@ shregs	jsr settab
 	sty lfnr
 
 sr0	ldx xmrk		; show vdc registers: regs in .x
+	lda mtab,x
+	sta mask
 	lda vdctab,x
+	and mask
 
 	cpx #12		; reg 12/13, start_of_graphics?
 	beq sr2
@@ -385,22 +392,36 @@ evreg35	ldx #35
 
 ; -------------------------------------- Event: Char Width
 
-evreg22	ldx #22		; reg 22, upper nibble
+evreg22	ldx #22		; reg 22
+	lda vdctab,x
+	tay		; value to .y
+	and #$0f
+	sta sc_merk
+	tya
+	and #$f0
+	sta ymrk
 	lda spalte
 	cmp #26
-	php
-	jsr ch2
-	ldx #22
-	lda vdctab,x
-	plp
-	bcs +
-	sec
-	adc #32
-	bne ++
-+	clc
-	sbc #32
-++	sta vdctab,x
-	jmp rw1
+	bcc hu0
+
+	ldy sc_merk
+	jsr incy
+	sty sc_merk
+	jmp hu2
+
+hu0	lda ymrk
+	jsr shifty
+	cmp #$a0
+	bcc +
+	lda #0
++	sta ymrk
+	beq hu0
+
+hu2	lda ymrk
+	ora sc_merk
+	sta vdctab,x
+	jsr shregs
+	jmp setvdc
 
 ; -------------------------------------- Event: Adjust Interlace mode
 
@@ -438,29 +459,129 @@ evreg5	ldx #5		; reg 5
 	cmp #6
 	jmp ch2
 
+; -------------------------------------- Event: Set Modes/Scroll
+
+evreg25	ldx #25		; reg 25
+	lda vdctab,x
+	tay		; value to .y
+	and #$0f
+	sta sc_merk
+	tya
+	and #$f0
+	sta ymrk
+	lda spalte
+	cmp #28
+	bcc hx0
+
+	ldy sc_merk
+	jsr incy
+	sty sc_merk
+	jmp hx2
+
+hx0	tay
+	lda ymrk
+	cpy #24
+	bne +
+	eor #$80
+	jmp ++
++	cpy #25
+	bne +
+	eor #$40
+	jmp ++
++	cpy #26
+	bne +
+	eor #$20
+	jmp ++
++	cpy #27
+	bne ++
+	eor #$10
+
+++	sta ymrk
+
+hx2	lda ymrk
+	ora sc_merk
+	sta vdctab,x
+	jsr shregs
+	jmp setvdc
+
+; -------------------------------------- Event: Set Colors
+
+evreg26	ldx #26		; reg 26
+	lda vdctab,x
+	tay		; value to .y
+	and #$0f
+	sta sc_merk
+	tya
+	and #$f0
+	sta ymrk
+	lda spalte
+	cmp #26
+	bcc hv0
+
+	ldy sc_merk
+	jsr incy
+	sty sc_merk
+	jmp hv2
+
+hv0	lda ymrk
+	jsr shifty
+	sta ymrk
+
+hv2	lda ymrk
+	ora sc_merk
+	sta vdctab,x
+	jsr shregs
+	jmp setvdc
+
 ; -------------------------------------- Event: Horizontal sync
 
 evreg3	ldx #3		; reg 3, lower nibble
 	lda vdctab,x
-	and #15
 	tay		; value to .y
+	and #$0f
+	sta sc_merk
+	tya
+	and #$f0
+	sta ymrk
 	lda spalte
 	cmp #6
 	bcc hw0
-hw3	iny
-	cpy #16		; delimit to 15
-	bne hw1
-	sty sc_merk
-hw0	dey
-	bmi hw3
-hw1	sty sc_merk
 
-	lda vdctab,x	; care for upper nibble
-	and #$f0
-hw2	ora sc_merk
+	ldy sc_merk
+	jsr incy
+	sty sc_merk
+	jmp hw2
+
+hw0	lda ymrk
+	jsr shifty
+	sta ymrk
+
+hw2	lda ymrk
+	ora sc_merk
 	sta vdctab,x
 	jsr shregs
 	jmp setvdc
+
+; -------------------------------------- 
+
+incy	iny
+	cpy #16
+	bcc +
+	ldy #0
++	rts
+
+shifty	lsr
+	lsr
+	lsr
+	lsr
+	tay
+	jsr incy
+	tya
+	asl
+	asl
+	asl
+	asl
+	rts
 
 ; -------------------------------------- Event: Rest
 
@@ -470,8 +591,6 @@ evreg14	nop
 evreg16	nop
 evreg18	nop
 evreg24	nop
-evreg25	nop
-evreg26	nop
 evreg29	nop
 evreg30	nop
 evreg31	nop
@@ -534,9 +653,15 @@ onstart	!by 0,0,0,0,0,0,0,0
 	!by 0,0,0,0,0,0,0,0
 	!by 0,0,0,0,0
 
+mtab	!by $ff,$ff,$ff,$ff,$ff,$1f,$ff,$ff
+	!by $03,$1f,$1f,$1f,$ff,$ff,$ff,$ff
+	!by $ff,$ff,$ff,$ff,$ff,$ff,$ff,$1f
+	!by $ff,$ff,$ff,$ff,$e0,$1f,$ff,$ff
+	!by $ff,$ff,$ff,$ff,$0f
+
 noregs	!wo noreg10,noreg11,noreg14
 	!wo noreg16,noreg18,noreg24
-	!wo noreg25,noreg26,noreg29,noreg30
+	!wo noreg29,noreg30
 	!wo noreg31,noreg32, $ffff
 
 ; --------------------------------------
