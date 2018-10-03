@@ -7,20 +7,37 @@
 ; ------------------------------------------------ 
 ;
 ;    ldr.MIllustr8tor
-;  Loader for Micro Illustrator pictures (uncompressed)
+;  Loader for Micro Illustrator pictures
 ;
 ;    1.00: 30.07.08, first release
+;    1.01: 03.10.18, optimized code
+;                    added: recognition of compressed files
+;                    added: decompression of files type 1 and 2
 ;
 ; ------------------------------------------------ 
 
 ; ------------------------------------------------ Equates
 
+	amram		= $30	; 40/1
+	cntbls		= $32	; 0..25
 	byte		= $34
 	cnt		= byte
 	gmode		= $35
 	vram		= $36
 	cram		= $38
+	compfl		= $3a
+	cflag		= $3b
+	cntlns		= $3c
 	adcnt		= $3e
+	counter		= $3f
+	gbyte		= $41
+	rstore		= $42
+	blcnt		= $44	; 25/40
+	tcnt		= $45	; 0..7
+	bcnt		= $46	; 0..39
+	step		= $47
+	skipln		= $48
+	pass		= $49
 
 	offx		= ls_adrmisc
 	offy		= offx+1
@@ -38,8 +55,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "MicroIllustr8tor"
-	!tx "1.00"
-	!tx "30.07.08"
+	!tx "1.01"
+	!tx "03.10.18"
 	!tx "A.Dettke        "
 
 ; ------------------------------------------------ 
@@ -49,15 +66,12 @@ jerror	jmp error
 ; ------------------------------------------------ Main
 
 start	jsr getname	; store filename
+
 	jsr gd_xopen	; open file
 
-	ldx #9
-	jsr skips		; skip 9 bytes
-	and #15		; isolate bg color value
-	sta col0		; and store it
-	sta gr_fbkcol
-	ldx #13		; skip rest of header (22 bytes)
-	jsr skips
+	jsr getheader
+
+; --------------------------- Get Multicolor Image
 
 stt3	jsr gd_clrms	; clear message bar
 
@@ -65,6 +79,9 @@ sk2	lda #7		; get multi mode colors
 	sta cntwert
 	sta adcnt
 	ldx #0		; out: "Colors 1"
+	stx counter
+	stx counter+1
+	stx cflag
 	jsr tcopy		; .y=0
 
 	lda #<1000	; count 1000 bytes (video RAM)
@@ -73,26 +90,12 @@ sk2	lda #7		; get multi mode colors
 	sta ls_vekta8+1
 	lda #<vrbuf
 	sta sc_texttab
+	sta rstore
 	lda #>vrbuf
 	sta sc_texttab+1
+	sta rstore+1
 
-loop1	jsr basin		; get colors (no conversion)
-jerr3	bcs jerror
-	sta (sc_texttab),y
-	jsr action
-	ldy #0
-
-	inc sc_texttab
-	bne sk3
-	inc sc_texttab+1
-
-sk3 	lda ls_vekta8	; count bytes
-	bne sk4
-	dec ls_vekta8+1
-sk4	dec ls_vekta8
-	lda ls_vekta8
-	ora ls_vekta8+1
-	bne loop1
+	jsr move
 
 ; ------------------------------------------------ 
 
@@ -108,45 +111,34 @@ sk4	dec ls_vekta8
 	sta ls_vekta8+1
 	lda #<crbuf
 	sta sc_texttab
+	sta rstore
 	lda #>crbuf
 	sta sc_texttab+1
+	sta rstore+1
 
-loop2	jsr basin		; get colors (no conversion)
-	bcs jerr2
-	sta (sc_texttab),y
-	jsr action
-	ldy #0
+	jsr move
 
-	inc sc_texttab
-	bne sk31
-	inc sc_texttab+1
+; ------------------------------------------------ 
 
-sk31 	lda ls_vekta8	; count bytes
-	bne sk41
-	dec ls_vekta8+1
-sk41	dec ls_vekta8
-	lda ls_vekta8
-	ora ls_vekta8+1
-	bne loop2
-
-	lda #50		; activity counter to 50
+sk42	lda #50		; activity counter to 50
 	sta cntwert
 	sta adcnt
 	ldx #30		; out: "Bitmap"
 	jsr tcopy		; .y=0
+	sty pass		; reset pass counter
 
 	lda #<8000	; count 8000 bytes (bitmap)
 	sta ls_vekta8
 	lda #>8000
 	sta ls_vekta8+1
 
-	ldx #<sy_4bit
-	ldy #>sy_4bit
-	stx sc_texttab
-	sty sc_texttab+1
+	jsr setparams	; set counters
+	ldx #0
+	jsr srs0		; set row start
+	sty tcnt		; byte counter in tile (.y=0)
+	sty bcnt		; tile counter to 0
 
-loop	jsr basin		; get bitmap
-jerr2	bcs jerr3
+loop	jsr readbyte	; get bitmap
 	sta byte
 	jsr action
 	ldy #0
@@ -158,20 +150,29 @@ bloop	lda #0
 	asl byte
 	rol
 	sta (sc_texttab),y
-	inc sc_texttab
-	bne sk
-	inc sc_texttab+1
-sk	dex
+sk	iny
+	dex
 	bne bloop
 
-	lda ls_vekta8
-	bne sk1
-	dec ls_vekta8+1
-sk1	dec ls_vekta8
-	lda ls_vekta8
-	ora ls_vekta8+1
+	jsr count		; count 8000 bytes
 	beq sk5
-	lda status
+
+	clc
+	lda sc_texttab
+	adc skipln	; 4 oder 8
+	sta sc_texttab
+	bcc +
+	inc sc_texttab+1
++	lda tcnt		; count scanlines (makes 8x4=32 bytes)
+	clc
+	adc step
+	sta tcnt
+	cmp #8
+	bcc +
+
+	jsr proceed
+
++	ldy status
 	beq loop
 
 sk5	jsr gd_xclose	; close file
@@ -195,6 +196,9 @@ sk5	jsr gd_xclose	; close file
 	sta ls_vekta8
 	lda #>1000
 	sta ls_vekta8+1
+	lda #0
+	sta blcnt
+	sta tcnt
 
 	lda #200
 	sta cntwert
@@ -239,12 +243,7 @@ sk7	inc cram
 	bne sk8
 	inc cram+1
 
-sk8	lda ls_vekta8		; 1000 tiles
-	bne sk9
-	dec ls_vekta8+1
-sk9	dec ls_vekta8
-	lda ls_vekta8
-	ora ls_vekta8+1
+sk8	jsr count
 	bne loop3
 
 ; --------------------------- Close File
@@ -257,6 +256,54 @@ sk10	jsr gd_xmess	; error message from drive
 	jsr gd_spron	; sprite pointer on
 	sec		; leave loader
 	rts
+
+; ---------------------------
+
+readbyte	lda compfl	; compressed?
+	beq getit0	; no, skip
+
+-	lda cflag		; nocompress running?
+	beq +
+	dec cflag		; yes, get next byte from file
+	jmp getit0
+
++	lda counter	; decompress running?
+	ora counter+1
+	bne getit2	; yes, do it
+
+	inc counter	; set counter to 1
+	jsr basin		; get next byte in file
+b1	tax 
+	and #$7f		; isolate counter
+	sta cflag
+	txa 		; check bit 7
+	beq getit3	; is $00? then long compress
+	and #$80		; compressed byte or not?
+	bmi -		; no, get next bytes
+	stx counter	; yes, set counter
+	sta counter+1
+	sta cflag
+getit0	jsr basin
+b2	tax 
+getit1	txa 
+	sta gbyte
+
+getit2	lda cflag
+	bne ++
+	lda counter	; decompress
+	bne +
+	dec counter+1
++	dec counter
+++	lda gbyte
+	rts 
+
+getit3	jsr basin
+	sta counter+1
+	jsr basin
+	sta counter
+	lda #0
+	sta cflag
+	beq getit0
 
 ; --------------------------- 
 
@@ -273,6 +320,160 @@ skips	jsr basin		; amount in .x
 	bne skips
 	rts
 
+; --------------------------- 
+
+getheader	ldx #8
+	jsr skips		; skip 7 bytes
+	sta compfl	; compressed if >0
+	tax
+	beq +
+	eor #3		; 2 und 1 umdrehen
++	sta step		; store step value
+	lda skipv,x
+	sta skipln
+	jsr basin
+	bcs error
+	and #15		; isolate bg color value
+	sta col0		; and store it
+	sta gr_fbkcol
+	jsr basin		; get amount of vram bytes
+	bcs error
+	jsr basin
+	bcs error
+	jsr basin		; get amount of cram bytes
+	bcs error
+	jsr basin
+	bcs error
+	jsr basin		; get amount of bitmap bytes
+	bcs error
+	jsr basin
+	bcs error
+	ldx #7
+	jmp skips		; skip rest of header
+
+; --------------------------- 
+
+move	jsr setparams
+loop1	jsr readbyte
+	sta (sc_texttab),y
+	jsr action
+	ldy #0
+
+	inc sc_texttab
+	bne sk3
+	inc sc_texttab+1
+
+sk3	dec cntbls	; count tiles (40 or 25)
+	bne +
+	lda blcnt		; if 0: restore
+	sta cntbls
+	cmp #40		; hori?
+	beq +		; yes, skip advance
+
+	inc rstore	; advance to next column
+	bne ++
+	inc rstore+1
+++	lda rstore
+	sta sc_texttab
+	lda rstore+1
+	sta sc_texttab+1
+
++	jsr count
+	bne loop1
+	rts
+
+; --------------------------- Advance in Bitmap
+
+proceed	ldy #0
+	sty tcnt		; if tcnt=8: reset to 0
+	lda blcnt		; hori?
+	cmp #40
+	beq ++		; yes, simply advance
+
+	dec cntbls	; no, count vertical block rows
+	beq pro2		; if all, reset
+
+--	jsr setrstart
+	ldx bcnt
+	beq ++
+-	dex		; and advance in row (1..40)
+	beq +
+	lda rstore
+	clc
+	adc #32
+	sta rstore
+	bcc -
+	inc rstore+1
+	bne -
+
++	lda rstore
+	clc
+	adc #32
+	sta rstore
+	sta sc_texttab
+	bcc +
+	inc rstore+1
++	lda rstore+1
+	sta sc_texttab+1
+
+++	rts
+
+pro2	lda #25		; then, reset to top row
+	sta cntbls
+	lda pass		; if 0 then 1
+	eor #1
+	sta pass
+	bne --
+	inc bcnt		; count tiles
+	bne --
+
+; --------------------------- 
+
+setparams	lda compfl	; compress mode
+	and #1		; even?
+	tax
+	beq +
+	lda #40		; no, vertically:    40
+	!by $2c
++	lda #1		; yes, horizontally: 25
+	sta amram
+	txa
+	beq +
+	lda #25		; v: blockcounter:   25
+	!by $2c
++	lda #40		; h: blockcounter:   40
+	sta blcnt
+	sta cntbls
+	rts
+
+; --------------------------- 
+
+setrstart	lda #25		; row start at current row
+	sec
+	sbc cntbls
+	tax
+srs0	lda hi_rows,x
+	sta sc_texttab+1
+	sta rstore+1
+	lda compfl	; bitmap: set start, also when uncomp
+	beq +
+	lda pass		; first pass?
+	beq +
+	lda #4		; no, second, so start with $4004
++	sta sc_texttab
+	sta rstore
+	rts
+
+; --------------------------- 
+
+count 	lda ls_vekta8	; count bytes
+	bne sk4
+	dec ls_vekta8+1
+sk4	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	rts
+
 ; --------------------------- Activity Display
 
 messout   ldx #<message	; display message and gauge
@@ -286,6 +487,17 @@ tc0	lda txt,x		; in .x: offset to message
 	inx
 	iny
 	bne tc0
+
+clrmess   ldx #20		; clear gauge bar
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0		; init counters
+	ldx #7	
+	sty offy
+	stx offx
+	rts
 
 action	dec adcnt
 	bne ld4
@@ -306,17 +518,6 @@ act0	ldx offx
 	sta offx
 ld4	rts
 
-clrmess   ldx #20		; clear gauge bar
-	lda #32
-cl0	sta mess,x
-	dex
-	bpl cl0
-	ldy #0		; init counters
-	ldx #7	
-	sty offy
-	stx offx
-	rts
-
 filltab   !by 160,93,103,127,126,124,105,109
 
 cntwert	!by 50
@@ -335,6 +536,14 @@ mess	!fill 21,32
 
 dnib	!by $00,$ff,$44,$cc,$55,$aa,$11,$dd
 	!by $66,$22,$99,$33,$77,$ee,$88,$bb
+
+skipv	!by 4,8,4
+
+; --------------------------- Hi of 4Bit rows
+
+hi_rows	!by $40,$45,$4a,$4f,$54,$59,$5e,$63
+	!by $68,$6d,$72,$77,$7c,$81,$86,$8b
+	!by $90,$95,$9a,$9f,$a4,$a9,$ae,$b3,$b8 
 
 ; --------------------------- Save Filename
 
@@ -383,7 +592,7 @@ si5	rts
 
 nbuf	!fill 16,32
 	!by 0
-	!scr "Mu Illu@"
+	!scr "MicIllu@"
 
 modetx	!scr "160x200@"
 datatype	!scr "Color@"
