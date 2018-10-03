@@ -1,0 +1,393 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ------------------------------------------------ 
+;
+;    ldr.MIllustr8tor
+;  Loader for Micro Illustrator pictures (uncompressed)
+;
+;    1.00: 30.07.08, first release
+;
+; ------------------------------------------------ 
+
+; ------------------------------------------------ Equates
+
+	byte		= $34
+	cnt		= byte
+	gmode		= $35
+	vram		= $36
+	cram		= $38
+	adcnt		= $3e
+
+	offx		= ls_adrmisc
+	offy		= offx+1
+
+	vrbuf		= $c600
+	crbuf		= vrbuf+1000
+	col0		= vrbuf+2000
+
+; --------------------------- Header
+
+header	jmp start
+	!by $80
+	!by 0
+	!by 0
+	!wo modend
+	!wo 0
+	!tx "MicroIllustr8tor"
+	!tx "1.00"
+	!tx "30.07.08"
+	!tx "A.Dettke        "
+
+; ------------------------------------------------ 
+
+jerror	jmp error
+
+; ------------------------------------------------ Main
+
+start	jsr getname	; store filename
+	jsr gd_xopen	; open file
+
+	ldx #9
+	jsr skips		; skip 9 bytes
+	and #15		; isolate bg color value
+	sta col0		; and store it
+	sta gr_fbkcol
+	ldx #13		; skip rest of header (22 bytes)
+	jsr skips
+
+stt3	jsr gd_clrms	; clear message bar
+
+sk2	lda #7		; get multi mode colors
+	sta cntwert
+	sta adcnt
+	ldx #0		; out: "Colors 1"
+	jsr tcopy		; .y=0
+
+	lda #<1000	; count 1000 bytes (video RAM)
+	sta ls_vekta8
+	lda #>1000
+	sta ls_vekta8+1
+	lda #<vrbuf
+	sta sc_texttab
+	lda #>vrbuf
+	sta sc_texttab+1
+
+loop1	jsr basin		; get colors (no conversion)
+jerr3	bcs jerror
+	sta (sc_texttab),y
+	jsr action
+	ldy #0
+
+	inc sc_texttab
+	bne sk3
+	inc sc_texttab+1
+
+sk3 	lda ls_vekta8	; count bytes
+	bne sk4
+	dec ls_vekta8+1
+sk4	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	bne loop1
+
+; ------------------------------------------------ 
+
+	lda #7		; out: "Colors 2"
+	sta cntwert
+	sta adcnt
+	ldx #10
+	jsr tcopy
+
+	lda #<1000	; count 1000 bytes (color RAM)
+	sta ls_vekta8
+	lda #>1000
+	sta ls_vekta8+1
+	lda #<crbuf
+	sta sc_texttab
+	lda #>crbuf
+	sta sc_texttab+1
+
+loop2	jsr basin		; get colors (no conversion)
+	bcs jerr2
+	sta (sc_texttab),y
+	jsr action
+	ldy #0
+
+	inc sc_texttab
+	bne sk31
+	inc sc_texttab+1
+
+sk31 	lda ls_vekta8	; count bytes
+	bne sk41
+	dec ls_vekta8+1
+sk41	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	bne loop2
+
+	lda #50		; activity counter to 50
+	sta cntwert
+	sta adcnt
+	ldx #30		; out: "Bitmap"
+	jsr tcopy		; .y=0
+
+	lda #<8000	; count 8000 bytes (bitmap)
+	sta ls_vekta8
+	lda #>8000
+	sta ls_vekta8+1
+
+	ldx #<sy_4bit
+	ldy #>sy_4bit
+	stx sc_texttab
+	sty sc_texttab+1
+
+loop	jsr basin		; get bitmap
+jerr2	bcs jerr3
+	sta byte
+	jsr action
+	ldy #0
+
+	ldx #4		; convert to 4bit indexes
+bloop	lda #0
+	asl byte
+	rol
+	asl byte
+	rol
+	sta (sc_texttab),y
+	inc sc_texttab
+	bne sk
+	inc sc_texttab+1
+sk	dex
+	bne bloop
+
+	lda ls_vekta8
+	bne sk1
+	dec ls_vekta8+1
+sk1	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	beq sk5
+	lda status
+	beq loop
+
+sk5	jsr gd_xclose	; close file
+
+; ------------------------------------------------ 
+
+	lda #<vrbuf	; convert to 4bit (set start addresses)
+	sta vram
+	lda #>vrbuf
+	sta vram+1
+	lda #<crbuf
+	sta cram
+	lda #>crbuf
+	sta cram+1
+	lda #<sy_4bit
+	sta sc_texttab
+	lda #>sy_4bit
+	sta sc_texttab+1
+
+	lda #<1000	; count 1000
+	sta ls_vekta8
+	lda #>1000
+	sta ls_vekta8+1
+
+	lda #200
+	sta cntwert
+	sta adcnt
+	ldx #20
+	jsr tcopy		; .y=0
+
+loop3	lda (vram),y	; convert video RAM colors to 4bit
+	pha
+	lsr
+	lsr
+	lsr
+	lsr
+	sta col0+1
+	pla
+	and #$0f
+	sta col0+2
+	lda (cram),y	; convert color RAM colors to 4bit
+	and #$0f
+	sta col0+3
+
+	lda #32
+	sta cnt
+bloop1	jsr action
+	ldy #0
+	lda (sc_texttab),y	; get values from 4bit (0-3)
+	tax
+	lda col0,x	; get color values from table
+	tax
+	lda dnib,x	; get conversion values to GoDot palette from table
+	sta (sc_texttab),y	; write back to 4bit (double nibbles)
+	inc sc_texttab	; advance
+	bne sk6
+	inc sc_texttab+1
+sk6	dec cnt		; one tile
+	bne bloop1
+
+	inc vram		; next tile
+	bne sk7
+	inc vram+1
+sk7	inc cram
+	bne sk8
+	inc cram+1
+
+sk8	lda ls_vekta8		; 1000 tiles
+	bne sk9
+	dec ls_vekta8+1
+sk9	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	bne loop3
+
+; --------------------------- Close File
+
+sk11	ldx #30		; reset text to default ("Bitmap")
+	jsr tcopy
+	jsr setinfo	; set filename
+
+sk10	jsr gd_xmess	; error message from drive
+	jsr gd_spron	; sprite pointer on
+	sec		; leave loader
+	rts
+
+; --------------------------- 
+
+error	jsr gd_xclose
+	jsr sk10
+	clc
+	rts
+
+; --------------------------- Skip bytes
+
+skips	jsr basin		; amount in .x
+	bcs error
+	dex
+	bne skips
+	rts
+
+; --------------------------- Activity Display
+
+messout   ldx #<message	; display message and gauge
+	ldy #>message
+	jmp gd_xtxout2
+
+tcopy	ldy #0		; Select message
+tc0	lda txt,x		; in .x: offset to message
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+
+action	dec adcnt
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	cpy #20
+	bne act0
+	jsr clrmess
+act0	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts
+
+clrmess   ldx #20		; clear gauge bar
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0		; init counters
+	ldx #7	
+	sty offy
+	stx offx
+	rts
+
+filltab   !by 160,93,103,127,126,124,105,109
+
+cntwert	!by 50
+
+txt	!scr " Colors 1@"	; 0
+	!scr " Colors 2@"	; 10
+	!scr " Convert @"	; 20
+	!scr " Bitmap  @"   	 ; 30
+	!scr " Move    @"   	 ; 40
+
+message   !fill 11,32
+mess	!fill 21,32
+	!by 0
+
+; --------------------------- Palette Table for MC double pixels
+
+dnib	!by $00,$ff,$44,$cc,$55,$aa,$11,$dd
+	!by $66,$22,$99,$33,$77,$ee,$88,$bb
+
+; --------------------------- Save Filename
+
+getname	ldx #0
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+; --------------------------- Image Information
+
+setinfo	jsr setname
+	jsr setloader
+	jsr setmode
+	jmp setdata
+
+setname	lda #0
+	ldx #<ls_picname
+	ldy #>ls_picname
+	bne si3
+setloader	lda #17
+	ldx #<ls_iloader
+	ldy #>ls_iloader
+	bne si3
+setmode	lda #25
+	ldx #<ls_imode
+	ldy #>ls_imode
+	bne si3
+setdata	lda #33
+	ldx #<ls_idrive
+	ldy #>ls_idrive
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!fill 16,32
+	!by 0
+	!scr "Mu Illu@"
+
+modetx	!scr "160x200@"
+datatype	!scr "Color@"
+
+; ------------------------------------------------ 
+
+modend	!eof
