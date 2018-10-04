@@ -1,0 +1,791 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ------------------------------------------------ 
+;
+;    ldr.VBM
+;  Loader for pictures of C128 ACE system
+;
+;    1.00:         , first release
+;    1.01:         , 
+;    1.02: 08.10.95, added version 3
+;    1.03: 18.10.95, bugfix in decode
+;
+; ------------------------------------------------ 
+
+; ------------------------------------------------ Equates
+
+	pport		= $01
+
+	div8		= $30
+	buf0		= $32
+	buf1		= $34
+	bbuf		= $36
+	btcnt		= $37
+	col0		= $38
+	col1		= $39
+	col2		= $3a
+	col3		= $3b
+	packed		= $3c
+	modevek		= $3d
+	dst		= $3f
+	dst0		= $41
+	turnbyte		= $43
+	lcnt8		= $44
+	lcnt		= $45
+	bcnt1		= $46
+	bcnt		= $47
+	linecnt		= $48
+	bcnt2		= $49
+	counter		= $4a
+	horicnt		= $4b
+	bbuf2		= $4c
+	bbuf3		= $4d
+	which		= $4e
+	gbyte		= $4f
+	adcnt		= $ff
+
+	offx		= ls_adrmisc
+	offy		= offx+1
+
+	buf		= $c900
+
+; ------------------------------------------------ 
+
+header	jmp start
+	!by $80
+	!by 0
+	!by 0
+	!wo modend
+	!wo 0
+	!tx "VBM res.320x200 "
+	!tx "1.03"
+	!tx "18.10.95"
+	!tx "A.Dettke/W.Kling"
+
+; ------------------------------------------------ 
+
+start	ldx used
+	bmi readhd
+
+; ------------------------------------------------ 
+
+cancel	lda #$ff
+cn2	sta used
+	sec 
+	rts 
+
+; ------------------------------------------------ 
+
+cn3	lda #3
+	bne cn2
+
+; ------------------------------------------------ 
+
+readhd	ldx #0
+	stx which
+	jsr tcopy
+
+	jsr getcols
+	jsr getname
+	ldx #2
+st2	lda ls_temp,x
+	sta madd,x
+	dex 
+	bpl st2
+
+	jsr gd_xopen
+	inc used
+	jsr chkvbm
+	jsr makeoffs
+
+	lda gd_modswitch
+	pha 
+
+	ldx #<vbmlst
+	ldy #>vbmlst
+	jsr gd_xmloop
+
+	pla 
+	sta gd_modswitch
+	jmp start
+
+; ------------------------------------------------ 
+
+getfile	ldx #2
+gf1	lda madd,x
+	sta ls_temp,x
+	dex 
+	bpl gf1
+
+	jsr gd_xopen
+	lda skipcnt
+	ora skipcnt+1
+	beq ld6
+
+gf0	jsr onebyte
+	lda skipcnt
+	bne gf2
+	dec skipcnt+1
+gf2	dec skipcnt
+	lda skipcnt
+	ora skipcnt+1
+	bne gf0
+
+ld6	jsr gd_clrms
+	lda #1
+	sta adcnt
+	sta btcnt
+	jsr getplane
+
+ld3	ldx #6
+ld74	lda which
+	beq ld71
+	cmp #8
+	beq ld71
+	lda mtext,x
+	bne ld73
+ld71	lda htext,x
+ld73	sta modetx,x
+	dex 
+	bpl ld74
+
+	jsr setinfo
+ld7	jsr gd_xclose
+	jsr gd_spron
+	jsr gd_xmess
+	sec 
+	rts 
+
+; ------------------------------------------------ 
+
+adinc	dec adcnt
+	bne ld4
+	lda #1
+	sta adcnt
+	ldy offy
+	cpy #24
+	bne act0
+	jsr clrmess
+act0	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts
+
+; ------------------------------------------------ 
+
+getbyte	lda #0
+	asl bbuf
+	rol 
+	asl bbuf
+	rol 
+	tay 
+	lda col0,y
+	dec bcnt2
+	bne gb0
+	inx 
+	pha 
+	lda #4
+	sta bcnt2
+	txa 
+	lsr 
+	tay 
+	lda buf,y
+	sta bbuf
+	pla 
+	dex 
+gb0	rts 
+
+; ------------------------------------------------ 
+
+error3	jsr ld7
+	clc 
+	rts 
+
+; ------------------------------------------------ 
+
+onebyte	jsr basin
+	ldx status
+	rts 
+
+; ------------------------------------------------ 
+
+vbmhead	!by 0,0,0
+vbmvers	!by 0
+hori	!wo 0
+vert	!wo 0
+packtype	!by 0
+indis	!by 0,0,0,0,0,0,0
+comlen	!by 0,0
+indibytes	!by $ad,0,0,$ff,$ff
+head	!by $42,$4d,$cb	; "bmK"
+used	!by $ff
+madd	!by 0,0,0
+skipcnt	!wo 0
+
+; ------------------------------------------------ 
+
+getcols	lda #$ff
+	sta col0
+	lda #$f0
+	sta col1
+	lda #$0f
+	sta col2
+	lda #$00
+	sta col3
+	rts 
+
+; ------------------------------------------------ 
+
+jerror	jmp error
+jfaila	jmp faila
+
+; ------------------------------------------------ 
+
+chkvbm	ldy #0
+	sty turnbyte
+	sty packed
+	sty counter
+	sty skipcnt+1
+	lda #8
+	sta skipcnt
+
+cv0	jsr onebyte
+	bne jerror
+	sta vbmhead,y
+	iny 
+	cpy #8
+	bne cv0
+
+cv1	lda vbmhead,x	; signature "bmK"?
+	cmp head,x
+	bne jfaila
+	inx 
+	cpx #3
+	bne cv1
+
+	lda vbmhead,x	; Version
+	cmp #2		; 2?
+	beq cv5
+	jsr setv3		; 3?
+
+cv5	jsr ld7		; close file
+
+	lda hori		; show width and height
+	ldx hori+1
+	jsr makeziff
+	ldy #0
+	lda #32
+cv4	sta breit,y
+	sta hoch,y
+	iny 
+	cpy #4
+	bne cv4
+
+cv3	lda sy_numbers,x
+	sta breit,y
+	dey 
+	dex 
+	bpl cv3
+
+	lda vert
+	ldx vert+1
+	jsr makeziff
+	ldy #4
+cv2	lda sy_numbers,x
+	sta hoch,y
+	dey 
+	dex 
+	bpl cv2
+
+	lda hori+1
+	ldx hori
+	jsr getcnt	; check for limits
+	bne failc
+	rts 
+
+; ------------------------------------------------ 
+
+makeziff	sta $62		; value in .a (hi) and .x (lo)
+	stx $63
+	ldx #16
+	lda #0
+mz0	sta sy_numbers,x
+	dex 
+	bpl mz0
+	inc pport		; convert to digits
+	ldx #$90
+	sec 
+	jsr $bc49
+	jsr $bddf
+	dec pport
+	ldx #0		; find tail
+mz1	lda sy_numbers,x
+	beq mz2
+	inx 
+	bne mz1
+mz2	dex 
+	rts 
+
+; ------------------------------------------------ 
+
+fail2	pla 
+	pla 
+error	pla 
+	pla 
+	clc 
+	rts 
+
+; ------------------------------------------------ 
+
+failc	lda #64
+	!by $2c
+failb	lda #32
+	!by $2c
+faila	lda #0
+	pha 
+	jsr ld7
+	pla 
+	tax 
+	ldy #0
+fl0	lda err1,x
+	sta message,y
+	inx 
+	iny 
+	cpy #32
+	bne fl0
+	jsr gd_clrms
+	jsr messout
+	jmp error
+
+; ------------------------------------------------ 
+
+err1	!fill 5,32
+	!scr "ERROR: Not a VBM file."
+	!fill 5,32
+	!scr "ERROR: Only version 2 supported."
+	!fill 4,32
+	!scr "ERROR: Picture too wide."
+	!fill 4,32
+
+; ------------------------------------------------ 
+
+jfail2	jmp fail2
+
+; ------------------------------------------------ 
+
+setv3	jsr onebyte	; version 3
+	bne jfail2
+	sta vbmhead,y	; skip header
+	iny 
+	cpy #18
+	bne setv3
+
+	sty skipcnt
+	clc 
+	adc skipcnt
+	sta skipcnt
+	dey 
+	lda vbmhead,y
+	adc skipcnt+1
+	sta skipcnt+1
+
+cv7	ldy #8		; set flags
+	lda vbmhead,y
+	ror 
+	ror packed
+	dec turnbyte
+	rts 
+
+; ------------------------------------------------ 
+
+unpack	lda counter	; counter down?
+	bne getit2	; no
+
+	inc counter	; yes, get next byte from file
+	jsr basin
+	bit packed	; check for pack
+	bpl getit1
+
+	ldx #4
+dc0	cmp indis+1,x	; which indicator? (of 5)
+	beq dc1
+	dex 
+	bpl dc0
+	bmi getit1	; not included, so continue
+
+dc1	lda indibytes,x	; get indicator
+	sta gbyte
+	txa 		; #0?
+	beq dc2
+	cmp #3		; ### 1.03
+	bcc dc3		; ###
+	lda #2
+	bne dc4
+
+dc2	jsr basin		; get packed byte
+	sta gbyte
+dc3	jsr basin		; get counter
+dc4	sta counter
+
+	lda gbyte		; revert byte (according to version)
+getit1	eor turnbyte
+	sta gbyte
+getit2	dec counter	; count
+	lda gbyte		; get byte
+	rts 
+
+; ------------------------------------------------ 
+
+makebyte	jmp (modevek)
+
+; ------------------------------------------------ 
+
+reshi	txa 
+	tay 
+	lda #0
+	sta bbuf2
+	lda (buf0),y
+	asl 
+	rol bbuf2
+	asl 
+	rol bbuf2
+	sta (buf0),y
+	lda (buf1),y
+	asl 
+	rol bbuf2
+	asl 
+	rol bbuf2
+	sta (buf1),y
+	lda bbuf2
+	and #15
+	tay 
+	lda px,y
+	and #$f0
+	sta bbuf
+	txa 
+	tay 
+	lda (buf0),y
+	asl 
+	rol bbuf2
+	asl 
+	rol bbuf2
+	sta (buf0),y
+	lda (buf1),y
+	asl 
+	rol bbuf2
+	asl 
+	rol bbuf2
+	sta (buf1),y
+	lda bbuf2
+	and #15
+	tay 
+	lda px,y
+	and #15
+	ora bbuf
+	rts 
+
+; ------------------------------------------------ 
+
+reslo	txa 
+	tay 
+	lda (buf0),y
+	sta bbuf2
+	lda (buf1),y
+	sta bbuf3
+	lda #0
+	sta bbuf
+	ldy #4
+bbloop	asl bbuf2
+	bcc bb0
+	inc bbuf
+bb0	asl bbuf3
+	bcc bb1
+	inc bbuf
+bb1	dey 
+	bne bbloop
+	txa 
+	tay 
+	lda bbuf2
+	sta (buf0),y
+	lda bbuf3
+	sta (buf1),y
+	ldy bbuf
+	lda dpx,y
+	rts 
+
+; ------------------------------------------------ 
+
+px	!by $ff,$bb,$bb,$77,$bb,$77,$77,$33
+	!by $bb,$77,$77,$33,$77,$33,$33,$00
+dpx	!by $ff,$dd,$bb,$99,$77,$66,$44,$22,$00
+
+; ------------------------------------------------ 
+
+getcnt	clc 
+	adc #7
+	bcc gc0
+	inx 
+gc0	sta div8
+	stx div8+1
+	lsr div8+1
+	ror div8
+	lsr div8+1
+	ror div8
+	lsr div8+1
+	ror div8
+	lda div8+1
+	bne gc1
+	lda div8
+	sta horicnt
+	cmp #161
+	bcs gc1
+	ldx #0
+	rts 
+
+gc1	ldx #$ff
+	rts 
+
+; ------------------------------------------------ 
+
+sethi	ldy #<reshi
+	ldx #8
+	lda #>reshi
+	bne set0
+setmul	ldy #<reslo
+	ldx #16
+	lda #>reslo
+	bne set0
+setmon	ldy #<getbyte
+	ldx #0
+	lda #>getbyte
+set0	sty modevek
+	sta modevek+1
+	stx which
+	jsr tcopy
+	jmp getfile
+
+; ------------------------------------------------ 
+
+messout   ldx #<message	; display message and gauge
+	ldy #>message
+	jmp gd_xtxout2
+
+tcopy	ldy #0		; Select message
+tc0	lda txt,x		; in .x: offset to message
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+
+clrmess   ldx #24		; clear gauge bar
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0		; init counters
+	ldx #7	
+	sty offy
+	stx offx
+	rts
+
+filltab   !by 160,93,103,127,126,124,105,109
+
+txt	!scr " Mono  @"
+	!scr " Hires @"
+	!scr " Multi @"
+
+message   !fill 7,32
+mess	!fill 25,32
+	!by 0
+
+; ------------------------------------------------ 
+
+makeoffs	lda #<buf
+	ldx #>buf
+	sta buf0
+	stx buf0+1
+	clc 
+	adc horicnt
+	sta buf1
+	bcc mo1
+	inx 
+mo1	stx buf1+1
+	rts 
+
+; ------------------------------------------------ 
+
+getplane	lda #0
+	ldx #$40
+	sta dst0
+	stx dst0+1
+	sta dst
+	stx dst+1
+	lda #25
+	sta lcnt8
+	lda #4
+	sta bcnt2
+lnloop8	lda #8
+	sta lcnt
+lnloop	jsr adinc
+	jsr readline
+	lda buf
+	sta bbuf
+	ldx #0
+zloop	lda #2
+	sta bcnt1
+byloop	lda #2
+	sta bcnt
+btloop	jsr makebyte
+	ldy #0
+	sta (dst),y
+	inc dst
+	bne s3
+	inc dst+1
+s3	dec bcnt
+	bne btloop
+	inx 
+	dec bcnt1
+	bne byloop
+	lda dst
+	clc 
+	adc #28
+	sta dst
+	bcc s4
+	inc dst+1
+s4	cpx #80
+	bne zloop
+	lda dst0
+	clc 
+	adc #4
+	sta dst0
+	sta dst
+	bcc s5
+	inc dst0+1
+s5	lda dst0+1
+	sta dst+1
+	dec lcnt
+	bne lnloop
+	lda dst0
+	clc 
+	adc #<1248
+	sta dst0
+	sta dst
+	lda dst0+1
+	adc #>1248
+	sta dst0+1
+	sta dst+1
+	dec lcnt8
+	bne lnloop8
+	rts 
+
+; ------------------------------------------------ 
+
+readline	lda horicnt
+	ldx which
+	beq rl0
+	asl 
+rl0	sta linecnt
+	ldy #0
+rll	jsr unpack
+	sta buf,y
+rl1	iny 
+	cpy linecnt
+	bne rll
+readlin	rts 
+
+; ------------------------------------------------ 
+
+getname	ldx #0
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+; --------------------------- Image Information
+
+setinfo	jsr setname
+	jsr setloader
+	jsr setmode
+	jmp setdata
+
+setname	lda #0
+	ldx #<ls_picname
+	ldy #>ls_picname
+	bne si3
+setloader	lda #17
+	ldx #<ls_iloader
+	ldy #>ls_iloader
+	bne si3
+setmode	lda #25
+	ldx #<ls_imode
+	ldy #>ls_imode
+	bne si3
+setdata	lda #33
+	ldx #<ls_idrive
+	ldy #>ls_idrive
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!fill 16,32
+	!by 0
+	!scr "ACE-VBM@"
+modetx	!scr "320x200@"
+datatype	!scr "Color@"
+
+htext	!scr "320x200"
+mtext	!scr "160x200"
+
+; ------------------------------------------------ 
+
+vbmlst	!by 0
+	!by 1,17,19,21,$81
+	!wo 0
+	!scr "Load ACE-VBM@"
+	!by 10,17,19,3,$ca
+	!wo sethi
+	!scr "Resample to Hires@"
+	!by 13,17,19,3,$ca
+	!wo setmul
+	!scr "Resample to Multi@"
+	!by 16,17,19,3,$ca
+	!wo setmon
+	!scr "Monochrome@"
+	!by 19,17,19,3,$c9
+	!wo cn3
+	!scr "Cancel Load@"
+	!by $c0,7,20,11
+	!scr "Select Mode@"
+	!by $c0,3,19,13
+	!scr "Width:  "
+breit	!by 32,32,32,32,32,0
+	!by $c0,4,18,14
+	!scr "Height:  "
+hoch	!by 32,32,32,32,32,0
+	!by $80
+
+; ------------------------------------------------ 
+
+modend	!eof
