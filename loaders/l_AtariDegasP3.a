@@ -1,0 +1,453 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ------------------------------------------------------------ 
+;
+; ldr.AtariDegasP3
+; loader for Atari Degas PI3 graphics format (monochrome 640x400)
+; Resamples to Hires (320x200), 5 grays, or Multi (160x200), 9 grays
+;
+;    1.00,
+;    1.01, 
+;    1.02, 12.08.93, 
+;
+; ------------------------------------------------ 
+
+; ------------------------------------------------ Equates
+
+	dst		= $30
+	dst0		= $32
+	bbuf		= $34
+	lcnt8		= $35
+	lcnt		= $36
+	bcnt		= $37
+	resmode		= $38
+	adcnt		= $3a
+;
+	offy		= ls_adrmisc
+	bcnt1		= offy+1
+;
+	buf		= $c400
+	buf0		= buf
+	buf1		= buf0+80
+
+; ------------------------------------------------ 
+
+header	jmp start
+	!by $80
+	!by 4
+	!by 0
+	!wo modend
+	!wo 0
+	!tx "DegasPI3Resample"
+	!tx "1.02"
+	!tx "12.08.93"
+	!tx "W.Kling/A.Dettke"
+
+; ------------------------------------------------ 
+
+start	ldx used
+	bmi requ
+	beq cancel
+	cpx #3
+	bcs cancel
+
+	dec used
+	jsr getname	; store filename
+	jsr gd_xopen
+	jsr gd_clrms
+
+	ldx #6		; prepare gauge
+dl0	lda degas,x
+	sta message,x
+	dex 
+	bpl dl0
+
+	lda #32
+	ldx #24
+dl	sta mess,x
+	dex 
+	bpl dl
+
+	lda #200
+	sta adcnt
+	lda #0
+	sta offy
+
+	jsr checkdeg	; check filetype
+
+	ldx used		; set mode
+	beq dl2
+	jsr setlo
+	bne dl3
+dl2	jsr sethi
+
+dl3	jsr getplane	; get image
+
+	jsr setinfo
+	jsr cancel
+
+err	jsr gd_xclose
+	jsr gd_spron
+	jsr gd_xmess
+	bcc cn2
+
+; ------------------------------------------------ 
+
+cancel	lda #$ff
+cn2	sta used
+	sec 
+	rts 
+
+; ------------------------------------------------ 
+
+requ	inc used
+	lda gd_modswitch
+	pha 
+	ldx #<deglst
+	ldy #>deglst
+	jsr gd_xmloop
+	pla 
+	sta gd_modswitch
+	jmp start
+
+; ------------------------------------------------ 
+
+logrey	inc used
+higrey	inc used
+	ldx #1
+	jsr gd_xload
+	lda #3
+	sta used
+	sec 
+	rts 
+;
+; ------------------------------------------------ 
+
+adinc	ldy offy
+	dec adcnt
+	lda adcnt
+	and #7
+	bne adskip
+	lda filltab
+	sta mess,y
+	inc offy
+	bne messout
+adskip	tax 
+	lda filltab,x
+	sta mess,y
+
+; ------------------------------------------------ 
+
+messout   ldx #<message	; display message and gauge
+	ldy #>message
+	jmp gd_xtxout2
+
+filltab	!by 160,93,103,127,126,124,105,109
+;
+degas	!scr " DEGAS "
+
+message   !fill 7,32
+mess	!fill 25,32
+	!by 0
+
+; ------------------------------------------------ 
+
+err1	!scr "ERROR: Not a valid Degas Format."
+
+; ------------------------------------------------ 
+
+checkdeg	ldy #5
+il1	jsr basin
+	cmp idpi3,y
+	bne faila
+	dey 
+	bpl il1
+
+; ------------------------------------------------ 
+
+dum28	ldx #28
+dumx	jsr basin
+	dex 
+	bne dumx
+	rts 
+;
+; ------------------------------------------------ 
+
+faila	ldx #0
+	ldy #0
+fl0	lda err1,x
+	sta message,y
+	inx 
+	iny 
+	cpy #32
+	bne fl0
+	jsr err
+	jsr gd_clrms
+	jsr messout
+	clc 
+	jmp fail3
+;
+; ------------------------------------------------ 
+
+getplane	lda #<sy_4bit
+	ldx #>sy_4bit
+	sta dst0
+	sta dst
+	stx dst0+1
+	stx dst+1
+
+	lda #25		; 25 blockrows
+	sta lcnt8
+lnloop8	lda #8		; each 8 scanlines
+	sta lcnt
+
+lnloop	jsr adinc		; activity
+	jsr readline	; read from file
+
+	ldx #0
+zloop	lda #2
+	sta bcnt1
+
+byloop	lda #2		; process 2x2 bytes:
+	sta bcnt
+
+btloop	jsr makebyte	; resample
+	ldy #0
+	sta (dst),y
+	inc dst
+	bne s3
+	inc dst+1
+s3	dec bcnt
+	bne btloop
+
+	inx 
+	dec bcnt1
+	bne byloop
+
+	lda dst		; advance to next tile
+	clc 
+	adc #28
+	sta dst
+	bcc s4
+	inc dst+1
+s4	cpx #80		; until 80 bytes (640 pixels)
+	bne zloop
+
+	lda dst0		; advance to next scanline
+	clc 
+	adc #4
+	sta dst0
+	sta dst
+	bcc s5
+	inc dst0+1
+s5	lda dst0+1
+	sta dst+1
+	dec lcnt		; count
+	bne lnloop
+
+	lda dst0		; advance to next blockrow
+	clc 
+	adc #<1248
+	sta dst0
+	sta dst
+	lda dst0+1
+	adc #>1248
+	sta dst0+1
+	sta dst+1
+	dec lcnt8		; count
+	bne lnloop8
+
+	rts 
+
+; ------------------------------------------------ 
+
+readline	ldy #0		; read _two_ scanlines to buffer
+rll	jsr basin
+	bcs fail2
+	sta buf,y
+	iny 
+	cpy #160
+	bne rll
+	rts 
+;
+; ------------------------------------------------ 
+
+fail2	pla 
+	pla 
+fail3	pla 
+	pla 
+	inc used
+	rts 
+;
+; ------------------------------------------------ Resample
+
+makebyte	jmp (resmode)
+;
+; ------------------------------------------------ Hires
+
+reshi	asl buf0,x	; buf0: scanline 1
+	rol 
+	asl buf0,x
+	rol 
+	asl buf1,x	; buf1: scanline 2
+	rol 
+	asl buf1,x
+	rol 
+	and #$0f
+	tay 
+	lda px,y
+	and #$f0
+	sta bbuf
+	asl buf0,x
+	rol 
+	asl buf0,x
+	rol 
+	asl buf1,x
+	rol 
+	asl buf1,x
+	rol 
+	and #$0f
+	tay 
+	lda px,y
+	and #$0f
+	ora bbuf
+	rts 
+;
+; ------------------------------------------------ 
+
+px	!by $ff,$bb,$bb,$77,$bb,$77,$77,$33
+	!by $bb,$77,$77,$33,$77,$33,$33,$00
+
+dpx	!by $ff,$dd,$bb,$99,$77,$66,$44,$22,$00
+
+idpi3	!by 0,0,$77,7,2,0
+;
+used	!by $ff
+;
+; ------------------------------------------------ Multi
+
+reslo	lda #0
+	sta bbuf
+	ldy #4
+bbloop	asl buf0,x	; buf0: scanline 1
+	bcc bb0
+	inc bbuf
+bb0	asl buf1,x	; buf1: scanline 2
+	bcc bb1
+	inc bbuf
+bb1	dey 
+	bne bbloop
+	ldy bbuf
+	lda dpx,y
+	rts 
+
+; ------------------------------------------------ Set Mode
+
+setlo	lda #<reslo
+	sta resmode
+	lda #>reslo
+	sta resmode+1
+	ldy #0
+sll	lda mtext,y
+	sta rsmode,y
+	iny 
+	cpy #7
+	bne sll
+	tya 
+	rts 
+;
+; ------------------------------------------------ 
+
+sethi	lda #<reshi
+	sta resmode
+	lda #>reshi
+	sta resmode+1
+	ldy #0
+shl	lda htext,y
+	sta rsmode,y
+	iny 
+	cpy #7
+	bne shl
+	rts 
+;
+; ------------------------------------------------ Screenlist
+
+deglst	!by 0
+	!by 4,11,18,16,$81
+	!wo 0
+	!scr "Degas 640x400@"
+	!by 9,11,18,3,$ca
+	!wo higrey
+	!scr "Hires@"
+	!by 12,11,18,3,$ca
+	!wo logrey
+	!scr "Multi@"
+	!by 15,11,18,3,$ca
+	!wo cn2
+	!scr "Cancel Load@"
+	!by $c0,6,14,11
+	!scr "Resample to@"
+	!by $80
+
+; ------------------------------------------------ Image Information Handler
+
+getname	ldx #0
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+; --------------------------- Image Information
+
+setinfo	jsr setname
+	jsr setloader
+	jsr setmode
+	jmp setdata
+
+setname	lda #0
+	ldx #<ls_picname
+	ldy #>ls_picname
+	bne si3
+setloader	lda #17
+	ldx #<ls_iloader
+	ldy #>ls_iloader
+	bne si3
+setmode	lda #25
+	ldx #<ls_imode
+	ldy #>ls_imode
+	bne si3
+setdata	lda #33
+	ldx #<ls_idrive
+	ldy #>ls_idrive
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!fill 16,32
+	!by 0
+	!scr "Degas  @"
+rsmode	!fill 7,32
+	!by 0
+datatype	!scr "Grey @"
+
+htext	!scr "320x200"
+mtext	!scr "160x200"
+
+; ------------------------------------------------ 
+
+modend	!eof
