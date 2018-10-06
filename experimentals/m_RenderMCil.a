@@ -1,0 +1,431 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ------------------------------------------------ 
+;
+;  mod.RenderMCil
+;  (Render Image interleaved in Multicolor)
+;
+;  This module renders an image in a way that it looks more
+;  and more precise, pass after pass (of eight passes).
+;  The first pass renders complete tiles, but just the main
+;  colors in it, then it starts over again until finished.
+; 
+;  0.01, 24.05.96, first release
+;
+; ------------------------------------------------ 
+
+; ------------------------------------------------ Equates
+
+	data		= $35
+	bmap		= $37
+	vram		= $39
+	cram		= $3b
+	byte		= $3d
+	btcnt		= $3e
+	max		= $3f
+	min		= max
+	color0		= $41
+	color1		= color0+1
+	color2		= color1+1
+	color3		= color2+1
+	ilcnt		= $45
+
+	shift		= 653
+	hist0		= sy_global
+	hist		= hist0+32
+	ctab		= hist+16
+
+	grafreg		= $d011
+	multreg		= $d016
+	charreg		= $d018
+	rahmen		= $d020
+	backgr		= $d021
+
+; ------------------------------------------------ 
+
+header	jmp start
+	!by $20
+	!by 0
+	!by 0
+	!wo modend
+	!wo 0
+	!tx "RenderMCileaved "
+	!tx "0.01"
+	!tx "24.05.96"
+	!tx "W.Kling         "
+
+; ------------------------------------------------ 
+
+start	lda #$3b		; multicolor graphics on
+	ldx #$18
+	ldy #$1b
+	sta grafreg
+	stx multreg
+	sty charreg
+
+	lda gd_modswitch	; mem handler
+	sta swbak
+
+	ldx #31		; clear big histogram
+	lda #0
+loop1	sta hist0,x
+	dex 
+	bpl loop1
+
+	lda #<sy_4bit	; set start address
+	ldx #>sy_4bit
+	sta data
+	stx data+1
+
+hloop0	ldx #15		; clear local histogram
+	lda #0
+loop2	sta hist,x
+	dex 
+	bpl loop2
+
+	ldy #31		; count colors in 1 tile
+loop3	lda (data),y
+	and #$0f
+	tax 
+	inc hist,x
+	dey 
+	bpl loop3
+
+	ldy #0		; count amount of colors
+	ldx #15
+loop4	lda hist,x
+	beq skip1
+	iny 
+skip1	dex 
+	bpl loop4
+
+	cpy #4		; less than 4?
+	bcc skip2		; yes, skip
+
+	ldx #15		; no, store these colors
+loop5	lda hist,x
+	clc 
+	adc hist0,x
+	sta hist0,x
+	bcc skip3
+	inc hist0+16,x
+skip3	dex 
+	bpl loop5
+
+skip2	lda data		; advance to next tile
+	clc 
+	adc #32
+	sta data
+	bcc skip4
+	inc data+1
+skip4	lda data+1
+	cmp #>sy_bigbuffer	; until end of 4Bit
+	bne hloop0
+
+	lda #0		; compute most frequent color
+	sta max		; in those tiles /w more than 4
+	sta max+1
+	ldx #15
+loop6	lda hist0+16,x
+	cmp max+1
+	bcc skip5
+	beq skip6
+	lda hist0,x
+	bcs skip7
+skip6	lda hist0,x
+	cmp max
+	bcc skip5
+skip7	sta max
+	lda hist0+16,x
+	sta max+1
+	stx color0	; store color as bg color
+skip5	dex 
+	bpl loop6
+
+; ------------------------------------------------ 
+
+	lda #0		; clear interleave flag
+	sta ilcnt
+
+loop00	ldy ilcnt
+
+	ldx color0	; take this color for bg and brdr
+	lda c64lo,x
+	sta backgr
+	sta rahmen
+
+	lda #0
+	sta ctab,x
+	lda offs1,y	; get interleave offset
+	ldx #>$2000	; set start of bitmap display 
+	sta bmap
+	stx bmap+1
+	lda #<$0400	; start of video ram
+	ldx #>$0400
+	sta vram
+	stx vram+1
+	lda #<$d800	; start of color ram
+	ldx #>$d800
+	sta cram
+	stx cram+1
+
+	lda #<sy_4bit	; start of image data
+	ldx #>sy_4bit
+	sta data
+	stx data+1
+
+loop	ldx #15		; clear histogram
+	lda #0
+loop7	sta hist,x
+	dex 
+	bpl loop7
+
+	ldy #31		; tile histogram
+loop8	lda (data),y
+	and #$0f
+	tax 
+	inc hist,x
+	dey 
+	bpl loop8
+
+	sty color1	; clear colors
+	sty color2
+	sty color3
+	ldx color0	; clear bg color
+	lda #0
+	sta hist,x
+	sta max
+
+	ldx #15		; compute most frequent color
+loop9	lda hist,x
+	cmp max
+	bcc skip8
+	beq skip8
+	sta max
+	stx color1	; found
+skip8	dex 
+	bpl loop9
+
+	lda #0		; pattern: %00000000
+	ldx color1	; tile contains only bg color?
+	bmi render1	; yes, skip
+
+	lda #$55		; pattern: %01010101
+	ldy max		; tile contains only 1 color?
+	cpy #32
+	beq render1	; yes, skip
+
+	sta ctab,x	; clear found color from histogram
+	lda #0
+	sta hist,x
+	sta max
+
+	ldx #15		; find second most frequent color
+loop10	lda hist,x
+	cmp max
+	bcc skip9
+	beq skip9
+	sta max
+	stx color2	; found
+skip9	dex 
+	bpl loop10
+
+	ldx color2	; only bg?
+	bmi render2	; yes, skip
+
+	lda #$aa		; pattern: %10101010
+	sta ctab,x	; clear found color from histogram
+	lda #0
+	sta hist,x
+	sta max
+
+	ldx #15		; find third most frequent color
+loop11	lda hist,x
+	cmp max
+	bcc skip10
+	beq skip10
+	sta max
+	stx color3
+skip10	dex 
+	bpl loop11
+
+	ldx color3	; only bg?
+	bmi render2	; yes, skip
+
+	lda #$ff		; pattern: %11111111
+	sta ctab,x	; clear found color from histogram
+	lda #0
+	sta hist,x
+	beq render
+
+; ------------------------------------------------ 
+
+render1	ldx ilcnt
+	ldy rows,x
+
+rloop1	sta (bmap),y	; fill bitmap /w pattern
+	dey 
+	bpl rloop1
+
+	lda bmap		; next tile
+	clc 
+	adc #8
+	sta bmap
+	bcc skip151
+	inc bmap+1
+
+skip151	ldx #0		; now the colors
+	beq setcols
+
+; ------------------------------------------------ 
+
+render	ldx #15		; find according patterns
+
+loop12	lda hist,x
+	beq next
+	ldy #15
+	sty min
+
+	ldy #3
+loop121	lda color0,y	; is there a 4th/3rd/2nd color?
+	bmi next1		; no
+
+	txa 		; yes, subtract from max
+	sec 
+	sbc color0,y
+	bcs skip101
+	eor #$ff		; revert if negative
+	adc #$01
+skip101	cmp min		; less or equal min?
+	beq set
+	bcc set
+	bcs next1
+set	sta min
+	lda bits,y	; yes, get pattern
+	sta ctab,x	; and store
+
+next1	dey 
+	bpl loop121
+
+next	dex 
+	bpl loop12
+
+; ------------------------------------------------ 
+
+render2	lda #4
+	sta btcnt
+	ldx ilcnt
+	ldy offs2,x
+
+loop13	lda (data),y
+	and #$0f
+	tax 
+	lda ctab,x
+	asl 
+	rol byte
+	asl 
+	rol byte
+	iny 
+	dec btcnt
+	bne loop13
+
+	ldx ilcnt
+	ldy rows,x
+
+	lda byte
+loop14	sta (bmap),y
+	dey 
+	bpl loop14
+
+	lda bmap		; next tile in bitmap
+	clc 
+	adc #8
+	sta bmap
+	bcc setcols
+	inc bmap+1
+
+setcols	lda data		; and in 4Bit
+	clc 
+	adc #32
+	sta data
+	bcc skip13
+	inc data+1
+skip13	ldx #0
+
+	ldy color1
+	lda c64hi,y
+	ldy color2
+	bmi nocol2
+	ora c64lo,y
+nocol2	sta (vram,x)	; colorize video ram
+	inc vram
+	bne skip14
+	inc vram+1
+
+skip14	lda #0
+	ldy color3
+	bmi nocol3
+	lda c64lo,y
+nocol3	sta (cram,x)	; colorize color ram
+	inc cram
+	bne skip15
+	inc cram+1
+
+skip15	lda data+1	; until end of 4Bit
+	cmp #>sy_bigbuffer
+	beq nextpass
+	jmp loop
+
+nextpass	inc ilcnt
+	lda ilcnt
+	cmp #8
+	beq button
+	jmp loop00
+
+; ------------------------------------------------ 
+
+button	lda shift		; and then wait for click
+	beq button
+
+	lda swbak		; mem handler
+	sta gd_modswitch
+
+	lda #$1b		; graphics off
+	ldx #$08
+	ldy #$13
+	sta grafreg
+	stx multreg
+	sty charreg
+
+	lda sc_maincolor	; reset colors
+	sta backgr
+	sta rahmen
+	sec 		; leave module
+	rts 
+
+; ------------------------------------------------ 
+
+c64lo	!by $00,$06,$09,$0b
+	!by $02,$04,$08,$0c
+	!by $0e,$0a,$05,$0f
+	!by $03,$07,$0d,$01
+
+c64hi	!by $00,$60,$90,$b0
+	!by $20,$40,$80,$c0
+	!by $e0,$a0,$50,$f0
+	!by $30,$70,$d0,$10
+
+swbak	!by 0
+bits	!by $00,$55,$aa,$ff
+
+rows	!by 7,3,1,1,0,0,0,0
+offs1	!by 0,4,2,6,1,5,3,7
+offs2	!by 0,16,8,24,4,20,12,28
+
+; ------------------------------------------------ 
+
+modend	!eof
