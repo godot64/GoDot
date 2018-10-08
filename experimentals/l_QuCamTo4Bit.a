@@ -1,0 +1,283 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ------------------------------------------------ 
+;
+;  ldr.QuCamTo4Bit
+;  Loader for image files of QuickCam Camera
+;
+;    1.00: 02.02.99, first release
+;
+; ------------------------------------------------ 
+
+; ------------------------------------------------ Equates
+
+	packbyte	= $ad
+
+	dst		= $30
+	dst0		= $32
+	bcnt		= $34
+	lcnt		= $35
+	lcnt8		= $36
+	adcnt		= $37
+
+	offx		= ls_adrmisc
+	offy		= offx+1
+
+	buf0		= $cc00
+
+; ------------------------------------------------ 
+
+header	jmp start
+	!by $80
+	!by 0
+	!by 1
+	!wo modend
+	!wo 0
+	!tx "QuickCam File ld"
+	!tx "1.00"
+	!tx "02.02.99"
+	!tx "Arndt Dettke    "
+
+; ------------------------------------------------ 
+
+start	jsr getname	; store filename
+	jsr gd_xopen	; open file
+
+	jsr onebyte	; start address= $0c00?
+	bne jerror
+	ldx #40
+	stx cntwert
+	cmp #0
+	bne jerror
+	jsr onebyte
+	bne jerror
+	cmp #$0c
+	bne jerror
+
+	jmp readfile	; yes, read file
+
+; ------------------------------------------------ 
+
+jerror	jmp error
+
+; ------------------------------------------------ 
+
+onebyte	jsr basin
+	ldx status
+	rts
+
+; ------------------------------------------------ 
+
+messout   ldx #<message	; display message and gauge
+	ldy #>message
+	jmp gd_xtxout2
+
+tcopy	ldy #0		; Select message
+tc0	lda txt,x		; in .x: offset to message
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+
+clrmess   ldx #20		; clear gauge bar
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0		; init counters
+	ldx #7	
+	sty offy
+	stx offx
+	rts
+
+action	dec adcnt
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	cpy #20
+	bne act0
+	jsr clrmess
+act0	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts
+
+filltab   !by 160,93,103,127,126,124,105,109
+
+cntwert	!by 50
+
+txt	!scr " 4BQuCam @"
+
+message   !fill 11,32
+mess	!fill 21,32
+	!by 0
+
+; ------------------------------------------------ 
+
+getname	ldx #0
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+setinfo	jsr setname
+	jsr setloader
+	jsr setmode
+	jmp setdata
+
+setname	lda #0
+	ldx #<ls_picname
+	ldy #>ls_picname
+	bne si3
+setloader	lda #17
+	ldx #<ls_iloader
+	ldy #>ls_iloader
+	bne si3
+setmode	lda #25
+	ldx #<ls_imode
+	ldy #>ls_imode
+	bne si3
+setdata	lda #33
+	ldx #<ls_idrive
+	ldy #>ls_idrive
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!fill 16,32
+	!by 0
+	!scr "4BQuCam@"
+
+modetx	!scr "320x200@"
+datatype	!scr "Gray @"
+
+; ------------------------------------------------ 
+
+error	jsr ld5
+	clc
+	rts
+
+; ------------------------------------------------ 
+
+readfile	jsr gd_clrms
+	jsr tcopy
+	iny
+	sty adcnt
+
+gb0	ldx #<sy_4bit
+	ldy #>sy_4bit
+	stx dst
+	stx dst0
+	sty dst+1
+	sty dst0+1
+
+	lda #25
+	sta lcnt8
+lnloop8	lda #8
+	sta lcnt
+lnloop	jsr action
+	jsr readline
+lcs	ldy #0
+
+	lda #4		; one scanline
+	sta bcnt
+	ldx #0
+byloop	cpy #160
+	bcs s6
+	lda buf0,y
+	sta (dst,x)
+s6	inc dst
+	bne s3
+	inc dst+1
+s3	dec bcnt
+	bne s4
+
+	lda #4		; next tile
+	sta bcnt
+	lda dst
+	clc
+	adc #28
+	sta dst
+	bcc s4
+	inc dst+1
+
+s4	iny
+	cpy #160
+	bne byloop
+
+	lda dst0		; next scanline
+	clc
+	adc #4
+	sta dst0
+	sta dst
+	bcc s5
+	inc dst0+1
+s5	lda dst0+1
+	sta dst+1
+	dec lcnt
+	beq rdy
+
+	jmp lnloop
+
+rdy	lda dst0
+	clc
+	adc #<1248
+	sta dst0
+	sta dst
+	lda dst0+1
+	adc #>1248
+	sta dst0+1
+	sta dst+1
+	dec lcnt8
+	beq rdy1
+
+	jmp lnloop8
+
+; ------------------------------------------------ 
+
+rdy1	jsr setinfo
+ld5	jsr gd_xclose
+	jsr gd_xmess
+ld7	jsr gd_spron
+	sec
+	rts
+
+; ------------------------------------------------ 
+
+readline	ldy #0		; read one scanline
+next	jsr basin
+	sta buf0,y
+	iny
+	jsr basin
+	sta buf0,y
+	iny
+	cpy #160
+	bcc next
+	rts
+
+; ------------------------------------------------ 
+
+modend	!eof
