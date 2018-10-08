@@ -1,0 +1,461 @@
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ------------------------------------------------     
+;
+; svr.VideoFox
+;  Saver for images of Scanntronik VideoFox
+;
+;   1.00, 02.10.99, first release
+;
+; ------------------------------------------------ 
+
+; ------------------------------------------------ Equates
+
+	pport		= $01
+
+	gbyte		= $30
+	cnt		= $31
+	adcnt		= $3e
+
+	offx		= ls_adrmisc
+	offy		= offx+1
+
+	colors		= $c800
+	vid1		= colors
+	vid2		= vid1+500
+	colram		= $cc00
+	back		= colram+1000
+	sysvram1		= $ce0b
+	sysvram2		= $ee0b
+	syscram		= $de0b
+;
+; ------------------------------------------------ 
+
+header	jmp start
+	!by $40
+	!by 0
+	!by 1
+	!wo modend
+	!wo 0
+	!tx "ScT VideoMovie  "
+	!tx "1.00"
+	!tx "02.10.99"
+	!tx "A.Dettke        "
+;
+; ------------------------------------------------ 
+
+start	ldx gr_nr
+	dex
+	bne st0
+	jmp initinp
+;
+; ------------------------------------------------ 
+
+st0	jsr gd_sproff	; .a=0
+	sta cnt
+	lda gd_modswitch
+	pha
+	lda ls_flen
+	beq st1
+	sta wflen
+
+	lda #52
+	sta cntwert
+	jsr getpic	; prepare rendered image
+
+	jsr wopen
+	bne st2
+	jsr getname	; store filename
+	ldx #12
+	jsr ckout
+
+	jsr gd_clrms
+	ldx #0
+	jsr tcopy
+	sty gbyte		; .y=0
+	iny
+	sty adcnt
+
+	jsr write		; write image file
+
+st2	jsr clrch
+	lda #12
+	jsr close
+	jsr err9
+	bne st1
+	jsr setname
+
+st1	pla
+	sta gd_modswitch
+	jsr gd_spron
+	sec
+	rts
+
+; --------------------------- 
+; --------------------------- Input Routines
+
+!src "input.inc"
+
+; --------------------------- 
+; --------------------------- 
+
+pw	!tx "w,p,"
+drinit	!tx "i0"
+wflen	!by 0
+
+; ------------------------------------------------ 
+
+wopen	jsr inull
+	bne err8
+	ldy wflen
+	ldx #3
+wo1	lda pw,x
+	sta ls_nambuf,y
+	iny 
+	dex 
+	bpl wo1
+	sty wflen
+	lda #12
+	tay 
+	ldx ls_drive
+	jsr filpar
+	lda wflen
+	ldx #<ls_nambuf
+	ldy #>ls_nambuf
+	jsr filnam
+	jsr copen
+	jmp err9
+
+inull	ldx #<drinit
+	ldy #>drinit
+	lda #2
+	jsr gd_sendcom
+err9	jsr gd_xmess
+	lda ls_err2
+	and #15
+err8	sec 
+	rts 
+
+; --------------------------- Activity Gauge
+
+messout   ldx #<message	; display message and gauge
+	ldy #>message
+	jmp gd_xtxout2
+
+tcopy	ldy #0		; Select message
+tc0	lda txt,x		; in .x: offset to message
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+
+action	dec adcnt
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	cpy #21
+	bne act0
+	jsr clrmess
+act0	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts
+
+clrmess   ldx #21		; clear gauge bar
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0		; init counters
+	ldx #7	
+	sty offy
+	stx offx
+	rts
+
+filltab	!by 160,93,103,127,126,124,105,109
+
+cntwert	!by 52
+;
+txt	!scr " Bitmap  @"
+	!scr " Colors1 @"
+	!scr " Colors2 @"
+;
+message	!fill 10,32
+mess	!fill 22,32
+	!by 0
+
+; ----------------------------------------- Image Information Handler
+
+getname	ldx #0
+si0	lda ls_lastname,x	; name of loaded picture
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+setname	lda #0
+	ldx #<ls_picname
+	ldy #>ls_picname
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4 	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!fill 16,32
+	!by 0
+
+; ------------------------------------------------ 
+
+getpic	lda #<sysvram1	; $ce0b = VideoRAM, 1st half
+	sta sc_texttab
+	lda #<vid1	; to $c800
+	ldx #>vid1
+	ldy #>sysvram1
+	jsr move
+
+	lda #<sysvram2
+	sta sc_texttab
+	lda #<vid2	; to $c9f4 (end at $cbe7)
+	ldx #>vid2
+	ldy #>sysvram2	; $ee0b = VideoRAM, 2nd half
+	jsr move
+
+	lda #<syscram
+	sta sc_texttab
+	lda #<colram	; to $cc00 (end at $cfe7)
+	ldx #>colram
+	ldy #>syscram	; $de0b = ColorRAM
+	jsr movec
+
+	lda gr_bkcol	; rendered background color
+	and #15
+	sta back		; to $cfe8
+	rts
+;
+; ------------------------------------------------ 
+
+move	sty sc_texttab+1
+	sta sc_vekt20
+	stx sc_vekt20+1
+	lda #<500
+	ldx #>500
+	sta ls_vekta8
+	stx ls_vekta8+1
+
+	sei
+	lda #$30
+	sta pport
+	ldy #0
+mv0	lda (sc_texttab),y
+	sta (sc_vekt20),y
+	jsr count
+	bne mv0
+	lda #$36
+	sta pport
+	cli
+
+	rts
+;
+; ------------------------------------------------ 
+
+movec	sty sc_texttab+1
+	sta sc_vekt20
+	stx sc_vekt20+1
+	lda #<500
+	ldx #>500
+	sta ls_vekta8
+	stx ls_vekta8+1
+
+	sei
+	lda #$30
+	sta pport
+	ldy #0
+mv1	sty sc_merk
+	lda (sc_texttab),y
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	sta (sc_vekt20),y
+	inc sc_vekt20
+	bne mv2
+	inc sc_vekt20+1
+mv2	lda sc_merk
+	sta (sc_vekt20),y
+	jsr count
+	bne mv1
+	lda #$36
+	sta pport
+	cli
+
+	rts
+;
+; ------------------------------------------------ 
+
+count	inc sc_vekt20
+	bne cou5
+	inc sc_vekt20+1
+cou5	inc sc_texttab
+	bne cou6
+	inc sc_texttab+1
+cou6	lda ls_vekta8
+	bne cou7
+	dec ls_vekta8+1
+cou7	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	rts
+;
+; ------------------------------------------------ 
+
+write	lda #$4d		; file signature "M"
+	jsr bsout
+
+	lda #<8192	; bitmap 8192 bytes at $2000
+	ldx #>8192
+	sta ls_vekta8
+	stx ls_vekta8+1
+	lda #<$2000
+	ldx #>$2000
+	sta sc_texttab
+	stx sc_texttab+1
+
+wr0	ldy #0
+	lda (sc_texttab),y
+	jsr pack
+	jsr action
+	jsr cou5
+	bne wr0
+
+	jsr last
+	dec cnt
+
+; ------------------------------------------------ 
+
+	ldx #10		; video RAM 1024 bytes at $c800
+	jsr tcopy
+	iny
+	sty adcnt
+	lda #7
+	sta cntwert
+
+	lda #<1024
+	ldx #>1024
+	sta ls_vekta8
+	stx ls_vekta8+1
+	lda #<colors
+	ldx #>colors
+	sta sc_texttab
+	stx sc_texttab+1
+wr2	ldy #0
+	lda (sc_texttab),y
+	jsr pack
+	jsr action
+	jsr cou5
+	bne wr2
+	jsr last
+	dec cnt
+
+; ------------------------------------------------ 
+
+	ldx #20		; color RAM 1024 bytes at $cc00
+	jsr tcopy
+	iny
+	sty adcnt
+
+	lda #<1024
+	ldx #>1024
+	sta ls_vekta8
+	stx ls_vekta8+1
+	lda #<colram
+	ldx #>colram
+	sta sc_texttab
+	stx sc_texttab+1
+wr1	ldy #0
+	lda (sc_texttab),y
+	jsr pack
+	jsr action
+	jsr cou5
+	bne wr1
+
+; ------------------------------------------------ 
+
+	lda #<vid1	; restore video1 at $ce0b
+	sta sc_texttab
+	lda #<sysvram1
+	ldx #>sysvram1
+	ldy #>vid1
+	jsr move
+;
+last	lda gbyte		; finish packing
+	eor #$ff
+
+;---------------------------------------------------------- compress data
+
+pack	cmp gbyte		; current equalling last byte?
+	beq incr		; yes, count
+p255	pha		; no, store to stack
+	lda cnt		; first occurance?
+	beq wl1		; yes, store and count
+	cmp #$ff		; limit?
+	beq wl0		; yes, output to disk
+	cmp #4		; counted more than 3 times?
+	bcs wl0		; yes, output to disk
+	lda gbyte		; no, is it equalling the compress flag byte?
+	cmp #$9b
+	bne wl2		; no, output to disk
+
+wl0	lda #$9b		; output: $9b (flag byte)
+	jsr bsout
+	lda cnt		; and counter
+	jsr bsout
+	lda gbyte		; byte to compress
+	jsr bsout
+
+	lda #0		; set counter to 0 again
+	sta cnt
+	beq wl1		; continue counting
+
+wl2	lda gbyte		; output single byte to disk
+	jsr bsout
+	dec cnt		; decrement (if more than 1 and less than 4)
+	bne wl2
+
+wl1	pla		; store current byte
+	sta gbyte
+incr	inc cnt		; count
+	lda cnt
+	cmp #$ff
+	bne wl3
+	lda gbyte		; if limit: recursion (to output)
+	jsr p255
+	dec cnt		; is 1 on return, set again to 0
+wl3	rts
+
+; ------------------------------------------------ 
+
+modend	!eof

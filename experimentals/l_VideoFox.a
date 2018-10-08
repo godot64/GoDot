@@ -1,0 +1,409 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ------------------------------------------------ 
+;
+;  ldr.VideoFox
+;  Loader for Scanntronik Video Movie Images
+;
+;    1.00:         , first release
+;    1.01: 01.10.99, 
+;
+; ------------------------------------------------ 
+
+; ------------------------------------------------ Equates
+
+	ftype		= $30
+	counter		= $31
+	gbyte		= $33
+	byte		= $34
+	cnt		= $35
+	adcnt		= $3e
+	vram		= $45
+	cram		= $47
+
+	offx		= ls_adrmisc
+	offy		= offx+1
+
+	vrbuf		= $c600
+	crbuf		= vrbuf+1024
+	bkgrd		= vrbuf+2024
+	col0		= vrbuf+2048
+
+; ------------------------------------------------ 
+
+	jmp start
+	!by $80
+	!wo 0
+	!wo modend
+	!wo 0
+	!tx "VideoMovie Load "
+	!tx "1.01"
+	!tx "01.10.99"
+	!tx "A.Dettke        "
+
+; ------------------------------------------------ 
+
+ffail	ldx #0
+	ldy #0
+fl0	lda err1,x
+	sta message,y
+	inx
+	iny
+	cpy #32
+	bne fl0
+	jsr error
+	jsr gd_clrms
+	jsr messout
+	clc
+	rts
+
+; ------------------------------------------------ 
+
+jerror	jmp error
+
+; ------------------------------------------------ 
+
+start	lda #50		; activity counter to 50
+	sta cntwert
+	sta adcnt
+	ldx sc_vekt20
+	stx ftype
+	stx counter
+	stx counter+1
+	ldy sc_vekt20+1	; Start at $4000
+	stx sc_texttab
+	sty sc_texttab+1
+
+stt3 	jsr gd_xopen	; open file
+	jsr basin		; get first byte 
+	bcs jerror
+	sta ftype		; (must be "M" for "Movie")
+
+	cmp #$4d		; no "M", so error
+	bne ffail
+
+	jsr getname	; store filename
+	jsr gd_clrms	; clear message bar
+
+; ------------------------------------------------ 
+
+	ldx #20		; out: "Bitmap"
+	jsr tcopy		; .y=0
+
+	lda #<8192	; count 8192 bytes (bitmap)
+	sta ls_vekta8
+	lda #>8192
+	sta ls_vekta8+1
+
+loop	jsr onebyte	; decompress file
+	sta byte
+	jsr action
+	ldy #0
+
+	ldx #4		; convert to 4bit indexes
+bloop	lda #0
+	asl byte
+	rol
+	asl byte
+	rol
+	sta (sc_texttab),y
+	inc sc_texttab
+	bne sk
+	inc sc_texttab+1
+sk	dex
+	bne bloop
+	jsr count
+	beq sk2
+	lda status
+	beq loop
+
+; ------------------------------------------------ 
+
+sk2	lda #<2048	; then, get color rams
+	sta ls_vekta8
+	lda #>2048
+	sta ls_vekta8+1
+	lda #<vrbuf
+	sta sc_texttab
+	lda #>vrbuf
+	sta sc_texttab+1
+
+	lda #13
+	sta cntwert
+	sta adcnt
+	ldx #0		; out: "Colors"
+	jsr tcopy
+
+loop1	jsr onebyte	; decompress
+	sta (sc_texttab),y
+	jsr action
+	ldy #0
+	inc sc_texttab
+	bne sk3
+	inc sc_texttab+1
+sk3	jsr count
+	beq sk5
+	jmp loop1
+
+; ------------------------------------------------ 
+
+sk5	lda bkgrd		; get background color
+	sta gr_fbkcol	; store to system
+	ldy #0
+	sta (sc_texttab),y
+
+	jsr gd_xclose	; now close file
+
+; ------------------------------------------------ 
+
+	lda #<vrbuf	; convert to 4bit (set start addresses)
+	sta vram
+	lda #>vrbuf
+	sta vram+1
+	lda #<crbuf
+	sta cram
+	lda #>crbuf
+	sta cram+1
+	lda #<sy_4bit
+	sta sc_texttab
+	lda #>sy_4bit
+	sta sc_texttab+1
+
+	lda #<1000	; count 1000
+	sta ls_vekta8
+	lda #>1000
+	sta ls_vekta8+1
+
+	lda #200
+	sta cntwert
+	sta adcnt
+	ldx #10
+	jsr tcopy
+
+loop2	lda (vram),y	; convert video RAM colors to 4bit
+	pha
+	lsr
+	lsr
+	lsr
+	lsr
+	sta col0+1
+	pla
+	and #$0f
+	sta col0+2
+	lda (cram),y	; convert color RAM colors to 4bit
+	and #$0f
+	sta col0+3
+
+	lda #32
+	sta cnt
+bloop1	jsr action
+	ldy #0
+	lda (sc_texttab),y	; get values from 4bit (0-3)
+	tax
+	lda col0,x	; get color values from table
+	tax
+	lda dnib,x	; get conversion values to GoDot palette from table
+	sta (sc_texttab),y	; write back to 4bit (double nibbles)
+	inc sc_texttab	; advance
+	bne sk6
+	inc sc_texttab+1
+sk6	dec cnt		; one tile
+	bne bloop1
+
+	inc vram		; next tile
+	bne sk7
+	inc vram+1
+sk7	inc cram
+	bne sk8
+	inc cram+1
+
+sk8	jsr count		; 1000 tiles
+	bne loop2
+
+; ------------------------------------------------ 
+
+	ldx #18		; reset start message
+	jsr tcopy
+	jsr setinfo	; set image information
+
+sk10	jsr gd_xmess	; error message from drive
+	jsr gd_spron	; sprite pointer on
+	sec		; leave loader
+	rts
+
+; ------------------------------------------------ 
+
+onebyte	lda counter
+	ora counter+1
+	bne getit2
+
+	inc counter
+	jsr basin
+	cmp #$9b
+	bne getit1
+	bit ftype
+	bvc getit1
+	jsr basin
+	sta counter
+	lda ftype
+	and #2
+	bne fxl1
+	lda counter
+	beq fxl2
+	lda #0
+	beq fxl3
+fxl2	lda #1
+	bne fxl3
+fxl1	jsr basin
+fxl3	sta counter+1
+	jsr basin
+getit1	sta gbyte
+
+getit2	lda counter
+	bne fxl4
+	dec counter+1
+fxl4	dec counter
+	lda gbyte
+	rts
+
+; ------------------------------------------------ 
+
+error	jsr gd_xclose
+	jsr sk10
+	clc
+	rts
+
+; ------------------------------------------------ 
+
+count 	lda ls_vekta8	; count bytes
+	bne +
+	dec ls_vekta8+1
++	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	rts
+
+; ------------------------------------------------ 
+
+messout	ldx #<message
+	ldy #>message
+	jmp gd_xtxout2
+
+tcopy	ldy #0
+tc0	lda txt,x
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+
+action	dec adcnt
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	cpy #20
+	bne act0
+	jsr clrmess
+act0	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts
+
+clrmess   ldx #20		; clear gauge bar
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0		; init counters
+	ldx #7	
+	sty offy
+	stx offx
+	rts
+
+filltab	!by 160,93,103,127,126,124,105,109
+
+cntwert	!by 50
+
+txt	!scr " Colors  @"
+	!scr " Convert @"
+	!scr " Bitmap  @"
+
+message   !fill 11,32
+mess	!fill 21,32
+	!by 0
+
+; ------------------------------------------------ 
+
+err1	!scr "No Scanntronik VideoMovie Image."
+
+; ------------------------------------------------ 
+
+dnib	!by $00,$ff,$44,$cc,$55,$aa,$11,$dd
+	!by $66,$22,$99,$33,$77,$ee,$88,$bb
+
+; ------------------------------------------------ 
+
+getname	ldx #0
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+; ------------------------------------------------ 
+
+setinfo	jsr setname
+	jsr setloader
+	jsr setmode
+	jmp setdata
+
+setname	lda #0
+	ldx #<ls_picname
+	ldy #>ls_picname
+	bne si3
+setloader	lda #17
+	ldx #<ls_iloader
+	ldy #>ls_iloader
+	bne si3
+setmode	lda #25
+	ldx #<ls_imode
+	ldy #>ls_imode
+	bne si3
+setdata	lda #33
+	ldx #<ls_idrive
+	ldy #>ls_idrive
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!fill 16,32
+	!by 0
+	!scr "VidFox @"
+
+modetx	!scr "160x200@"
+datatype	!scr "Color@"
+
+; ------------------------------------------------ 
+
+modend	!eof
