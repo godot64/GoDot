@@ -1,0 +1,79 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ------------------------------------------------ 
+;
+; mod.4BitToDelta
+;
+; ------------------------------------------------ 
+;
+; This module eliminates equal patterns in successive
+; blockrows to zero. Thus an image can be saved to 
+; disk in a space saving way. This was a test whether
+; to include such a feature to GoDot's 4Bit savers.
+; There's no activity indication, so wait a moment.
+;
+; 4Bit2Delta must be applied first, DeltaTo4Bit reverts.
+;
+; ------------------------------------------------ 
+;
+; 1.00, 30.10.91, first release
+;
+; ------------------------------------------------ 
+
+; ------------------------------------------------ Declarations
+
+	src		= $30
+	dst		= $32
+
+; ------------------------------------------------ Header
+
+	jmp start
+	!by $20
+	!wo 0
+	!wo modend
+	!wo 0
+	!tx "4Bit To Delta   "
+	!tx "1.00"
+	!tx "30.10.91"
+	!tx "W.Kling         "
+
+; ------------------------------------------------ Main
+
+start	lda #<(sy_bigbuffer-1)
+	sta dst
+	lda #>(sy_bigbuffer-1)
+	sta dst+1
+	lda #<(sy_bigbuffer-$501)
+	sta src
+	lda #>(sy_bigbuffer-$501)
+	sta src+1
+
+	ldy #$0
+zloop	lda (dst),y	; read source pattern
+	eor (src),y
+	sta (dst),y	; combine /w destination pattern
+
+	lda src		; advance backwards
+	bne skip1
+	dec src+1
+skip1	dec src
+	lda dst
+	bne skip2
+	dec dst+1
+skip2	dec dst
+	lda src+1
+	cmp #>sy_global	; until all bytes are processed
+	bne zloop
+
+	lda #$ff		; set render flag
+	sta gr_redisp
+	clc 		; stay
+	rts 
+
+; ------------------------------------------------ 
+
+modend	!eof

@@ -1,0 +1,75 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ------------------------------------------------ 
+;
+; mod.DeltaTo4Bit
+;
+; ------------------------------------------------ 
+;
+; This module restores equal patterns in successive
+; blockrows. Thus space-saved 4bit images can be 
+; reconstructed. This was a test whether to include
+; such a feature to GoDot's 4Bit savers. There's 
+; no activity indication included, so wait a moment.
+;
+; DeltaTo4Bit reverts 4Bit2Delta.
+;
+; ------------------------------------------------ 
+;
+; 1.00, 30.10.91, first release
+;
+; ------------------------------------------------ 
+
+; ------------------------------------------------ Declarations
+
+	src		= $30
+	dst		= $32
+
+; ------------------------------------------------ Header
+
+	jmp start
+	!by $20
+	!wo 0
+	!wo modend
+	!wo 0
+	!tx "Delta To 4Bit   "
+	!tx "1.00"
+	!tx "30.10.91"
+	!tx "W.Kling         "
+;
+start	lda #<(sy_4bit+$500)
+	sta dst
+	lda #>(sy_4bit+$500)
+	sta dst+1
+	lda #<sy_4bit
+	sta src
+	lda #>sy_4bit
+	sta src+1
+
+	ldy #$0
+zloop	lda (dst),y	; read source pattern
+	eor (src),y
+	sta (dst),y	; combine /w destination pattern
+
+	inc src		; advance forwards
+	bne skip1
+	inc src+1
+skip1	inc dst
+	bne skip2
+	inc dst+1
+skip2	lda dst+1
+	cmp #>sy_bigbuffer	; until all bytes are processed
+	bne zloop
+
+	lda #$ff		; set render flag
+	sta gr_redisp
+	clc 		; stay
+	rts 
+
+; ------------------------------------------------ 
+
+modend	!eof
