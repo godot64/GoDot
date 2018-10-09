@@ -1,0 +1,383 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ------------------------------------------------ 
+;
+;  mod.MCMask
+;  (Use a Multicolor Image as mask to combine pictures,
+;   you load an image and then apply the multicolor mask.)
+;
+;  MCMask got substituted by ldr.4Bit&Mask, which uses
+;  editable pixel masks, and ldr.4Bit&Map, which uses
+;  GoDot-generated Alpha Channels.
+;
+;  Mask images must have a leading "msk." in their names.
+;
+; ------------------------------------------------ 
+;
+;  So actually, the bitmap of a multicolor image controls
+;  the output. It contains series of double pixel patterns
+;  formed like this:
+;
+;  %00: color from $d021 (Background Color)
+;  %01: color from VideoRAM ($0400..$07e7), Bits 7..4
+;  %10: color from VideoRAM ($0400..$07e7), Bits 3..0
+;  %11: color from ColorRAM ($d800..$dbe7)
+;
+;  In MCMask they mean:
+;
+;  %00: clear this pixel
+;  %01: subtract 8 from current pixel color value (min: 0)
+;  %10: leave pixel unharmed
+;  %11: add 8 to current pixel color value (max: 15)
+;
+;  So, in a mask, rarely use black, it clears pixels.
+;  Often use Color 2 (Bits 3..0 of Video Ram), it leaves
+;  pixels alone. Use Color 1 and Color Ram to indicate
+;  transitions.
+; 
+; ------------------------------------------------ 
+;
+;  1.03, 18.01.92, 
+;
+; ------------------------------------------------ 
+
+; ------------------------------------------------ Equates
+
+	tab		= $30
+	fcolor		= $32
+	byte		= $33
+	dst		= $34
+	adcnt		= $36
+
+	offx		= ls_adrmisc
+	offy		= offx+1
+
+	buf0		= $c600
+	buf1		= buf0+256
+
+; ----------------------------------------- Header
+
+	jmp start
+	!by $20
+	!wo 0
+	!wo modend
+	!wo 0
+	!tx "MultiColorMask  "
+	!tx "1.03"
+	!tx "18.01.92"
+	!tx "W.Kling/A.Dettke"
+;
+; ------------------------------------------------ 
+
+start	jsr chgdrv
+	lda ls_sysdrive
+	pha 
+
+	lda mdrive	; module already used?
+	bne st1
+	lda ls_loadfrom	; no, first time, set drive
+	sta mdrive
+st1	jsr settab	; prepare mask buffers
+	jsr fselect	; select file
+	bne st0
+
+	jsr mask		; process image
+	sta gr_redisp
+	!by $a9		; skip SEC
+
+st0	sec 
+	ldx list
+	ldy list+1
+	stx sc_scvek2
+	sty sc_scvek2+1
+
+	pla 
+	sta ls_sysdrive
+	jsr chgdrv
+	rts 
+
+; ------------------------------------------------ 
+
+jerror	jmp error
+
+; ------------------------------------------------ 
+
+mask	lda #50
+	sta cntwert
+	ldx #<sy_4bit	; start at 4Bit ($4000)
+	ldy #>sy_4bit
+	stx sc_texttab
+	sty sc_texttab+1
+
+	lda ls_nambuf	; Koala name?
+	cmp #$c1
+	bne stt1
+	lda #$81		; yes, adapt to GoDot
+stt1	sta ls_nambuf
+	ldx ls_temp
+	cpx #16
+	beq stt2
+	lda #$2a
+	sta ls_nambuf,x
+	inc ls_temp
+
+stt2 	jsr gd_xopen	; open file
+	jsr onebyte	; skip start address
+	bne jerror
+	jsr onebyte
+	bne jerror
+
+	jsr gd_clrms	; prepare gauge
+	ldx #18
+	jsr tcopy
+	iny
+	sty adcnt
+
+	lda #<8000	; count 8000 bytes (just the bitmap)
+	sta ls_vekta8
+	lda #>8000
+	sta ls_vekta8+1
+;
+loop	jsr onebyte	; read byte
+	sta byte
+	txa 
+	and #$bf		; until EOF
+	bne jerror
+	jsr action
+
+	ldx #4		; work into 4Bit:
+bloop	lda #0
+	tay 
+	asl byte		; isolate 1 double pixel
+	rol 
+	asl byte
+	rol 
+	sta fcolor
+	beq bl2		; %00? so set to black
+
+	lda (sc_texttab),y	; get 4Bit
+	tay 		; as index into bufs
+
+	dec fcolor	; is %01?
+	beq bl1		; so store to buf1
+	dec fcolor	; is %10?
+	beq bl0		; so leave unharmed
+	lda #>buf0	; is %11, store to buf0
+	!by $2c
+bl1	lda #>buf1
+	sta tab+1
+	lda (tab),y	; get color from buf0/1
+bl2	ldy #0
+	sta (sc_texttab),y	; store back to 4Bit
+bl0	inc sc_texttab	; advance
+	bne sk
+	inc sc_texttab+1
+sk	dex 		; process 4 4bits (4 double pixels)
+	bne bloop
+
+	lda ls_vekta8	; count 8000 bytes
+	bne sk1
+	dec ls_vekta8+1
+sk1	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	beq sk2
+	lda status	; loop if disk ok
+	beq loop
+
+	ldx #18		; reset gauge
+	jsr tcopy
+;
+; ------------------------------------------------ 
+
+sk2	jsr gd_xclose	; close mask file
+	jsr gd_spron	; sprite pointer on
+	sec		; leave loader
+	rts
+
+; ------------------------------------------------ 
+
+list	!wo 0
+mdrive	!by 0		; drive where mask is
+filter	!tx "msk.*"	; filter pattern for Mask files
+	!by 0
+;
+; --------------------------- Bootdrive sicherstellen
+
+chgdrv	lda ls_sysdrive
+	ldx ls_bootdrive
+	sta ls_bootdrive
+	stx ls_sysdrive
+	rts
+
+; ------------------------------------------------ 
+
+fselect	ldx #<sy_4bit
+	ldy #>sy_4bit
+	stx dst
+	sty dst+1
+	lda mdrive	; drive selected?
+	beq fs0
+	sta ls_sysdrive	; yes, set as sysdrive
+fs0	jsr lddir		; open file requester for masks
+
+	ldx sc_scvek2	; save current screenlist
+	ldy sc_scvek2+1
+	stx list
+	sty list+1
+	lda gd_modswitch
+	pha 
+	jsr gd_eloop	; wait for clicks
+	pla 
+	sta gd_modswitch
+	lda ls_drive	; store mask drive number
+	sta mdrive
+	cpx #8		; file selected?
+	rts 
+;
+; ------------------------------------------------ 
+
+lddir	lda #<filter	; show only "msk.*"
+	pha 
+	lda #>filter
+	pha 
+	lda #8
+	jmp gd_xloadm
+;
+; ------------------------------------------------ 
+
+settab	ldx #0
+	stx tab
+
+stb0	txa 		; produce values 8..15
+	lsr 
+	lsr 
+	lsr 
+	lsr 
+	clc 
+	adc #8
+	cmp #$0f
+	bmi stb1
+	lda #$0f
+stb1	asl 		; shift to upper nibble
+	asl 
+	asl 
+	asl 
+	sta byte
+
+	txa 		; the same for lower nibble
+	and #$0f
+	clc 
+	adc #8
+	cmp #$0f
+	bmi stb2
+	lda #$0f
+stb2	ora byte
+	sta buf0,x	; store to buf0, thus $88..$ff
+
+	inx 		; 256 times
+	bne stb0
+;
+stb3	txa 		; produce values 0..7
+	lsr 
+	lsr 
+	lsr 
+	lsr 
+	sec 
+	sbc #8
+	bpl stb4
+	lda #0
+stb4	asl 		; shift to upper nibble
+	asl 
+	asl 
+	asl 
+	sta byte
+
+	txa 		; the same for lower nibble
+	and #$0f
+	sec 
+	sbc #8
+	bpl stb5
+	lda #0
+stb5	ora byte
+	sta buf1,x	; store to buf1, thus $00..$77
+
+	inx 
+	bne stb3
+	rts 
+;
+; ------------------------------------------------ 
+
+onebyte	jsr basin
+	ldx status
+	rts 
+;
+; ------------------------------------------------ 
+
+error	jsr sk2
+	clc 
+	rts 
+;
+; ------------------------------------------------ 
+
+messout	ldx #<message
+	ldy #>message
+	jmp gd_xtxout2
+
+tcopy	ldy #0
+tc0	lda txt,x
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+
+action	dec adcnt
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	cpy #20
+	bne act0
+	jsr clrmess
+act0	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts
+
+clrmess   ldx #20		; clear gauge bar
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0		; init counters
+	ldx #7	
+	sty offy
+	stx offx
+	rts
+
+filltab	!by 160,93,103,127,126,124,105,109
+
+cntwert	!by 50
+
+txt	!scr " Colors @"
+	!scr " Convert@"
+	!scr " Bitmap @"
+
+message   !fill 11,32
+mess	!fill 21,32
+	!by 0
+
+; ------------------------------------------------ 
+
+modend	!eof
