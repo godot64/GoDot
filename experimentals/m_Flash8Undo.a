@@ -1,0 +1,139 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ------------------------------------------------ 
+;
+;  mod.Flash8Undo
+;  (Use Flash8 RAM as Undo 4Bit)
+;
+; ------------------------------------------------ 
+;
+;  This module is a study how to implement 16Bit CPU
+;  commands in GoDot. It's meant for a 65816 Flash8 board.
+; 
+; ------------------------------------------------ 
+;
+;  1.00, 10.10.96, first release
+;
+; ------------------------------------------------ 
+
+; ------------------------------------------------ Equates
+
+; none
+
+; ------------------------------------------------ 
+
+header	jmp start
+	!by $20
+	!wo 0
+	!wo modend
+	!wo 0
+	!tx "Flash8 Undo/Redo"
+	!tx "1.00"
+	!tx "10.10.96"
+	!tx "A.Dettke        "
+
+; ------------------------------------------------ 
+
+start	jsr f8check	; running on a Flash8?
+	bne nof8		; no, leave
+
+	lda gd_modswitch
+	pha
+
+	lda sc_screenvek
+	pha
+	lda sc_screenvek+1
+	pha
+	ldx #<cntlst	; requester
+	ldy #>cntlst
+	jsr gd_screen
+	jsr gd_eloop	; wait for clicks
+	pla
+	sta gr_redisp
+	sta sc_screenvek+1
+	pla
+	sta sc_screenvek
+
+	pla
+	sta gd_modswitch
+
+canc	sec		; leave module after work
+	rts
+
+; ------------------------------------------------ 
+
+nof8	clc
+	rts
+
+; ------------------------------------------------ 
+
+f8check	lda ls_ramdrive	; did GoDot recognize Flash8?
+	and #15
+	cmp #7		; if not, leave
+	rts
+
+; ------------------------------------------------ 
+
+!cpu 65816 {
+
+evundo	sei
+	clc
+	xce
+	rep #$30
+	phb
+!rl {	ldx #$4000	; source
+	ldy #$1000	; destination
+!al {	lda #$7cff	; amount (minus 1)
+	mvn $00, $02	; from bank 0 to 2
+	}
+	}
+	plb
+	sec
+	xce
+	cli
+	sec
+	rts
+
+; ------------------------------------------------ 
+
+evredo	sei
+	clc
+	xce
+	rep #$30
+	phb
+!rl {	ldx #$1000	; see: evundo
+	ldy #$4000
+!al {	lda #$7cff
+	mvn $02, $00
+	}
+	}
+	plb
+	sec
+	xce
+	cli
+	sec
+	rts
+
+}
+
+; ------------------------------------------------ 
+
+cntlst	!by 0
+	!by 12,22,6,5,$01
+	!wo 0
+	!by 12,22,6,3,$c3
+	!wo evundo
+	!scr "Undo@"
+	!by 14,22,6,3,$cb
+	!wo evredo
+	!scr "Redo@"
+	!by $80
+
+; ------------------------------------------------ 
+
+modend	!eof
+
