@@ -7,7 +7,14 @@
 ; ------------------------------------------------ 
 ;
 ;  ldr.VideoFox
-;  Loader for Scanntronik Video Movie Images
+;  Loader for Scanntronik VideoFox Multicolor Images
+;
+; ------------------------------------------------ 
+;
+;  (We found that VideoFox doesn't recognize these
+;   images. Anyone know which actual format this is?)
+;
+; ------------------------------------------------ 
 ;
 ;    1.00:         , first release
 ;    1.01: 01.10.99, 
@@ -40,7 +47,7 @@
 	!wo 0
 	!wo modend
 	!wo 0
-	!tx "VideoMovie Load "
+	!tx "VideoFox MColor "
 	!tx "1.01"
 	!tx "01.10.99"
 	!tx "A.Dettke        "

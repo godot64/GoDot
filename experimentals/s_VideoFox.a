@@ -6,7 +6,14 @@
 ; ------------------------------------------------     
 ;
 ; svr.VideoFox
-;  Saver for images of Scanntronik VideoFox
+;  Saver for multicolor images of Scanntronik VideoFox
+;
+; ------------------------------------------------ 
+;
+;  (We found that VideoFox doesn't recognize these
+;   images. Anyone know which actual format this is?)
+;
+; ------------------------------------------------ 
 ;
 ;   1.00, 02.10.99, first release
 ;
@@ -40,7 +47,7 @@ header	jmp start
 	!by 1
 	!wo modend
 	!wo 0
-	!tx "ScT VideoMovie  "
+	!tx "VideoFox MColor "
 	!tx "1.00"
 	!tx "02.10.99"
 	!tx "A.Dettke        "
