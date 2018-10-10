@@ -1,0 +1,173 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ------------------------------------------------ 
+;
+;  mod.FlickerFixer
+;  Modifier to get rid of flicker in IFLI mode
+;
+; ------------------------------------------------ 
+;
+;  This was a try to lower the flickerness in IFLI-rendered
+;  images (by ldr.GIF or ldr.PCXprep4IFLI) by tesselating
+;  those color combination double pixels which cause the most
+;  flickerness. Successless try, mod.OddSwap does a better job.
+; 
+; ------------------------------------------------ 
+;
+;  1.04, 21.08.96, 
+;
+; ------------------------------------------------ 
+
+; ------------------------------------------------ Equates
+
+	adcnt		= $30
+	src		= $35
+
+	sprptr		= $07f8
+	spr255		= $3fc0
+
+	palbuf		= $c800
+
+	spr2x		= $d004
+	spr2y		= $d005
+	msbx		= $d010
+	spren		= $d015
+	sprxe		= $d01d
+	border		= $d020
+	sprcol2		= $d029
+
+; ------------------------------------------------ 
+
+header	jmp start
+	!by $20
+	!wo 0
+	!wo modend
+	!wo 0
+	!tx "IFLI Flickeroff "
+	!tx "1.04"
+	!tx "21.08.96"
+	!tx "A.Dettke        "
+;
+; ------------------------------------------------ 
+
+start	lda #3
+	jsr initad
+	jsr initpal
+	jsr ffix
+	jsr clearad
+	lda #$ff		; Grafik verändert
+	sta gr_redisp
+	clc 
+	rts 
+;
+; ------------------------------------------------ 
+
+ffix	lda #<sy_4bit
+	ldx #>sy_4bit
+	sta src
+	stx src+1
+;
+	ldy #0
+sl0	lda (src),y	; get color combis from 4bit
+	tax 		; as index into buffer
+	tya 
+	and #4		; process every forth combi
+	beq sl2
+	lda palbuf,x
+	sta (src),y
+sl2	iny 
+	bne sl0
+	jsr adinc		; activity
+	inc src+1		; advance
+	lda src+1
+	cmp #>sy_bigbuffer	; until end of 4bit
+	bne sl0
+
+	rts 
+;
+; ------------------------------------------------ 
+
+initpal	ldx #0		; first prepare buffer ($00..$ff)
+ip0	txa 
+	sta palbuf,x
+	inx 
+	bne ip0
+
+	ldy #13		; place flicker combis into buffer:
+ip1	lda fixtab,y	; these are flickering
+	tax
+	lda xiftab,y	; these are mirrored versions
+	sta palbuf,x	; replace flickering ones
+	dey 
+	bpl ip1
+	rts 
+;
+; ------------------------------------------------ 
+
+fixtab	!by $26,$9d,$ae,$fd,$fb,$1a,$25,$8e,$7b,$bf,$37,$69,$73,$b7
+xiftab	!by $62,$d9,$ea,$df,$bf,$a1,$52,$e8,$b7,$fb,$73,$96,$37,$7b
+;
+; ------------------------------------------------ 
+
+clearad	lda spren		; Wanderbalken aus
+	and #$f3
+	sta spren
+	lda msbx
+	and #$f3
+	sta msbx
+	clc 		; fertig
+	rts 
+
+; ------------------------------------------------ 
+
+initad	sta adcnt
+	ldy #60
+	lda #0
+-	sta spr255+3,y	; Spriteblock 255 vorbereiten
+	dey 
+	bpl -
+	sty spr255	; dünner Strich
+	sty spr255+1
+	sty spr255+2
+	lda #$0f		; Farbe hellgrau
+	sta sprcol2
+	sta sprcol2+1
+	lda sprxe		; doppelt breit
+	ora #$0c
+	sta sprxe
+
+	lda msbx		; x über 255
+	ora #$0c
+	sta msbx
+	lda #8		; x-Ordinate: 8 (plus 256)
+	sta spr2x
+	lda #$20
+	sta spr2x+2
+	lda #$92		; y-Ordinate: 146
+	sta spr2y		; (im Image Information Fenster)
+	sta spr2y+2
+
+	sty sprptr+2	; Sprite 255
+	sty sprptr+3
+	lda spren
+	ora #$0c		; Activity-Balken aktivieren
+	sta spren
+	rts 
+;
+; ------------------------------------------------ 
+
+adinc	dec adcnt
+	bne +
+	inc spr2y
+	inc spr2y+2
+	lda #3
+	sta adcnt
++	rts 
+
+; ------------------------------------------------ 
+
+modend	!eof
