@@ -1,0 +1,1773 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ------------------------------------------------ 
+;
+;  mod.NetCopy
+;
+;  Module to transfer files between C64 and PC
+;  by Paul Gardner-Stephen
+;
+; ------------------------------------------------ 
+;
+;  This is just a GUI to Paul's 64Net Copier.
+;
+; ------------------------------------------------ 
+;
+;    1.00:         , first release
+;    1.01: 28.05.95,
+;    1.02: 12.06.95, set netdrive to unit 8 (precaution)
+;    1.03: 12.10.18, added recoloring of texts
+;                    bugfix: cancelled Input caused crash
+;
+; ------------------------------------------------ 
+
+; ------------------------------------------------ Equates
+
+	pport		= $01
+	amount		= $10
+	bytebuf		= $1a
+	inplen		= ls_len
+
+	address		= $30
+	dstvek		= $32
+	target2		= $34
+	addbyte		= $36
+	entries		= $37
+	nlen		= $38
+	dready		= $39
+	current		= $3a
+	merkx		= $3b
+	merky		= $3c
+	blocks		= $3d
+	blmerk		= $3f
+	tagflag		= $40
+	count		= $42
+	count2		= $43
+
+	target		= $66
+	actindev		= $99
+	actoutdev		= $9a
+	netdrive		= $a7
+	setvek		= $a9
+	areg		= $b4
+	namelen		= $b7
+	sekadr		= $b9
+	nameadd		= $bb
+	rvsflag		= $c7
+	source		= $f0
+	txsrc		= $f8
+	xreg		= $fd
+	yreg		= $fe
+
+	ibuffer		= ls_nambuf
+	filelist		= $0259
+	devlist		= $0263
+	cursor		= $0286
+	drivelst		= ls_units
+
+	lenlist		= $5000
+	blkslo		= $5100
+	blkshi		= $5200
+	typelist		= $5300
+	taglist		= $5400
+	netbuffer		= $5500
+
+	intout		= $bdcd
+	rahmen		= $d020
+	backgr		= $d021
+	ciaprb		= $dd01
+	ddrb		= $dd03
+
+	systxt2		= $f5af
+	systxt		= $f5d2
+	saving		= $f68f
+	setvects		= $fd15
+	getin		= $ffe4
+	clall		= $ffe7
+	plot		= $fff0
+
+; ------------------------------------------------ 
+
+	jmp start
+	!by $20
+	!wo 1
+	!wo modend
+	!wo $00
+	!tx "FileCopy 64Net  "
+	!tx "1.03"
+	!tx "12.10.18"
+	!tx "P.GardnerStephen"
+addtx	!tx "and A.Dettke    "
+	!by 0
+
+; ------------------------------------------------ 
+
+start	lda working
+	bpl sevncopy
+	ldx #<warnlst
+	ldy #>warnlst
+	jsr gd_screen
+	ldy #3
+-	lda wrndwn,y
+	sta sc_zl,y
+	dey 
+	bpl -
+	ldx #2
+	jsr gd_fcol
+	jmp gd_eloop
+
+; ------------------------------------------------ Event: NetCopy
+
+sevncopy	jsr makechar
+	lda ls_drive
+	pha 
+	ldx #<ncopylst
+	ldy #>ncopylst
+	jsr gd_screen
+	lda #0
+	sta rahmen
+	jsr recolor
+st02	jsr init
+	jsr gd_eloop
+	pla 
+	sta ls_drive
+	sta gr_redisp
+	rts 
+
+; ------------------------------------------------ 
+
+recolor	lda #23
+	sta count2
+st04	ldx count2
+	ldy #3
+st01	lda coldwn,x
+	sta sc_zl,y
+	dex 
+	dey 
+	bpl st01
+	stx count2
+	ldx #2
+	jsr gd_fcol
+	lda count2
+	bpl st04
+	rts
+
+; ------------------------------------------------ 
+
+xxx	lda sc_maincolor
+	sta rahmen
+	sec 
+	rts 
+
+; ------------------------------------------------ 
+
+warnlst	!by 0
+	!by 6,9,14,9,$91
+	!wo 0
+	!scr "Warning!@"
+	!by 12,9,6,3,$c7
+	!wo sevncopy
+	!scr " Ok @"
+	!by 12,15,8,3,$cd
+	!wo xxx
+	!scr "Cancel@"
+	!by $c0,8,9,12
+	!scr "NetCopy will@"
+	!by $c0,9,9,12
+	!scr "destroy your@"
+	!by $c0,10,9,12
+	!scr " 4Bit Data. @"
+	!by $80
+
+; ------------------------------------------------ 
+
+wrndwn	!by 9,10,12,3
+coldwn	!by 2,4,32,3
+	!by 6,7,26,5
+	!by 14,7,26,5
+	!by 12,7,26,1
+	!by 18,1,4,1
+	!by 22,4,32,2
+
+char	!by $3c,$60,$67,$60,$67,$60,$3c,$00
+
+; ------------------------------------------------ 
+
+ncopylst	!by $93
+	!by 0,0,40,25,$91
+	!wo 0
+	!scr "   64Net File Copier v2.05  (C) 1994   @"
+unit	!by 5,0,6,3,$d8
+	!wo evndisk
+	!scr "U"
+unitn	!scr "08 @"
+	!by 7,0,6,3,$c8
+	!wo evnpath
+	!scr "Path@"
+	!by 9,0,6,3,$c8
+	!wo evncom
+	!scr "NCom@"
+	!by 12,0,6,3,$c8
+	!wo evtagall
+	!scr "All @"
+	!by 14,0,6,3,$c8
+	!wo evutgall
+	!scr "None@"
+	!by 17,0,6,3,$88
+	!wo 0
+	!scr "0   @"
+	!by 5,34,6,3,$cf
+	!wo evhome
+	!scr "Home@"
+	!by 7,34,6,3,$ce
+	!wo evpageup
+	!scr "Pg ",30,0
+	!by 9,34,6,3,$ce
+	!wo evscrup
+	!by 32,30,30,32,0
+	!by 11,34,6,3,$de
+	!wo evcopy
+	!scr "Copy@"
+	!by 13,34,6,3,$ce
+	!wo evscrdn
+	!by 32,31,31,32,0
+	!by 15,34,6,3,$ce
+	!wo evpagedn
+	!scr "Pg ",31,0
+	!by 17,34,6,3,$cf
+	!wo evend
+	!scr "End @"
+
+inpgad	!by 21,3,34,3,$c0
+	!wo yyy
+	!fill 32,32
+	!by 0
+	!by 22,3,34,3,$00
+	!wo 0
+statgad	!by 21,3,34,4,$0c
+	!wo 0
+	!by 5,6,28,15,$01	; Dir-Window komplett
+	!wo 0
+	!by 11,6,28,3,$ca	; Tag-Fenster
+	!wo evtag
+	!fill 26,32
+	!by 0
+	!by 21,37,3,4,$dd	; Exit
+	!wo xxx
+	!by 69,0
+	!by 21,0,3,4,$d7	; Direction:
+	!wo evtoggle
+direc	!by 30,0		; up arrow (C64 -> PC)
+	!by $c0,22,37,1
+	!by 24,0		; "x" (Exit)
+	!by $c0,22,0,1
+	!by 223,0		; "C=" (Direction)
+	!by $c0,1,9,20
+	!scr "Paul Gardner-Stephen@"
+	!by $c0,2,9,20
+	!scr "All rights reserved.@"
+	!by $c0,3,3,32
+	!scr "Adapted to GoDot by Arndt Dettke@"
+	!by $80
+
+; ------------------------------------------------ 
+
+defdrv	!by 8
+netdrv	!by 8	; 8 by caution
+working	!by $ff	; if positive: already initialized
+
+; ------------------------------------------------ 
+
+setptr	ldy #180
+	tya 
+	clc 
+	adc sy_soffy
+	sta spritey
+	tay 
+	dey 
+	dey 
+	sty spritey-2
+	lda spritex-2
+	adc #24
+	sta spritex-2
+	sta spritex
+	rts 
+
+; ------------------------------------------------ 
+
+input	jsr clearstat
+	ldy #2
+	jsr settext
+	jsr setptr
+
+	lda ls_flen
+	pha 
+	lda gd_modswitch
+	pha 
+	jsr gd_xinput
+	pla 
+	sta gd_modswitch
+	lda ls_flen
+	sta inplen
+	pla 
+	sta ls_flen
+
+	ldy inplen
+	beq irdy
+	dey 
+ip0	lda ibuffer,y
+	sta pbuffer+2,y
+	dey 
+	bpl ip0
+irdy	rts 
+
+; ------------------------------------------------ 
+
+makechar	ldx #7
+mc0	lda char,x
+	sta sc_undochar,x
+	dex 
+	bpl mc0
+	rts 
+
+; ------------------------------------------------ 
+
+readdsk	ldx #1
+	txa 
+	tay 
+	jsr chkin
+	lda actindev
+	ldy #0
+rdk0	jsr getin
+	inc rahmen
+	dec rahmen
+	sta netbuffer,y
+	lda status
+	bne rdk1
+	iny 
+	cpy #$fd
+	beq rdk1
+	jmp rdk0
+
+rdk1	tya 
+	rts 
+; ------------------------------------------------ 
+
+
+wrnet	sta addbyte
+	dec addbyte
+	lda #$58		; "x"
+	jsr putnetb
+	lda #$57		; "w"
+	jsr putnetb
+	txa 
+	jsr putnetb
+	tya 
+	jsr putnetb
+	txa 
+	clc 
+	adc addbyte
+	jsr putnetb
+	txa 
+	clc 
+	adc addbyte
+	tya 
+	adc #0
+	jsr putnetb
+	jmp netloop
+
+; ------------------------------------------------ 
+
+setncom	ldy #6
+	jsr setcursor
+	ldx #<edctx
+	ldy #>edctx
+	jsr txtout
+	jsr input
+	beq nc0
+	jsr doscomm
+nc0	jsr cleardial
+	jsr clearstat
+	clc 
+	rts 
+
+; ------------------------------------------------ 
+
+doscomm	lda #$58		; "x"
+	jsr putnetb
+	lda #$44		; "d"
+	jsr putnetb
+	lda #$41		; "a"
+	jsr putnetb
+	lda inplen
+	jsr putnetb
+	ldx #0
+dc0	lda pbuffer+2,x
+	jsr putnetb
+	inx 
+	cpx inplen
+	bne dc0
+	lda #0
+	jsr putnetb
+	jmp netloop
+
+; ------------------------------------------------ 
+
+evtoggle	lda direc
+	and #1
+	bne tog2
+
+	ldx #<togtab1
+	ldy #>togtab1
+	bne tog0
+tog2	ldx #<togtab2
+	ldy #>togtab2
+tog0	stx address
+	sty address+1
+	ldx #23
+tog1	ldy #0
+	lda (address),y
+	sta dstvek,y
+	iny 
+	lda (address),y
+	sta dstvek,y
+	iny 
+	lda (address),y
+	sta (dstvek),y
+	iny 
+	lda (address),y
+	sta (dstvek),y
+	dex 
+	beq tog3
+	clc 
+	lda address
+	adc #4
+	sta address
+	bcc tog1
+	inc address+1
+	bne tog1
+tog3	lda direc
+	and #1
+	bne tog4
+	lda #7
+	inc direc
+	bne tog5
+tog4	dec direc
+	lda defdrv
+tog5	sta netdrv
+	ldx #<direc
+	ldy #>direc
+	jsr gd_xtxout2
+	jsr restart
+	clc 
+	rts 
+
+; ------------------------------------------------ 
+
+togtab1	!wo mf01-1,netopen
+	!wo mf02-1,copen
+	!wo mf03-1,close
+	!wo mf04-1,netclose
+	!wo mf05-1,netopen
+	!wo mf06-1,netclose
+	!wo mf07-1,ckout
+	!wo mf08-1,netbasin
+	!wo mf09-1,netchkin
+	!wo mf10-1,netchkin
+	!wo mf11-1,netchkin
+	!wo mf12-1,readnet
+	!wo mf13-1,wrblock
+	!wo mf14-1,wrblock
+	!wo mf15-1,netbasin
+	!wo mf16-1,netbasin
+	!wo mf17-1,netbasin
+	!wo mf18-1,netbasin
+	!wo mf19-1,netbasin
+	!wo mf20-1,netbasin
+	!wo mf21-1,netbasin
+	!wo mf22-1,netbasin
+	!wo mf23-1,netbasin
+
+togtab2	!wo mf01-1,copen
+	!wo mf02-1,netopen
+	!wo mf03-1,netclose
+	!wo mf04-1,close
+	!wo mf05-1,copen
+	!wo mf06-1,close
+	!wo mf07-1,netckout
+	!wo mf08-1,basin
+	!wo mf09-1,chkin
+	!wo mf10-1,chkin
+	!wo mf11-1,chkin
+	!wo mf12-1,readdsk
+	!wo mf13-1,wrnet
+	!wo mf14-1,wrnet
+	!wo mf15-1,getin
+	!wo mf16-1,getin
+	!wo mf17-1,getin
+	!wo mf18-1,getin
+	!wo mf19-1,getin
+	!wo mf20-1,getin
+	!wo mf21-1,getin
+	!wo mf22-1,getin
+	!wo mf23-1,getin
+
+; ------------------------------------------------ 
+
+init	lda working
+	bpl restart
+	inc working
+	lda direc
+	and #1
+	bne ini0
+	ldx ls_loadfrom
+	bne ini1
+ini0	ldx ls_saveto
+ini1	stx defdrv
+	jsr setdrv
+	ldx #0
+	stx netdrive
+
+; ------------------------------------------------ 
+
+restart	jsr clall
+	jsr clearstat
+	ldy #10
+	jsr setcursor
+	lda sc_normtext	; recolor to mgray
+	sta cursor
+	ldx #<rdtx
+	ldy #>rdtx
+	jsr txtout
+	jsr clearentr
+	jsr getdir
+
+; ------------------------------------------------ 
+
+setfirst	jsr cleardial
+sf2	lda #$01
+	sta current
+	jmp scroll
+
+; ------------------------------------------------ 
+
+evcopy	jsr gd_sproff
+	sta sc_stop
+	jsr clearstat
+	jsr copyloop
+	jsr gd_spron
+	lda #$92
+	jsr bsout
+	ldy #13
+	jsr setcursor
+	ldx #<cctx
+	ldy #>cctx
+	jsr txtout
+	jmp evutgall
+
+; ------------------------------------------------ 
+
+setnpath	ldy #6
+	jsr setcursor
+	ldx #<enptx
+	ldy #>enptx
+	jsr txtout
+	jsr input
+	beq np0
+	jsr newpath
+np0	jsr cleardial
+	jsr clearstat
+
+; ------------------------------------------------ 
+
+yyy	clc 
+	rts 
+
+; ------------------------------------------------ 
+
+newpath	lda #$43		; "c"
+	sta pbuffer
+	lda #$44		; "d"
+	sta pbuffer+1
+	lda #$0f
+	ldx netdrv
+	ldy #$0f
+	jsr filpar
+	lda inplen
+	clc 
+	adc #$02
+	sta namelen
+	ldx #<pbuffer
+	stx nameadd
+	ldy #>pbuffer
+	sty nameadd+1
+	lda #$0f
+	jsr netopen
+	jmp netclose
+
+; ------------------------------------------------ 
+
+pbuffer	!fill 32,32
+	!by 0
+
+; ------------------------------------------------ 
+
+esd1	ldx #7
+	bne esd0
+seldrv	ldx defdrv
+esd0	inx 
+	cpx #12
+	beq esd1
+setdrv	lda drivelst-8,x
+	and #15
+	beq esd0
+	sta defdrv
+	sta ls_drive
+	jsr gd_xcnvdez
+	stx unitn
+	sta unitn+1
+	ldy #0
+	jsr settext
+	ldy #6
+	jmp gd_xtxout1
+
+; ------------------------------------------------ 
+
+copyloop	ldy #$01
+-	lda taglist,y
+	cmp #$00
+	beq +
+	tya 
+	pha 
+	jsr copy
+	jsr cleardial
+	jsr clearstat
+	lda #0
+	sta rvsflag
+	pla 
+	tay 
+	lda sc_stop
+	bne ++
++	iny 
+	cpy entries
+	bne -
+++	rts 
+
+; ------------------------------------------------ 
+
+copy	tya 
+	pha 
+	jsr clrch
+	jsr clall
+	pla 
+	tay 
+	asl 
+	asl 
+	asl 
+	asl 
+	tax 
+	tya 
+	lda blkslo,y
+	sta blocks
+	lda blkshi,y
+	sta blocks+1
+	lda lenlist,y
+	pha 
+	tya 
+	lsr 
+	lsr 
+	lsr 
+	lsr 
+	ora #$40
+	tay 
+	stx merkx
+	sty merky
+	ldy #6
+	jsr setcursor
+	ldx #<coptx
+	ldy #>coptx
+	jsr txtout
+	ldx merkx
+	ldy merky
+	pla 
+	pha 
+	jsr tx2scrn
+	ldx merkx
+	ldy merky
+	pla 
+	jsr filnam
+	lda #$00
+	sta status
+	lda #$01
+	ldx defdrv
+	ldy #$02
+	jsr filpar
+mf01	jsr copen
+	lda #$02
+	ldy #$01
+	jsr filpar
+mf02	jsr netopen
+	ldx #$01
+mf09	jsr chkin
+	ldx #22
+	ldy #4
+	jsr scs0		; set cursor
+	lda blocks
+	sta nlen
+	lda blocks+1
+	sta blmerk
+	ora nlen
+	cmp #$00
+	beq ++
+	lda #$00
+	sta blocks
+	sta blocks+1
+-	lda blocks+1
+	bne +
+	jsr balken
++	inc blocks
+	bne +
+	inc blocks+1
++	lda blocks
+	cmp nlen
+	bne -
+	lda blocks+1
+	cmp blmerk
+	bne -
+	lda #$00
+	sta blocks
+	ldx #23
+	ldy #4
+	jsr scs0		; set cursor
+++	ldx #$02
+mf07	jsr netckout
+mf12	jsr readdsk
+	cmp #$fd
+	bne ++
+	lda status
+	bne +++
+	tya 
+	ldx #<netbuffer
+	ldy #>netbuffer
+mf13	jsr wrnet
+	lda sc_stop	; STOP?
+	bne +++
+	jsr clrch
+	inc blocks
+	bne +
+	jsr clearstat
+	ldx #32
+-	lda #$9d		; CRSR left
+	jsr bsout
+	dex 
+	bne -
++	jsr balken
+	ldx #$01
+mf10	jsr chkin
+	jmp mf12
+
+; ------------------------------------------------ 
+
+++	ldx #<netbuffer
+	ldy #>netbuffer
+mf14	jsr wrnet
++++	jsr clrch
+	lda #$02
+	tax 
+mf03	jsr netclose
+	lda #$01
+	tax 
+mf04	jsr close
+	jmp clall
+
+; ------------------------------------------------ 
+
+balken	lda blocks
+	and #$07
+	asl 
+	tax 
+	lda balkdata,x
+	jsr bsout
+	inx 
+	lda balkdata,x
+	jsr bsout
+	lda blocks
+	and #$07
+	cmp #$07
+	beq +
+	lda #$9d
+	jsr bsout
++	rts 
+
+; ------------------------------------------------ 
+
+readnet	ldy #$00
+rn0	jsr netbasin
+	inc rahmen
+	dec rahmen
+	sta netbuffer,y
+	lda status
+	bne +
+	iny 
+	cpy #$fd
+	beq +
+	jmp rn0
+
++	tya 
+	rts 
+
+; ------------------------------------------------ 
+
+tx2scrn	stx txsrc
+	sty txsrc+1
+	sta nlen
+	ldy #$00
+-	lda (txsrc),y
+	jsr bsout
+	iny 
+	cpy nlen
+	bne -
+	rts 
+
+; ------------------------------------------------ 
+
+evtag	ldx current
+	lda taglist,x
+	eor #$ff
+	sta taglist,x
+	ldy #$0c
+	ldx current
+	jsr tab12
+
+; ------------------------------------------------ 
+
+evscrdn	inc current
+	lda current
+	cmp entries
+	bne eta0
+	ldx entries
+	dex 
+	stx current
+	clc 
+	rts 
+
+; ------------------------------------------------ 
+
+evscrup	dec current
+	lda current
+	bne eta0
+	jsr setfirst
+	clc 
+	rts 
+
+; ------------------------------------------------ 
+
+evtagall	lda #$ff
+	ldx #$01
+-	sta taglist,x
+	inx 
+	bne -
+eta0	jsr scroll
+	clc 
+	rts 
+
+; ------------------------------------------------ 
+
+evutgall	lda #$00
+	ldx #$01
+-	sta taglist,x
+	inx 
+	bne -
+	jmp eta0
+
+; ------------------------------------------------ 
+
+evncom	jsr setncom
+	jsr restart
+	clc 
+	rts 
+
+; ------------------------------------------------ 
+
+evndisk	jsr seldrv
+	lda direc
+	and #1
+	bne eta0
+	lda defdrv
+	sta netdrv
+	bne eta1
+
+; ------------------------------------------------ 
+
+evnpath	jsr setnpath
+eta1	jsr restart
+	clc 
+	rts 
+
+; ------------------------------------------------ 
+
+evpagedn	lda current
+	clc 
+	adc #$0b
+	cmp entries
+	bcc +
+	ldx entries
+	dex 
+	txa 
++	sta current
+	jmp eta0
+
+; ------------------------------------------------ 
+
+evpageup	lda current
+	sec 
+	sbc #$0b
+	bcs +
+	lda #$01
++	sta current
+	jmp eta0
+
+; ------------------------------------------------ 
+
+evhome	jsr setfirst
+	jmp eta0
+
+; ------------------------------------------------ 
+
+evend	ldx entries
+	dex 
+	stx current
+	jmp eta0
+
+; ------------------------------------------------ 
+
+setcursor	ldx #20
+scs0	sei 
+	clc 
+	jsr plot
+	cli 
+	rts 
+
+; ------------------------------------------------ 
+
+scroll	lda current
+	sec 
+	sbc #$05
+	tax 
+	ldy #$06
+-	jsr tab12
+	inx 
+	iny 
+	cpy #$0b
+	bne -
+	ldy #$0c
+	ldx current
+	jsr tab12
+	ldx current
+	inx 
+	ldy #$0e
+-	jsr tab12
+	inx 
+	iny 
+	cpy #$13
+	bne -
+	lda #$92
+	jsr bsout
+	jmp recolor
+
+; ------------------------------------------------ 
+
+tab12	stx merkx
+	sty merky
+	ldy merky
+	lda lineadlo,y
+	clc 
+	adc #12
+	sta setvek
+	lda lineadhi,y
+	adc #$00
+	sta setvek+1
+	cpx #$00
+	beq headfoot
+	cpx entries
+	bcc anzeige
+
+headfoot	ldy #7
+	ldx merky
+	jsr scs0		; set cursor
+	lda #$92		; rvs off
+	jsr bsout
+	lda setvek
+	sec 
+	sbc #6
+	sta setvek
+	lda setvek+1
+	sbc #0
+	sta setvek+1
+	ldy #26
+-	lda #$20
+	sta (setvek),y
+	dey 
+	bne -
+	ldx merkx
+	ldy merky
+	lda #$92		; rvs off
+	jmp bsout
+
+; ------------------------------------------------ 
+
+anzeige	ldy #$07
+	ldx merky
+	jsr scs0
+	lda #$00
+	sta tagflag
+	lda #$00
+	sta rvsflag
+	ldx merkx
+	lda taglist,x
+	beq +
+	lda #$80
+	sta tagflag
+	lda #$ff
+	sta rvsflag
++	ldy merkx
+	ldx blkslo,y
+	lda blkshi,y
+	inc pport
+	jsr intout
+	dec pport
+	lda #$20
+	jsr bsout
+	jsr bsout
+	jsr bsout
+	jsr bsout
+	lda merkx		; compute vector into filename list
+	asl 
+	asl 
+	asl 
+	asl 
+	sta txsrc
+	lda merkx
+	lsr 
+	lsr 
+	lsr 
+	lsr 
+	and #$0f
+	ora #$40		; starting at $4000
+	sta txsrc+1
+	ldy merkx
+	ldx lenlist,y
+	stx nlen
+	ldy #$00
+-	lda (txsrc),y	; alles Kleinbuchstaben
+	and #$3f
+	ora tagflag
+	sta (setvek),y
+	iny 
+	cpy nlen
+	bcc -
+-	lda #$20
+	ora tagflag
+	sta (setvek),y
+	iny 
+	cpy #$12
+	bcc -
+	tya 
+	pha 
+	pla 
+	tay 
+
+	ldx merkx
+	lda typelist,x
+	cmp #$50		; "p"
+	beq prg
+	cmp #$53		; "s"
+	beq seq
+	cmp #$55		; "u"
+	beq usr
+	cmp #$44		; "d"
+	beq del
+	cmp #$49		; "i" (Ordner)
+	beq ibm
+
+	jmp endshow
+
+; ------------------------------------------------ 
+
+prg	and #$3f
+	ora tagflag
+	sta (setvek),y
+	lda #$12
+	ora tagflag
+	iny 
+	sta (setvek),y
+	lda #$07
+	ora tagflag
+	iny 
+	sta (setvek),y
+	jmp endshow
+
+; ------------------------------------------------ 
+
+seq	and #$3f
+	ora tagflag
+	sta (setvek),y
+	lda #$05
+	ora tagflag
+	iny 
+	sta (setvek),y
+	lda #$11
+	ora tagflag
+	iny 
+	sta (setvek),y
+	jmp endshow
+
+; ------------------------------------------------ 
+
+usr	and #$3f
+	ora tagflag
+	sta (setvek),y
+	lda #$13
+	ora tagflag
+	iny 
+	sta (setvek),y
+	lda #$12
+	ora tagflag
+	iny 
+	sta (setvek),y
+	jmp endshow
+
+; ------------------------------------------------ 
+
+del	and #$3f
+	ora tagflag
+	sta (setvek),y
+	lda #$05
+	ora tagflag
+	iny 
+	sta (setvek),y
+	lda #$0c
+	ora tagflag
+	iny 
+	sta (setvek),y
+	jmp endshow
+
+; ------------------------------------------------ 
+
+ibm	and #$3f
+	ora tagflag
+	sta (setvek),y
+	lda #$02
+	ora tagflag
+	iny 
+	sta (setvek),y
+	lda #$0d
+	ora tagflag
+	iny 
+	sta (setvek),y
+
+endshow	lda #$92
+	jsr bsout
+	ldx merkx
+	ldy merky
+	rts 
+
+; ------------------------------------------------ 
+
+getdir	jsr gd_sproff
+	sta txsrc
+	lda #$40
+	sta txsrc+1
+	lda comlen
+	ldx #<dircom
+	ldy #>dircom
+	jsr filnam
+	lda #$01
+	ldx netdrv
+	ldy #$00
+	jsr filpar
+mf05	jsr copen
+	lda #$01
+	tax 
+mf11	jsr chkin
+mf23	jsr getin
+mf15	jsr getin
+	lda #$00
+	sta entries
+	jsr getnetdir
+	lda #$00
+	sta dready
+-	inc entries
+	jsr getnetdir
+	ldx entries
+	lda typelist,x
+	cmp #$44		; "d" (del)
+	beq +
+	cmp #$52		; "r" (rel)
+	bne ++
++	dec entries
+++	ldy #1
+	ldx #18
+	jsr scs0
+	ldx entries
+	lda #$00
+	sta taglist,x
+	dex 
+	inc pport
+	jsr intout	; filelength
+	dec pport
+	lda dready
+	cmp #$00
+	beq -
+	jsr clrch
+	ldx #$01
+	txa 
+mf06	jsr close
+	jsr clall
+	jsr gd_xmess
+	jmp gd_spron
+
+; ------------------------------------------------ 
+
+getnetdir	lda entries
+	asl 
+	asl 
+	asl 
+	asl 
+	sta txsrc
+	lda entries
+	lsr 
+	lsr 
+	lsr 
+	lsr 
+	clc 
+	adc #$40
+	sta txsrc+1
+	ldy entries
+mf16	jsr getin
+mf17	jsr getin
+mf18	jsr getin
+	ldy entries
+	sta blkslo,y
+mf19	jsr getin
+	ldy entries
+	sta blkshi,y
+	ldy #$00
+-	sty nlen
+mf20	jsr getin
+	ldy nlen
+	cmp #$22
+	beq +
+	iny 
+	cpy #$12
+	bne -
+	lda #$ff
+	sta dready
+	rts 
+
++	ldy #$00
+mf21	jsr getin
+	cmp #$22
+	beq +
+	sta (txsrc),y
+	iny 
+	jmp mf21
+
++	tya 
+	ldy entries
+	sta lenlist,y
+mf08	jsr basin
+	cmp #$40		; EOF
+	bcc mf08
+	ldy entries
+	sta typelist,y
+mf22	jsr getin
+	cmp #$00
+	bne mf22
+	rts 
+
+; ------------------------------------------------ 
+
+txtout	stx txsrc
+	sty txsrc+1
+	ldy #$00
+-	lda (txsrc),y
+	cmp #$00
+	beq +
+	jsr bsout
+	iny 
+	bne -
+	inc txsrc+1
+	jmp -
+
++	rts 
+
+; ------------------------------------------------ 
+
+dircom	!tx "$:*,p,pc"
+	!fill 15,32
+comlen	!by $08
+
+rdtx	!tx "Reading Directory... ",0
+coptx	!tx "Copying ... ",0
+cctx	!tx "Copy complete!",0
+
+balkdata	!by $92,$ad,$92,$a9
+	!by $92,$bc,$92,$be
+	!by $92,$bf,$92,$a7
+	!by $92,$dd,$12,$20
+
+enptx	!tx "Enter Net Partition and Path:",0
+edctx	!tx "Enter PC-Dos Command:",0
+
+; ------------------------------------------------ 
+
+wrblock	sty source+1
+	stx source
+	sta nlen
+	ldx #$02
+	txa 
+	jsr ckout
+-	ldy #$00
+	lda (source),y
+	jsr bsout
+	dec nlen
+	beq +
+	inc source
+	bne -
+	inc source+1
+	jmp -
+
++	rts 
+
+; ------------------------------------------------ 
+
+netopen	ldy #$4f		; "o" (open)
+	jmp sendcomm
+	pha 
+	lda #$57		; "w" (write)
+	jsr putnetb
+	pla 
+	jsr putnetb
+	clc 
+	rts 
+
+; ------------------------------------------------ 
+
+netbasin	lda #$52		; "r" (read)
+	jsr putnetb2
+	lda #$2a		; "*"
+	jsr putnetb
+	jsr getnetb
+	pha 
+	jsr getnetb
+	sta status
+	pla 
+	clc 
+	rts 
+
+; ------------------------------------------------ 
+
+netchkin	lda #$44		; "d" (drive)
+	jsr putnetb
+	txa 
+	jsr putnetb
+	lda defdrv
+	sta actindev
+	clc 
+	rts 
+
+; ------------------------------------------------ 
+
+netckout	lda #$41		; "a"
+	jsr putnetb
+	txa 
+	jsr putnetb
+	lda defdrv
+	sta actoutdev
+	clc 
+	rts 
+
+; ------------------------------------------------ 
+
+netclose	tax 
+	pha 
+	lda #$43		; "c" (close)
+	jsr putnetb
+	pla 
+	jmp putnetb
+
+; ------------------------------------------------ 
+
+fileopen	txa 
+	sta areg
+	ldx #$09
+-	cmp filelist,x
+	beq +
+	dex 
+	bpl -
+	ldx areg
+	sec 
+	rts 
+
++	lda devlist,x
+	ldx areg
+	clc 
+	rts 
+
+; ------------------------------------------------ 
+
+sendcomm	stx xreg
+	jsr attention
+	jsr sync
+	tya 
+	jsr putnetb
+	lda namelen
+	jsr putnetb
+	lda namelen
+	cmp #$00
+	beq +
+	ldy #$00
+-	lda (nameadd),y
+	jsr putnetb
+	iny 
+	cpy namelen
+	bne -
++	lda sekadr
+	jsr putnetb
+	jmp netloop
+
+; ------------------------------------------------ 
+
+netstat	lda #$40		; "@"
+	jsr putnetb
+
+; ------------------------------------------------ 
+
+netloop	jsr getnetb
+	cmp #$ff
+	beq rd_wr64
+	cmp #$fe
+	beq endloop
+	cmp #$fd
+	beq wrstr64
+	cmp #$f9
+	beq input64
+	cmp #$f7
+	beq netstat
+	cmp #$fc
+	bne loadver
+	jsr saving
+	jmp netloop
+
+; ------------------------------------------------ 
+
+loadver	cmp #$fb
+	bne searching
+	jsr systxt
+	jmp netloop
+
+; ------------------------------------------------ 
+
+searching	cmp #$fa
+	bne netloop
+	jsr systxt2
+	jmp netloop
+
+; ------------------------------------------------ 
+
+endloop	jsr getnetb
+	ldx xreg
+	ldy yreg
+	rts 
+
+; ------------------------------------------------ 
+
+wrstr64	jsr getnetb
+	cmp #$00
+	beq netloop
+	jsr bsout
+	jmp wrstr64
+
+; ------------------------------------------------ 
+
+input64	jsr getnetb
+	jsr getin
+	jsr putnetb
+	jmp netloop
+
+; ------------------------------------------------ 
+
+rd_wr64	lda #$ff
+	jsr getnetb
+	cmp #$01
+	beq write64
+	cmp #$02
+	beq read64
+	jmp netloop
+
+; ------------------------------------------------ 
+
+write64	lda #$00
+	sta addbyte
+	jsr getnetb
+	sta amount
+	jsr getnetb
+	sta target
+	sta target2
+	jsr getnetb
+	sta target+1
+	sta target2+1
+	ldx amount
+	ldy #$ff
+wr0	iny 
+	dex 
+	beq wr1
+	jsr getnetb
+	pha 
+	lda target2
+	sta target
+	lda target2+1
+	sta target+1
+	pla 
+	sta (target),y
+	adc addbyte
+	sta addbyte
+	jmp wr0
+
+wr1	jmp netloop
+
+; ------------------------------------------------ 
+
+read64	jsr getnetb
+	sta amount
+	jsr getnetb
+	sta target
+	jsr getnetb
+	sta target+1
+	jsr getnetb
+	ldx amount
+	ldy #$ff
+rd0	iny 
+	dex 
+	beq rd1
+	lda (target),y
+	jsr putnetb
+	jmp rd0
+
+rd1	jmp netloop
+
+; ------------------------------------------------ 
+
+attention	lda #$07
+	sta ddrb
+	lda #$00
+	sta ciaprb
+	rts 
+
+; ------------------------------------------------ 
+
+sync	lda #$08
+	sta ciaprb
+h0	lda ciaprb
+	and #$f0
+	cmp #$80
+	bne h0
+	lda #$00
+	sta ciaprb
+h1	lda ciaprb
+	and #$f0
+	cmp #$00
+	beq h1
+	rts 
+
+; ------------------------------------------------ 
+
+putnetb	sta bytebuf
+	and #$03
+	ora #$04
+	sta ciaprb
+h6	lda ciaprb
+	and #$70
+	cmp #$50
+	bne h6
+	lda bytebuf
+	lsr 
+	lsr 
+	and #$03
+	sta ciaprb
+h7	lda ciaprb
+	and #$70
+	cmp #$20
+	bne h7
+	lda bytebuf
+	lsr 
+	lsr 
+	lsr 
+	lsr 
+	and #$03
+	ora #$04
+	sta ciaprb
+h8	lda ciaprb
+	and #$70
+	cmp #$60
+	bne h8
+	lda bytebuf
+	rol 
+	rol 
+	rol 
+	and #$03
+	sta ciaprb
+h9	lda ciaprb
+	and #$70
+	cmp #$10
+	bne h9
+	lda #$03
+	sta ciaprb
+	rts 
+
+; ------------------------------------------------ 
+
+getnetb	lda #$04
+	sta ciaprb
+ha	lda ciaprb
+	and #$08
+	beq ha
+	lda ciaprb
+	lsr 
+	lsr 
+	lsr 
+	lsr 
+	and #$0f
+	sta bytebuf
+	lda #$00
+	sta ciaprb
+hb	lda ciaprb
+	and #$08
+	bne hb
+	lda ciaprb
+	and #$f0
+	ora bytebuf
+	rts 
+
+; ------------------------------------------------ 
+
+putnetb2	sta bytebuf
+	lda #$00
+	sta count
+h2	lda bytebuf
+	and #$03
+	ora #$04
+	sta ciaprb
+h21	inc count
+	beq h2
+	lda ciaprb
+	and #$70
+	cmp #$50
+	bne h21
+	lda bytebuf
+	lsr 
+	lsr 
+	and #$03
+	sta ciaprb
+h3	inc count
+	beq h2
+	lda ciaprb
+	and #$70
+	cmp #$20
+	bne h3
+	lda bytebuf
+	lsr 
+	lsr 
+	lsr 
+	lsr 
+	and #$03
+	ora #$04
+	sta ciaprb
+h4	inc count
+	beq h2
+	lda ciaprb
+	and #$70
+	cmp #$60
+	bne h4
+	lda bytebuf
+	rol 
+	rol 
+	rol 
+	and #$03
+	sta ciaprb
+h5	inc count
+	beq h2
+	lda ciaprb
+	and #$70
+	cmp #$10
+	bne h5
+	lda #$03
+	sta ciaprb
+	rts 
+
+; ------------------------------------------------ 
+
+lineadlo	!by $00,$28,$50,$78,$a0,$c8,$f0,$18
+	!by $40,$68,$90,$b8,$e0,$08,$30,$58
+	!by $80,$a8,$d0,$f8,$20,$48,$70,$98
+lineadhi	!by $04,$04,$04,$04,$04,$04,$04,$05
+	!by $05,$05,$05,$05,$05,$06,$06,$06
+	!by $06,$06,$06,$06,$07,$07,$07,$07
+
+clrline	!by 20,3,34,1
+	!by 22,4,32,2
+	!by 18,1,4,1
+
+; ------------------------------------------------ 
+
+tabigad	!wo unit
+	!wo inpgad
+
+settext	lda #<tabigad
+	sta ls_vekta8
+	lda #>tabigad
+	sta ls_vekta8+1
+	lda (ls_vekta8),y
+	sta sc_screentab
+	iny 
+	lda (ls_vekta8),y
+	sta sc_screentab+1
+	lda #0
+	tax 
+	tay 
+gt0	jsr gd_setpos
+	cpx #3
+	bne gt0
+	jsr gd_trim
+	jmp gd_initmove
+
+; ------------------------------------------------ 
+
+clearstat	ldy #4
+	!by $2c
+cleardial	ldy #0
+	!by $2c
+clearentr	ldy #8
+	ldx #<clrline
+	stx sc_screentab
+	ldx #>clrline
+	stx sc_screentab+1
+	ldx #0
+	stx sc_loop
+gt1	jsr gd_setpos
+	cpx #4
+	bne gt1
+	jsr gd_initmove
+	ldy sc_br
+	jsr gd_blank
+	ldx sc_ho
+	jmp gd_fi1
+
+; ------------------------------------------------ 
+
+modend	!eof
