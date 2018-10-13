@@ -1,0 +1,708 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ------------------------------------------------ 
+;
+;  ldr.PTDigiII
+;    Lader für den Printtechnik Video-Digitizer
+; 
+;  1.00, 01.10.93, first release
+;
+; ------------------------------------------------ 
+
+; ------------------------------------------------ Equates
+
+	buf0		= $30
+	bycnt		= $32
+	byte		= $33
+	blcnt		= $34
+	rcnt		= $35
+	src		= $36
+	dst		= $38
+	buf		= $3a
+	src0		= $3c
+	dst0		= $3e
+	sadr		= $40
+	off0		= $42
+	off1		= $43
+	cntl8		= $44
+	merk		= $45
+	adcnt		= $46
+	linenr		= $47
+	sum		= $48
+	scnt		= $49
+
+	sprptr		= $07f8
+	spr255		= $3fc0
+
+	spr2x		= $d004
+	spr2y		= $d005
+	msbx		= $d010
+	scrcontrol	= $d011
+	spren		= $d015
+	sprxe		= $d01d
+	sprcol2		= $d029
+
+	buf00		= sy_bigbuffer
+	buffer		= $ca00
+	buf1		= $cc00
+	dstend		= buf1+320
+
+	cia1porta		= $dc00
+	cia1portb		= $dc01
+
+	cia2portb		= $dd01
+	cia2ddrb		= $dd03
+	icr2		= $dd0d
+
+; ------------------------------------------------ 
+
+header	jmp start
+	!by $80
+	!by 4		; own requester (main!)
+	!by 1
+	!wo modend
+	!wo 0
+	!tx "PTechnikDigiII  "
+	!tx "1.00"
+	!tx "01.10.93"
+	!tx "W.Kling/A.Dettke"
+
+; ------------------------------------------------ 
+
+start	jsr gd_sproff
+
+	lda #$20		; Stop digitizer
+	sta cia2ddrb
+	lda #0
+	sta cia2portb
+
+	lda #>sy_4bit	; clear 32KB
+	sta sc_vekt20+1
+	ldy #<sy_4bit
+	sty sc_vekt20
+	ldx #128		; 128 pages
+	tya 		; .y=0
+dg0	sta (sc_vekt20),y
+	iny 
+	bne dg0
+	inc sc_vekt20+1
+	dex 
+	bne dg0
+
+	lda #>sy_4bit	; back to start
+	sta sc_vekt20+1
+	lda #128		; fill 128 pages
+	sta merk
+	lda #$0b		; screen off
+	sta scrcontrol
+
+	sei 		; digitze
+	lda #$7f		; STOP?
+	sta cia1porta
+dg1	lda cia1portb	; handshake
+	bpl ende
+	bit cia2portb
+	bvs dg1
+dg2	lda cia1portb
+	bpl ende
+	bit cia2portb
+	bvc dg2
+
+	lda #$20		; start digitizer
+	sta cia2portb
+
+loop1	lda #$10		; left pixel first
+	sta byte
+	lda #1		; toggle flag
+	sta merk+1
+
+	ldx #20
+-	lda icr2
+	and #$10
+	beq -
+	dex
+	bpl -
+
+loop2	ldy #0		; retrieve 2 stripes
+innen	bit cia2portb
+	bvc dg3
+	lda icr2
+	and #$10
+	beq innen
+dg5	lda cia2portb
+	and #$0f
+	ora byte
+	tax 
+	lda tab16,x
+	ora (sc_vekt20),y
+	sta (sc_vekt20),y
+	iny 
+	cpy #248
+	bne innen
+
+dg3	ldx merk+1	; next stripe
+	dex 
+	bmi dg6
+
+-	lda cia1portb
+	bpl ende
+	bit cia2portb
+	bvs -
+-	lda cia1portb
+	bpl ende
+	bit cia2portb
+	bvc -
+	lda #$20
+	sta cia2portb
+	
+	lda lire,x
+	sta byte
+	stx merk+1
+	bpl loop2
+
+dg6	inc sc_vekt20+1
+	dec merk		; count 256 stripes of 248 pixels
+	bne loop1
+
+ende	lda #0
+	sta cia2ddrb
+	cli 
+	lda #$1b		; screen on 
+	sta scrcontrol
+
+	jsr getname
+	jsr setinfo
+	ldx sc_screenvek	; requester
+	ldy sc_screenvek+1
+	jsr gd_screen
+	jsr gd_spron
+
+; ------------------------------------------------ 
+
+fourbit	lda #4
+	jsr initad
+	jsr convert	; transform digitized data to 4Bit data
+	jsr clearad
+	jsr digizoom
+
+	lda #$ff		; Grafik verändert
+	sta gr_redisp
+	clc 		; fertig
+	rts 
+
+; ------------------------------------------------ 
+
+lire	!by 0,16
+
+tab16	!by $00,$04,$08,$0c,$01,$05,$09,$0d
+	!by $02,$06,$0a,$0e,$03,$07,$0b,$0f
+	!by $00,$40,$80,$c0,$10,$50,$90,$d0
+	!by $20,$60,$a0,$e0,$30,$70,$b0,$f0
+
+; ------------------------------------------------ 
+
+initad	sta adcnt
+	ldy #60
+	lda #0
+-	sta spr255+3,y	; Spriteblock 255 vorbereiten
+	dey 
+	bpl -
+	sty spr255	; dünner Strich
+	sty spr255+1
+	sty spr255+2
+	lda #$0f		; Farbe hellgrau
+	sta sprcol2
+	sta sprcol2+1
+	lda sprxe		; doppelt breit
+	ora #$0c
+	sta sprxe
+
+	lda msbx		; x über 255
+	ora #$0c
+	sta msbx
+	lda #8		; x-Ordinate: 8 (plus 256)
+	sta spr2x
+	lda #$20
+	sta spr2x+2
+	lda #$92		; y-Ordinate: 146
+	sta spr2y		; (im Image Information Fenster)
+	sta spr2y+2
+
+	sty sprptr+2	; Sprite 255
+	sty sprptr+3
+	lda spren
+	ora #$0c		; Activity-Balken aktivieren
+	sta spren
+	rts 
+
+clearad	lda spren		; Wanderbalken aus
+	and #$f3
+	sta spren
+	lda msbx
+	and #$f3
+	sta msbx
+	rts 
+
+; ------------------------------------------------ 
+
+convert	jsr make200
+	jsr init		; init addresses
+	
+	lda #25		; 25 block lines
+	sta cntl8
+cloop	jsr make8		; make tiles from stripes (in $ca00)
+	lda off0		; store index (first: 200) 
+	sta off1
+	sec		; and subtract 8 (first result: 192)
+	sbc #8
+	sta off0
+	beq cok		; if 0: finished
+
+	lda src0+1	; move on to new start of digitized data 
+	clc
+	adc #4
+	sta src0+1
+
+	jsr strip8
+
+cok	jsr move8		; put processed data to 4Bit area
+	dec cntl8		; 25 times (number of block lines)
+	bne cloop
+	rts
+
+; ------------------------------------------------ 
+
+init	ldx #0		; src: $5c00
+	lda #$5c
+	stx src0
+	sta src0+1
+	lda #>sy_4bit	; dest: $4000
+	stx dst0
+	sta dst0+1
+	lda #200
+	sta off0
+	lda #$3f		; tail: $bf3f
+	ldx #$bf
+	sta sadr
+	stx sadr+1
+	rts 
+
+; ------------------------------------------------ 
+
+make200	lda #<$bf38	; strip lowest 48 bytes
+	ldx #>$bf38
+	sta dst
+	stx dst+1
+	lda #<$bf00
+	ldx #>$bf00
+	sta src
+	stx src+1
+
+	lda #128
+	sta rcnt
+lr0	ldx #200
+lr1	lda tab200-1,x
+	tay 
+	lda (src),y
+	pha 
+	txa 
+	tay 
+	dey 
+	pla 
+	sta (dst),y
+	dex 
+	bne lr1
+
+	dec src+1
+	lda dst
+	sec 
+	sbc #200
+	sta dst
+	bcs ls0
+	dec dst+1
+ls0	dec rcnt
+	bne lr0
+
+	rts 
+
+; ------------------------------------------------ 
+
+make8	lda src0		; start at $5c00
+	ldx src0+1
+	sta src
+	stx src+1
+	lda #<buffer	; buffer at $ca00
+	ldx #>buffer
+	sta buf0
+	stx buf0+1
+
+	ldx #0
+	lda #32
+	sta blcnt
+bloop	lda #4		; 4 bytes = 8 pixels
+	sta bycnt
+byloop	lda buf0		; set buffer address
+	sta buf
+	lda buf0+1
+	sta buf+1
+
+	ldy #0		; count 8 lines per tile
+mloop0	lda (src),y	; now make tile
+	sta (buf,x)
+	lda buf		; move on to byte below
+	clc
+	adc #4
+	sta buf
+	bcc mskip0
+	inc buf+1
+mskip0	iny		; all lines of a tile?
+	cpy #8
+	bne mloop0
+
+	inc buf0		; next byte to the right (4 times)
+	bne mskip1
+	inc buf0+1
+mskip1	lda src		; add 200 to move on to the next stripe
+	clc
+	adc off0
+	sta src
+	bcc mskip2
+	inc src+1
+mskip2	dec bycnt		; 4 bytes to the right?
+	bne byloop	; no, loop
+
+	lda buf0		; move on to next tile
+	clc
+	adc #28
+	sta buf0
+	bcc mskip3
+	inc buf0+1
+mskip3	dec blcnt		; 40 tiles?
+	bne bloop		; no, loop
+	rts
+
+; ------------------------------------------------ 
+
+strip8	lda sadr		; first: $bf3f
+	ldx sadr+1
+	sta src
+	stx src+1
+	sta dst
+	stx dst+1
+
+	ldx #128
+sloop0	ldy off0		; first: 192
+sloop1	lda (src),y	; get data from $bfff first ($bf3f+192)
+	sta (dst),y	; first pass: no change, then progressively stripping 8 bytes
+	dey
+	bne sloop1
+	lda src		; subtract 200 from src (first)
+	sec
+	sbc off1
+	sta src
+	bcs sskip0
+	dec src+1
+sskip0	lda dst		; subtract 192 from dst (first)
+	sec		; thus squeezing the data not being processed yet
+	sbc off0		; at the end of the data area
+	sta dst		; (processed data is filled in from the start later)
+	bcs sskip1
+	dec dst+1
+sskip1	dex		; 160 times
+	bne sloop0
+
+	lda sadr		; add 8 to startaddress (for 25 passes)
+	clc
+	adc #8
+	sta sadr
+	rts
+
+; ------------------------------------------------ 
+
+move8	lda #<buffer	; set buffer address ($ca00)
+	ldx #>buffer
+	sta src
+	stx src+1
+
+	ldx #4		; 4 pages (= 1024 bytes)
+oloop0	dec adcnt		; decrement activity counter
+	bne oskip0
+	inc spr2y		; then move progression bar
+	inc spr2y+2
+	lda #4		; and re-init counter
+	sta adcnt
+oskip0	ldy #0
+oloop1	lda (src),y	; get data from buffer
+	sta (dst0),y	; put 1280 bytes to $4000
+	iny
+	bne oloop1
+	inc src+1
+	inc dst0+1
+	dex
+	bne oloop0
+
+	ldy #0		; 5th page gets cleared to
+	tya		; 0 = black
+oloop2	sta (dst0),y
+	iny 
+	bne oloop2
+	inc dst0+1
+	rts 
+
+; ------------------------------------------------ 
+
+digizoom	lda #5
+	jsr initad
+	ldy #0
+	tya
+hclrlp	sta buf1,y
+	sta buf1+256,y
+	iny
+	bne hclrlp
+
+	lda #0
+	sta linenr
+hl00	lda linenr
+	pha
+	lsr
+	lsr
+	lsr
+	lsr
+	tax
+	pla
+	and #7
+	asl
+	asl
+	pha
+	sta dst
+	lda line8,x
+	pha
+	sta dst+1
+
+	ldx #0
+hl0	ldy #0
+hl1	lda (dst),y
+	pha
+	lsr
+	lsr
+	lsr
+	lsr
+	sta buf00,x
+	inx
+	pla
+	and #$0f
+	sta buf00,x
+	inx
+	iny
+	cpy #4
+	bne hl1
+	lda dst
+	clc
+	adc #32
+	sta dst
+	bcc hsk0
+	inc dst+1
+hsk0	txa
+	bne hl0
+
+	lda #<buf1
+	ldx #>buf1
+	sta dst
+	stx dst+1
+
+	lda #5
+	sta scnt
+	ldy #0
+hrl0	lda #2
+	sta sum
+	ldx #4
+hrl1	lda buf00,y
+	clc
+	adc sum
+	sta sum
+	dec scnt
+	bne hrsk0
+	iny
+	lda #5
+	sta scnt
+hrsk0	dex
+	bne hrl1
+
+	lda sum
+	lsr
+	lsr
+
+	ldx #0
+	sta (dst,x)
+	inc dst
+	bne +
+	inc dst+1
++	lda dst+1
+	cmp #>dstend
+	bne hrl0
+	lda dst
+	cmp #<dstend
+	bne hrl0
+
+	pla
+	sta dst+1
+	pla
+	sta dst
+
+	lda #<buf1
+	ldx #>buf1
+	sta src
+	stx src+1
+	ldx #0
+	lda #40
+	sta blcnt
+hl2	ldy #0
+hl3	lda (src,x)
+	asl
+	asl
+	asl
+	asl
+	inc src
+	bne +
+	inc src+1
++	ora (src,x)
+	inc src
+	bne +
+	inc src+1
++	sta (dst),y
+	iny
+	cpy #4
+	bne hl3
+	lda dst
+	clc
+	adc #32
+	sta dst
+	bcc +
+	inc dst+1
++	dec blcnt
+	bne hl2
+	inc linenr
+	lda linenr
+	cmp #200
+	beq hok
+	dec adcnt
+	bne +
+	inc spr2y
+	inc spr2y+2
+	lda #5
+	sta adcnt
++	jmp hl00
+hok	jmp clearad
+
+; ------------------------------------------------ 
+
+line8	!by $40,$45,$4a,$4f,$54
+	!by $59,$5e,$63,$68,$6d
+	!by $72,$77,$7c,$81,$86
+	!by $8b,$90,$95,$9a,$9f
+	!by $a4,$a9,$ae,$b3,$b8
+
+; ------------------------------------------------ 
+
+defname	!scr "GoDotDigi@"
+
+getname	ldx #0
+si0	lda defname,x
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+; ------------------------------------------------ 
+
+setinfo	jsr setname
+	jsr setloader
+	jsr setmode
+	jmp setdata
+
+setname	lda #0
+	ldx #<ls_picname
+	ldy #>ls_picname
+	bne si3
+setloader	lda #17
+	ldx #<ls_iloader
+	ldy #>ls_iloader
+	bne si3
+setmode	lda #25
+	ldx #<ls_imode
+	ldy #>ls_imode
+	bne si3
+setdata	lda #33
+	ldx #<ls_idrive
+	ldy #>ls_idrive
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!fill 16,32
+	!by 0
+	!scr "PTDigi2@"
+
+modetx	!scr "320x200@"
+datatype	!scr "Gray@"
+
+; ------------------------------------------------ 
+
+tab200	!by 0,1,2,4,5
+	!by 6,7,9,10,11
+	!by 12,14,15,16,17
+	!by 19,20,21,22,24
+	!by 25,26,27,29,30
+	!by 31,32,33,35,36
+	!by 37,38,40,41,42
+	!by 43,45,46,47,48
+	!by 50,51,52,53,55
+	!by 56,57,58,60,61
+	!by 62,63,64,66,67
+	!by 68,69,71,72,73
+	!by 74,76,77,78,79
+	!by 81,82,83,84,86
+	!by 87,88,89,91,92
+	!by 93,94,95,97,98
+	!by 99,100,102,103,104
+	!by 105,107,108,109,110
+	!by 112,113,114,115,117
+	!by 118,119,120,122,123
+	!by 124,125,126,128,129
+	!by 130,131,133,134,135
+	!by 136,138,139,140,141
+	!by 143,144,145,146,148
+	!by 149,150,151,153,154
+	!by 155,156,157,159,160
+	!by 161,162,164,165,166
+	!by 167,169,170,171,172
+	!by 174,175,176,177,179
+	!by 180,181,182,184,185
+	!by 186,187,188,190,191
+	!by 192,193,195,196,197
+	!by 198,200,201,202,203
+	!by 205,206,207,208,210
+	!by 211,212,213,215,216
+	!by 217,218,219,221,222
+	!by 223,224,226,227,228
+	!by 229,231,232,233,234
+	!by 236,237,238,239,241
+	!by 242,243,244,246,247
+
+; --------------------------------------------- 
+
+modend	!eof
