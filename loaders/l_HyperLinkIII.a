@@ -1,0 +1,561 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ------------------------------------------------ 
+;
+;  ldr.HyperLinkIII
+;    Lader für Cameron Kaiser's Hyperlink III files
+; 
+;  1.00,         , first release
+;  1.01,         ,
+;  1.02, 25.09.99
+;
+; ------------------------------------------------ 
+
+; ------------------------------------------------ Equates
+
+	ftype		= $30
+	counter		= $31
+	gbyte		= $32
+	byte		= $33
+	mvbuf		= $34
+	mbbuf		= $36
+	cnta		= $38
+	cntb		= $39
+	vram		= $45
+	cram		= $47
+	merk		= $49
+	vvram		= $4a
+	adcnt		= $4c
+
+	offx		= ls_adrmisc
+	offy		= offx+1
+
+	vrbuf		= $c600
+	crbuf		= vrbuf+$0400
+	col0		= vrbuf+$0800
+	bmbuf		= $a000
+
+;
+; ------------------------------------------------ 
+
+	jmp start
+	!by $80
+	!by 4
+	!by 1		; own requester, dirty
+	!wo modend
+	!wo 0
+	!tx "Hyperlink's III "
+	!tx "1.02"
+	!tx "25.09.99"
+	!tx "A.Dettke        "
+;
+; ------------------------------------------------ 
+
+start	jsr sysdrv
+	ldx #<sy_4bit	; target address for data
+	ldy #>sy_4bit
+	stx ls_adrmisc
+	sty ls_adrmisc+1
+	lda #0
+	sta ls_flen
+	lda gd_modswitch
+	pha
+
+	jsr lddir		; directory
+	jsr gd_eloop
+	lda ls_flen	; none selected?
+	beq lp0
+
+	jsr readfile	; no, load file
+
+lp0	pla
+	sta gd_modswitch
+	sta gr_redisp
+
+	lda ls_drive
+	sta ls_loadfrom
+	lda stsysdrv
+	sta ls_sysdrive
+	sec
+	rts
+
+;------------------------
+
+lddir	lda #<prefix	; filefilter
+	pha
+	lda #>prefix
+	pha
+	lda #8
+	jmp gd_xloadm	; show directory
+
+;------------------------
+
+sysdrv	lda ls_sysdrive
+	ldx ls_loadfrom
+	sta stsysdrv
+	stx ls_sysdrive
+	rts
+
+;------------------------
+
+readfile	lda #57
+	sta cntwert
+
+	ldx #0		; Set start addresses
+	stx counter
+	stx mvbuf		; colors: $c600 (vrbuf)
+	stx mbbuf		; bitmap: $a000
+	ldy #>bmbuf
+	sty mbbuf+1
+	ldy #>vrbuf
+	sty mvbuf+1
+
+stt2	jsr gd_xopen	; open file
+	jsr onebyte	; check first byte
+	bne jerror
+	sta cntb		; width (not supported yet by Cameron)
+
+	jsr onebyte	; check second byte
+	bne jerror
+	sta ftype		; compress (not supported yet by Cameron)
+
+	jsr getname	; store filename
+	jsr gd_clrms	; clear message bar
+
+; ------------------------------------------------ 
+
+	ldx #0
+	jsr tcopy
+	iny
+	sty adcnt
+
+	lda #25		; read 25 blocklines
+	sta cnta
+	
+read1	lda #40		; read 40 colors
+	sta ls_vekta8
+	lda #0
+	sta ls_vekta8+1
+	lda mvbuf
+	sta sc_texttab
+	lda mvbuf+1
+	sta sc_texttab+1
+	jsr rloop
+	stx mvbuf
+	sty mvbuf+1
+	bne je0
+;
+read2	lda #$40		; read 320 pixels
+	sta ls_vekta8
+	lda #$01
+	sta ls_vekta8+1
+	lda mbbuf
+	sta sc_texttab
+	lda mbbuf+1
+	sta sc_texttab+1
+	jsr rloop
+	stx mbbuf
+	sty mbbuf+1
+	bne je0
+
+	dec cnta		; decrement screenrows
+;--	dec cntb		; (not yet implemented by Cameron)
+	bne read1
+	beq jerror
+
+je0	dec cnta
+	lda cnta		; all rows?
+	beq jerror
+
+	lda togg		; fill rest if not
+	eor #1
+	sta togg
+	jsr fill
+
+; ------------------------------------------------ 
+
+jerror	jsr gd_xclose	; then close file
+
+	jsr conhir	; hires
+	jsr hires
+	jsr setinfo	; set image information
+
+; ------------------------------------------------ 
+
+sk11	ldx #18		; reset start message
+	jsr tcopy
+
+sk10	jsr gd_xmess	; error message from drive
+	jsr gd_spron	; sprite pointer on
+	sec		; leave loader
+	rts
+
+; ------------------------------------------------ 
+
+onebyte	lda counter	; get byte & decompress
+	bne getit2
+	inc counter
+	jsr basin
+	cmp #$fe
+	bne getit1
+	bit ftype
+	bvc getit1
+	jsr basin
+	pha
+	jsr basin
+	sta counter
+	pla
+getit1	sta gbyte
+;
+getit2	dec counter
+	lda gbyte
+	ldx status
+	rts
+;
+; ------------------------------------------------ 
+
+error	jsr gd_xclose
+	jsr sk11
+	clc
+	rts
+
+; ------------------------------------------------ 
+
+count 	lda ls_vekta8	; count bytes
+	bne +
+	dec ls_vekta8+1
++	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	rts
+
+; ------------------------------------------------ 
+
+rloop	jsr onebyte	; read file
+	ldy #0
+	sta (sc_texttab),y
+	jsr action
+	inc sc_texttab
+	bne rl1
+	inc sc_texttab+1
+rl1	txa
+	ldx sc_texttab
+	ldy sc_texttab+1
+	and #$40		; EOF?
+	bne rl3
+	jsr count
+	bne rloop
+rl3	rts
+;
+; ------------------------------------------------ 
+
+fill	ldx togg
+	lda fillcol,x
+	sta gbyte
+	lda #40		; fill 40 colors
+	sta ls_vekta8
+	lda #0
+	sta ls_vekta8+1
+	lda mvbuf
+	sta sc_texttab
+	lda mvbuf+1
+	sta sc_texttab+1
+	jsr floop
+	stx mvbuf
+	sty mvbuf+1
+	bne fil2
+;
+fill2	lda #0
+	sta gbyte
+	lda #$40		; fill 320 pixels
+	sta ls_vekta8
+	lda #$01
+	sta ls_vekta8+1
+	lda mbbuf
+	sta sc_texttab
+	lda mbbuf+1
+	sta sc_texttab+1
+	jsr floop
+	stx mbbuf
+	sty mbbuf+1
+	bne fil2
+
+	dec cnta
+	bne fill
+fil2	rts
+
+; ------------------------------------------------ 
+
+floop	ldy #0		; flood fill
+	lda gbyte
+	sta (sc_texttab),y
+	inc sc_texttab
+	bne fl1
+	inc sc_texttab+1
+fl1	ldx sc_texttab
+	ldy sc_texttab+1
+	jsr count
+	bne floop
+fl3	rts
+
+; ------------------------------------------------ 
+
+messout	ldx #<message
+	ldy #>message
+	jmp gd_xtxout2
+
+tcopy	ldy #0
+tc0	lda txt,x
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+
+action	dec adcnt
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	cpy #20
+	bne act0
+	jsr clrmess
+act0	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts
+
+clrmess   ldx #20		; clear gauge bar
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0		; init counters
+	ldx #7	
+	sty offy
+	stx offx
+	rts
+
+filltab	!by 160,93,103,127,126,124,105,109
+
+cntwert	!by 50
+
+txt	!scr " Records@"
+	!scr " Convert@"
+	!scr " Bitmap @"
+	!scr " Expand @"
+	!scr " Move   @"
+;
+message   !fill 11,32
+mess	!fill 21,32
+	!by 0
+
+; ------------------------------------------------ 
+
+hires	lda #50
+	sta cntwert
+	ldx #9
+	jsr tcopy
+	iny
+	sty adcnt
+
+	lda #<8000	; count 8000 bytes 
+	sta ls_vekta8
+	lda #>8000
+	sta ls_vekta8+1
+
+	lda #0		; convert image data
+	tay 
+	sta vram
+	sta cram
+	sta sc_texttab
+	sta vvram
+	lda #>bmbuf
+	sta cram+1
+	asl 
+	sta sc_texttab+1
+	lda #>vrbuf
+	sta vram+1
+	lda #>crbuf
+	sta vvram+1
+
+hloop1	ldx #8
+	stx merk
+
+hilp	lda (cram),y
+	sta byte
+	jsr action
+	ldy #0
+
+	ldx #4
+hl2	asl byte
+	bcc hl3
+	lda (vvram),y
+	!by $2c
+hl3	lda (vram),y
+	and #$0f
+	tay 
+	lda dnib,y
+	and #$f0
+	sta col0
+	ldy #0
+	asl byte
+	bcc hl4
+	lda (vvram),y
+	!by $2c
+hl4	lda (vram),y
+	and #$0f
+	tay 
+	lda dnib,y
+	and #$0f
+	ora col0
+	ldy #0
+	sta (sc_texttab),y
+
+	inc sc_texttab
+	bne lh5
+	inc sc_texttab+1
+
+lh5	dex 
+	bne hl2
+
+	inc cram
+	bne hl6
+	inc cram+1
+hl6	lda ls_vekta8
+	bne hl7
+	dec ls_vekta8+1
+hl7	dec ls_vekta8
+	dec merk
+	bne hilp
+
+	inc vram
+	bne hl8
+	inc vram+1
+hl8	inc vvram
+	bne hl9
+	inc vvram+1
+hl9	lda ls_vekta8
+	ora ls_vekta8+1
+	bne hloop1
+
+	rts 
+
+; ------------------------------------------------ 
+
+conhir	lda #7
+	sta cntwert
+	ldx #36
+	jsr tcopy
+	iny
+	sty adcnt
+
+	ldx #4
+	stx merk
+	lda #0
+	tay 
+	sta ls_vekta8
+	sta sc_texttab
+	lda #>(vrbuf)
+	sta ls_vekta8+1
+	lda #>(crbuf)
+	sta sc_texttab+1
+ml2	lda (ls_vekta8),y
+	sty vvram
+	asl 
+	rol vvram
+	asl 
+	rol vvram
+	asl 
+	rol vvram
+	asl 
+	rol vvram
+	ora vvram
+	sta (sc_texttab),y
+	tya 
+	pha 
+	jsr action
+	pla 
+	tay 
+	iny 
+	bne ml2
+	inc ls_vekta8+1
+	inc sc_texttab+1
+	dec merk
+	bne ml2
+	rts 
+
+; ------------------------------------------------ 
+
+dnib	!by $00,$ff,$44,$cc,$55,$aa,$11,$dd
+	!by $66,$22,$99,$33,$77,$ee,$88,$bb
+
+prefix	!tx "iii.*"
+	!by 0
+stsysdrv	!by 0
+togg	!by 1
+fillcol	!by $cc,$ff
+
+; --------------------------------------------- Generate Image Name
+
+getname	ldx #0
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+setinfo	jsr setname
+	jsr setloader
+	jsr setmode
+	jmp setdata
+
+setname	lda #0
+	ldx #<ls_picname
+	ldy #>ls_picname
+	bne si3
+setloader	lda #17
+	ldx #<ls_iloader
+	ldy #>ls_iloader
+	bne si3
+setmode	lda #25
+	ldx #<ls_imode
+	ldy #>ls_imode
+	bne si3
+setdata	lda #33
+	ldx #<ls_idrive
+	ldy #>ls_idrive
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!fill 16,32
+	!by 0
+	!scr "HLnkIII@"
+
+modetx	!scr "320x200@"
+datatype	!scr "Color@"
+
+; --------------------------------------------- 
+
+modend	!eof
