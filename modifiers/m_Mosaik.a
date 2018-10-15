@@ -1,0 +1,381 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ----------------------------------------- 
+;
+;  mod.Mosaik
+;   Module to apply a definite border around every tile
+;
+;  1.00, 31.01.94: first release
+;
+; ----------------------------------------- 
+
+; ----------------------------------------- Equates
+
+	bbuf		= $30
+	src0		= $31
+	src1		= $33
+	dst		= $35
+	bcnt		= $37
+	col1		= $3a
+	col2		= col1+1
+	col3		= col2+1
+	col4		= col3+1
+	cols		= $3e
+	adcnt		= $40
+	byte		= $41
+
+	coltab1		= $cc00
+	coltab2		= $cd00
+
+	sprptr		= $07f8
+	spr255		= $3fc0
+
+	spr2x		= $d004
+	spr2y		= $d005
+	msbx		= $d010
+	spren		= $d015
+	sprxe		= $d01d
+	border		= $d020
+	sprcol2		= $d029
+
+; ----------------------------------------- Header
+
+header	jmp start
+	!by $20
+	!by 0
+	!by 0
+	!wo modend
+	!wo 0
+	!tx "Mosaik MC gr/col"
+	!tx "1.00"
+	!tx "31.01.94"
+	!tx "W.Kling         "
+
+; ----------------------------------------- Main
+
+start	ldx #<moslst	; then: requester
+	ldy #>moslst
+	jsr gd_xmloop
+	ldx leave
+	bmi +
+	jsr perform
++	jsr clearad
+	sec
+	rts
+
+perform	jsr initad
+	jsr mkcoltab
+	ldx #39		; clear creation buffer
+	lda #0
+-	sta coltab1,x
+	dex
+	bpl -
+
+	lda #<sy_4bit
+	ldy #>sy_4bit
+	sta dst
+	sty dst+1
+
+--	lda #0
+	sta coltab1+40
+	sta bcnt
+
+-	jsr mosaik
+
+	lda dst		; next tile
+	clc
+	adc #32
+	sta dst
+	bcc +
+	inc dst+1
+	jsr adinc
++	inc bcnt
+	lda bcnt
+	cmp #40
+	bne -
+	lda dst+1
+	cmp #>sy_bigbuffer
+	bne --
+
+; ------------------------------------------------ Abschluss Activity
+
+clearad	lda spren		; Wanderbalken aus
+	and #$f3
+	sta spren
+	lda msbx
+	and #$f3
+	sta msbx
+	ldx #$ff		; Grafik verändert
+	stx gr_redisp
+	inx
+	stx leave
+	rts 
+
+; ----------------------------------------- Event: Leave Module
+
+evcancel	lda #$ff
+	sta leave
+	sec
+	rts
+
+; ------------------------------------------------ Mosaik
+
+mosaik	jsr doit
+	tay
+	lda dnibs,y
+	sta color1
+	lda (src1),y
+	sta col1
+	lda (src0),y
+	sta col2
+	sta color2
+	tya
+	ldx bcnt
+	cmp coltab1,x
+	bcs +
+	lda col2
+	!by $2c
++	lda col1
+	sta color3
+	lda color0
+	sta coltab1,x
+	cmp coltab1+40
+	sta coltab1+40
+	bcs +
+	lda col2
+	!by $2c
++	lda col1
+	sta color4
+
+	ldy #31
+-	lda borders,y
+	tax
+	lda color1,x
+	sta (dst),y
+	dey
+	bpl -
+	rts
+
+; ------------------------------------------------ 
+
+doit	jmp (distrib)
+distrib	!wo 0
+
+; ------------------------------------------------ 
+
+evgray	lda #<gray
+	ldx #>gray
+	sta distrib
+	stx distrib+1
+	lda #<dnibs1
+	ldx #>dnibs1
+	sta src1
+	stx src1+1
+	lda #<dnibs2
+	ldx #>dnibs2
+	sta src0
+	stx src0+1
+	sec
+	rts
+
+; ------------------------------------------------ 
+
+gray	lda #0
+	sta cols+1
+	ldy #31
+	sty cols
+-	lda (dst),y
+	tax
+	lda coltab2,x
+	clc
+	adc cols
+	sta cols
+	bcc +
+	inc cols+1
++	dey
+	bpl -
+	lda cols+1
+	asl cols
+	rol
+	asl cols
+	rol
+	sta color0
+	rts
+
+; ------------------------------------------------ 
+
+evcolor	lda #<color
+	ldx #>color
+	sta distrib
+	stx distrib+1
+	lda #<dnibs3
+	ldx #>dnibs3
+	sta src1
+	stx src1+1
+	lda #<dnibs4
+	ldx #>dnibs4
+	sta src0
+	stx src0+1
+	sec
+	rts
+
+; ------------------------------------------------ 
+
+color	ldy #15
+	lda #0		; clear tab
+-	sta coltab1+64,y
+	dey
+	bpl -
+
+	ldy #31
+-	lda (dst),y
+	lsr
+	lsr
+	lsr
+	lsr
+	tax
+	inc coltab1+64,x
+	lda (dst),y
+	and #$0f
+	tax
+	inc coltab1+64,x
+	dey
+	bpl -
+
+	lda #0
+	sta byte
+	ldy #15
+-	lda coltab1+64,y
+	beq +
+	cmp byte
+	bcc +
+	sta byte
+	sty color0
++	dey
+	bpl -
+	lda color0
+	rts
+
+; ------------------------------------------------ Activity
+
+adinc	dec adcnt
+	bne +
+	inc spr2y
+	inc spr2y+2
+	lda #3
+	sta adcnt
++	rts 
+
+; ------------------------------------------------ Init Activity
+
+initad	ldy #60
+	lda #0
+-	sta spr255+3,y	; Spriteblock 255 vorbereiten
+	dey 
+	bpl -
+	sty spr255	; dünner Strich
+	sty spr255+1
+	sty spr255+2
+	lda #$0f		; Farbe hellgrau
+	sta sprcol2
+	sta sprcol2+1
+	lda sprxe		; doppelt breit
+	ora #$0c
+	sta sprxe
+
+	lda msbx		; x über 255
+	ora #$0c
+	sta msbx
+	lda #8		; x-Ordinate: 8 (plus 256)
+	sta spr2x
+	lda #$20
+	sta spr2x+2
+	lda #$92		; y-Ordinate: 146
+	sta spr2y		; (im Image Information Fenster)
+	sta spr2y+2
+
+	sty sprptr+2	; Sprite 255
+	sty sprptr+3
+	lda spren
+	ora #$0c		; Activity-Balken aktivieren
+	sta spren
+	lda #3		; Startzähler (5 mal 40 = 200)
+	sta adcnt
+	rts
+
+; ----------------------------------------- Make Mosaik Table
+
+mkcoltab	ldy #0
+-	tya
+	lsr
+	lsr
+	lsr
+	lsr
+	sta bbuf
+	tya
+	and #$0f
+	clc
+	adc bbuf
+	sta coltab2,y
+	iny
+	bne -
+	rts
+
+; ----------------------------------------- Data
+
+leave	!by 0
+
+color0	!by 0
+color1	!by 0
+color2	!by 0
+color3	!by 0
+color4	!by 0
+
+dnibs	!by $00,$11,$22,$33,$44,$55,$66,$77
+	!by $88,$99,$aa,$bb,$cc,$dd,$ee,$ff
+
+dnibs1	!by $11,$22,$33,$44,$55,$66,$77,$88
+	!by $99,$aa,$bb,$cc,$dd,$ee,$ff,$ff
+
+dnibs2	!by $00,$00,$11,$22,$33,$44,$55,$66
+	!by $77,$88,$99,$aa,$bb,$cc,$dd,$ee
+
+dnibs3	!by $33,$88,$66,$77,$99,$99,$99,$bb
+	!by $cc,$bb,$ee,$ff,$ee,$ff,$ff,$ff
+
+dnibs4	!by $00,$00,$00,$00,$22,$11,$22,$33
+	!by $11,$44,$22,$77,$77,$66,$aa,$bb
+
+borders	!by 3,2,2,2
+	!by 3,0,0,1
+	!by 3,0,0,1
+	!by 3,0,0,1
+	!by 3,0,0,1
+	!by 3,0,0,1
+	!by 3,0,0,1
+	!by 3,1,1,1
+
+; ----------------------------------------- Screenlist
+
+moslst	!by 0
+	!by 6,14,13,9,$91
+	!wo 0
+	!scr "3D-Mosaik@"
+	!by 8,14,13,3,$ca
+	!wo evgray
+	!scr "Gray@"
+	!by 10,14,13,3,$ca
+	!wo evcolor
+	!scr "Color@"
+	!by 12,14,13,3,$c9
+	!wo evcancel
+	!scr "Cancel@"
+	!by $80
+
+; ----------------------------------------- 
+
+modend	!eof
