@@ -1,0 +1,130 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ----------------------------------------- 
+;
+;  mod..SMON
+;   Integration of famous machine code monitor SMON 
+;
+; ----------------------------------------- 
+;
+;  These routines show how to patch a standard SMON (at $c000)
+;  for use with GoDot. You see which code you have to input
+;  at which address (shown by the !pseudopc parameters). This
+;  file is not meant as the module itself.
+;
+; ----------------------------------------- 
+;
+;  1.00,         : first release
+;
+; ----------------------------------------- 
+
+; ----------------------------------------- Equates
+
+	pport		= $01
+	stackp		= $3f46
+	basvecs		= $0300
+	modend		= $d000
+	border		= $d020
+	backgr		= $d021
+	showregs		= $c214
+	zcomm		= $ce09
+	restart		= $fe66
+	clall		= $ffe7
+
+; ----------------------------------------- Header
+
+header	jmp start
+	!by $20
+	!by 0
+	!by 1		; dirty
+	!wo modend
+	!wo 0
+
+	!by $ad		; signature
+
+; ----------------------------------------- Data
+
+!pseudopc	$c03f {
+
+	!wo zcomm-1	; vector to RTS (formerly floppy tools)
+
+	}
+
+; ----------------------------------------- 
+
+!pseudopc	$c36e {
+
+evexit	lda sc_maincolor	; "x" command
+	sta border
+	sta backgr
+	lda #$36
+	sta pport
+	ldx stackp	; (stackp gets set in showregs)
+	txs
+	lda mswitch
+	jmp leave
+
+mswitch	!by 0
+
+	}
+
+; ----------------------------------------- Init
+
+!pseudopc	$c96c {
+
+start	lda #$93		; CLR/HOME
+	jsr bsout
+	sei
+	lda sy_irqalt	; activate standard irq
+	sta basvecs+14
+	lda sy_irqalt+1
+	sta basvecs+15
+	lda #<showregs	; set showregs vector
+	sta basvecs+16	; (invoked at BRK)
+	lda #>showregs
+	sta basvecs+17
+	inc pport		; switch basic on
+	cli
+	jsr gd_sproff	; mouse pointer off
+	lda gd_modswitch
+	sta mswitch
+	jmp showregs	; = "r" command
+
+; ----------------------------------------- Event: Leave Module
+
+leave	sta gd_modswitch
+	sei
+	lda#<gd_irq
+	sta basvecs+14
+	lda #>gd_irq
+	sta basvecs+15
+	lda #<restart	; set BRK vector
+	sta basvecs+16
+	lda #>restart
+	sta basvecs+17
+	jsr clall
+	cli
+	jsr gd_spron	; mouse pointer on
+	sta gr_redisp
+	sec
+	jmp gd_getback	; into GoDot
+
+	}
+
+; ----------------------------------------- 
+
+!pseudopc	$ce09 {
+
+evzcomm	rts		; "z" command (for floppy tools) now
+			; deactivated by RTS, because area from
+			; $ce0b to $cfff is used by GoDot
+
+	}
+
+; ----------------------------------------- 
+
+	!eof
