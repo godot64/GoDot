@@ -11,6 +11,8 @@
 ;
 ;  1.01, 22.11.98
 ;  1.02, 30.04.18, completely reorganized and accommodated to GoDot system
+;  1.03, 20.10.18, bugfix: no change of coordinates
+;                          after STOP anymore
 ;
 ; ----------------------------------------- 
 
@@ -65,8 +67,8 @@
 	!wo modend
 	!wo 0
 	!tx "Spin positive   "
-	!tx "1.02"
-	!tx "30.04.18"
+	!tx "1.03"
+	!tx "20.10.18"
 	!tx "Martin Bohnet/AD"
 
 ; ----------------------------------------- Main
@@ -805,18 +807,34 @@ ev_setpos	lda #1
 
 ; ----------------------------------------- 
 
-set	jsr rainbow	; get center by mouse
+set	jsr svcvals
+	jsr rainbow	; get center by mouse
 	bcs +
 	jsr setcpos	; set center position, init ghost pointer
 
 	jsr rainbow	; get radius by mouse
-	bcs +
+	bcs rscvals
 	jsr setradius	; set radius
 
+--
 +	jsr gd_spron	; Systemmaus an
 	lda spritehi	; x-Übertrag beachten
 	and #3
 	sta spritehi
+	rts
+
+rscvals	ldx #2
+-	lda savec,x
+	sta cposx,x
+	dex
+	bpl -
+	bmi --
+
+svcvals	ldx #2
+-	lda cposx,x
+	sta savec,x
+	dex
+	bpl -
 	rts
 
 ; ----------------------------------------- Rainbow Pointer (get position)
@@ -829,11 +847,12 @@ rainbow	lda #0		; Init keys
 	lda sc_keyprs	; wait for key
 	ora sc_stop	; check for STOP
 	beq -
+	tax
 -	lda joy		; Fire entprellen
 	and #16
 	beq -
 
-	cmp #3		; STOP?
+	cpx #3		; STOP?
 	bne +
 	sec		; yes
 	rts
@@ -1353,7 +1372,7 @@ spinlst	!by 0
 	!scr "Spin: Positive@"
 ctxgad	!by 6,23,5,3,$e0
 	!wo ev_centerx
-	!scr "100@"
+	!scr "160@"
 ctygad	!by 8,23,5,3,$e0
 	!wo ev_centery
 	!scr "100@"
@@ -1406,8 +1425,9 @@ dradius	!by 100
 cradius	!by 100
 vorwrts	!by 0
 rckwrts 	!by 0
-cposx	!wo 100
+cposx	!wo 160
 cposy	!by 100
+savec	!by 0,0,0
 quadadd	!wo $2100
 angle	!wo 90
 qangle	!wo 0

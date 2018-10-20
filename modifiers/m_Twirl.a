@@ -12,6 +12,8 @@
 ;  1.00,         , first release
 ;  1.01, 11.01.98,
 ;  1.02, 18.10.18, completely recoded, partly accommodated to GoDot
+;  1.03, 20.10.18, bugfix: no change of coordinates
+;                          after STOP anymore
 ;
 ; ----------------------------------------- 
 
@@ -65,8 +67,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "Twirl           "
-	!tx "1.02"
-	!tx "18.10.18"
+	!tx "1.03"
+	!tx "20.10.18"
 	!tx "Martin Bohnet/AD"
 
 ; ----------------------------------------- Main
@@ -768,18 +770,34 @@ ev_setpos	lda #1
 
 ; ----------------------------------------- 
 
-set	jsr rainbow	; get center by mouse
+set	jsr svcvals
+	jsr rainbow	; get center by mouse
 	bcs +
 	jsr setcpos	; set center position, init ghost pointer
 
 	jsr rainbow	; get radius by mouse
-	bcs +
+	bcs rscvals
 	jsr setradius	; set radius
 
+--
 +	jsr gd_spron	; Systemmaus an
 	lda spritehi	; x-Übertrag beachten
 	and #3
 	sta spritehi
+	rts
+
+rscvals	ldx #2
+-	lda savec,x
+	sta cposx,x
+	dex
+	bpl -
+	bmi --
+
+svcvals	ldx #2
+-	lda cposx,x
+	sta savec,x
+	dex
+	bpl -
 	rts
 
 ; ----------------------------------------- Rainbow Pointer (get position)
@@ -792,11 +810,12 @@ rainbow	lda #0		; Init keys
 	lda sc_keyprs	; wait for key
 	ora sc_stop	; check for STOP
 	beq -
+	tax
 -	lda joy		; Fire entprellen
 	and #16
 	beq -
 
-	cmp #3		; STOP?
+	cpx #3		; STOP?
 	bne +
 	sec		; yes
 	rts
@@ -1348,6 +1367,7 @@ vorwrts	!by 0
 rckwrts 	!by 0
 cposx	!wo 160
 cposy	!by 100
+savec	!by 0,0,0
 quadadd	!wo $2100
 amount	!wo 1
 qnumber	!by 0 
