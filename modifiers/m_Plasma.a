@@ -1,0 +1,1007 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ----------------------------------------- 
+;
+;  mod.Plasma
+;   Module to generate 4Bit Plasmas
+;
+;  1.00, 03.09.98, first release
+;  1.01, 23.10.18, GUI completely recoded
+;
+; ----------------------------------------- 
+
+; ----------------------------------------- Equates
+
+	pport		= $01
+	int		= $14
+
+	palvec		= $30
+	blcnt		= $32
+	lcnt		= $33
+	dst		= $34
+	pcnt		= $36
+	bbuf		= $37
+	data		= $38
+	funky		= $3a
+	adcnt		= $3c
+
+	sprptr		= $07f8
+	spr255		= $3fc0
+
+	spr2x		= $d004
+	spr2y		= $d005
+	msbx		= $d010
+	spren		= $d015
+	sprxe		= $d01d
+	border		= $d020
+	sprcol2		= $d029
+
+; ----------------------------------------- 
+
+	jmp start
+
+	!by $20
+	!by 0
+	!by 0 
+	!wo modend
+	!wo 0
+	!tx "Plasmaexplorer  "
+	!tx "1.01"
+	!tx "23.10.18"
+	!tx "Martin Bohnet/AD"
+
+; --------------------------------------
+
+start	lda gd_modswitch
+	sta memman
+	lda #5
+	sta cntwert
+	jsr makechr
+	jsr getname
+	ldx #<plsmlst
+	ldy #>plsmlst
+	jsr gd_screen
+	jmp gd_eloop
+
+; --------------------------------------
+
+evexec	lda #0
+	sta mask
+	jsr initad
+	ldy paltype
+	lda paladds,y
+	sta palvec
+	iny 
+	lda paladds,y
+	sta palvec+1
+
+	lda #8		; 8 scanlines per row
+	sta blcnt
+	lda #0
+	sta lcnt		; 200 scanlines total
+	sta dst
+	lda #>sy_4bit
+	sta dst+1
+
+bloop	ldx #0		; count 40
+	stx pcnt		; doppelpixel 1
+
+sloop	jsr eval
+	ldy #0
+	sta (dst),y
+
+	inc pcnt		; dp 2
+	inc pcnt
+	jsr eval
+	ldy #1
+	sta (dst),y
+
+	inc pcnt		; dp 3
+	inc pcnt
+	jsr eval
+	ldy #2
+	sta (dst),y
+
+	inc pcnt		; dp 4
+	inc pcnt
+	jsr eval
+	ldy #3
+	sta (dst),y
+
+	inc pcnt
+	inc pcnt
+
+	lda dst		; next tile
+	clc 
+	adc #32
+	sta dst
+	bcc +
+	inc dst+1
++	inx 
+	cpx #40		; until 40
+	bne sloop
+
+	jsr adinc
+	inc lcnt
+	lda lcnt
+	cmp #200		; 200 scanlines?
+	beq finish
+
+	dec blcnt		; 8 scanlines?
+	beq +
+
+	lda dst		; no, next scanline
+	sec 
+	sbc #<1276	; (minus 1276)
+	sta dst
+	lda dst+1
+	sbc #>1276
+	sta dst+1
+	jmp bloop
+
++	lda #8		; yes, next block row
+	sta blcnt
+	sec 
+	lda dst
+	sbc #28		; (minus 28)
+	sta dst
+	lda dst+1
+	sbc #0
+	sta dst+1
+	jmp bloop
+
+; --------------------------------------
+
+finish	jsr rasterize
+	jsr clearad	; bar off
+	jsr setinfo
+
+; --------------------------------------
+
+evcancel	lda #0
+	sta sc_iflag
+	lda memman
+	sta gd_modswitch
+	sec 
+	rts 
+
+; --------------------------------------
+
+eval	lda constant1	; term 1
+	ldy factor3
+-	clc 
+	adc lcnt
+	dey 
+	bne -
+	bit func2flg	; sin (+) or cos (-)?
+	bpl +
+	clc 
+	adc #192
++	tay 
+	lda sinustab,y
+	sta stermres	; result of subterm
+
+	lda #0
+	sta work
+	sta work+1
+	ldy factor2
+-	lda work
+	clc 
+	adc stermres
+	sta work
+	bcc +
+	inc work+1
++	dey 
+	bne -
+	lsr work+1
+	ror work
+	lsr work+1
+	ror work
+
+	lda work
+	ldy factor1
+-	clc 
+	adc pcnt
+	dey 
+	bne -
+	bit func1flg
+	bpl +
+	clc 
+	adc #192
++	tay 
+	lda sinustab,y
+	sta result
+
+	lda constant2	; term 2
+	ldy factor6
+-	clc 
+	adc pcnt
+	dey 
+	bne -
+	bit func4flg
+	bpl +
+	clc 
+	adc #192
++	tay 
+	lda sinustab,y
+	sta stermres	; result of subterm
+
+	lda #0
+	sta work
+	sta work+1
+	ldy factor5
+-	lda work
+	clc 
+	adc stermres
+	sta work
+	bcc +
+	inc work+1
++	dey 
+	bne -
+	lda work
+	lsr work+1
+	ror
+	lsr work+1
+	ror
+
+	ldy factor4
+-	clc 
+	adc lcnt
+	dey 
+	bne -
+	bit func3flg
+	bpl +
+	clc 
+	adc #192
++	tay 
+	lda sinustab,y
+	clc 
+	adc result
+	adc mask
+	sta result
+	and #3
+	sta mask
+
+	lda result	; get as result:
+	lsr
+	lsr
+	tay 
+	lda (palvec),y	; color
+	rts 
+
+; -------------------------------------- Event: Palette
+
+evpalette	ldy paltype
+	iny 
+	iny 
+	cpy #8
+	bne +
+	ldy #0
+	tya
++	sty paltype
+	beq +
+	lda #0
+-	clc 
+	adc #7
+	dey 
+	dey 
+	bne -
+
++	tay 
+	ldx #0
+-	lda paltxts,y
+	sta paltx,x
+	iny 
+	inx 
+	cpx #7		; 7 chars
+	bne -
+
+	ldy #8		; 8=palgad
+
+; --------------------------------------
+
+out1	jsr settext	; output gadget text
+	ldy #6
+	jsr gd_xtxout1
+	clc		; stay
+	rts
+
+; --------------------------------------
+
+evfunc1	lda #0		; gad offset
+	pha
+	lda #>f1tx
+	pha
+	lda #<f1tx
+	pha
+	lda func1flg
+	eor #$ff
+	sta func1flg
+	jmp decide
+
+; --------------------------------------
+
+evfunc2	lda #2		; gad offset
+	pha
+	lda #>f2tx
+	pha
+	lda #<f2tx
+	pha
+	lda func2flg
+	eor #$ff
+	sta func2flg
+	jmp decide
+
+; --------------------------------------
+
+evfunc3	lda #4		; gad offset
+	pha
+	lda #>f3tx
+	pha
+	lda #<f3tx
+	pha
+	lda func3flg
+	eor #$ff
+	sta func3flg
+	jmp decide
+
+; --------------------------------------
+
+evfunc4	lda #6		; gad offset
+	pha
+	lda #>f4tx
+	pha
+	lda #<f4tx
+	pha
+	lda func4flg
+	eor #$ff
+	sta func4flg
+decide	bpl setsin
+
+; --------------------------------------
+
+setcos	ldx #5		; cos
+	!by $2c
+setsin	ldx #2		; sin
+	ldy #2
+
+setfac	pla		; set text address
+	sta funky
+	pla
+	sta funky+1
+-	lda functype,x	; set text
+	sta (funky),y
+	dex 
+	dey 
+	bpl -
+
+	pla		; and textout
+	tay
+	jmp out1
+
+; --------------------------------------
+
+evfact1	ldx factor1
+	jsr incdigit
+	stx factor1
+	sta fc1tx
+	
+	ldy #14		; gad offset
+	jmp out1
+
+; --------------------------------------
+
+evfact2	ldx factor2
+	jsr incdigit
+	stx factor2
+	sta fc2tx
+	
+	ldy #16		; gad offset
+	jmp out1
+
+; --------------------------------------
+
+evfact3	ldx factor3
+	jsr incdigit
+	stx factor3
+	sta fc3tx
+	
+	ldy #18		; gad offset
+	jmp out1
+
+; --------------------------------------
+
+evfact4	ldx factor4
+	jsr incdigit
+	stx factor4
+	sta fc4tx
+	
+	ldy #20		; gad offset
+	jmp out1
+
+; --------------------------------------
+
+evfact5	ldx factor5
+	jsr incdigit
+	stx factor5
+	sta fc5tx
+	
+	ldy #22		; gad offset
+	jmp out1
+
+; --------------------------------------
+
+evfact6	ldx factor6
+	jsr incdigit
+	stx factor6
+	sta fc6tx
+	
+	ldy #24		; gad offset
+	jmp out1
+
+; --------------------------------------
+
+evconst1	jsr input
+	sta constant1
+	lda #10
+	pha
+	lda #>c1tx
+	pha
+	lda #<c1tx
+	pha
+
+con0	lda #0		; delimit input /w $00
+	ldx ls_flen
+	sta ls_nambuf,x
+
+-	sta sy_numbers,x
+	lda #32
+	dex
+	bpl -
+
+	ldx ls_flen
+	ldy #2		; make right bound
+-	lda ls_nambuf-1,x
+	cmp #32		; and fill leading spaces
+	beq +
+	sta sy_numbers,y
+	dey
++	dex
+	bne -
+
+-	lda sy_numbers,x
+	sta ls_nambuf,x
+	beq +
+	inx 
+	bne -
+
++	pla
+	sta funky
+	pla
+	sta funky+1
+	ldy #2
+-	lda ls_nambuf,y
+	sta (funky),y
+	dey
+	bpl -
+
+	pla		; get offset to gadget
+	tay
+	jmp out1
+
+; --------------------------------------
+
+evconst2	jsr input
+	sta constant2
+	lda #12
+	pha
+	lda #>c2tx
+	pha
+	lda #<c2tx
+	pha
+	jmp con0
+
+; -------------------------------------- Input
+
+input	lda #3
+	sta ls_flen
+	ldx #10		; 11 valid chars:
+	stx sc_iflag
+-	lda digits,x	; digits and space
+	sta sy_global,x
+	dex 
+	bpl -
+	lda #<sy_global	; call system input
+	sta ls_vekta8
+	lda #>sy_global
+	sta ls_vekta8+1
+	jsr gd_xinput
+
+; -------------------------------------- Convert Digits to Word (Byte in INT)
+
+	lda #<ls_nambuf	; digits buffer
+	sta ls_vekta8
+	lda #>ls_nambuf
+	sta ls_vekta8+1
+
+gword	ldy #0
+	sty int
+	sty int+1
+	beq +
+
+-	jsr inca8
++	lda (ls_vekta8),y
+	cmp #$20
+	beq -
+
+	cmp #$3a
+	bcs +
+	sec 
+	sbc #$30
+	sec 
+	sbc #$d0
+	bcs +
+	sbc #$2f
+	sta sc_merk
+	lda int+1
+	sta ls_temp
+	cmp #$19		; delimit value to max. 63999 (next pass would exceed 64K)
+	bcs +
+
+	lda int		; value times 10:
+	asl
+	rol ls_temp
+	asl
+	rol ls_temp
+	adc int
+	sta int
+	lda ls_temp
+	adc int+1
+	sta int+1
+	asl int
+	rol int+1
+	lda int
+	adc sc_merk
+	sta int
+	bcc -
+	inc int+1
+	bne -
+
++	lda int		; result low in .a
+	sta result	; return result
+	rts
+
+inca8	inc ls_vekta8
+	bne +
+	inc ls_vekta8+1
++	rts 
+
+; --------------------------------------
+
+incdigit	inx
+	cpx #10
+	beq +
+	txa 		; .x=value, .a=digit
+	clc 
+	adc #$30
+	rts 
+
++	ldx #1		; if 10: 1
+	lda #$31
+	rts 
+
+; --------------------------- Kringel definieren
+
+makechr	ldx #7
+-	lda chschr,x
+	sta sc_undochar,x
+	dex
+	bpl -
+	rts
+
+; ------------------------------------------------ Text Output Handler
+
+tabigad	!wo f1gad		; 0
+	!wo f2gad		; 2
+	!wo f3gad		; 4
+	!wo f4gad		; 6
+	!wo palgad	; 8
+	!wo c1gad		; 10
+	!wo c2gad		; 12
+	!wo fc1gad	; 14
+	!wo fc2gad	; 16
+	!wo fc3gad	; 18
+	!wo fc4gad	; 20
+	!wo fc5gad	; 22
+	!wo fc6gad	; 24
+
+settext	lda #<tabigad
+	sta sc_texttab
+	lda #>tabigad
+	sta sc_texttab+1
+
+gettext	lda (sc_texttab),y
+	sta sc_screentab
+	iny
+	lda (sc_texttab),y
+	sta sc_screentab+1
+	lda #0
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #4
+	bne gt0
+	stx sc_ho
+	jsr gd_trim
+	jmp gd_initmove
+
+; -------------------------------------- Data
+
+result	!by 0
+memman	!by 0
+
+work	!wo 0
+mask	!by 0
+
+cntwert	!by 4		
+
+constant2	!by 0
+constant1	!by 0
+
+factor1	!by 1
+factor2	!by 1
+factor3	!by 1
+factor4	!by 1
+factor5	!by 1
+factor6	!by 1
+
+chschr	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
+digits	!scr " 0123456789"
+stermres	!by 0
+paltype	!by 0
+
+paladds	!wo psingle
+	!wo pdouble
+	!wo prainbow
+	!wo pextrema
+
+func2flg	!by 0
+func1flg	!by 0
+func4flg	!by 0
+func3flg	!by 0
+
+functype	!scr "sincos"
+
+paltxts	!scr " Single"
+	!scr " Double"
+	!scr "Rainbow"
+	!scr "Extrema"
+
+psingle	!by $00,$01,$11,$12,$22,$23,$33,$34
+	!by $44,$45,$55,$56,$66,$67,$77,$78
+	!by $88,$89,$99,$9a,$aa,$ab,$bb,$bc
+	!by $cc,$cd,$dd,$de,$ee,$ef,$ff
+
+pdouble	!by $00,$11,$22,$33,$44,$55,$66,$77
+	!by $88,$99,$aa,$bb,$cc,$dd,$ee,$ff
+	!by $ee,$dd,$cc,$bb,$aa,$99,$88,$77
+	!by $66,$55,$44,$33,$22,$11,$00
+
+prainbow	!by $54,$55,$58,$85,$88,$83,$17,$11
+	!by $13,$c7,$cc,$ca,$ac,$aa,$ab,$eb
+	!by $ee,$ed,$de,$dd,$d9,$9d,$99,$96
+	!by $69,$66,$64,$46,$44,$44,$45
+
+pextrema	!by $00,$00,$00,$00,$00,$00,$00,$00
+	!by $00,$11,$22,$33,$44,$55,$66,$77
+	!by $88,$99,$aa,$bb,$cc,$dd,$ee,$ff
+	!by $ff,$ff,$ff,$ff,$ff,$ff,$ff
+
+sinustab	!by $1e,$1f,$1f,$20,$21,$22,$22,$23,$24,$25,$25,$26,$27,$27,$28,$29
+	!by $2a,$2b,$2b,$2c,$2d,$2d,$2e,$2f,$2f,$30,$30,$31,$32,$32,$33,$33
+	!by $34,$35,$35,$36,$36,$37,$37,$37,$38,$38,$38,$39,$39,$39,$3a,$3a
+	!by $3a,$3a,$3b,$3b,$3b,$3b,$3b,$3c,$3c,$3c,$3c,$3c,$3c,$3c,$3c,$3c
+	!by $3c,$3c,$3c,$3c,$3c,$3c,$3c,$3b,$3b,$3b,$3b,$3b,$3a,$3a,$3a,$3a
+	!by $39,$39,$39,$38,$38,$38,$37,$37,$37,$36,$36,$35,$35,$34,$34,$33
+	!by $33,$32,$32,$31,$30,$30,$2f,$2f,$2e,$2d,$2d,$2c,$2b,$2b,$2a,$29
+	!by $29,$28,$27,$27,$26,$25,$25,$24,$23,$22,$22,$21,$20,$1f,$1f,$1e
+	!by $1d,$1d,$1c,$1b,$1a,$1a,$19,$18,$17,$17,$16,$15,$15,$14,$13,$13
+	!by $12,$11,$11,$10,$0f,$0f,$0e,$0d,$0d,$0c,$0c,$0b,$0a,$0a,$09,$09
+	!by $08,$08,$07,$07,$06,$06,$05,$05,$05,$04,$04,$04,$03,$03,$03,$02
+	!by $02,$02,$02,$01,$01,$01,$01,$01,$00,$00,$00,$00,$00,$00,$00,$00
+
+	!by $00,$00,$00,$00,$00,$00,$00,$00,$01,$01,$01,$01,$01,$02,$02,$02
+	!by $02,$03,$03,$03,$04,$04,$04,$05,$05,$05,$06,$06,$07,$07,$08,$08
+	!by $09,$09,$0a,$0a,$0b,$0c,$0c,$0d,$0d,$0e,$0f,$0f,$10,$11,$11,$12
+	!by $13,$13,$14,$15,$15,$16,$17,$17,$18,$19,$1a,$1a,$1b,$1c,$1d,$1d
+
+; -------------------------------------- Screenlist
+
+plsmlst	!by $00
+
+	!by $01,$01,$26,$0b,$91
+	!wo 0 
+	!scr "Plasma Explorer@"
+
+palgad	!by $09,$0a,$0a,$03,$cc
+	!wo evpalette
+	!by 223
+paltx	!scr " Single@"
+
+	!by $09,$15,$09,$03,$cc
+	!wo evexec
+	!scr "Execute@"
+
+	!by $09,$1f,$08,$03,$cd
+	!wo evcancel
+	!scr "Cancel@"
+
+f1gad	!by $03,$02,$05,$03,$c0	; func 1 (oben links)
+	!wo evfunc1
+f1tx	!scr "sin@"
+
+f2gad	!by $03,$12,$05,$03,$c0	; func 2 (oben rechts)
+	!wo evfunc2
+f2tx	!scr "sin@"
+
+f3gad	!by $06,$03,$05,$03,$c0	; func 3 (unten)
+	!wo evfunc3
+f3tx	!scr "sin@"
+
+f4gad	!by $06,$13,$05,$03,$c0	; func 4
+	!wo evfunc4
+f4tx	!scr "sin@"
+
+fc1gad	!by $03,$08,$03,$03,$e0	; factor 1 (oben)
+	!wo evfact1
+fc1tx	!scr "1@"
+
+fc2gad	!by $03,$0e,$03,$03,$e0	; factor 2
+	!wo evfact2
+fc2tx	!scr "1@"
+
+fc3gad	!by $03,$18,$03,$03,$e0	; factor 3
+	!wo evfact3
+fc3tx	!scr "1@"
+
+fc4gad	!by $06,$09,$03,$03,$e0	; factor 4 (unten)
+	!wo evfact4
+fc4tx	!scr "1@"
+
+fc5gad	!by $06,$0f,$03,$03,$e0	; factor 5
+	!wo evfact5
+fc5tx	!scr "1@"
+
+fc6gad	!by $06,$19,$03,$03,$e0	; factor 6
+	!wo evfact6
+fc6tx	!scr "1@"
+
+c1gad	!by $03,$1e,$05,$03,$e0	; constant 1 (oben)
+	!wo evconst1
+c1tx	!scr "  0@"
+
+c2gad	!by $06,$1f,$05,$03,$e0	; constant 2 (unten)
+	!wo evconst2
+c2tx	!scr "  0@"
+
+	!by $c0,$09,$01,$08 
+	!scr "Palette:@"
+	!by $c0,$03,$06,$01 
+	!scr "(@"
+	!by $c0,$06,$07,$01
+	!scr "(@"
+	!by $c0,$03,$16,$01 
+	!scr "(@"
+	!by $c0,$06,$17,$01
+	!scr "(@"
+	!by $c0,$03,$0a,$03 
+	!scr "x +@"
+	!by $c0,$06,$0b,$03 
+	!scr "y +@"
+	!by $c0,$03,$1a,$03
+	!scr "y +@"
+	!by $c0,$06,$1b,$03 
+	!scr "x +@"
+	!by $c0,$03,$22,$02 
+	!scr "))@"
+	!by $c0,$06,$23,$02
+	!scr "))@"
+	!by $c0,$06,$01,$01 
+	!scr "+@"
+	!by $c0,$03,$10,$01 
+	!scr "*@"
+	!by $c0,$06,$11,$01 
+	!scr "*@"
+
+	!by $80 
+
+; --------------------------------------
+
+rasterize	lda #3		; oddsdwap
+	sta cntwert
+	jsr initad	; init activity
+	lda #<sy_4bit
+	ldy #>sy_4bit
+	sta data
+	sty data+1
+
+	ldy #0
+-	tya 
+	and #4		; choose every other raster line..
+	beq +
+
+	lda (data),y	; ...and exchange nibbles there
+	lsr
+	lsr
+	lsr
+	lsr
+	sta bbuf
+	lda (data),y
+	asl
+	asl
+	asl
+	asl
+	ora bbuf
+	sta (data),y
+
++	iny 
+	bne -
+
+	jsr adinc		; activity
+	inc data+1	; next page
+	lda data+1
+	cmp #>sy_bigbuffer	; until end of 4bit
+	bne -
+
+	jsr initad	; re-init activity
+	lda #<sy_4bit	; mcscreenfix
+	ldy #>sy_4bit
+	sta data
+	sty data+1
+
+	ldy #0
+-	lda (data),y	; exchange nibbles in every other byte
+	lsr
+	lsr
+	lsr
+	lsr
+	sta bbuf
+	lda (data),y
+	asl
+	asl
+	asl
+	asl
+	ora bbuf
+	sta (data),y
+
+	iny
+	iny
+	bne -
+
+	jsr adinc		; activity
+	inc data+1	; next page
+	lda data+1
+	cmp #>sy_bigbuffer	; until end of 4bit
+	bne -
+
+	rts
+
+; --------------------------------------
+
+adinc	dec adcnt
+	bne +
+	inc spr2y
+	inc spr2y+2
+	lda cntwert
+	sta adcnt
++	rts 
+
+; --------------------------------------
+
+clearad	lda spren		; Wanderbalken aus
+	and #$f3
+	sta spren
+	lda msbx
+	and #$f3
+	sta msbx
+	lda #$ff		; Grafik verändert
+	sta gr_redisp
+	clc 		; fertig
+	rts 
+
+; --------------------------------------
+
+initad	ldy #60
+	lda #0
+-	sta spr255+3,y	; Spriteblock 255 vorbereiten
+	dey 
+	bpl -
+	sty spr255	; dünner Strich
+	sty spr255+1
+	sty spr255+2
+	lda #$0f		; Farbe hellgrau
+	sta sprcol2
+	sta sprcol2+1
+	lda sprxe		; doppelt breit
+	ora #$0c
+	sta sprxe
+
+	lda msbx		; x über 255
+	ora #$0c
+	sta msbx
+	lda #8		; x-Ordinate: 8 (plus 256)
+	sta spr2x
+	lda #$20
+	sta spr2x+2
+	lda #$92		; y-Ordinate: 146
+	sta spr2y		; (im Image Information Fenster)
+	sta spr2y+2
+
+	sty sprptr+2	; Sprite 255
+	sty sprptr+3
+	lda spren
+	ora #$0c		; Activity-Balken aktivieren
+	sta spren
+	lda cntwert	; Startzähler (5 mal 40 = 200)
+	sta adcnt
+	rts
+
+; ----------------------------------------- Image Information Handler
+
+defname	!scr "GoDotPlasma@"
+
+getname	ldx #0
+si0	lda defname,x
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+setinfo	jsr setname
+	jsr setloader
+	jsr setmode
+	jmp setdata
+
+setname	lda #0
+	ldx #<ls_picname
+	ldy #>ls_picname
+	bne si3
+setloader	lda #17
+	ldx #<ls_iloader
+	ldy #>ls_iloader
+	bne si3
+setmode	lda #25
+	ldx #<ls_imode
+	ldy #>ls_imode
+	bne si3
+setdata	lda #33
+	ldx #<ls_idrive
+	ldy #>ls_idrive
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4 	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!fill 16,32	; 16 Bytes Puffer für "Filename"
+	!by 0
+modname	!scr "Plasma @"	; loader "xxxxxxxx"
+modetx	!scr "320x200@"	; resolution "Hires"
+datatype	!scr "Color@"	; datatype "Color"
+
+; ----------------------------------------- 
+
+modend	!eof
+
