@@ -7,10 +7,23 @@
 ; ------------------------------------------------------------
 ;
 ; mod.SIS
-; creates Single Image Random Dot Stereograms from loaded 4Bits
-; leads to a stereogram with a maximum of 9 deepnesses (the C64
-; hardware greys). This version is able to apply clip images as
-; backgrounds.
+; creates Single Image Random Dot Stereograms from loaded 4Bits,
+; leads to a stereogram with a maximum of 9 "deepnesses" (the C64
+; hardware greys).
+; 
+; ------------------------------------------------------------
+;
+; This version is able to apply hires clip images of 320 pixels
+; width as background data. SIS evaluates a band of the first
+; 4 tiles down the left egde of this background clip image, up
+; to 200 scanlines (in steps of 8, its actual height automatically
+; gets covered by SIS on hitting "Pattern"). Clip images must
+; have a signature of a leading "sip." in their names, and carry
+; reverted hires data, 320 bytes per row then (where only the
+; first 32 bytes (4 tiles) of each row will be evaluated), and an
+; arbitrary amount of rows, up to 25. 
+;
+; ------------------------------------------------------------
 ;
 ;    1.00, 17.11.94, first release (by Peter Steinseifer)
 ;    1.01, 27.10.18, re-organized code (by Arndt Dettke)
@@ -28,6 +41,7 @@
 
 	offx		= ls_adrmisc
 	offy		= offx+1
+	spalte		= sc_merk+1
 
 	buf1		= patadd+800
 	buf2		= buf1+320
@@ -68,42 +82,43 @@
 ; ----------------------------------------- Screenlist
 
 rdslst	!by $00
-	!by $09,$06,$13,$08,$02
+	!by $06,$06,$12,$0d,$92
 	!wo 0 
-	!by $0b,$07,$08,$03,$c0
-	!wo evmake
-	!scr " Make @"
-	!by $0b,$0f,$09,$03,$c0
+	!scr " SIS Generator @"
+	!by $09,$07,$09,$03,$c0
 	!wo evpattern
 	!scr "Pattern@"
-	!by $0d,$07,$08,$03,$c0
+hgtgad	!by $09,$13,$04,$03,$c0
+	!wo evsethgt
+hgttx	!scr " 0@"
+makegad	!by $0c,$07,$08,$03,$c0
+	!wo evmake
+	!scr " Make @"
+	!by $0c,$0f,$08,$03,$c0
 	!wo showsirds
 	!scr " Show @"
-	!by $0d,$0f,$09,$03,$c0
+	!by $0f,$07,$10,$03,$c0
 	!wo evexit
 	!scr " Leave @"
-	!by $c0,$09,$07,$0f 
-	!scr " SIS Generator @"
+	!by $c0,$09,$0f,$03
+	!scr "Hgt@"
 	!by $80 
 
 ; ----------------------------------------- Splash Screen
 
 spllst	!by $00
-	!by $09,$06,$13,$08,$02 
+	!by $08,$05,$15,$0a,$02 
 	!wo 0 
-	!by $c0,$09,$07,$0f 
-	!scr " Single Image  @"
-	!by $c0,$0a,$07,$0f 
-	!scr "  Stereogram   @"
-	!by $c0,$0b,$07,$0f
-	!fi 15,32
-	!by 0
-	!by $c0,$0c,$07,$0f 
-	!scr "C64 Version by @"
-	!by $c0,$0d,$07,$0f 
-	!scr "     Peter     @"
-	!by $c0,$0e,$07,$0f 
-	!scr "Steinseifer '94@"
+	!by $c0,$09,$08,$0c
+	!scr "Single Image@"
+	!by $c0,$0a,$09,$0a
+	!scr "Stereogram@"
+	!by $c0,$0c,$07,$0e
+	!scr "C64 Version by@"
+	!by $c0,$0d,$06,$11
+	!scr "Peter Steinseifer@"
+	!by $c0,$0e,$0a,$08
+	!scr "- 1994 -@"
 	!by $80
 
 ; ----------------------------------------- Main
@@ -117,6 +132,7 @@ start	lda sc_screenvek	; save system GUI
 
 -	lda used
 	bne +
+	jsr hgtout
 	jsr screen
 	jmp gd_eloop
 
@@ -125,10 +141,6 @@ start	lda sc_screenvek	; save system GUI
 evexit	inc used
 +	sec 
 	rts 
-
-; ----------------------------------------- 
-
-used	!by 0
 
 ; ----------------------------------------- 
 
@@ -171,7 +183,7 @@ initad	ldy #60
 	lda spren
 	ora #$0c		; Activity-Balken aktivieren
 	sta spren
-	lda #5		; Startzähler (5 mal 40 = 200)
+	lda cntwert	; Startzähler (5 mal 40 = 200)
 	sta adcnt
 	rts
 
@@ -185,19 +197,21 @@ clearad	lda spren		; Wanderbalken aus
 	sta msbx
 	rts 
 
-; ----------------------------------------- 
+; ----------------------------------------- Activity
 
 adinc	dec adcnt
 	bne +
 	inc spr2y
 	inc spr2y+2
-	lda #5
+	lda cntwert
 	sta adcnt
 +	rts 
 
 ; ----------------------------------------- Event: Generate Sirds
 
 evmake	jsr gd_sproff	
+	lda #$c0		; un-highlight gadget text
+	sta makegad+4
 	ldx #<spllst	; show splash screen
 	ldy #>spllst
 	jsr gd_screen
@@ -214,7 +228,7 @@ evmake	jsr gd_sproff
 	lda #0		; set colors
 	sta pport
 	tax
-	lda #$01		; b&w
+	lda #$01		; colors: b&w
 -	sta svram1,x	; to sys vram (1000)
 	sta svram1+250,x
 	sta svram2,x
@@ -234,12 +248,17 @@ evmake	jsr gd_sproff
 
 ; ----------------------------------------- Data
 
+used	!by 0
+btcnt	!by 0
 svpport	!by 0
 svcreg	!by 0
 list	!wo 0
+cntwert	!by 5
 
 clcnt	!by 0 
-cliphgt	!by 8 
+cliphgt	!by 8
+cliprows	!by 1
+maxhgt	!by 1
 
 svprocd	!wo $1010
 in4bit	!wo $1010
@@ -264,7 +283,7 @@ lineshi	!by $00,$01,$02,$03,$05,$06,$07,$08
 
 mask	!by $80,$40,$20,$10,$08,$04,$02,$01
 
-; ----------------------------------------- compute 4bit address
+; ----------------------------------------- Compute 4Bit Address
 
 comp4bit	lda svprocd+1
 	sta in4bit+1
@@ -758,7 +777,50 @@ mod12	lda $1000
 
 ++	rts 
 
-; ------------------------------------------------ 
+; ------------------------------------------------ Event: Set Clip Height
+
+evsethgt	lda spalte
+	cmp #20		; up?
+	bne +
+
+	inc cliprows	; yes
+	lda cliprows
+	cmp maxhgt
+	beq sth0
+	bcc sth0
+	lda #1
+	bne sth0
+
++	dec cliprows	; no, down
+	lda cliprows
+	bne +
+	lda maxhgt
+
+sth0	sta cliprows
++	asl
+	asl
+	asl
+	sta cliphgt
+	lda #$d0		; highlight because of change
+	sta makegad+4
+	jsr hgtout
+	jmp screen
+
+hgtout	lda cliphgt
+	lsr
+	lsr
+	lsr
+	jsr gd_xcnvdez
+	sta hgttx+1
+	lda #32
+	cpx #$30
+	beq +
+	txa
++	sta hgttx
+	clc
+	rts
+
+; ------------------------------------------------ Event: Load Pattern
 
 evpattern	jsr chgdrv
 	ldx #<patadd
@@ -782,6 +844,7 @@ evpattern	jsr chgdrv
 	ldx list
 	ldy list+1
 	jsr gd_screen
+	jsr hgtout
 	jmp screen
 
 lddir	lda #<filter
@@ -804,13 +867,8 @@ chgdrv	lda ls_sysdrive
 	
 ; ------------------------------------------------ 
 
-btcnt	!by 0
-
-; ------------------------------------------------ 
-
 getbyte	stx mod21+1
 	sty mod20+1
-	jsr action
 	jsr basin
 mod20	ldy #$00	
 mod21	ldx #$00	
@@ -819,14 +877,8 @@ mod21	ldx #$00
 ; ------------------------------------------------ 
 
 readpat	jsr gd_xopen	; must be spread for 4bit
-	jsr tcopy
-	sei 
 	jsr getbyte	; skip start address
 	jsr getbyte
-	lda #<patadd	; target address
-	sta sc_vekt20
-	lda #>patadd
-	sta sc_vekt20+1
 
 	ldx #0		; count 25 rows
 --	ldy #0
@@ -858,7 +910,9 @@ readpat	jsr gd_xopen	; must be spread for 4bit
 	sta (sc_vekt20),y
 
 	inc sc_vekt20	; advance after 8 bytes
-	inc btcnt
+	bne +
+	inc sc_vekt20+1
++	inc btcnt
 	lda btcnt
 	cmp #4
 	bne -
@@ -885,64 +939,22 @@ readpat	jsr gd_xopen	; must be spread for 4bit
 	bne --
 
 +	txa
+	sta maxhgt
+	sta cliprows
 	asl
 	asl
 	asl
 	sta cliphgt
-	cli 
 	jsr gd_xmess
 	jsr gd_xclose
 	jmp gd_spron
 
-; ----------------------------------------- 
+; ----------------------------------------- Startup Pattern
 
-tcopy	ldx #1
-	stx adcnt
-	dex 
--	lda txt,x		; "Pattern"
-	beq +
-	sta $079c,x
-	lda #$0c
-	sta $db9c,x
-	inx 
-	bne -
-+	stx offy
-
-clrmess	lda #$20		; 32 space
--	sta $079c,x
-	inx 
-	cpx #32
-	bne -
-	ldx #7
-	stx offx
-
-action	dec adcnt
-	bne ld4
-	lda #42
-	sta adcnt
-	ldy offy
-	ldx offx
-	lda filltab,x
-	sta $079c,y
-	lda #$0c
-	sta $db9c,y
-	dec offx
-	bpl ld4
-	inc offy
-	lda #7
-	sta offx
-ld4	rts 
-
-filltab   !by 160,93,103,127,126,124,105,109
-
-txt	!scr "Pattern@"
-
-; ----------------------------------------- 
-
-patadd	!by $3c,$1e,$c0,$00,$77,$3e,$80,$00 
-	!by $70,$7e,$1e,$76,$7e,$6e,$73,$7c 
-	!by $73,$6e,$7f,$78,$77,$7f,$70,$70 
-	!by $3c,$0e,$3f,$70 
+patadd	!by $3c,$1e,$c0,$00,$77,$3e,$80,$00	; dummy pattern
+	!by $70,$7e,$1e,$76,$7e,$6e,$73,$7c  	; shows: "64'er"
+	!by $73,$6e,$7f,$78,$77,$7f,$70,$70 	; actual length: 32 bytes
+	!by $3c,$0e,$3f,$70,$00,$00,$00,$00	; (results in cliphgt=8)
 
 ; ------------------------------------------------------------- 
 
