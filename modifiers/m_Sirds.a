@@ -13,6 +13,7 @@
 ;
 ;    1.00, 17.11.94, first release (by Peter Steinseifer)
 ;    1.01, 25.10.18, re-organized code (by Arndt Dettke)
+;    1.02, 28.10.18, implemented 16 (!) grays finally
 ;
 ; ------------------------------------------------------------
 
@@ -58,8 +59,8 @@
 	!wo modend
 	!wo 0 
 	!tx "SIRDS Generator "
-	!tx "1.01"
-	!tx "25.10.18"
+	!tx "1.02"
+	!tx "28.10.18"
 	!tx "P.Steinseifer/AD"
 
 ; ----------------------------------------- Screenlist
@@ -469,8 +470,8 @@ getstray	jsr comp4bit	; compute address
 
 ; ----------------------------------------- 
 
-straytab	!by $28,$28,$27,$27,$26,$26,$25,$25 
-	!by $24,$24,$23,$22,$22,$21,$21,$20
+straytab	!by $2f,$2e,$2d,$2c,$2b,$2a,$29,$28 
+	!by $27,$26,$25,$24,$23,$22,$21,$20
 
 stray 	!by $10
 strayhlf	!by $10

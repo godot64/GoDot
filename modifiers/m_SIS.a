@@ -8,8 +8,8 @@
 ;
 ; mod.SIS
 ; creates Single Image Random Dot Stereograms from loaded 4Bits,
-; leads to a stereogram with a maximum of 9 "deepnesses" (the C64
-; hardware greys).
+; leads to a stereogram with all 16 "deepnesses" of GoDot (its
+; 16 grays).
 ; 
 ; ------------------------------------------------------------
 ;
@@ -27,6 +27,7 @@
 ;
 ;    1.00, 17.11.94, first release (by Peter Steinseifer)
 ;    1.01, 27.10.18, re-organized code (by Arndt Dettke)
+;    1.02, 28.10.18, implemented all 16 grays finally
 ;
 ; ------------------------------------------------------------
 
@@ -75,8 +76,8 @@
 	!wo modend
 	!wo 0 
 	!tx "SIS Generator   "
-	!tx "1.01"
-	!tx "27.10.18"
+	!tx "1.02"
+	!tx "28.10.18"
 	!tx "P.Steinseifer/AD"
 
 ; ----------------------------------------- Screenlist
@@ -127,6 +128,8 @@ start	lda sc_screenvek	; save system GUI
 	sta list
 	lda sc_screenvek+1
 	sta list+1
+	lda gr_cmode
+	sta cmode
 	lda #0
 	sta used
 
@@ -139,6 +142,8 @@ start	lda sc_screenvek	; save system GUI
 ; ----------------------------------------- Event: Exit
 
 evexit	inc used
+	lda cmode
+	sta gr_cmode
 +	sec 
 	rts 
 
@@ -249,6 +254,7 @@ evmake	jsr gd_sproff
 ; ----------------------------------------- Data
 
 used	!by 0
+cmode	!by 0
 btcnt	!by 0
 svpport	!by 0
 svcreg	!by 0
@@ -482,8 +488,8 @@ getstray	jsr comp4bit	; compute address
 
 ; ----------------------------------------- 
 
-straytab	!by $29,$29,$28,$28,$27,$27,$26,$26 
-	!by $25,$25,$24,$23,$23,$22,$22,$21
+straytab	!by $30,$2f,$2e,$2d,$2c,$2b,$2a,$29
+	!by $28,$27,$26,$25,$24,$23,$22,$21
 
 stray 	!by $10
 strayhlf	!by $10
@@ -781,7 +787,7 @@ mod12	lda $1000
 
 evsethgt	lda spalte
 	cmp #20		; up?
-	bne +
+	beq +
 
 	inc cliprows	; yes
 	lda cliprows
@@ -951,10 +957,14 @@ readpat	jsr gd_xopen	; must be spread for 4bit
 
 ; ----------------------------------------- Startup Pattern
 
-patadd	!by $3c,$1e,$c0,$00,$77,$3e,$80,$00	; dummy pattern
-	!by $70,$7e,$1e,$76,$7e,$6e,$73,$7c  	; shows: "64'er"
-	!by $73,$6e,$7f,$78,$77,$7f,$70,$70 	; actual length: 32 bytes
-	!by $3c,$0e,$3f,$70,$00,$00,$00,$00	; (results in cliphgt=8)
+patadd	!by $3c,$03,$c0,$00
+	!by $66,$03,$60,$18	; dummy pattern
+	!by $60,$73,$33,$bc
+	!by $6e,$db,$36,$d8 ; shows: "GoDot"
+	!by $66,$db,$36,$d8
+	!by $66,$db,$66,$d8 ; actual length: 32 bytes
+	!by $3c,$73,$c3,$98
+	!by $00,$00,$00,$00	; (results in cliphgt=8)
 
 ; ------------------------------------------------------------- 
 
