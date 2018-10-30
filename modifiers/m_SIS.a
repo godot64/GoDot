@@ -781,7 +781,8 @@ mod12	lda $1000
 	sta clcnt
 +	jmp vlloop
 
-++	rts 
+++	sta gr_redisp	; display has changed
+	rts 
 
 ; ------------------------------------------------ Event: Set Clip Height
 

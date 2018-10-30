@@ -1,0 +1,528 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ------------------------------------------------------------
+;
+; ldr.ChestersFLI
+; Lader für Chester-Kollschen-FLI-Bilder 
+;
+;    1.00, 19.01.00, first release
+;
+; ------------------------------------------------------------
+
+; ----------------------------------------- Equates
+
+	stox		= $30
+	stoy		= $31
+	stoa		= $32
+	adcnt		= $33
+	dst0		= $35	; /$36
+	dst		= $37	; /$38
+	byte		= $39
+	cntwert		= $3a
+	vrcnt		= $3b
+	bckcnt		= $3c
+	pcnt		= $3d
+	data		= $3e
+	src		= $47	; /$48
+
+	offx		= ls_adrmisc
+	offy		= offx+1
+
+	bcbuf		= sy_bigbuffer
+	cbuf		= $ca00
+
+; ------------------------------------------------------------- 
+
+	jmp start
+	!by $80
+	!by 0
+	!by 1		; dirty
+	!wo modend
+	!wo 0
+	!tx "FLI by Chester  "
+	!tx "1.00"
+	!tx "19.01.00"
+	!tx "A.Dettke/W.Kling"
+
+; ------------------------------------------------------------- 
+
+jerror	jmp error
+
+; ------------------------------------------------------------- 
+
+start	ldx sc_vekt20	; start at sy_4bit
+	ldy sc_vekt20+1
+	stx dst0
+	sty dst0+1
+	jsr getname	; save filename
+	jsr gd_clrms	; initialize gauge output
+
+; ------------------------------------------------------------- 
+
+	jsr gd_xopen	; open file
+	jsr onebyte	; skip start address
+	bne jerror
+	jsr onebyte
+	bne jerror
+
+	lda #2
+	sta cntwert
+	ldx #0
+	jsr tcopy		; set screen output for text 0 ("Backgr")
+	iny
+	sty adcnt
+
+; 2 alternatives:
+
+;	ldy #200		; 1: skip 200 bytes
+;	jsr dumy
+;	lda #<bcbuf	; and set all backgrs to $00
+;	ldx #>bcbuf
+;	sta dst
+;	stx dst+1
+;	tya
+;-	sty byte
+;	sta (dst),y
+;	jsr action
+;	ldy byte
+;	iny
+;	bne -
+
+	jsr getbckcol	; 2: get 200 background colors
+
+; ------------------------------------------------------------- 
+
+	lda #7
+	sta cntwert
+	ldx #18
+	jsr tcopy		; set screen output for text 2 ("CRam")
+	iny
+	sty adcnt
+
+	jsr getcram	; get color ram
+
+; ------------------------------------------------------------- 
+
+	lda #50
+	sta cntwert
+	ldx #9
+	jsr tcopy		; set screen output for text 1 ("VRams")
+	iny
+	sty adcnt
+
+	jsr setdst0
+	lda #8		; get 8 video rams
+	sta vrcnt		; and spread them over one rasterline
+
+vloop	lda dst0		; after the other (one rasterline for each vram)
+	ldy dst0+1
+	sta dst
+	sty dst+1
+vloop0	jsr action
+	jsr basin
+
+	ldy #3
+vloop1	sta (dst),y
+	dey
+	bpl vloop1
+
+	lda dst
+	clc
+	adc #32
+	sta dst
+	bcc vskip0
+	inc dst+1
+vskip0	lda dst+1
+	cmp #>sy_bigbuffer
+	bne vloop0
+
+	ldy #24
+	jsr dumy
+
+	lda dst0
+	clc
+	adc #4
+	sta dst0
+	dec vrcnt
+	bne vloop
+
+; ------------------------------------------------------------- 
+
+	ldx #27
+	jsr tcopy		; set screen output for text 3 ("Bitmap")
+	iny
+	sty adcnt
+
+	jsr setdst0
+bloop0	jsr basin		; get pixel byte
+	sta byte
+	jsr action
+	ldy #0
+
+bloop1	lda #0
+	asl byte
+	rol
+	asl byte
+	rol
+	beq null
+	cmp #3
+	beq drei
+	cmp #1
+	beq eins
+
+	lda (dst0),y
+	and #$0f
+	ora #$20
+	sta (dst0),y
+	bne next
+eins	lda (dst0),y
+	lsr
+	lsr
+	lsr
+	lsr
+	ora #$10
+	sta (dst0),y
+	bne next
+drei	lda #$30
+	sta (dst0),y
+	bne next
+null	sta (dst0),y
+
+next	iny
+	cpy #4
+	bne bloop1
+
+	lda dst0
+	clc
+	adc #4
+	sta dst0
+	bcc bskip0
+	inc dst0+1
+
+bskip0	lda dst0+1
+	cmp #>sy_bigbuffer
+	bne bloop0
+
+	ldy #192
+	jsr dumy
+
+; ------------------------------------------------------------- 
+
+	lda #7
+	sta cntwert
+	ldx #18		; set screen output for text 2 ("CRam")
+	jsr tcopy
+	iny
+	sty adcnt
+
+	jsr setdst0
+	lda #<cbuf	; source address is CBUF
+	ldx #>cbuf
+	sta src
+	stx src+1
+cloop0	ldy #0
+	lda (src),y
+	inc src
+	bne cskip00
+	inc src+1
+cskip00	and #$0f
+	ora #$30
+	sta byte
+	jsr action
+
+	ldy #31
+cloop1	lda (dst0),y
+	cmp #$30
+	bne cskip0
+	lda byte
+	sta (dst0),y
+cskip0	dey
+	bpl cloop1
+
+	lda dst0
+	clc
+	adc #32
+	sta dst0
+	bcc cskip1
+	inc dst0+1
+
+cskip1	lda dst0+1
+	cmp #>sy_bigbuffer
+	bne cloop0
+
+	ldy #24		; skip gap
+	jsr dumy
+
+; ------------------------------------------------------------- 
+
+	lda #50
+	sta cntwert
+	ldx #0		; set screen output for text 0 ("Backgr")
+	jsr tcopy
+	iny
+	sty adcnt
+
+	jsr setdst0
+	sta pcnt		; .a=0; count rasterlines (200)
+	tax
+	dex		; count tiles in .x (40 per rasterline, now: $ff)
+
+n0loop	lda #8		; process 8 rasterlines
+	sta vrcnt
+
+nloop	ldy pcnt
+	lda bcbuf,y	; process background color
+	and #$0f
+	tay
+	lda dnib,y
+	sta byte
+
+	lda dst0
+	ldy dst0+1
+	sta dst
+	sty dst+1
+
+-	stx bckcnt	; (set tile counter)
+nloop0	jsr action
+	ldy #0
+
+nloop1	lda (dst),y	; 1 tile
+	beq nskip0
+	and #$0f
+	tax
+	lda dnib,x
+	!by $2c
+nskip0	lda byte
+	sta (dst),y
+	iny
+	cpy #4
+	bne nloop1
+
+	lda dst		; next tile
+	clc
+	adc #32
+	sta dst
+	bcc +
+	inc dst+1
++	ldx bckcnt	; 40 tiles?
+	inx
+	cpx #40
+	bne -
+
+	lda dst0		; next rasterline
+	clc
+	adc #4
+	sta dst0
+	ldx #0		; reset tile counter
+	inc pcnt		; count rasterlines (200)
+	dec vrcnt		; count rasterlines per row (8)
+	bne nloop
+
+	lda dst0		; next block row
+	clc
+	adc #$e0
+	sta dst0
+	lda dst0+1
+	adc #$04
+	sta dst0+1
+
+	lda pcnt
+	cmp #200		; 200 rasterlines?
+	bne n0loop
+
+; ------------------------------------------------------------- 
+
+	jsr setinfo	; set file information data
+
+sk10	jsr gd_xmess	; output floppy message
+sk11	jsr gd_xclose	; close file
+	jsr gd_spron
+	sta gr_redisp	; display has changed (.a>0)
+	sec
+	rts
+
+; ------------------------------------------------------------- 
+
+getcram	lda #<cbuf	; read color ram bytes from disk
+	ldx #>cbuf
+	sta dst
+	stx dst+1
+	ldy #0
+	ldx #4
+gcl	jsr basin
+	sta (dst),y
+	jsr action
+	iny
+	bne gcl
+	inc dst+1
+	dex
+	bne gcl
+	rts
+
+; ------------------------------------------------------------- 
+
+getbckcol	lda #<bcbuf	; read 200 background color bytes from disk
+	ldx #>bcbuf
+	sta dst
+	stx dst+1
+	ldy #0
+gbc	sty byte
+	jsr basin
+	sta (dst),y
+	jsr action
+	ldy byte
+	iny
+	cpy #200
+	bne gbc
+	rts
+
+; ------------------------------------------------------------- 
+
+dumy	jsr basin
+	dey
+	bne dumy
+	rts
+
+; ------------------------------------------------------------- 
+
+setdst0	lda #<sy_4bit
+	ldy #>sy_4bit
+	sta dst0
+	sty dst0+1
+	rts
+
+; ------------------------------------------------------------- 
+
+onebyte	jsr basin
+	ldx status
+	rts
+
+; ------------------------------------------------------------- 
+
+error	jsr sk10
+	clc
+	rts
+
+; ------------------------------------------------------------- 
+
+messout	ldx #<message
+	ldy #>message
+	jmp gd_xtxout2
+
+tcopy 	ldy #0
+tc0	lda txt,x
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+
+action	dec adcnt
+	bne ld4
+	stx stox
+	sty stoy
+	sta stoa
+	lda cntwert
+	sta adcnt
+	ldy offy
+	cpy #20		; catch Gauge Overflow
+	bne act0
+	jsr clrmess
+act0	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld41
+	inc offy
+	lda #7
+	sta offx
+ld41	lda stoa
+	ldy stoy
+	ldx stox
+ld4	rts
+
+clrmess	ldx #20
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0
+	ldx #7
+	sty offy
+	stx offx
+	rts
+
+filltab	!by 160,93,103,127,126,124,105,109
+
+txt	!scr " Bckgrd @"	; 0
+	!scr " VRams  @"	; 9
+	!scr " CRam   @"	; 18
+	!scr " Bitmap @"	; 27
+
+message	!fill 11,32
+mess	!fill 21,32
+	!by 0
+
+; ------------------------------------------------------------- 
+
+dnib	!by $00,$ff,$44,$cc,$55,$aa,$11,$dd
+	!by $66,$22,$99,$33,$77,$ee,$88,$bb
+
+; ------------------------------------------------------------- 
+
+getname	ldx #0
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+setinfo	jsr setname
+	jsr setloader
+	jsr setmode
+	jmp setdata
+
+setname	lda #0
+	ldx #<ls_picname
+	ldy #>ls_picname
+	bne si3
+setloader	lda #17
+	ldx #<ls_iloader
+	ldy #>ls_iloader
+	bne si3
+setmode	lda #25
+	ldx #<ls_imode
+	ldy #>ls_imode
+	bne si3
+setdata	lda #33
+	ldx #<ls_idrive
+	ldy #>ls_idrive
+si3	stx dst0
+	sty dst0+1
+	tax
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (dst0),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!fi 16,32
+	!by 0
+	!scr "FLI    @"
+
+modetx	!scr "160x200@"
+datatype	!scr "Color@"
+
+; ------------------------------------------------------------- 
+
+modend	!eof

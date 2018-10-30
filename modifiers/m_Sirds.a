@@ -109,6 +109,8 @@ start	lda sc_screenvek	; save system GUI
 	sta list
 	lda sc_screenvek+1
 	sta list+1
+	lda gr_cmode
+	sta cmode
 	lda #0
 	sta used
 
@@ -121,6 +123,8 @@ start	lda sc_screenvek	; save system GUI
 ; ----------------------------------------- Event: Exit
 
 evexit	inc used
+	lda cmode
+	sta gr_cmode
 +	sec 
 	rts 
 
@@ -247,6 +251,7 @@ evmake	jsr gd_sproff
 
 modtxt	!scr " Dark Bright"
 
+cmode	!by 0
 svpport	!by 0
 svcreg	!by 0
 list	!wo 0
@@ -727,7 +732,8 @@ mod12	lda $1000
 	beq +
 	jmp vlloop
 
-+	rts 
++	sta gr_redisp	; display has changed
+	rts 
 
 ; ----------------------------------------- Set Mode
 
