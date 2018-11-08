@@ -14,14 +14,35 @@
 ;  1.01,         , rewrote module for system convenience
 ;  1.02,         , bug fixes
 ;  1.03, 14.01.01, final release
+;  1.04, 08.11.18, added fill feature for better masking
 ;
 ; ----------------------------------------- 
 
 ; ----------------------------------------- Equates
 
+	bitmap		= $2000
+
 	adcnt		= $30
 	counter		= $31
 	bits		= $32
+
+	orgx0		= $33	; /$34: position of click
+	orgy0		= $35
+	dst		= $36	; /$37: work vector
+	dirctn		= $38	; $ff: up, $00: dwn
+	help		= $39	; 
+	pixeladd		= $3a	; /$3b: address of click
+	fmode		= $3c
+	nextline		= $3d
+	byte		= $3e
+	null		= $3f
+	dst0		= $40	; /$41
+	cmpt		= $42	; /$43
+
+	zeile		= sc_merk
+	spalte		= zeile+1
+
+	sysbag		= $ca00
 
 	colors		= $0400
 	sprptr		= $07f8
@@ -44,8 +65,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "Generate Mask   "
-	!tx "1.03"
-	!tx "14.01.01"
+	!tx "1.04"
+	!tx "08.11.18"
 	!tx "ADettke/M.Bohnet"
 
 ; ----------------------------------------- Main
@@ -60,6 +81,7 @@ start	jsr gd_savescvek	; save vector to previous screenlist
 
 	lda #0
 	sta sc_keyprs
+	sta fillflg
 	jsr show		; requester
 	jsr clrmasks	; init mask flags
 	jsr gd_eloop	; ...and wait
@@ -134,18 +156,20 @@ evview	lda #$1b		; hires graphics on
 	sta $d011
 	lda #$f0		; light grey on black
 	ldy #250
-	ldx #0
-	stx sc_stop
 vw0	sta colors-1,y
 	sta colors+249,y
 	sta colors+499,y
 	sta colors+749,y
 	dey
 	bne vw0
-vw1	lda sc_keyprs	; any key or stop?
-	ora sc_stop
-	beq vw1
-	ldx #$13		; yes: graphics off
+	sty sc_stop
+
+	jsr wait		; wait for click
+	bit fillflg	; check if used from evfill
+	bpl voff
+	rts
+
+voff	ldx #$13		; no, graphics off
 	lda #$1b
 	stx $d018
 	sta $d011
@@ -157,15 +181,25 @@ vw2	ldx list		; restore requester
 	clc
 	rts
 
+; ----------------------------------------- Wait for Clicks
+
+wait	lda joy		; wait for click or STOP
+	eor #$ff
+	and #$10
+	ora sc_keyprs
+	ora sc_stop
+	beq wait
+	rts
+
 ; ----------------------------------------- Event: Leave
 
 evleave	sec
 	rts
-; 
+
 ; ----------------------------------------- Show Requester
 
-show	ldx #<(plist)
-	ldy #>(plist)
+show	ldx #<plist
+	ldy #>plist
 	jsr gd_screen
 	jsr setgray
 	jsr setcol
@@ -207,12 +241,12 @@ sin1	lda masks,x
 	jsr initad
 
 	ldy #0
-	lda #<($2000)	; revert graphics buffer at $2000
-	ldx #>($2000)
+	lda #<$2000	; revert graphics buffer at $2000
+	ldx #>$2000
 	sta sc_vekt20
 	stx sc_vekt20+1
-	lda #<(8000)	; count 8000 bytes
-	ldx #>(8000)
+	lda #<8000	; count 8000 bytes
+	ldx #>8000
 	sta ls_vekta8
 	stx ls_vekta8+1
 sin0	lda (sc_vekt20),y	; revert
@@ -224,6 +258,427 @@ sin0	lda (sc_vekt20),y	; revert
 
 	jsr clearad	; then: activity off
 	clc
+	rts
+
+; ----------------------------------------- Event: Fill
+
+evfill	jsr setfflg
+	jsr evview	; graphics on
+	cmp #3		; STOP?
+	beq +		; yes, end
+
+	jsr savesys	; save system data from corruption
+-	jsr getxy		; compute position x|y
+	stx sc_stop	; returned .x=0 (re-init stop)
+	jsr caddr		; compute start address in mask, set mode
+	jsr fill
+	jsr wait		; wait for click to fill more parts
+	lda sc_stop	; until STOP
+	beq -
+	jsr savesys	; restore system data
+
++	jsr setfflg
+	jsr voff		; graphics off
+	clc
+	rts
+
+; ----------------------------------------- 
+
+setfflg	lda fillflg
+	eor #$ff
+	sta fillflg
+	rts
+
+; ----------------------------------------- Get Screen Co-Ordinates of Click
+
+getxy	ldx #0
+	lda spritey-2	; mouse y
+	sec
+	sbc sy_soffy
+	bcs +
+	txa
++	sta orgy0		; store screen pos
+
+	lda spritehi	; position >255?
+	and #1
+	sta orgx0+1
+	lda spritex	; mouse x
+	sec
+	sbc sy_soffx
+	sta orgx0
+	bcs +
+	dec orgx0+1
+	bpl +
+	stx orgx0+1
+	stx orgx0
++	rts
+
+; ----------------------------------------- Compute Screen Address of Click
+
+caddr	jsr gd_position
+	lda #0
+	sta pixeladd
+	sta pixeladd+1
+	ldy zeile		; y:
+	beq ++
+-	lda pixeladd
+	clc		; get tile row
+	adc #<320
+	sta pixeladd
+	lda pixeladd+1
+	adc #>320
+	sta pixeladd+1
++	dey
+	bne -
+++	lda orgy0
+	and #7		; add tile scanline
+	clc
+	adc pixeladd
+	sta pixeladd
+	bcc +
+	inc pixeladd
+
++	ldy spalte	; x:
+	beq ++
+-	lda pixeladd
+	clc		; get tile
+	adc #8
+	sta pixeladd	; result lo
+	sta dst
+	sta dst0
+	sta cmpt
+	bcc +
+	inc pixeladd+1
++	dey
+	bne -
+
+++	clc
+	lda pixeladd+1
+	adc #>bitmap
+	sta pixeladd+1	; result hi
+	sta dst+1
+	sta dst0+1
+	sta cmpt+1
+
+	lda orgx0		; get pixel
+	and #7
+	tax
+	ldy #0
+	lda (pixeladd),y
+	and bitset,x
+	beq +
+	lda #$ff
++	sta fmode		; set fillmode
+	rts
+
+; ----------------------------------------- Fill Screen
+
+fill	ldy #2		; blink border
+	jsr graphon	; returns .y=0
+	dey
+	sty dirctn	; flag for up ($ff) or down ($00)
+	sty null
+
+	lda orgy0		; up
+	sta nextline
+-	jsr scan		; scan line for pixels
+	lda null		; none?
+	beq +
+	lda #1		; yes, end scan
+	sta nextline
++	lda #$ff
+	sta null
+	dec nextline	; next scanline up, until 0
+	lda nextline
+	cmp #$ff
+	bcc -
+
+	lda #0		; down
+	sta dirctn
+	lda dst0		; set paramters
+	sta cmpt
+	sta pixeladd
+	lda dst0+1
+	sta cmpt+1
+	sta pixeladd+1
+	lda orgy0
+	sta nextline
+-	jsr scan		; scan line for pixels
+	lda null		; none?
+	beq +
+	lda #199		; yes, end scan
+	sta nextline
++	lda #$ff
+	sta null
+	inc nextline	; next scanline down, until 200
+	lda nextline
+	cmp #200
+	bcc -
+
+	clc
+	rts
+
+; ----------------------------------------- Compute Byte Address
+
+newbyte	ldy dirctn
+	beq +++
+
+	and #7		; .a=nextline
+	cmp #7
+	beq +
+	ldx #0
+	lda #1
+	bne ++
++	lda #<313
+	ldx #>313
+
+++	sta help
+	sec
+	lda cmpt
+	sbc help
+	sta cmpt
+	stx help
+	lda cmpt+1
+	sbc help
+	sta cmpt+1
+	lda cmpt
+	ldx cmpt+1
+	rts
+
++++	and #7
+	beq +
+	ldx #0
+	lda #1
+	bne ++
++	lda #<313
+	ldx #>313
+
+++	sta help
+	clc
+	lda cmpt
+	adc help
+	sta cmpt
+	stx help
+	lda cmpt+1
+	adc help
+	sta cmpt+1
+	lda cmpt
+	ldx cmpt+1
++	rts
+
+; ----------------------------------------- Init Line Scan
+
+setscan	lda nextline
+	cmp orgy0
+	beq +
+	jsr newbyte
+	bne ssc0
++	lda pixeladd
+	ldx pixeladd+1
+ssc0	sta dst
+	stx dst+1
+	ldx spalte	; get counter for left or right border
+	ldy #0
+	rts
+
+; ----------------------------------------- Set or Unset Pixels to left
+
+checklft	jsr decdst	; get next to the left
+	sty null
+	lda (dst),y
+	cmp fmode		; fmode?
+	bne +
+	jmp fulll		; yes, fill startbyte
+
++	tay
+	eor #$ff		; anti-fmode?
+	cmp fmode
+	bne +
+
+	jsr fillupl	; yes, fill byte
+	sta (dst),y
+	ldx #0		; end scanline
+	rts
+
++	lda byte		; startbyte: anti-fmode?
+	eor #$ff
+	cmp fmode
+	beq +
+	sty byte		; no, new byte
+	stx help
+	jsr fillupl2	; fillup this one
+	sta (dst),y
+	jsr fulll		; fill last one
+	ldx help		; proceed in scanline
++	rts
+
+; ----------------------------------------- 
+
+fulll	jsr incdst
+	lda fmode
+	sta (dst),y
+	rts
+
+fillupl	jsr incdst
+fillupl2	ldx #$ff
+	lda #0
+	bit fmode
+	bvc +
+	jsr fillasl	; set
+	lda onlrest,x
+	ldy #0
+	rts
+
++	jsr filllsr	; unset
+	lda onrrest,x
+	ldy #0
+	rts
+
+; ----------------------------------------- Scan one Scanline
+
+scan	jsr setscan	; init scan: to left
+	beq scl0
+-	lda (dst),y	; get current byte
+	sta byte
+	eor fmode		; equals to fmode (either $00 or $ff)?
+	beq scl0		; yes, no change
+	jsr checklft	; no, check
+scl0	jsr decdst	; proceed
+	dex
+	bpl -		; until border
+
+; ----------------------------------------- 
+
+	lda cmpt		; init scan: to right
+	ldx cmpt+1
+	jsr ssc0
+
+-	lda (dst),y	; get current byte
+	sta byte
+	eor fmode		; equals to fmode (either $00 or $ff)?
+	beq scr0		; yes, no change
+	jsr checkrgt	; no, check
+scr0	jsr incdst	; proceed
+	inx
+	cpx #40
+	bcc -		; until border
+	rts
+
+; ----------------------------------------- Set or Unset Pixels to right
+
+checkrgt	jsr incdst
+	sty null
+	lda (dst),y
+	cmp fmode		; fmode?
+	bne +
+	jmp fullr
+
++	tay
+	eor #$ff		; anti-fmode?
+	cmp fmode
+	bne +
+
+	jsr fillupr	; fill up last scanned byte 
+	sta (dst),y
+	ldx #40		; end scanline
+	rts
+
++	lda byte		; startbyte: anti-fmode?
+	eor #$ff
+	cmp fmode
+	beq +
+	sty byte
+	stx help
+	jsr fillupr2
+	sta (dst),y
+	jsr fullr
+	ldx help
++	rts
+
+; ----------------------------------------- 
+
+fullr	jsr decdst
+	lda fmode
+	sta (dst),y
+	rts
+
+fillupr	jsr decdst
+fillupr2	ldx #$ff
+	lda #0
+	bit fmode		; mode?
+	bvc +
+	jsr filllsr	; set
+	lda onrrest,x	; fill up
+	ldy #0		; reset .y
+	rts
+
++	jsr fillasl	; unset
+	lda onlrest,x
+	ldy #0
+	rts
+
+; ----------------------------------------- Next Byte
+
+decdst	sec		; predecessor
+	lda dst
+	sbc #8
+	sta dst
+	bcs +
+	dec dst+1
++	rts
+
+incdst	clc		; decessor
+	lda dst
+	adc #8
+	sta dst
+	bcc +
+	inc dst+1
++	rts
+
+; ----------------------------------------- Find first Bit set
+
+fillasl	inx
+	cpx #8
+	beq +
+	asl byte
+	rol
+	tay
+	beq fillasl
++	rts
+
+filllsr	inx
+	cpx #8
+	beq +
+	lsr byte
+	ror
+	tay
+	beq filllsr
++	rts
+
+; ----------------------------------------------------- Blink the Border
+
+graphon	lda border	; save border color
+	pha
+	sty border	; set new color (in .y, e.g. "2" for red)
+	ldx #$40
+	jsr gd_dl2	; delay
+	pla
+	sta border	; reset old border color
+	stx sy_tbuffer	; clear key strokes
+stay	clc
+	rts
+
+; ----------------------------------------- Save and Restore Systen Data
+
+savesys	ldx #0
+-	lda bitmap-256,x
+	tay
+	lda sysbag,x
+	sta bitmap-256,x
+	tya
+	sta sysbag,x
+	inx
+	bne -
 	rts
 
 ; ----------------------------------------- Counters
@@ -347,9 +802,7 @@ cm0	sta masks,x
 	rts
 
 ; -------------------------------------------------- Activity Display
-;
 ;   sprite activity display
-;
 ; ------------------------------------------------ Abschluss Activity
 
 clearad	lda spren		; Wanderbalken aus
@@ -406,7 +859,7 @@ initad	sta adcnt
 	sta spren
 	rts
 
-; ----------------------------------------- 
+; ----------------------------------------- Data
 
 list	!by 0,0
 masks	!by 1,1,1,1,1,1,1,1
@@ -414,12 +867,18 @@ masks	!by 1,1,1,1,1,1,1,1
 cntwert	!by 200
 cmerk	!by 0
 mskline	!by 5,3,4,3
+fillflg	!by 0
+bitset	!by $80,$40,$20,$10,$08,$04,$02,$01
+bitreset	!by $7f,$bf,$df,$ef,$f7,$fb,$fd,$fe
+onlrest	!by $ff,$7f,$3f,$1f,$0f,$07,$03,$01,$00
+onrrest	!by $ff,$fe,$fc,$f8,$f0,$e0,$c0,$80,$00
 
 ; ----------------------------------------- Screenlist
 
 plist	!by 0
-	!by 2,3,34,10,$01
+	!by 1,3,34,11,$91
 	!wo 0
+	!scr "QuickMask@"
 co0	!by 3,3,4,5,$40
 	!wo col0
 co1	!by 3,5,4,5,$40
@@ -455,18 +914,21 @@ cof	!by 3,33,4,5,$40
 
 colline	!by 3,3,34,5,$0a
 	!wo 0
-	!by 9,4,10,3,$cc
+	!by 9,4,6,3,$cc
 	!wo evmask
-	!scr "Generate@"
-	!by 9,14,8,3,$cc
+	!scr "Mask@"
+	!by 9,10,6,3,$cc
+	!wo evfill
+	!scr "Fill@"
+	!by 9,16,8,3,$cc
 	!wo evinvert
 	!scr "Invert@"
-	!by 9,22,7,3,$cc
+	!by 9,24,6,3,$cc
 	!wo evview
-	!scr "View!@"
-	!by 9,29,7,3,$cc
+	!scr "View@"
+	!by 9,30,6,3,$cc
 	!wo evleave
-	!scr "Leave@"
+	!scr "Exit@"
 
 	!by $c0,7,6,26
 	!scr "Choose transparent colors.@"
