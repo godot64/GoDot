@@ -1,20 +1,24 @@
-	!src "godotlib.lib"	; library nicht erforderlich
-	*=$c000
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
 
 ; ------------------------------------------------ 
 ;
-; mod.EDgray
-; Modul zum Reduzieren der Farben
-; nach dem Error-Distribution-Verfahren
+; mod.ReduceGrays
+; Modul zum Reduzieren der Farben nach dem 
+; Error-Distribution-Verfahren
 ;
 ; 1.00, 06.04.93
 ; 1.01, 24.09.93
 ; 1.02, 09.07.17, added palette reset,
 ;                 combined Hires and MC,
 ;                 added requester
-; 1.03, 10.07.17, combined with EDmono
-;
 ; re-assembled on 28.05.2017
+;
+; 1.03, 10.07.17, combined with EDmono
+; 1.04, 11.11.18, added y2.20, all values corrected
 ;
 ; ------------------------------------------------ 
 
@@ -40,7 +44,17 @@
 	numcols	= $1ee9
 	buffer	= $c600
 	cpalette	= $c740
-	y2	= $d005
+
+	sprptr		= $07f8
+	spr255		= $3fc0
+
+	spr2x		= $d004
+	spr2y		= $d005
+	msbx		= $d010
+	spren		= $d015
+	sprxe		= $d01d
+	border		= $d020
+	sprcol2		= $d029
 
 ; ------------------------------------------------ Header
 
@@ -51,21 +65,21 @@
 	!wo modend 
 	!wo 0
 	!pet "reduce ed gray  "
-	!pet "1.03"
-	!pet "11.07.17"
-	!pet "W.Kling         "
+	!pet "1.04"
+	!pet "11.11.18"
+	!pet "W.Kling/AD      "
 
 ; -------------------------------------- Main
 
 start	jsr makechar
-	ldx #<(edlst)
-	ldy #>(edlst)
+	ldx #<edlst
+	ldy #>edlst
 	jmp gd_xmloop
 
 ; ------------------------------------------------ Event: Set Gamma Values
 
 evgamma	lda gamma
-	cmp #2
+	cmp #3
 	bne evg0
 	lda #$ff
 	sta gamma
@@ -126,23 +140,31 @@ evhires	ldy #0
 	adc perr
 	sta derr
 	lda (dst),y
-
 	sty ymrk
 	tax
-	lda mode
+
+	lda mode		; Hires oder Mono?
 	beq +
-	ldy gamma		; Gamma:
-	beq +		; 1.00
+
+	ldy gamma		; Mono, dann Gamma:
+	beq +		; 1.00 ($00)
 	dey
-	beq ++		; 0.35
-	lda g180,x	; 1.80
+	beq ++		; 0.35 ($01)
+	dey
+	beq +++ 
+	lda g220,x	; 2.20 ($03)
 	jmp hr0
-+	txa
++++	lda g180,x	; 1.80 ($02)
+	jmp hr0
+
++	txa		; Hires
 	asl
 	asl
 	asl
 	jmp hr0
+
 ++	lda g035,x
+
 hr0	ldy ymrk
 	sta m1err
 	
@@ -542,13 +564,15 @@ screenpos	!wo 0
 mode	!by 0
 gammach	!by $00,$0c,$6e,$6d,$38,$7c,$c6,$7c
 gamma	!by 0
-gammavals	!scr "1.000.351.80"
-goffs	!by 3,7,11
+gammavals	!scr "1.000.351.802.20"
+goffs	!by 3,7,11,15
 gray	!scr "Gray "
-g035	!by $00,$2f,$3b,$44,$46,$52,$57,$5c
+g035	!by $00,$2f,$3b,$44,$4c,$52,$57,$5c	; 1
 	!by $60,$64,$68,$6c,$6f,$72,$75,$78
-g180	!by $00,$01,$03,$07,$0b,$11,$17,$1f
-	!by $27,$30,$3a,$45,$51,$5d,$6a,$78 
+g180	!by $00,$01,$03,$07,$0b,$11,$17,$1e	; 2
+	!by $27,$30,$3a,$45,$50,$5d,$6a,$78
+g220	!by $00,$00,$01,$03,$07,$0b,$10,$16	; 3
+	!by $1e,$27,$31,$3d,$49,$58,$67,$78 
 
 ; -------------------------------------- Requester
 
@@ -578,8 +602,8 @@ mcoltx	!scr "Multicolor@"
 
 lloop	dec adcnt		; activity
 	bne +
-	inc y2
-	inc y2+2
+	inc spr2y
+	inc spr2y+2
 	lda #5
 	sta adcnt
 +	inc linenr	; next rasterline
@@ -631,9 +655,9 @@ resetpal	pla
 
 clearad	lda #$ff
 	sta gr_redisp
-	lda $d015
+	lda spren
 	and #$f3
-	sta $d015
+	sta spren
 	lda spritehi
 	and #$f3
 	sta spritehi
@@ -656,33 +680,33 @@ init	lda #0		; clear buffer
 
 initad 	ldy #$3c
 	lda #$00
--	sta $3fc3,y
+-	sta spr255+3,y
 	dey 
 	bpl -
-	sty $3fc0
-	sty $3fc1
-	sty $3fc2
+	sty spr255
+	sty spr255+1
+	sty spr255+2
 	lda #15
-	sta $d029
-	sta $d02a
-	lda $d01d
+	sta sprcol2
+	sta sprcol2+1
+	lda sprxe
 	ora #$0c
-	sta $d01d
+	sta sprxe
 	lda spritehi
 	ora #$0c
 	sta spritehi
 	lda #8
-	sta $d004
+	sta spr2x
 	lda #32
-	sta $d006
+	sta spr2x+2
 	lda #$92
-	sta y2
-	sta y2+2
-	sty $07fa
-	sty $07fb
-	lda $d015
+	sta spr2y
+	sta spr2y+2
+	sty sprptr+2
+	sty sprptr+3
+	lda spren
 	ora #$0c
-	sta $d015
+	sta spren
 	lda #5
 	sta adcnt
 	rts 
