@@ -1,6 +1,8 @@
 
 	!src "godotlib.lib"
-	*	= $c000
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
 
 ; ------------------------------------------------------------ 
 ;
@@ -10,6 +12,7 @@
 ;
 ;  1.00: 29.11.92, first release
 ;  1.01: 07.10.05, added graphics display
+;  1.02, 13.11.18, added colorization
 ;
 ; ------------------------------------------------------------ 
 
@@ -27,6 +30,7 @@
 	src		= $35
 	dst		= $37
 	howmany		= $39
+	hmtotal		= $3a
 	slot		= $45
 	v1buf		= $47
 	v2buf		= $48
@@ -35,6 +39,7 @@
 	col0		= sc_shadow
 
 	hist		= $c400
+	hist2		= hist+16
 	vram2		= $ce0b
 	vram1		= $de0b
 	cstart		= $ee0b
@@ -47,8 +52,8 @@
 	!wo modend
 	!wo 0
 	!pet "colors/block    "
-	!pet "1.01"
-	!pet "07.10.05"
+	!pet "1.02"
+	!pet "13.11.18"
 	!pet "W.Kling/A.Dettke"
 
 ; --------------------------------------------- Main
@@ -74,32 +79,35 @@ evhowmany	jsr clrscreen
 	sta dst
 	sty dst+1
 
-clrhist	lda #0		; clear histogram
+clrhist	lda #0		; clear histograms
 	ldy #15
 chloop	sta hist,y
+	sta hist2,y
 	dey 
 	bpl chloop
 
 	ldy #31		; eine Kachel:
 hloop	lda gr_cmode	; Grafikmodus? (0: Hires)
 	bne hskip
-	lda (src),y	; Hires: oberes Nibble
+	lda (src),y	; Hires: oberes Nibble (linkes Pixel)
 	lsr 
 	lsr 
 	lsr 
 	lsr 
+	tax
+	inc hist2,x	; ungefiltert zählen (wirklich alle Farben)
+	lda gr_qtab,x	; Quantisierung berücksichtigen (Anzahl Renderfarben)
 	tax 
-	lda gr_qtab,x	; Balancing berücksichtigen
-	tax 
-	lda gr_btab,x
+	lda gr_btab,x	; Balancing berücksichtigen
 	tax 
 	inc hist,x	; Farbhäufigkeit zählen
-hskip	lda (src),y	; unteres Nibble
+hskip	lda (src),y	; unteres Nibble (rechtes Pixel)
 	and #$0f
+	tax
+	inc hist2,x	; ungefiltert zählen
+	lda gr_qtab,x	; Quantisierung berücksichtigen (Anzahl Renderfarben)
 	tax 
-	lda gr_qtab,x	; Balancing berücksichtigen
-	tax 
-	lda gr_btab,x
+	lda gr_btab,x	; Balancing berücksichtigen
 	tax 
 	inc hist,x	; Farbhäufigkeit zählen
 	dey 
@@ -107,11 +115,15 @@ hskip	lda (src),y	; unteres Nibble
 
 	lda #0		; Anzahl initialisieren
 	sta howmany
-	ldy #15		; Anzahl vorkommender Farben zählen
+	sta hmtotal
+	ldy #15		; Anzahl zu berücksichtigender Farben zählen
 hmloop	lda hist,y
 	beq hmskip
 	inc howmany
-hmskip	dey 
+hmskip	lda hist2,y	; Anzahl aller Farben zählen
+	beq hmskip2
+	inc hmtotal
+hmskip2	dey 
 	bpl hmloop
 
 	ldx howmany	; wie viele?
@@ -120,11 +132,20 @@ hmskip	dey
 	sta (dst),y	; in den Screen
 	lda dst+1
 	pha 
+
 	clc 
 	adc #$d4		; und ins Farbram
 	sta dst+1
-	lda sc_hilite
-	sta (dst),y
+	lda #5		; grün (Anzahl *gleich* Render-Max)
+	ldx gr_howmany	; nimm Render-Max
+	cpx hmtotal	; Vergleich mit total
+	beq ++
+	bcs +
+	lda #2		; rot (Anzahl *größer* Render-Max)
+	bne ++
++	lda sc_hilite
+++	sta (dst),y
+
 	pla 
 	sta dst+1
 
@@ -140,36 +161,37 @@ skip0	inc dst		; ...Screen
 	inc dst+1
 skip1	lda src+1
 	cmp #>sy_bigbuffer	; bis 4Bit-Ende
-	bne clrhist	; sonst von vorn
+	beq +
+	jmp clrhist	; sonst von vorn
 
 ; --------------------------------------------- Wait
 
-	lda #0
++	lda #0
 	sta sc_keyprs	; dann: warten auf Taste
 	sta sc_stop
 wloop	lda sc_keyprs
 	ora sc_stop
 	beq wloop
-	cmp #1		; Maustaste?
+	cmp #1		; Maustaste? Return? Fire?
 	beq ++
 	cmp #3		; STOP?
 	beq +
-	cmp #2
+	cmp #2		; alle anderen: verwerfen
 	bne wloop
 +	rts 
 
-++	lda gr_redisp
+++	lda gr_redisp	; Maus: schon gerendert?
 	bne +
-	jsr redisplay
-	jmp evhowmany
+	jsr redisplay	; dann zeigen
+	jmp evhowmany	; und neu zählen
 
-+	jsr gd_clrms
++	jsr gd_clrms	; sonst: Meldung
 	lda #2
 	sta 646
 	ldx #<message
 	ldy #>message
 	jsr gd_xtxout2
-	jmp wloop
+	jmp wloop		; und auf STOP warten
 
 ; --------------------------------------------- 
 
@@ -184,7 +206,7 @@ chars	!pet "0123456789abcdef*"
 message	!scr " Please render graphics first! @"
 list	!wo 0
 
-; ------------------------------------------------ 
+; ------------------------------------------------ Welche Farben liegen wo?
 
 check	sei 		; GoDot off
 	ldx #$00
