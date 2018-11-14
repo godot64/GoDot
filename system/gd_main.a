@@ -1,21 +1,19 @@
 
-!src "godotkernal.lib"
-*= $1000
+	!src "godotkernal.lib"
+	*= $1000
 
 ; -------------------------------------------------- 
 ;
-; 22.06.18: current version 1.32
-;
-; 24.04.97, Kernel Version 1.27
-;
-; 27.10.00, (no new version, complete text revision)
-; 06.04.04, sprite beyond left border bug fixed
-; 22.11.16, code tranformed to ACME
-;           mouse in x-upper space bug finally fixed
-; 23.01.17, hotspot of mouse now on *white* part of mouse
-; 25.08.17, variable number of entries in directory window
-; 22.06.18, bugfix, "Cancel" in filerequester now returns
-;           correct value of 0 for ls_flen
+; 1.27, 24.04.97
+;       27.10.00, (no new version, complete text revision)
+; 1.28, 06.04.04, sprite beyond left border bug fixed
+; 1.29, 22.11.16, code tranformed to ACME
+;                 mouse in x-upper space bug finally fixed
+; 1.30, 23.01.17, hotspot of mouse now on *white* part of mouse
+; 1.31, 25.08.17, variable number of entries in directory window
+; 1.32, 22.06.18, bugfix, "Cancel" in filerequester now returns
+;                 correct value of 0 for ls_flen
+; 1.33, 14.11.18, bugfix, correct generation of quantization table
 ;
 ; -------------------------------------------------- 
 
@@ -390,7 +388,7 @@ xy2spzl	sec		; subtract offset of hotspot
 
 position	ldx sy_soffy	; convert sprite position to screen position
 	stx sc_merk+1	; hotspot y (-50)
-	lda spritey-2	; v1.30: Referenz ist jetzt *wei√üer* Mauszeiger
+	lda spritey-2	; v1.30: Referenz ist jetzt *weiﬂer* Mauszeiger
 	jsr xy2spzl
 	sta sc_merk
 	ldx sy_soffx	; hotspot x (-24)
@@ -610,7 +608,7 @@ most	lda #0
 ; -------------------------------------------------- Version Number
 
 gd_version
-	!by $01,$32	; version number, SED-mode
+	!by $01,$33	; version number, SED-mode
 
 ; -------------------------------------------------- 
 ; -------------------------------------------------- Entry to GoDot, Main Loop
@@ -1221,7 +1219,7 @@ scc3	iny
 
 ; -------------------------------------------------- Create Quantization Table
 
-makeqtab	lda #0
+makeqtab	lda #1		; start value      ### 1.33 (from 0 to 1)
 	ldx #1
 	clc
 qt0	adc gr_howmany	; continuously add # of grays/colors to be displayed
