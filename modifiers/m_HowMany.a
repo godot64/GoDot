@@ -96,18 +96,18 @@ hloop	lda gr_cmode	; Grafikmodus? (0: Hires)
 	lsr 
 	tax
 	inc hist2,x	; ungefiltert zählen (wirklich alle Farben)
-	lda gr_qtab,x	; Quantisierung berücksichtigen (Anzahl Renderfarben)
+	lda gr_btab,x	; Quantisierung berücksichtigen (Anzahl Renderfarben)
 	tax 
-	lda gr_btab,x	; Balancing berücksichtigen
+	lda gr_qtab,x	; Balancing berücksichtigen
 	tax 
 	inc hist,x	; Farbhäufigkeit zählen
 hskip	lda (src),y	; unteres Nibble (rechtes Pixel)
 	and #$0f
 	tax
 	inc hist2,x	; ungefiltert zählen
-	lda gr_qtab,x	; Quantisierung berücksichtigen (Anzahl Renderfarben)
+	lda gr_btab,x	; Quantisierung berücksichtigen (Anzahl Renderfarben)
 	tax 
-	lda gr_btab,x	; Balancing berücksichtigen
+	lda gr_qtab,x	; Balancing berücksichtigen
 	tax 
 	inc hist,x	; Farbhäufigkeit zählen
 	dey 
