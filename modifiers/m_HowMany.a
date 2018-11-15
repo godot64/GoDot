@@ -13,6 +13,9 @@
 ;  1.00: 29.11.92, first release
 ;  1.01: 07.10.05, added graphics display
 ;  1.02, 13.11.18, added colorization
+;  1.03, 15.11.18, exchanged btab and qtab,
+;                  added STOP from graphics screen
+;                  re-init of STOP after display
 ;
 ; ------------------------------------------------------------ 
 
@@ -52,8 +55,8 @@
 	!wo modend
 	!wo 0
 	!pet "colors/block    "
-	!pet "1.02"
-	!pet "13.11.18"
+	!pet "1.03"
+	!pet "15.11.18"
 	!pet "W.Kling/A.Dettke"
 
 ; --------------------------------------------- Main
@@ -64,6 +67,8 @@ start	lda gd_modswitch	; save module management byte
 	jsr evhowmany
 	pla
 	sta gd_modswitch
+	lda #0
+	sta sc_stop
 	sec
 	rts
 
@@ -178,11 +183,14 @@ wloop	lda sc_keyprs
 	beq +
 	cmp #2		; alle anderen: verwerfen
 	bne wloop
+-
 +	rts 
 
 ++	lda gr_redisp	; Maus: schon gerendert?
 	bne +
 	jsr redisplay	; dann zeigen
+	lda sc_stop
+	bne -
 	jmp evhowmany	; und neu zählen
 
 +	jsr gd_clrms	; sonst: Meldung
