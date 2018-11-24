@@ -61,7 +61,7 @@
 header	jmp start
 	!by $20
 	!by 0
-	!by 1
+	!by 0
 	!wo modend
 	!wo 0
 	!tx "Generate Mask   "
