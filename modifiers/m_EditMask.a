@@ -1,9 +1,11 @@
 
-!source "godotlib.lib"
-*=  $c000
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
 
 ; ----------------------------------------- 
-; mod.MaskEd
+; mod.EditMask
 ;     Module to edit hires monochrome bitmaps used as masks
 ;     for ldr.4Bit&Mask
 ;
@@ -23,6 +25,7 @@
 ; 1.07, 14.02.18: solved problem with mouse pointer set to wrong tile
 ; 1.08, 14.02.18: really solved the problem (was use of CTRL instead of CBM key!)
 ; 1.09, 03.03.18: changed navigation icons
+; 1.10, 24.11.18: fix grid color for next call of module
 ;
 ; ----------------------------------------- 
 
@@ -78,8 +81,8 @@
 	!word (modend)
 	!byte 0,0
 	!pet "Edit Mask pixels"
-	!pet "1.09"
-	!pet "03.03.18"
+	!pet "1.10"
+	!pet "24.11.18"
 	!pet "A.Dettke/Mac    "
 
 ; ----------------------------------------- Main
@@ -173,8 +176,12 @@ masp: 	lda sprstore,x 	; load sprite
 	sta $d010
 	sta $d01d
 	sta $d017
-	jsr gridcl
-	lda #$ff		; all sprites
+	lda fgrclr	; ### 1.10 (-182)
+	beq +
+	jsr gridcl0
+	bne ++
++	jsr gridcl
+++	lda #$ff		; all sprites
 	sta sprites+2       ; point to $ff
 	sta sprites+3
 	sta sprites+4
@@ -205,8 +212,10 @@ masp: 	lda sprstore,x 	; load sprite
 
 ; ----------------------------------------- grid color
 
+fixgcl:	lda grclr		; manually ### 1.10 (-216)
+	sta fgrclr
 gridcl: 	lda grclr		; colors for grid
-	sta $d029
+gridcl0	sta $d029
 	sta $d02a
 	sta $d02b
 	sta $d02c
@@ -231,6 +240,7 @@ cols: 	!byte 0,0,0,0,0
 bestcolor	!byte 6,2,5,8			; schwarz
 bits: 	!byte $80,$40,$20,$10,$08,$04,$02,$01
 grclr: 	!byte 1
+fgrclr:	!by 0
 pmode: 	!byte 1				; mode: 1=set 0=reset
 pcols: 	!byte 0,15
 drawoffs 	!byte 3,7
@@ -500,7 +510,7 @@ pe4: 	cpx #62		; "q" key
 	bne pe5
 	inc grclr		; change grid color
 	jsr tdelay
-	jsr gridcl
+	jsr fixgcl	; ### 1.10
 pe5: 	cpx #37		; "k" key
 	bne pete
 	jsr tdelay
@@ -758,7 +768,7 @@ eg1	cpx #36		; "L" (for Bottom Left)
 eg2	cpx #35		; "Q" (for change grid color)
 	bne eg31
 	inc grclr		; change grid color
-	jsr gridcl
+	jsr fixgcl	; ### 1.10
 eg31	cpx #37		; "B" (for Bottom Right)
 	beq evbotrght
 eg3	cpx #34		; "W" (for Wipe)		
