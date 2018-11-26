@@ -1,17 +1,19 @@
 
 	!src "godotlib.lib"
 	*= $c000
+	!ct pet
 ;	!sl "labels.txt"
 
 ; -------------------------------------------------- 
-
+;
 ; mod.DecodeGIFhir
-
+;
 ;   1.00, 08.03.02, first release
 ;   1.01, 16.03.02, changed: graphics mode info
 ;   1.02, 31.05.17, bugfix: adapted to latest ldr.GIF
 ;   1.03, 25.03.18, more exact rgb conversion
 ;   1.04, 05.04.18, bugfix: flush bottommost line
+;   1.05, 26.11.18, bugfix: wrong start of line after topskip
 ; 
 ; -------------------------------------------------- 
 
@@ -29,6 +31,7 @@
 	palbuf2		= $39	; /$3a
 	palbuf3		= $3b	; /$3c
 	nflg		= $3d
+	ymrk		= nflg	; ### 1.05
 	zflg		= $3e
 	adcnt		= $3f
 	table		= $40	; /$41
@@ -45,7 +48,6 @@
 	divis		= $54
 	gpy		= $55
 
-	status		= $90
 	offx		= $b2
 	offy		= $b3
 
@@ -85,8 +87,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "gif: LoadSection"
-	!pet "1.04"
-	!pet "05.04.18"
+	!pet "1.05"
+	!pet "26.11.18"
 	!pet "A.Dettke/W.Kling"
 addtxt	!pet "viva D. Jansen!!"
 	!by 0
@@ -877,13 +879,16 @@ s2	dec tskip
 	ora tskip+1
 	bne s21
 
+	sty ymrk		; ### 1.05: store last code
 	ldx #8		; skip finished, re-init gauge
 	jsr tcopy
 	jsr gd_clrms
 	inx
 	stx adcnt
+	ldy ymrk		; ### 1.05: reget last code
 	lda #200
 	sta cntwert
+	bne mrd2		; ### 1.05: and store in outbuffer
 s21	jsr adinc
 	jmp next
 
@@ -921,7 +926,7 @@ mrd3	lda stxskip	; restore scale factor
 	lda yskip		; y-scaling active?
 	bne s5		; yes, skip
 
-	jmp adinc		; activity
+s22	jmp adinc		; activity
 
 ; -------------------------------------- 
 mrd2	lda lrflag	; left or right pixel?
