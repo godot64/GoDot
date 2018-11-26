@@ -1,4 +1,9 @@
 
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
 ; --------------------------------------
 ;
 ; mod.DecodeGIF
@@ -6,11 +11,9 @@
 ;   1.00, 00.00.00, first release
 ;   1.01, 10.02.96, added: Error Handling
 ;   1.02, 18.04.17, changed some RGBs and length of RGB tables
+;   1.03, 26.11.18, bugfix: wrong start of line after topskip
 ; 
 ; -------------------------------------- 
-
-!src "godotlib.lib"
-*= $c000
 
 ; -------------------------------------- Equates
 
@@ -27,6 +30,7 @@
 	palbuf2		= $39
 	palbuf3		= $3b
 	nflg		= $3d
+	ymrk		= nflg	; ### 1.03
 	zflg		= $3e
 	adcnt		= $3f
 	table		= $40
@@ -891,13 +895,16 @@ s2	dec tskip
 	lda tskip
 	ora tskip+1
 	bne s21
+	sty ymrk		; ### 1.03: store last code
 	ldx #8		; skip finished, re-init gauge
 	jsr tcopy
 	jsr gd_clrms
 	inx
 	stx adcnt
+	ldy ymrk		; ### 1.03: reget last code
 	lda #200
 	sta cntwert
+	bne mread		; ### 1.03: and store in outbuffer
 s21	jsr adinc
 	jmp next
 
