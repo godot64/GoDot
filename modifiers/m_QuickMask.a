@@ -15,6 +15,7 @@
 ;  1.02,         , bug fixes
 ;  1.03, 14.01.01, final release
 ;  1.04, 08.11.18, added fill feature for better masking
+;  1.05, 26.11.18, better usability
 ;
 ; ----------------------------------------- 
 
@@ -65,8 +66,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "Generate Mask   "
-	!tx "1.04"
-	!tx "08.11.18"
+	!tx "1.05"
+	!tx "26.11.18"
 	!tx "ADettke/M.Bohnet"
 
 ; ----------------------------------------- Main
@@ -916,16 +917,16 @@ colline	!by 3,3,34,5,$0a
 	!wo 0
 	!by 9,4,6,3,$cc
 	!wo evmask
-	!scr "Mask@"
+	!scr "Make@"
 	!by 9,10,6,3,$cc
-	!wo evfill
-	!scr "Fill@"
+	!wo evview
+	!scr "View@"
 	!by 9,16,8,3,$cc
 	!wo evinvert
 	!scr "Invert@"
 	!by 9,24,6,3,$cc
-	!wo evview
-	!scr "View@"
+	!wo evfill
+	!scr "Fill@"
 	!by 9,30,6,3,$cc
 	!wo evleave
 	!scr "Exit@"
