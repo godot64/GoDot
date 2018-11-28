@@ -11,6 +11,7 @@
 ; 
 ;  1.00, 05.03.94, first release
 ;  1.01, 09.09.18, added requester to choose mode
+;  1.02, 28.11.18, changed GUI
 ;
 ; ------------------------------------------------ 
 
@@ -31,8 +32,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "RawData to $4000"
-	!tx "1.01"
-	!tx "09.09.18"
+	!tx "1.02"
+	!tx "28.11.18"
 	!tx "A.Dettke/W.Kling"
 ;
 ; ------------------------------------------------ 
@@ -246,7 +247,7 @@ nbuf	!fill 16,32
 	!by 0
 	!scr "RawData@"
 
-modetxt	!scr "160x200@"
+modetxt	!scr "320x200@"
 datatype	!scr "Bytes@"
 
 ; ------------------------------------------------ Counters
@@ -306,10 +307,10 @@ modesk	!scr 223,"Ex@"
 ; ------------------------------------------------ Screenlist
 
 rawlst	!by 0
-	!by 10,7,25,8,$91
+	!by 10,7,25,8,$81
 	!wo 0
 	!scr "Load Raw Data@"
-	!by 12,7,5,3,$c8
+	!by 12,7,5,3,$d8
 	!wo evtogsadd
 modetx	!scr 223,"In@"
 	!by 15,18,6,3,$cc
