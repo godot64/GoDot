@@ -247,7 +247,7 @@ nbuf	!fill 16,32
 	!by 0
 	!scr "RawData@"
 
-modetxt	!scr "320x200@"
+modetxt	!scr "160x200@"
 datatype	!scr "Bytes@"
 
 ; ------------------------------------------------ Counters
