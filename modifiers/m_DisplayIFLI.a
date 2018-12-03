@@ -13,6 +13,7 @@
 ;   1.01, 09.06.18, changed: convert 4bit to IFLI and then display
 ;   1.02, 10.06.18, added: visible reaction when no REU, set re-render flag
 ;   1.03, 12.06.18, bugfix: wrong unpatch in fallback routine
+;   1.04, 03.12.18, changed: activity bar starts immediately
 ;
 ; ------------------------------------------------------------ 
 
@@ -44,6 +45,7 @@
 	sprptr		= $07f8
 	into		= $1417
 	swap4096		= $1714
+	inswap4k		= $1740
 	swap4k		= swap4096-2
 	bank0		= sy_4bit
 	bank1		= $c000
@@ -91,9 +93,9 @@ header 	jmp start
 	!wo modend
 	!wo 0
 	!tx "IFLI Display    "
-	!tx "1.03"
-	!tx "12.06.18"
-	!tx "$AD/A.Gonzales  "
+	!tx "1.04"
+	!tx "03.12.18"
+	!tx "AD/Manfred Trenz"
 
 ; --------------------------------------- Main
 
@@ -148,10 +150,6 @@ prepl	lda mask1,y
 	lda #32
 	sta col0+4
 	sta maxcol
-
-	lda #25		; init activity bar
-	sta adcnt
-	jsr initad
 
 	lda #<sy_4bit	; start render
 	ldx #>sy_4bit	; 4Bit at $4000 (upto $bcff)
@@ -631,7 +629,7 @@ bpack	sta reucom	; $01b0
 
 setbpack	ldx #6
 jv1	lda bpack,x
-	sta $01b0,x
+	sta backpack,x
 	dex
 	bpl jv1
 	rts
@@ -648,7 +646,7 @@ getjpz	lda #$93
 	stx merkx
 	sei
 	lda #$ea		; NOP to SWAP4K (statt CLI)
-	sta $1740		; in god.main
+	sta inswap4k	; in god.main
 	lda #$10		; stash 4K (from $9000)
 	sta allover+6
 
@@ -696,7 +694,11 @@ view	sei
 
 ; --------------------------------------- Write C64 to REU
 
-savec64	jsr setbpack	; fallback routines to RAM
+savec64	lda #25		; init activity bar
+	sta adcnt
+	jsr initad
+
+	jsr setbpack	; fallback routines to RAM
 	ldx #0
 pt30	lda patch2,x
 	sta sy_numbers,x
@@ -733,7 +735,7 @@ pt30	lda patch2,x
 	stx merkx
 	sei
 	lda #$ea		; NOP to SWAP4K
-	sta $1740
+	sta inswap4k
 	lda #$10		; stash 4K (from $9000)
 	sta allover+6
 
@@ -761,7 +763,7 @@ st8	lda storems
 	inc merkx
 	jsr resetwerte
 	lda #$58		; write CLI ($58) back to SWAP4K
-	sta $1740
+	sta inswap4k
 	cli
 	rts
 
@@ -1258,7 +1260,7 @@ fback	sei		; jump in here ($0124)
 	sta patch+6	; [18]
 
 	lda #$ea		; patch gd_swap4k (NOP)
-	sta $1740
+	sta inswap4k
 	ldx #2
 	stx slots+3
 fb1	ldx slots+3	; swap slots 2 - 4
@@ -1277,7 +1279,7 @@ fb1	ldx slots+3	; swap slots 2 - 4
 	sta gr_redisp	; set re-render flag
 	lda #$58		; unpatch gd_swap4k (CLI)
 	sta ptch		; unpatch ptch
-	sta $1740
+	sta inswap4k
 ptch	cli
 	ldx #$e0		; re-exchange ldr and mod
 	jsr swap4k
