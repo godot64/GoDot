@@ -8,11 +8,13 @@
 ;
 ; mod.DisplayFLI
 ; Module to display the contents of 4Bit as an FLI image in
-; multi mode (REU required)
+; either multi or hires mode (REU required)
 ; Uses accommodated algorithm of DisplayIFLI, all backgrounds
-; are black. Some images produce a kind of horizontal banding.
+; in multi are black.
+; Some images produce a kind of horizontal banding.
 ;
 ;   1.00, 13.12.18, first release
+;   1.01, 15.12.18, added: hires mode
 ;
 ; ------------------------------------------------------------ 
 
@@ -34,7 +36,12 @@
 	merkx		= $36
 	merky		= $37
 	byte		= $39
-	timer		= $40
+	timer		= $40	; /$41,/$42
+	hstart		= $43
+	hend		= $44
+	max		= $45	; /$46
+	maxcol		= $47
+	gmode		= $48
 
 ; display FLI:
 
@@ -92,8 +99,8 @@ header 	jmp start
 	!wo modend
 	!wo 0
 	!tx "FLI Display     "
-	!tx "1.00"
-	!tx "13.12.18"
+	!tx "1.01"
+	!tx "15.12.18"
 	!tx "A.Dettke        "
 
 ; --------------------------------------- Main
@@ -103,8 +110,15 @@ start	lda gd_modswitch
 	jsr check4reu
 	bne +
 
+	lda gr_cmode	; which render mode?
+	bne +
+	ldy #$08		; hires?
+	!by $2c
++	ldy #$19		; or multi?
+	sty gmode
+
 	jsr savec64	; save virtual C64
-	jsr writenfli	; write FLI data to v. C64
+	jsr writenfli	; write FLI data to virtual C64
 	jsr clearad	; end activity display
 	jsr getjpz	; display fli, doesn't return if successful
 
@@ -141,7 +155,7 @@ mc64	tya
 	iny
 	bne mc64
 
-	ldy #3		; more preparations
+	ldy #3		; no, multi: more preparations
 prepl	lda mask1,y
 	sta mask,y
 	dey
@@ -252,25 +266,18 @@ s10	dey
 	inc dst+1
 
 s11	lda src+1		; until end of 4Bit
+	ldy #$19
 	cmp #>sy_bigbuffer
 	beq ok3
 	jmp loop3
 
 ; ----------------------------------------- 
 
-ok3	lda #$00		; now write 1st image ($00)
-	sta nibflg	; (flag: take *left* pixels for that)
-	jsr writefli
+ok3	jsr writefli	; now write image
 	ldy #192		; write bg 1 (black)
 	jsr write0
 
 	jsr writecram	; write color ram to $060400
-
-	lda #$ff		; write 2nd image ($ff)
-	sta nibflg	; (and take *right* pixels for this one)
-;	jsr writefli
-;	ldy #100		; write bg 2 (black)
-;	jsr write0
 
 ende	sec
 	rts
@@ -331,7 +338,7 @@ write	sta gbyte
 	ldx merkx
 	rts
 
-; ----------------------------------------- Save 1 multi FLI image
+; ----------------------------------------- Save 1 FLI image
 
 writefli	lda #200		; init activity bar
 	sta adcnt
@@ -340,11 +347,7 @@ writefli	lda #200		; init activity bar
 	lda #$c0		; fix on both
 	sta reubase+10
 
-	lda nibflg
-	bmi +
-	ldx #$40		; first image at $4000
-	!by $2c
-+	ldx #$c0		; second image at $c000
+	ldx #$40		; image at $4000
 	stx rm_werte+3
 
 	lda #0
@@ -365,16 +368,104 @@ ch3	sta hist,y
 	dey
 	bpl ch3
 
-	ldy #3
+	lda gr_cmode	; which render mode?
+	beq +
+
+	jsr rmulti	; multi
+	jmp ++
++	jsr rhires 	; hires
+
+++	lda c64cmb,x	; from table
+	jsr write		; and save
+
+	inc src3		; proceed to next tile in cram
+	bne s16
+	inc src3+1
+s16	lda src
+	clc
+	adc #32
+	sta src
+	bcc s17
+	inc src+1
+s17	lda src+1
+	cmp #>sy_bigbuffer	; until end of 4Bit
+	beq s18
+	jmp loop12
+
+s18	ldy #24		; padding
+	jsr write0
+
+	lda vrcnt		; next scanline
+	clc
+	adc #4
+	sta vrcnt
+	cmp #32
+	beq ok12
+	jmp vrloop
+
+; ----------------------------------------- 
+
+ok12	jsr initad2	; re-init bar
+	jsr setreu
+	ldx #$60		; address of image bitmap
+	stx rm_werte+3
+
+	lda #<sy_4bit	; compute bitmap
+	ldx #>sy_4bit
+	sta src
+	stx src+1
+	lda #<cram
+	ldx #>cram
+	sta src3
+	stx src3+1
+
+bmloop	lda #8		; 8 scanlines per tile
+	sta zlcnt
+
+zlloop	ldy #15		; clear histogram
+	lda #0
+ch4	sta hist,y
+	dey
+	bpl ch4
+
+	lda gr_cmode	; which render mode?
+	beq +
+
+	jsr bmulti	; multi
+	bmi ++
++	jsr bhires 	; hires
+
+++	jsr write		; save result byte (with activity)
+
+	lda src		; next scanline
+	clc
+	adc #4
+	sta src
+	bne s26
+	inc src+1
+s26	dec zlcnt
+	beq s27
+	jmp zlloop
+
+s27	inc src3
+	bne s28
+	inc src3+1
+s28	lda src+1
+	cmp #>sy_bigbuffer	; unto end of 4Bit
+	beq ok121
+	jmp bmloop
+
+ok121	rts
+
+; ----------------------------------------- Render Multi
+
+rmulti	ldy #3
 hl4	lda (src),y	; get 4bit color
-	bit nibflg	; determine which image
-	bmi lonib1	; first or second?
-	lsr		; first
+	lsr		; from left pixel
 	lsr
 	lsr
 	lsr
-lonib1	and #$0f		; isolate color and count (1 scanline in tile)
-	tax
+	tax		; isolate color and count (1 scanline in tile)
 	inc hist,x
 	dey
 	bpl hl4
@@ -428,75 +519,79 @@ s14	lda col0+1	; create color combi
 	asl
 	ora col0+2
 	tax
-	lda c64cmb,x	; from table
+	rts
 
-	jsr write		; and save
+; ----------------------------------------- Render Hires
 
-	inc src3		; proceed to next tile
-	bne s16
-	inc src3+1
-s16	lda src
-	clc
-	adc #32
-	sta src
-	bcc s17
-	inc src+1
-s17	lda src+1
-	cmp #>sy_bigbuffer	; until end of 4Bit
-	beq s18
-	jmp loop12
-
-s18	ldy #24		; padding
-	jsr write0
-
-	lda vrcnt		; next scanline
-	clc
-	adc #4
-	sta vrcnt
-	cmp #32
-	beq ok12
-	jmp vrloop
-
-; ----------------------------------------- 
-
-ok12	jsr initad2	; re-init bar
-	jsr setreu
-	lda nibflg
-	bmi +
-	ldx #$60		; address for bitmap 1
-	!by $2c
-+	ldx #$e0		; ...and bitmap 2
-	stx rm_werte+3
-
-	lda #<sy_4bit	; compute bitmap
-	ldx #>sy_4bit
-	sta src
-	stx src+1
-	lda #<cram
-	ldx #>cram
-	sta src3
-	stx src3+1
-
-bmloop	lda #8		; 8 scanlines per tile
-	sta zlcnt
-zlloop	ldy #15		; clear histogram
-	lda #0
-ch4	sta hist,y
+rhires	ldy #3		; count # of colors in a card
+hhl4	lda (src),y	; (per 8 pixels)
+	sta bbuf
+	and #$0f
+	tax
+	inc hist,x
+	lda bbuf
+	lsr
+	lsr
+	lsr
+	lsr
+	tax
+	inc hist,x
 	dey
-	bpl ch4
-	ldy #3
+	bpl hhl4
+
+	lda #0		; compute maximum color (ink)
+	sta max
+	ldy #15
+hm1	lda hist,y
+	beq hs13
+	cmp max
+	beq hs13
+	bcc hs13
+	sta max
+	sty col0		; col0 contains the most frequent color
+hs13	dey
+	bpl hm1
+
+	lda #32		; compute second maximum color (paper)
+	sta col0+1	; care for one single color
+	ldx col0		; clear max color in histogram
+	lda #0
+	sta hist,x
+	sta max		; clear max
+
+	ldy #15		; count again
+hm2	lda hist,y
+	beq hs15
+	cmp max
+	beq hs15
+	bcc hs15
+	sta max
+	sty col0+1	; save second max color to col0+1
+hs15	dey
+	bpl hm2
+
+	lda col0+1	; compute vram byte to write
+	asl
+	asl
+	asl
+	asl
+	ora col0
+	tax
+	rts
+
+; ----------------------------------------- Render Multi Bitmap
+
+bmulti	ldy #3
 hl5	lda (src),y
-	bit nibflg
-	bmi lonib2
 	lsr
 	lsr
 	lsr
 	lsr
-lonib2	and #$0f
 	tax
 	inc hist,x	; create bitpattern for multicolor
 	lda bits,y
 	sta nr0,y
+
 	lda #32
 	sta col0,y
 	dey
@@ -514,6 +609,7 @@ lonib2	and #$0f
 	sta hist,x
 	stx col0+3
 s19	sty max
+
 	ldy #15		; first color
 m11	lda hist,y
 	beq s20
@@ -524,6 +620,7 @@ m11	lda hist,y
 	sty col0+1
 s20	dey
 	bpl m11
+
 	lda col0+1	; one single color?
 	cmp #32
 	beq s21
@@ -531,6 +628,7 @@ s20	dey
 	lda #0
 	sta hist,x
 	sta max
+
 	ldy #15		; second color
 m21	lda hist,y
 	beq s22
@@ -577,6 +675,7 @@ htl	iny
 	bcc s24
 	lda #15
 s24	sta hend
+
 	lda nr0,y
 	ldx hstart
 htl1	inx
@@ -588,17 +687,15 @@ htl1	inx
 	stx hstart
 	cpy #3
 	bne htl
+
 s25	lda #0
 	sta byte
 	ldy #3
 rl	lda (src),y
-	bit nibflg
-	bmi lonib3
 	lsr
 	lsr
 	lsr
 	lsr
-lonib3	and #$0f
 	tax
 	lda htab,x
 	and mask,y
@@ -606,27 +703,123 @@ lonib3	and #$0f
 	sta byte
 	dey
 	bpl rl
+	rts
 
-	jsr write		; save result byte (with activity)
+; ----------------------------------------- Render Hires Bitmap
 
-	lda src		; next scanline
+bhires	ldy #3		; get color bytes from 4bit
+hhl5	lda (src),y
+	sta bbuf
+	and #$0f
+	tax
+	inc hist,x	; count (right pixel)
+	lda bbuf
+	lsr
+	lsr
+	lsr
+	lsr
+	tax
+	inc hist,x	; count (left pixel)
+	dey		; 4 times, so count 8 pixels
+	bpl hhl5
+
+	lda #32		; care for one single color
+	sta col0+1
+	lda #0		; clear max
+	sta max
+
+	ldy #15		; compute maximum frequent color
+hm11	lda hist,y
+	beq hs20
+	cmp max
+	beq hs20
+	bcc hs20
+	sta max
+	sty col0		; store to col0
+hs20	dey
+	bpl hm11
+
+	ldx col0		; clear this color from histogram
+	lda #0
+	sta hist,x
+	sta max		; clear max
+
+	ldy #15		; compute second most frequent color
+hm21	lda hist,y
+	beq hs22
+	cmp max
+	beq hs22
+	bcc hs22
+	sta max
+	sty col0+1	; store to col0+1
+hs22	dey
+	bpl hm21
+
+	lda #0		; now assign pixel masks to these colors
+	sta nr0
+	lda #$ff
+	sta nr0+1
+
+	lda col0		; compare colors and line them up
+	cmp col0+1
+	bcc noswap
+	lda col0		; swap if necessary
+	tax
+	lda nr0
+	tay
+	lda col0+1
+	sta col0
+	lda nr0+1
+	sta nr0
+	stx col0+1
+	sty nr0+1
+noswap	lda col0		; compute average (to set the range length)
 	clc
-	adc #4
-	sta src
-	bne s26
-	inc src+1
-s26	dec zlcnt
-	beq s27
-	jmp zlloop
-s27	inc src3
-	bne s28
-	inc src3+1
-s28	lda src+1
-	cmp #>sy_bigbuffer	; unto end of 4Bit
-	beq ok121
-	jmp bmloop
+	adc col0+1
+	lsr
+	cmp #16
+	bcc hs24
+	lda #15
+hs24	sta hend
 
-ok121	rts
+	ldx #$ff		; fill table with pixel patterns
+	lda nr0
+hhtl	inx
+	sta htab,x
+	cpx hend
+	bcc hhtl
+	cpx #15
+	bcs hs25
+	lda nr0+1
+hhtl1	inx
+	sta htab,x
+	cpx #15
+	bcc hhtl1
+
+hs25	lda #0		; re-fetch 4bit colors
+	sta byte
+	ldy #3
+hrl	lda (src),y	; get ink color
+	sta bbuf
+	and #$0f
+	tax
+	lda htab,x	; finally compute the correct pixel patterns
+	and masks,y
+	ora byte
+	sta byte		; store pixel bit
+	lda bbuf		; get paper color
+	lsr
+	lsr
+	lsr
+	lsr
+	tax
+	lda htab,x
+	and masks+4,y
+	ora byte
+	sta byte		; store pixel bit
+	dey		; 8 bits
+	bpl hrl
+	rts
 
 ; --------------------------------------- Swap REU /w C64
 
@@ -930,6 +1123,9 @@ initad2	ldy #60
 
 bits	!by $00,$55,$aa,$ff	; bitmasks
 
+masks	!by $40,$10,$04,$01
+	!by $80,$20,$08,$02
+
 mask1	!by $c0		; 11000000
 	!by $30		; 00110000
 	!by $0c		; 00001100
@@ -947,17 +1143,12 @@ storems	!by 0
 col0	!by 0,0,0,0,0
 nr0	!by 0,0,0,0
 mask	!by 0,0,0,0
-max	!by 0,0
-maxcol	!by 0
 bbuf	!by 0
 xbuf	!by 0
 blcnt	!by 0
 vrcnt	!by 0
 zlcnt	!by 0
-hstart	!by 0
-hend	!by 0
 crcnt	!by 0
-nibflg	!by 0
 hmbuf	!by 0,0,0
 cntwert	!by 200
 basic	!by 1,8,6			; basicstart in bank x (default = 6)
@@ -986,12 +1177,12 @@ player
 display	jsr prepfli
 	jsr flion
 
-	jsr countdown	; view and wait for click
+	jsr viewfli	; view and wait for click
 
 -	lda grafreg	; Raster Bit 9 aus?
 	bpl -		; ja, loop
 
-	sei
+	sei		; restore former status
 	lda #$6b
 	sta grafreg
 	lda #$00
@@ -1105,7 +1296,7 @@ flion	lda grafreg	; sync
 	sta vicbank
 	lda #$38
 	sta charreg
-	lda #$19		; Multi
+	lda gmode		; $19: Multi, $08: hires
 	sta multreg
 	lda #$7f
 	sta irqcontr1
@@ -1176,13 +1367,6 @@ rirq2	nop
 	jsr fli		; process speedcode
 	dec irqflags
 
-;	lda multreg	; interlace (shift image for 1 pixel)
-;	eor #$01
-;	sta multreg
-;	lda vicbank	; if IFLI: switch images
-;	eor #$02
-;	sta vicbank
-
 	lda #$2f
 	sta rasterlo
 	lda #<(rirq)
@@ -1193,7 +1377,7 @@ rirq2	nop
 
 ; ------------------------------------------ Uhr
 
-countdown	ldx #0
+viewfli	ldx #0
 	stx timer
 	stx timer+1
 	stx timer+2
