@@ -39,9 +39,9 @@
 	timer		= $40	; /$41,/$42
 	hstart		= $43
 	hend		= $44
-	max		= $45	; /$46
-	maxcol		= $47
-	gmode		= $48
+	max		= $45
+	maxcol		= $46
+	gmode		= $47
 
 ; display FLI:
 
@@ -114,7 +114,7 @@ start	lda gd_modswitch
 	bne +
 	ldy #$08		; hires?
 	!by $2c
-+	ldy #$19		; or multi?
++	ldy #$18		; or multi?
 	sty gmode
 
 	jsr savec64	; save virtual C64
@@ -266,7 +266,6 @@ s10	dey
 	inc dst+1
 
 s11	lda src+1		; until end of 4Bit
-	ldy #$19
 	cmp #>sy_bigbuffer
 	beq ok3
 	jmp loop3
@@ -301,10 +300,11 @@ wcrl	lda (src3),y	; convert 4bit to c64
 	tax
 	lda c64cmb,x
 	and #15
-	jsr write		; save
+	jsr write		; save to virtual C64 in REU
 	iny
 	cpy #250
 	bne wcrl
+
 	lda src3
 	clc
 	adc #250
@@ -338,7 +338,7 @@ write	sta gbyte
 	ldx merkx
 	rts
 
-; ----------------------------------------- Save 1 FLI image
+; ----------------------------------------- Save FLI image to REU
 
 writefli	lda #200		; init activity bar
 	sta adcnt
@@ -389,8 +389,7 @@ s16	lda src
 	inc src+1
 s17	lda src+1
 	cmp #>sy_bigbuffer	; until end of 4Bit
-	beq s18
-	jmp loop12
+	bne loop12
 
 s18	ldy #24		; padding
 	jsr write0
@@ -400,8 +399,7 @@ s18	ldy #24		; padding
 	adc #4
 	sta vrcnt
 	cmp #32
-	beq ok12
-	jmp vrloop
+	bne vrloop
 
 ; ----------------------------------------- 
 
@@ -441,19 +439,17 @@ ch4	sta hist,y
 	clc
 	adc #4
 	sta src
-	bne s26
+	bcc s26
 	inc src+1
 s26	dec zlcnt
-	beq s27
-	jmp zlloop
+	bne zlloop
 
 s27	inc src3
 	bne s28
 	inc src3+1
 s28	lda src+1
 	cmp #>sy_bigbuffer	; unto end of 4Bit
-	beq ok121
-	jmp bmloop
+	bne bmloop
 
 ok121	rts
 
@@ -1182,7 +1178,7 @@ display	jsr prepfli
 -	lda grafreg	; Raster Bit 9 aus?
 	bpl -		; ja, loop
 
-	sei		; restore former status
+	sei		; restore previous status
 	lda #$6b
 	sta grafreg
 	lda #$00
@@ -1247,10 +1243,10 @@ prepfli	lda #$3b		; Bitmap $6000
 	inc smod3+1
 	dex
 	beq +
-	cpx #100
+	cpx #104
 	bne --
 
-	lda #$40		; after 107: Backgr $7f40 again
+	lda #$40		; after 104: Backgr $7f40 again
 	sta smod3+1
 	lda #$7f
 	sta smod3+2
@@ -1288,15 +1284,15 @@ flion	lda grafreg	; sync
 	sta colorram+$0100,x
 	lda icolor+$0200,x
 	sta colorram+$0200,x
-	lda icolor+$0300,x
-	sta colorram+$0300,x
+	lda icolor+$02e8,x
+	sta colorram+$02e8,x
 	inx
 	bne -
 	lda #$02		; VIC at $4000
 	sta vicbank
 	lda #$38
 	sta charreg
-	lda gmode		; $19: Multi, $08: hires
+	lda gmode		; $18: Multi, $08: hires
 	sta multreg
 	lda #$7f
 	sta irqcontr1
@@ -1304,9 +1300,9 @@ flion	lda grafreg	; sync
 	lda #$01
 	sta irqmask
 	sta irqflags
-	lda #<(rirq)
+	lda #<rirq
 	sta ramirq
-	lda #>(rirq)
+	lda #>rirq
 	sta ramirq+1
 	lda #$2f
 	sta rasterlo
@@ -1333,7 +1329,7 @@ rirq	pha
 	sta mpport
 	lda #$35
 	sta pport
-	lda #<(rirq2)
+	lda #<rirq2
 	sta ramirq
 	lda #$30
 	sta rasterlo
@@ -1369,9 +1365,9 @@ rirq2	nop
 
 	lda #$2f
 	sta rasterlo
-	lda #<(rirq)
+	lda #<rirq
 	sta ramirq
-	lda #>(rirq)
+	lda #>rirq
 	sta ramirq+1
 	jmp eoirq
 
