@@ -15,6 +15,8 @@
 ;
 ;   1.00, 13.12.18, first release
 ;   1.01, 15.12.18, added: hires mode
+;   1.02, 20.12.18, bugfix: last 4 scanlines were wrong
+;                   so changed FLI display routine
 ;
 ; ------------------------------------------------------------ 
 
@@ -54,6 +56,7 @@
 	inswap4k		= $1740
 	swap4k		= swap4096-2
 	bank0		= sy_4bit
+	lastbyte		= $7fff
 	bank1		= $c000
 
 	hist		= sy_global
@@ -64,7 +67,8 @@
 	hist3		= c64cmb+$100
 	playerloc		= $2000
 	icolor		= $0400
-	fli		= $8400
+	flicolors		= $8400
+	flibitmap		= flicolors+256
 	cram		= $ca00
 
 	vic		= $d000
@@ -99,8 +103,8 @@ header 	jmp start
 	!wo modend
 	!wo 0
 	!tx "FLI Display     "
-	!tx "1.01"
-	!tx "15.12.18"
+	!tx "1.02"
+	!tx "20.12.18"
 	!tx "A.Dettke        "
 
 ; --------------------------------------- Main
@@ -867,7 +871,7 @@ st9	lda #$30
 	ldx merkx
 	bpl st9
 
-	jsr st8		; restore godot
+	jsr st8
 	jsr gd_sproff
 
 	ldx #0
@@ -1175,11 +1179,173 @@ display	jsr prepfli
 
 	jsr viewfli	; view and wait for click
 
--	lda grafreg	; Raster Bit 9 aus?
-	bpl -		; ja, loop
+	jsr flioff
 
-	sei		; restore previous status
-	lda #$6b
+reinit	lda #$36
+	sta pport
+	jmp fallback	; GoDot zurückholen
+
+; ------------------------------------------ fli: Prepare
+
+prepfli	lda #$ff		; open borders: black
+	sta lastbyte
+
+	ldx #0		; fill color ram
+lp1	lda icolor,x
+	sta colorram,x
+	lda icolor+$0100,x
+	sta colorram+$0100,x
+	lda icolor+$0200,x
+	sta colorram+$0200,x
+	lda icolor+$0300,x
+	sta colorram+$0300,x
+	inx
+	bne lp1
+
+lp2	txa		; fill tables for video rams and bitmap
+	asl
+	asl
+	asl
+	asl
+	and #$70
+	ora #$08
+	sta flicolors,x
+	txa
+	and #$07
+	ora #$38
+	sta flibitmap,x
+	inx
+	bne lp2
+
+-	bit grafreg	; wait for rasterline 256
+	bmi -
+-	bit grafreg
+	bpl -
+check	cmp rasterlo	; ntscfix
+	bcs ntsc
+	lda rasterlo
+ntsc	bit grafreg
+	bmi check
+	cmp #$20
+	bcs pal
+	lda #$ea		; nop
+	sta ntsc1
+	sta ntsc2
+	sta ntsc3
+	dec ntsc4+1
+pal	rts
+
+; ------------------------------------------ 
+
+rirq1	pha
+	lda irqflags
+	sta irqflags
+	inc rasterlo
+	lda #<rirq2
+	sta ramirq
+	cli
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+
+rirq2
+ntsc1	lda #$ea		; nop
+	lda #$08
+	sta charreg
+	lda #$38
+	sta grafreg
+	pla
+	pla
+	pla
+	lda irqflags
+	sta irqflags
+	lda #$2d
+	sta rasterlo
+	lda #<rirq1
+	sta ramirq
+	lda rasterlo
+	cmp rasterlo
+	beq delay
+delay	stx xmerk+1
+
+	ldx #13
+wait	dex
+	bne wait
+
+ntsc2	lda #$ea
+ntsc3	lda #$ea
+	nop
+	nop
+
+lp0	lda flicolors+1,x
+	sta charreg
+	lda flibitmap+1,x
+	sta grafreg
+	inx
+	cpx #199
+ntsc4	bne lp0
+
+	lda #$70
+	sta grafreg
+xmerk	ldx #0
+	pla
+	rti
+
+; ------------------------------------------ FLI Darstellung
+
+flion	lda grafreg	; sync
+	bpl flion
+
+	sei
+	lda #$35
+	sta pport
+	lda #$7f
+	sta irqcontr1
+	lda irqcontr1
+
+	lda #$2b		; Bild aus, Grafik an
+	sta grafreg
+	lda #$96		; $4000
+	sta vicbank
+	lda gmode		; $18: Multi, $08: hires
+	sta multreg
+	lda #$2d
+	sta rasterlo
+
+	lda #<rirq1
+	sta ramirq
+	lda #>rirq1
+	sta ramirq+1
+	lda #$01
+	sta irqmask
+
+-	lda grafreg	; sync
+	bpl -
+	lda #$3b		; Bild an, Grafik bleibt an
+	sta grafreg
+	lda irqflags
+	dec irqflags
+	cli
+	rts
+
+; ------------------------------------------ 
+
+flioff	sei		; restore previous status
+	lda #$0b		; screen off
 	sta grafreg
 	lda #$00
 	sta irqmask
@@ -1195,214 +1361,21 @@ display	jsr prepfli
 	sta charreg
 	lda #$08
 	sta multreg
-	lda #$1b
-	sta grafreg
-	cli
-
-reinit	lda #$36
-	sta pport
-	jmp fallback
-
-; ------------------------------------------ fli: Prepare
-
-prepfli	lda #$3b		; Bitmap $6000
-	sta flirout+1
-	lda #$08		; Farben $4000
-	sta smod2+1
-	lda #$40		; Backgr $7f40
-	sta smod3+1
-	lda #$7f
-	sta smod3+2
-	lda #<fli		; Speedcode at $8400
-	sta vekt02
-	lda #>fli
-	sta vekt02+1
-	ldx #$d0		; 208 times:
-
---	ldy #$11
--	lda flirout,y	; write speedcode
-	sta (vekt02),y
-	dey
-	bpl -
-	clc
-	lda vekt02
-	adc #$12
-	sta vekt02
-	bcc +
-	inc vekt02+1
-+	clc
-	lda flirout+1
-	adc #$01
-	and #$07
-	ora #$38
-	sta flirout+1
-	lda smod2+1
-	adc #$10
-	and #$7f
-	sta smod2+1
-	inc smod3+1
-	dex
-	beq +
-	cpx #104
-	bne --
-
-	lda #$40		; after 104: Backgr $7f40 again
-	sta smod3+1
-	lda #$7f
-	sta smod3+2
-	bne --
-
-+	ldy #$00
-	lda #$60		; RTS dahinter
-	sta (vekt02),y
-	rts
-
-; ------------------------------------------ Speedcode
-
-flirout	lda #$ff
-	sta grafreg
-smod2	lda #$ff		; self modification
-	sta charreg
-smod3	lda $ffff		; self modification
-	sta backgr
-	bit ld3		; column of cursor
-
-; ------------------------------------------ FLI Darstellung
-
-flion	lda grafreg	; sync
-	bpl flion
-
-	sei
-	lda #$6b		; Bild aus
-	sta grafreg
-	lda #$35
-	sta pport
-	ldx #$00
--	lda icolor,x	; Colorram ($d800) besetzen
-	sta colorram,x
-	lda icolor+$0100,x
-	sta colorram+$0100,x
-	lda icolor+$0200,x
-	sta colorram+$0200,x
-	lda icolor+$02e8,x
-	sta colorram+$02e8,x
-	inx
-	bne -
-	lda #$02		; VIC at $4000
-	sta vicbank
-	lda #$38
-	sta charreg
-	lda gmode		; $18: Multi, $08: hires
-	sta multreg
-	lda #$7f
-	sta irqcontr1
-	lda irqcontr1
-	lda #$01
-	sta irqmask
-	sta irqflags
-	lda #<rirq
-	sta ramirq
-	lda #>rirq
-	sta ramirq+1
-	lda #$2f
-	sta rasterlo
--	lda grafreg	; sync
-	bpl -
-	lda #$3b		; Grafik an
+	inc ntsc4+1
+-	lda grafreg	; Raster Bit 9 aus?
+	bpl -		; ja, loop bis beam unten
+	lda #$1b		; screen on
 	sta grafreg
 	cli
 	rts
 
-; ------------------------------------------ 
+; ------------------------------------------ View Image
 
-eoirq	pla
-	sta pport
-	pla
-	tay
-	pla
-	tax
-	pla
-	rti
-
-rirq	pha
-	lda pport
-	sta mpport
-	lda #$35
-	sta pport
-	lda #<rirq2
-	sta ramirq
-	lda #$30
-	sta rasterlo
-	dec irqflags
-	cli
-	nop
-	nop
-	nop
-	nop
-	nop
-	nop
-	nop
-	nop
-	nop
-	nop
-	nop
-rirq2	nop
-	nop
-	nop
-	nop
-	nop
-	pla
-	pla
-	pla
-	txa
-	pha
-	tya
-	pha
-	lda mpport
-	pha
-	jsr fli		; process speedcode
-	dec irqflags
-
-	lda #$2f
-	sta rasterlo
-	lda #<rirq
-	sta ramirq
-	lda #>rirq
-	sta ramirq+1
-	jmp eoirq
-
-; ------------------------------------------ Uhr
-
-viewfli	ldx #0
-	stx timer
-	stx timer+1
-	stx timer+2
-	ldx #201
-
--	lda time
-	beq ++
-	dex
-	bne ++
-	ldx #201
-	inc timer
-	bne +
-	inc timer+1
-	bne +
-	inc timer+2
-+	lda timer+1
-	cmp time+2
-	bne ++
-	lda timer
-	cmp time+1
-	bcc +
-++	lda keybrow	; Keyboard abfragen
+viewfli	lda keybrow
 	and keybcol
 	and #$10
-	bne -		; nichts gedrückt: Loop
-+	rts
-
-time	!by 0,0,0
-
+	bne viewfli
+	rts
 }
 
 ; --------------------------------------- Fallback to GoDot (at $0100)
