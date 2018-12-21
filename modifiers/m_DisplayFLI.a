@@ -17,6 +17,7 @@
 ;   1.01, 15.12.18, added: hires mode
 ;   1.02, 20.12.18, bugfix: last 4 scanlines were wrong
 ;                   so changed FLI display routine
+;   1.03, 21.12.18, bugfix: wrong end of display
 ;
 ; ------------------------------------------------------------ 
 
@@ -103,8 +104,8 @@ header 	jmp start
 	!wo modend
 	!wo 0
 	!tx "FLI Display     "
-	!tx "1.02"
-	!tx "20.12.18"
+	!tx "1.03"
+	!tx "21.12.18"
 	!tx "A.Dettke        "
 
 ; --------------------------------------- Main
@@ -126,7 +127,7 @@ start	lda gd_modswitch
 	jsr clearad	; end activity display
 	jsr getjpz	; display fli, doesn't return if successful
 
-+	lda storems
+	lda storems
 	sta gd_modswitch
 	clc
 	rts
@@ -1189,6 +1190,8 @@ reinit	lda #$36
 
 prepfli	lda #$ff		; open borders: black
 	sta lastbyte
+	lda #$ef		; prepare ntsc changes
+	sta ntsc4+1
 
 	ldx #0		; fill color ram
 lp1	lda icolor,x
@@ -1361,7 +1364,6 @@ flioff	sei		; restore previous status
 	sta charreg
 	lda #$08
 	sta multreg
-	inc ntsc4+1
 -	lda grafreg	; Raster Bit 9 aus?
 	bpl -		; ja, loop bis beam unten
 	lda #$1b		; screen on
