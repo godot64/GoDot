@@ -18,6 +18,7 @@
 ;   1.02, 20.12.18, bugfix: last 4 scanlines were wrong
 ;                   so changed FLI display routine
 ;   1.03, 21.12.18, bugfix: wrong end of display
+;   1.04, 05.01.19, bugfix: rendered though no REU attached
 ;
 ; ------------------------------------------------------------ 
 
@@ -104,8 +105,8 @@ header 	jmp start
 	!wo modend
 	!wo 0
 	!tx "FLI Display     "
-	!tx "1.03"
-	!tx "21.12.18"
+	!tx "1.04"
+	!tx "05.01.19"
 	!tx "A.Dettke        "
 
 ; --------------------------------------- Main
@@ -113,7 +114,7 @@ header 	jmp start
 start	lda gd_modswitch
 	sta storems
 	jsr check4reu
-	bne +
+	bne ++
 
 	lda gr_cmode	; which render mode?
 	bne +
@@ -127,7 +128,7 @@ start	lda gd_modswitch
 	jsr clearad	; end activity display
 	jsr getjpz	; display fli, doesn't return if successful
 
-	lda storems
+++	lda storems
 	sta gd_modswitch
 	clc
 	rts
