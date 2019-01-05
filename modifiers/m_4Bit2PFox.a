@@ -12,11 +12,29 @@
 ;
 ;     1.00, 10.08.93, first release
 ;     1.01, 25.08.94, bugfix: retrieve correct startadress of "gofox"
-;     1.02, 24.08.16, 
+;     1.02, 24.08.16, rewrote modifier
+;     1.03, 05.01.19, bugfix: crashed when "gofox" wasn't on bootdrive 
+;
+; --------------------------------------
+;
+;  Hinweis:
+; 
+;  4Bit2PFox braucht das Programm "gofox" (das durch Umbenennen von
+;  "handyfox", "eddifox" oder "eddison" erzeugt wird), um in das  
+;  Pagefox-Modul überzuwechseln.
+;  Wer von dort ohne Umwege wieder zu GoDot zurückkehren will, muss
+;  vor dem Start von GoDot mit LOAD "exfox",8,1 die Pagefox-Funktion
+;  C=V patchen.
+;  Startet man *zuerst* den Pagefox mit dem zugehörigen Booter (also
+;  "eddison" oder ähnlich), muss man zusätzlich zum Laden von "exfox"
+;  vor RUN noch POKE 684,bootdrive (normalerweise: 8) eingeben, sonst
+;  hängt sich der Rückumstieg von Pagefox zu GoDot auf.
 ;
 ; --------------------------------------
 
 ; -------------------------------------- Equates
+
+	pport	= $01
 
 	dst	= $30
 	dst0	= $32
@@ -55,8 +73,8 @@ header	jmp start
 	!word modend
 	!word 0
 	!text "4Bit->PageFox   "
-	!text "1.02"
-	!text "24.08.16"
+	!text "1.03"
+	!text "05.01.19"
 	!text "A.Dettke        "
 
 ; --------------------------------------
@@ -76,11 +94,11 @@ start	lda ls_ramdrive	; Pagefox im System?
 
 ; --------------------------------------
 
-st0	ldx #<(pflst)	; ja, Modul aktivieren
-	ldy #>(pflst)
+st0	ldx #<pflst	; ja, Modul aktivieren
+	ldy #>pflst
 	jmp gd_xmloop
 
-; --------------------------------------
+; -------------------------------------- Event: Render
 
 sevpfox	jsr gd_sproff
 	lda #5
@@ -201,11 +219,11 @@ s5	lda src0+1
 	jmp lnloop
 s51	lda src0
 	clc
-	adc #<(1248)
+	adc #<1248
 	sta src0
 	sta src
 	lda src0+1
-	adc #>(1248)
+	adc #>1248
 	sta src0+1
 	sta src+1
 	dec lcnt8
@@ -308,8 +326,8 @@ ml4	rts
 moveline	lda vertcnt
 	bne ml0
 
-	lda #<(destbuf)
-	ldy #>(destbuf)
+	lda #<destbuf
+	ldy #>destbuf
 	sta dst0
 	sty dst0+1
 	bne ml2
@@ -341,8 +359,8 @@ ml3	inx
 ; -------------------------------------- and write to Pagefox
 
 	ldx #5		; write 640 bytes (2.5 pages)
-	lda #<(destbuf)	; get bytes from render buffer
-	ldy #>(destbuf)
+	lda #<destbuf	; get bytes from render buffer
+	ldy #>destbuf
 	sta dst0
 	sty dst0+1
 
@@ -373,20 +391,20 @@ spfox	stx sc_merk	; save .x and .y
 	sty sc_merk+1
 
 	ldx #$34		; get C64 bytes
-	stx 1
+	stx pport
 	ldy #0
 pw5	tax
 	lda (sc_texttab),y
 	pha		; save them
 
-	inc 1		; write to Pagefox (same location!):
+	inc pport		; write to Pagefox (same location!):
 	lda bank
 	sta bswitch	; switch Pagefox bank 8 at $8000 on (see sevpfox)
 	txa
 	sta (sc_texttab),y	; write
 	lda #$ff		; switch Pagefox off
 	sta bswitch
-	dec 1
+	dec pport
 
 	pla		; restore C64 bytes
 	sta (sc_texttab),y
@@ -411,7 +429,7 @@ pw2	lda sc_texttab+1	; up to $be80
 	sta sc_texttab
 
 pw3	lda #$36		; end this pass
-	sta 1
+	sta pport
 	ldx sc_merk	; restore .x and .y
 	ldy sc_merk+1
 	rts
@@ -423,8 +441,8 @@ sevstpf	lda sc_screenvek	; save current screenlist
 	lda sc_screenvek+1
 	pha
 
-	ldx #<(ldlst)	; new requester
-	ldy #>(ldlst)
+	ldx #<ldlst	; new requester
+	ldy #>ldlst
 	jsr gd_screen
 	jsr gd_eloop
 
@@ -440,9 +458,9 @@ sevstpf	lda sc_screenvek	; save current screenlist
 
 ; -------------------------------------- Event: Go to Pagefox
 
-sevleave	lda #<(inittx)	; output: "Initialising"
+sevleave	lda #<inittx	; output: "Initialising"
 	sta sc_screentab
-	lda #>(inittx)
+	lda #>inittx
 	sta sc_screentab+1
 	lda #0
 	tax
@@ -459,7 +477,7 @@ gt0	jsr gd_setpos
 
 	lda #$80		; yes, erase Screen 1 and 2 of Pagefox
 	ldy #0		; (Screens 3 and 4 are occupied by GoDot)
-	sty $d015
+	sty $d015		; :mouse sprites off
 	sta ls_vekta8+1
 	sty ls_vekta8
 era1	tya
@@ -476,61 +494,88 @@ era0	sta (ls_vekta8),y
 	ldx sy_irqalt+1
 	sta $0314
 	stx $0315
-	inc 1
+	inc pport		; BASIC an
 	cli
-	jsr ldpfox	; LOAD "gofox",bootdrive,1
+	jsr ldpfox	; LOAD "gofox",drive,1
 	bcs sevcan	; error?
 
 	lda #64		; no, jump into Pagefox (and *don't* clear graphics!)
-	jmp $1802
+	jmp $1802		; :doesn't return
 
 ; -------------------------------------- Event: Leave
 
-sevcan	sec
+sevcan	sei
+	lda #<gd_irq	; switch on GoDot IRQ
+	ldx #>gd_irq
+	sta $0314
+	stx $0315
+	lda #$36		; BASIC off (for GoDot)
+	sta pport
+	cli
+	sec
 	rts
 
 ; -------------------------------------- Load Pagefox Booter
 
 ldpfox	lda pflen
-	ldx #<(pfox)	; filename ("gofox")
-	ldy #>(pfox)
+	ldx #<pfox	; filename ("gofox")
+	ldy #>pfox
 	jsr filnam
 	lda #1
-	ldx ls_bootdrive
+	ldx drive
 	ldy #0
 	jsr filpar
 	lda #0
 	ldx addr		; get start address
 	ldy addr+1
-	jmp $ffd5		; LOAD
+	jmp $ffd5		; system LOAD
 
 ; -------------------------------------- Test if booter present
 
-testfile	lda pflen
-	sta ls_temp
-	lda #<(pfox)
-	sta ls_vekta8
-	lda #>(pfox)
-	sta ls_vekta8+1
-	lda ls_drive
+testfile	lda ls_drive
 	pha
 
-	lda ls_bootdrive	; Open "gofox"
+	lda ls_bootdrive
 	sta ls_drive
-	jsr gd_xopen
+
+-	sta drive		; start with bootdrive
+	jsr opengofox
+	jsr messout	; show floppy message
+	jsr gd_xclose
+	lda ls_err2	; error?
+	and #15
+	beq +
+	inc ls_drive	; go on up to drive 11
+	lda ls_drive
+	cmp #12
+	bne -
+	sta ls_err2
+	beq ++
+
++	jsr opengofox	; found:
 	jsr basin
 	sta addr		; get start address
 	jsr basin
 	sta addr+1
-	jsr gd_xclose
 	jsr messout	; show floppy message
+	jsr gd_xclose
 
-	pla
+++	pla		; finish load
 	sta ls_drive
-	jsr done		; mouse on
+	jsr done		; mouse pointer on
 	lda ls_err2	; error?
 	and #15
 	rts
+
+; --------------------------------------
+
+opengofox	lda pflen		; open "gofox"
+	sta ls_temp
+	lda #<pfox
+	sta ls_vekta8
+	lda #>pfox
+	sta ls_vekta8+1
+	jmp gd_xopen
 
 ; -------------------------------------- Floppy Message
 
@@ -539,26 +584,29 @@ messout	lda sc_screenvek	; save current screenlist
 	lda sc_screenvek+1
 	pha
 
-	ldx #<(mess)	; show gauge window (gadget on bottom of screen)
-	ldy #>(mess)
+	ldx #<mess	; show gauge window (gadget on bottom of screen)
+	ldy #>mess
 	jsr gd_screen
 
 	pla		; restore screenlist
 	sta sc_screenvek+1
 	pla
 	sta sc_screenvek
-	jmp gd_xmess
+	jmp gd_xmess	; show floppy message
 
-; -------------------------------------- Screenlist
+; -------------------------------------- Screenlist 1
 
 pflst	!byte 0
 	!byte 4,11,18,16,$81,0,0
 	!scr "Render to PFox@"
-	!byte 9,11,18,3,$ca,<(sevpfox),>(sevpfox)
+	!byte 9,11,18,3,$ca
+	!wo sevpfox
 	!scr "Render@"
-	!byte 12,11,18,3,$ca,<(sevstpf),>(sevstpf)
+	!byte 12,11,18,3,$ca
+	!wo sevstpf
 	!scr "Go to PFox@"
-	!byte 15,11,18,3,$ca,<(sevcan),>(sevcan)
+	!byte 15,11,18,3,$ca
+	!wo sevcan
 	!scr "Leave@"
 	!byte $c0,6,11,16
 	!scr "Select  Activity@"
@@ -569,9 +617,11 @@ pflst	!byte 0
 ldlst	!byte 0
 	!byte 4,11,18,16,$81,0,0
 	!scr "Render to PFox@"
-	!byte 16,12,7,3,$c0,<(sevleave),>(sevleave)
+	!byte 16,12,7,3,$c0
+	!wo sevleave
 	!scr " yes @"
-	!byte 16,21,7,3,$c0,<(sevcan),>(sevcan)
+	!byte 16,21,7,3,$c0
+	!wo sevcan
 	!scr " no! @"
 	!byte $c0,7,15,8
 	!scr "You will@"
@@ -581,7 +631,7 @@ ldlst	!byte 0
 	!scr "Ready to go?@"
 	!byte $80
 
-mess	!byte 0			; Gauge Window Parameters
+mess	!byte 0			; Gauge Window 
 	!byte 22,3,34,3,$02,0,0
 	!byte $80
 
@@ -595,23 +645,24 @@ inittx	!byte 14,14,12
 offs	!byte $00,$10,$20,$30
 	!byte $00,$10,$20,$30
 
-dlo	!byte <(dithoff)
-	!byte <(dithrst)
-	!byte <(dithpat)
-	!byte <(dithnoi)
-	!byte <(dithrnd)
+dlo	!byte <dithoff
+	!byte <dithrst
+	!byte <dithpat
+	!byte <dithnoi
+	!byte <dithrnd
 
-dhi	!byte >(dithoff)
-	!byte >(dithrst)
-	!byte >(dithpat)
-	!byte >(dithnoi)
-	!byte >(dithrnd)
+dhi	!byte >dithoff
+	!byte >dithrst
+	!byte >dithpat
+	!byte >dithnoi
+	!byte >dithrnd
 
 dmode	!word 0
 xmerk	!byte 0
 bank	!byte 8
 pflen	!byte 5
 pfox	!text "gofox"
+drive	!by 0
 addr	!word $0da0
 
 ; -------------------------------------- Activity Handler
