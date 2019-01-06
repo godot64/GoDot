@@ -13,7 +13,11 @@
 ;     1.00, 10.08.93, first release
 ;     1.01, 25.08.94, bugfix: retrieve correct startadress of "gofox"
 ;     1.02, 24.08.16, rewrote modifier
-;     1.03, 05.01.19, bugfix: crashed when "gofox" wasn't on bootdrive 
+;     1.03, 05.01.19, bugfix: crashed when "gofox" wasn't on bootdrive
+;     1.04, 06.01.19, added: clear all 4 upper screens of pagefox before
+;                            switching over
+;                            blink the border if no Pagefox attached
+;                            reset balancing on Leave
 ;
 ; --------------------------------------
 ;
@@ -55,6 +59,7 @@
 	buf	= $c900
 	destbuf	= $ca00
 
+	rahmen	= $d020
 	oszi3	= $d40e
 	wave	= $d412
 	filter	= $d418
@@ -73,8 +78,8 @@ header	jmp start
 	!word modend
 	!word 0
 	!text "4Bit->PageFox   "
-	!text "1.03"
-	!text "05.01.19"
+	!text "1.04"
+	!text "06.01.19"
 	!text "A.Dettke        "
 
 ; --------------------------------------
@@ -89,7 +94,20 @@ start	lda ls_ramdrive	; Pagefox im System?
 	and #15
 	cmp #3
 	beq st0
-	clc		; nein, zurück zu Mainscreen
+
+; ----------------------------------------------------- Blink the Border
+
+graphon	lda rahmen	; save border color
+	pha
+	ldy #2
+	sty rahmen	; set new color (in .y, e.g. "2" for red)
+	ldx #$40
+	jsr gd_dl2	; delay
+	pla
+	sta rahmen	; reset old border color
+	stx sy_tbuffer	; clear key strokes
+
+stay	clc
 	rts
 
 ; --------------------------------------
@@ -499,6 +517,30 @@ era0	sta (ls_vekta8),y
 	jsr ldpfox	; LOAD "gofox",drive,1
 	bcs sevcan	; error?
 
+	ldy #sevcan-moveit
+-	lda moveit,y
+	sta sy_global,y
+	dey
+	bpl -
+	jmp sy_global
+
+moveit	iny
+	sei
+	lda #$30
+	sta pport
+	lda #$c0
+	sta ls_vekta8+1
+	sty ls_vekta8
+era3	tya
+era2	sta (ls_vekta8),y
+	iny
+	bne era2
+	inc ls_vekta8+1
+	lda ls_vekta8+1
+	bne era3
+	lda #$37
+	sta pport
+	cli
 	lda #64		; no, jump into Pagefox (and *don't* clear graphics!)
 	jmp $1802		; :doesn't return
 
@@ -512,6 +554,16 @@ sevcan	sei
 	lda #$36		; BASIC off (for GoDot)
 	sta pport
 	cli
+
+; ----------------------------------------------------- Reset Balancing
+
+	ldy #16		; finished, reset Balancing
+	sty gr_ctr
+	sty gr_brt
+dc8	dey
+	tya
+	sta gr_btab,y
+	bne dc8
 	sec
 	rts
 
@@ -535,10 +587,10 @@ ldpfox	lda pflen
 testfile	lda ls_drive
 	pha
 
-	lda ls_bootdrive
+	lda #8		; start with drive #8
 	sta ls_drive
 
--	sta drive		; start with bootdrive
+-	sta drive
 	jsr opengofox
 	jsr messout	; show floppy message
 	jsr gd_xclose
