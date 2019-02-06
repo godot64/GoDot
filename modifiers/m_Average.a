@@ -1,6 +1,8 @@
 
 	!src "godotlib.lib"
 	*= $c000
+	!ct pet
+;	!sl "labels.txt"
 
 ; --------------------------------------
 ;
@@ -10,8 +12,9 @@
 ;         1.00, 05.09.04, bugfix in algorithm
 ; color:  0.99, 13.11.92, first release
 ; both:   1.01, 06.07.17, combined modifier gray & color
-; 
-; -------------------------------------- 
+;         1.02, 06.01.19, changed some colors in coltab
+;
+; --------------------------------------
 
 
 ; -------------------------------------- Equates
@@ -25,19 +28,19 @@
 
 ; -------------------------------------- Header
 
-	JMP start
+	jmp start
 
 	!by $20
 	!by 0
 	!by 0
 	!wo modend
 	!wo 0
-	!pet "Average values  "
-	!pet "1.01"
-	!pet "06.07.17"
-	!pet "W.Kling/AD      "
-addtx	!pet "Gray:Nib+Nib/2  "
-	!pet "Col:Nib+Nib->tab"
+	!pet "average values  "
+	!pet "1.02"
+	!pet "06.01.19"
+	!pet "w.kling/ad      "
+addtx	!pet "gray:nib+nib/2  "
+	!pet "col:nib+nib->tab"
 	!by 0
 
 ; -------------------------------------- Main
@@ -46,85 +49,85 @@ start	ldx #<(avlst)
 	ldy #>(avlst)
 	jmp gd_xmloop
 
-; -------------------------------------- Event: Gray
+; -------------------------------------- Event: gray
 
-evgray	JSR initad	; init activity bar
-	LDA #$00		; from $4000...
-	LDY #$40
-	STA src
-	STY src+1
+evgray	jsr initad	; init activity bar
+	lda #$00		; from $4000...
+	ldy #$40
+	sta src
+	sty src+1
 
-	LDY #$00		; pagewise
-st0	LDA (src),Y	; get byte (double nibble)
-	PHA
-	AND #$0F
-	STA buf
-	PLA
-	LSR
-	LSR
-	LSR
-	LSR
+	ldy #$00		; pagewise
+st0	lda (src),y	; get byte (double nibble)
+	pha
+	and #$0f
+	sta buf
+	pla
+	lsr
+	lsr
+	lsr
+	lsr
 	clc
-	ADC buf		; add nibbles
-	LSR		; and halve
-	TAX
-	LDA dnibs,X	; get according gray
-	STA (src),Y	; and set
-	INY
-	BNE st0
+	adc buf		; add nibbles
+	lsr		; and halve
+	tax
+	lda dnibs,x	; get according gray
+	sta (src),y	; and set
+	iny
+	bne st0
 
 	jsr increm
-	BNE st0
-	JMP clearad	; end activity
-	
-; -------------------------------------- Event: Color
+	bne st0
+	jmp clearad	; end activity
 
-evcolor	JSR initad	; init activity bar
-	LDA #$00		; from $4000...
-	LDY #$40
-	STA src
-	STY src+1
+; -------------------------------------- Event: color
 
-	LDY #$00		; pagewise
-st1	LDA (src),Y	; get byte (double nibble)
-	TAX
-	LDA coltab,X	; get according new value
-	STA (src),Y	; sand set
-	INY
-	BNE st1
+evcolor	jsr initad	; init activity bar
+	lda #$00		; from $4000...
+	ldy #$40
+	sta src
+	sty src+1
+
+	ldy #$00		; pagewise
+st1	lda (src),y	; get byte (double nibble)
+	tax
+	lda coltab,x	; get according new value
+	sta (src),y	; and set
+	iny
+	bne st1
 
 	jsr increm
-	BNE st1
+	bne st1
 	jmp clearad
-	
-; -------------------------------------- 
 
-increm	JSR adinc		; activity
-	INC src+1		; next page
-	LDA src+1
-	CMP #$BD
+; --------------------------------------
+
+increm	jsr adinc		; activity
+	inc src+1		; next page
+	lda src+1
+	cmp #$bd
 	rts
 
 ; -------------------------------------- Activity Handler: Move Bar
 
-adinc	DEC adcnt
-	BNE st2
-	LDA #$03
-	STA adcnt
-	INC y2
-	INC y2+2
-st2	RTS
+adinc	dec adcnt
+	bne st2
+	lda #$03
+	sta adcnt
+	inc y2
+	inc y2+2
+st2	rts
 
 ; -------------------------------------- Clear Bar
 
-clearad	LDA spren
-	AND #$f3
-	STA spren
-	LDA spritehi
-	AND #$F3
-	STA spritehi
-	LDA #$01
-	STA gr_redisp
+clearad	lda spren
+	and #$f3
+	sta spren
+	lda spritehi
+	and #$f3
+	sta spritehi
+	lda #$01
+	sta gr_redisp
 
 ; -------------------------------------- Event: Cancel
 
@@ -133,78 +136,81 @@ evcan	sec
 
 ; -------------------------------------- Init Bar
 
-initad	LDY #$3C
-	LDA #$00
-adl0	STA spr255+3,Y
-	DEY
-	BPL adl0
-	STY spr255
-	STY spr255+1
-	STY spr255+2
-	LDA #$0F
-	STA $D029
-	STA $D02A
-	LDA $D01D
-	ORA #$0C
-	STA $D01D
-	LDA spritehi
-	ORA #$0C
-	STA spritehi
-	LDA #$08
-	STA $D004
-	LDA #$20
-	STA $D006
-	
-	LDA #$92
-	STA y2
-	STA $D007
-	sty $07FA
-	sty $07FB
-	LDA spren
-	ORA #$0C
-	STA spren
-	LDA #$03
-	STA adcnt
-	RTS
+initad	ldy #$3c
+	lda #$00
+adl0	sta spr255+3,y
+	dey
+	bpl adl0
+	sty spr255
+	sty spr255+1
+	sty spr255+2
+	lda #$0f
+	sta $d029
+	sta $d02a
+	lda $d01d
+	ora #$0c
+	sta $d01d
+	lda spritehi
+	ora #$0c
+	sta spritehi
+	lda #$08
+	sta $d004
+	lda #$20
+	sta $d006
+
+	lda #$92
+	sta y2
+	sta $d007
+	sty $07fa
+	sty $07fb
+	lda spren
+	ora #$0c
+	sta spren
+	lda #$03
+	sta adcnt
+	rts
 
 ; -------------------------------------- Requester
 
 avlst	!by 0
 	!by 6,12,17,13,$81,0,0
 	!scr "Average@"
-sdith	!by 10,12,17,3,$ca,<evgray,>evgray
+sdith	!by 10,12,17,3,$ca
+	!wo evgray
 dithtx	!scr "Gray Values@"
-smode	!by 13,12,17,3,$ca,<evcolor,>evcolor
+smode	!by 13,12,17,3,$ca
+	!wo evcolor
 modetx	!scr "Color Values@"
-	!by 16,12,17,3,$c9,<evcan,>evcan
+	!by 16,12,17,3,$c9
+	!wo evcan
 	!scr "Cancel@"
 	!by $c0,8,12,15
 	!scr "Apply Pixels as@"
 	!by $80
 
-; -------------------------------------- 
+; --------------------------------------
 
-dnibs	!by $00, $11, $22, $33, $44, $55, $66, $77 
-	!by $88, $99, $aa, $bb, $cc, $dd, $ee, $ff   
+dnibs	!by $00,$11,$22,$33,$44,$55,$66,$77
+	!by $88,$99,$aa,$bb,$cc,$dd,$ee,$ff
 
-coltab	!by $00, $00, $00, $00, $22, $33, $22, $33, $33, $33, $33, $33, $33, $33, $33, $77
-	!by $00, $11, $33, $11, $33, $11, $33, $33, $88, $55, $33, $77, $88, $77, $77, $88
-	!by $00, $22, $22, $22, $44, $33, $22, $33, $77, $66, $33, $77, $77, $66, $aa, $77
-	!by $00, $11, $22, $33, $22, $33, $22, $33, $77, $77, $33, $77, $77, $77, $aa, $77
-	!by $22, $55, $44, $22, $44, $44, $44, $33, $55, $66, $33, $77, $77, $66, $33, $99
-	!by $33, $11, $44, $33, $44, $55, $44, $55, $88, $55, $77, $77, $88, $99, $33, $99
-	!by $22, $22, $22, $22, $44, $44, $66, $66, $77, $99, $66, $99, $77, $99, $aa, $99
-	!by $33, $33, $33, $33, $33, $55, $66, $77, $88, $99, $77, $77, $bb, $bb, $ee, $bb
-	!by $33, $88, $55, $77, $55, $88, $77, $88, $88, $99, $77, $88, $cc, $bb, $bb, $bb
-	!by $33, $55, $66, $77, $66, $55, $99, $99, $99, $99, $77, $bb, $bb, $99, $bb, $bb
-	!by $33, $11, $aa, $33, $22, $11, $66, $77, $88, $bb, $aa, $ee, $ee, $ee, $aa, $bb
-	!by $33, $77, $77, $77, $77, $77, $99, $77, $88, $bb, $ee, $bb, $bb, $dd, $bb, $ff
-	!by $33, $88, $ee, $77, $77, $88, $ee, $bb, $cc, $bb, $ee, $bb, $cc, $bb, $ee, $ff
-	!by $33, $77, $66, $77, $66, $99, $99, $bb, $bb, $99, $ee, $dd, $bb, $dd, $ee, $ff
-	!by $33, $11, $aa, $aa, $22, $55, $aa, $ee, $cc, $bb, $aa, $bb, $ee, $ee, $ee, $bb
-	!by $77, $88, $77, $77, $99, $99, $99, $bb, $bb, $bb, $bb, $ff, $ff, $ff, $bb, $ff
+coltab	!by $00,$00,$00,$00,$22,$33,$22,$33,$33,$33,$33,$33,$33,$33,$33,$77
+	!by $00,$11,$33,$11,$33,$11,$33,$33,$88,$55,$33,$77,$88,$77,$77,$88
+	!by $00,$22,$22,$22,$44,$33,$22,$33,$77,$66,$33,$77,$77,$66,$aa,$77
+	!by $00,$11,$22,$33,$22,$33,$22,$33,$77,$77,$33,$77,$77,$77,$aa,$77
+	!by $22,$55,$44,$22,$44,$44,$44,$33,$55,$66,$33,$77,$77,$66,$33,$99
+	!by $33,$11,$44,$33,$44,$55,$44,$55,$88,$55,$77,$77,$88,$99,$33,$99
+	!by $22,$22,$22,$22,$44,$44,$66,$66,$77,$99,$66,$99,$bb,$99,$aa,$99
+	!by $33,$33,$33,$33,$33,$55,$66,$77,$88,$99,$77,$77,$bb,$bb,$ee,$bb
+	!by $33,$88,$55,$77,$55,$88,$77,$88,$88,$99,$77,$88,$cc,$ee,$bb,$bb
+	!by $33,$55,$66,$77,$66,$55,$99,$99,$99,$99,$77,$bb,$bb,$99,$bb,$bb
+	!by $33,$11,$aa,$33,$22,$11,$66,$77,$88,$bb,$aa,$ee,$ee,$ee,$aa,$bb
+	!by $33,$77,$77,$77,$77,$77,$99,$77,$88,$bb,$ee,$bb,$bb,$dd,$bb,$ff
+	!by $33,$88,$77,$77,$77,$88,$bb,$bb,$cc,$bb,$ee,$bb,$cc,$bb,$ee,$ff
+	!by $33,$77,$66,$77,$66,$99,$99,$bb,$ee,$99,$ee,$dd,$bb,$dd,$ee,$ff
+	!by $33,$11,$aa,$aa,$22,$55,$aa,$ee,$cc,$bb,$aa,$bb,$ee,$ee,$ee,$bb
+	!by $77,$88,$77,$77,$99,$99,$99,$bb,$bb,$bb,$bb,$ff,$ff,$ff,$bb,$ff
 
-; -------------------------------------- 
+; --------------------------------------
 
-modend	!eof 
+modend	!eof
 
