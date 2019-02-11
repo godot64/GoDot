@@ -1,0 +1,217 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; --------------------------------------
+;
+; mod.ForceMulti
+;
+; gray:   0.99, 10.11.92, first release as mod.Average
+;         1.00, 05.09.04, bugfix in algorithm
+; color:  0.99, 13.11.92, first release
+; both:   1.01, 06.07.17, combined modifier gray & color
+;         1.02, 06.02.19, changed some colors in coltab
+;                         changed name of module to mod.ForceMulti
+;
+; --------------------------------------
+
+
+; -------------------------------------- Equates
+
+	adcnt		= $34
+	src		= $35	; /$36
+	buf		= $39
+	spr255		= $3fc0
+	y2		= $d005
+	spren		= $d015
+
+; -------------------------------------- Header
+
+	jmp start
+
+	!by $20
+	!by 0
+	!by 0
+	!wo modend
+	!wo 0
+	!pet "average values  "
+	!pet "1.02"
+	!pet "06.01.19"
+	!pet "w.kling/ad      "
+addtx	!pet "gray:nib+nib/2  "
+	!pet "col:nib+nib->tab"
+	!by 0
+
+; -------------------------------------- Main
+
+start	ldx #<avlst
+	ldy #>avlst
+	jmp gd_xmloop
+
+; -------------------------------------- Event: gray
+
+evgray	jsr initad	; init activity bar
+	lda #$00		; from $4000...
+	ldy #$40
+	sta src
+	sty src+1
+
+	ldy #$00		; pagewise
+st0	lda (src),y	; get byte (double nibble)
+	pha
+	and #$0f
+	sta buf
+	pla
+	lsr
+	lsr
+	lsr
+	lsr
+	clc
+	adc buf		; add nibbles
+	lsr		; and halve
+	tax
+	lda dnibs,x	; get according gray
+	sta (src),y	; and set
+	iny
+	bne st0
+
+	jsr increm
+	bne st0
+	jmp clearad	; end activity
+
+; -------------------------------------- Event: color
+
+evcolor	jsr initad	; init activity bar
+	lda #$00		; from $4000...
+	ldy #$40
+	sta src
+	sty src+1
+
+	ldy #$00		; pagewise
+st1	lda (src),y	; get byte (double nibble)
+	tax
+	lda coltab,x	; get according new value
+	sta (src),y	; and set
+	iny
+	bne st1
+
+	jsr increm
+	bne st1
+	jmp clearad
+
+; --------------------------------------
+
+increm	jsr adinc		; activity
+	inc src+1		; next page
+	lda src+1
+	cmp #$bd
+	rts
+
+; -------------------------------------- Activity Handler: Move Bar
+
+adinc	dec adcnt
+	bne st2
+	lda #$03
+	sta adcnt
+	inc y2
+	inc y2+2
+st2	rts
+
+; -------------------------------------- Clear Bar
+
+clearad	lda spren
+	and #$f3
+	sta spren
+	lda spritehi
+	and #$f3
+	sta spritehi
+	lda #$01
+	sta gr_redisp
+
+; -------------------------------------- Event: Cancel
+
+evcan	sec
+	rts
+
+; -------------------------------------- Init Bar
+
+initad	ldy #$3c
+	lda #$00
+adl0	sta spr255+3,y
+	dey
+	bpl adl0
+	sty spr255
+	sty spr255+1
+	sty spr255+2
+	lda #$0f
+	sta $d029
+	sta $d02a
+	lda $d01d
+	ora #$0c
+	sta $d01d
+	lda spritehi
+	ora #$0c
+	sta spritehi
+	lda #$08
+	sta $d004
+	lda #$20
+	sta $d006
+
+	lda #$92
+	sta y2
+	sta $d007
+	sty $07fa
+	sty $07fb
+	lda spren
+	ora #$0c
+	sta spren
+	lda #$03
+	sta adcnt
+	rts
+
+; -------------------------------------- Requester
+
+avlst	!by 0
+	!by 6,12,17,13,$81,0,0
+	!scr "ForceMulti@"
+sdith	!by 10,12,17,3,$ca
+	!wo evgray
+dithtx	!scr "Gray Values@"
+smode	!by 13,12,17,3,$ca
+	!wo evcolor
+modetx	!scr "Color Values@"
+	!by 16,12,17,3,$c9
+	!wo evcan
+	!scr "Cancel@"
+	!by $c0,8,12,15
+	!scr "Apply Pixels as@"
+	!by $80
+
+; --------------------------------------
+
+dnibs	!by $00,$11,$22,$33,$44,$55,$66,$77
+	!by $88,$99,$aa,$bb,$cc,$dd,$ee,$ff
+
+coltab	!by $00,$33,$33,$33,$22,$22,$22,$33,$33,$33,$33,$33,$33,$33,$33,$77
+	!by $33,$11,$33,$11,$33,$11,$22,$33,$88,$55,$33,$77,$88,$77,$77,$88
+	!by $33,$33,$22,$22,$44,$44,$22,$33,$77,$66,$33,$77,$bb,$66,$aa,$77
+	!by $33,$11,$22,$33,$22,$33,$22,$33,$77,$77,$33,$77,$77,$77,$aa,$77
+	!by $22,$33,$44,$22,$44,$44,$44,$33,$55,$66,$22,$77,$77,$66,$22,$99
+	!by $22,$11,$44,$33,$44,$55,$44,$55,$88,$55,$77,$77,$88,$99,$55,$99
+	!by $22,$22,$22,$22,$44,$44,$66,$66,$77,$99,$66,$99,$bb,$99,$aa,$99
+	!by $33,$33,$33,$33,$33,$55,$66,$77,$88,$99,$77,$77,$bb,$bb,$ee,$bb
+	!by $33,$88,$77,$77,$55,$88,$77,$88,$88,$99,$77,$88,$cc,$ee,$cc,$bb
+	!by $33,$55,$66,$77,$66,$55,$99,$99,$99,$99,$77,$bb,$bb,$99,$bb,$bb
+	!by $33,$33,$33,$33,$22,$77,$66,$77,$77,$77,$aa,$ee,$ee,$ee,$aa,$bb
+	!by $33,$77,$77,$77,$77,$77,$99,$77,$88,$bb,$ee,$bb,$bb,$dd,$bb,$ff
+	!by $33,$88,$bb,$77,$77,$88,$bb,$bb,$cc,$bb,$ee,$bb,$cc,$bb,$ee,$ff
+	!by $33,$77,$66,$77,$66,$99,$99,$bb,$ee,$99,$ee,$dd,$bb,$dd,$ee,$ff
+	!by $33,$77,$aa,$aa,$22,$55,$aa,$ee,$cc,$bb,$aa,$bb,$ee,$ee,$ee,$bb
+	!by $77,$88,$77,$77,$99,$99,$99,$bb,$bb,$bb,$bb,$ff,$ff,$ff,$bb,$ff
+
+; --------------------------------------
+
+modend	!eof
+
