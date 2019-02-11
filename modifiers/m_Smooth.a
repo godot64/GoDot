@@ -1,31 +1,41 @@
-	!src "godotlib.lib"	; library nicht erforderlich
+
+	!src "godotlib.lib"
 	*= $c000
+	!ct pet
+;	!sl "labels.txt"
 
 ; ------------------------------------------------ 
 ;
 ; mod.Smooth
 ;
-;     modifier to combine mod.AverageColor and mod.VSmoothCol
+;     modifier to apply antialiasing to a color image
 ;
-;   1.00: 26.08.04, first release
+;   1.00, 26.08.04, first release
+;   1.01, 07.01.19, changed some colors in coltab
+;   1.02, 09.02.19, completly recoded average section
 ; 
 ; ------------------------------------------------ 
 
 
 ; ------------------------------------------------ Declarations
 
-
-	adcnt		= $34
+	adcnt		= $30
+	cntln		= $31
+	line		= $32
+	src0		= $33	; /$34
 	src		= $35	; /$36
 	dst		= $37	; /$38
 	cnt320		= $39	; /$3a
-	lastnib		= $3f
-	cntwert		= $40
-	mask		= $41
+	lastpix		= $3b
+	lastnib		= $3d
+	cntwert		= $3e
+	mask		= $3f
+	sbuf		= $40	; /$41
+	wbuf		= $42	; /$43
 
 	spr255		= $3fc0
-	wkbuf		= $bd00
-	smbuf		= $cc00
+	workbuf		= $bd00
+	smthbuf		= $cc00
 	y2		= $d005
 	spren		= $d015
 
@@ -39,8 +49,8 @@
 	!by 0
 	!by 0
 	!pet "320x200c>160x100"
-	!pet "1.00"
-	!pet "26.08.04"
+	!pet "1.02"
+	!pet "09.02.19"
 	!pet "W.Kling/A.Dettke"
 
 ; -------------------------------------- Main
@@ -55,12 +65,13 @@ start	jsr vsmooth
 ; -------------------------------------- Vertical
 
 vsmooth	lda #8		; adcnt
+	sta adcnt
 	sta cntwert
 	jsr initad	; initad
 
 	ldy #0		; clear smooth buffer
 	tya
-sm0	sta smbuf,y
+sm0	sta smthbuf,y
 	iny
 	bne sm0
 
@@ -105,7 +116,7 @@ tloop	lda (src),y	; get 1 rasterline (downwards)
 	lsr
 	lsr
 sm2	and #$0f
-	sta wkbuf,x
+	sta workbuf,x
 	inx
 	iny		; (plus 4)
 	iny
@@ -121,9 +132,10 @@ sm2	and #$0f
 	cmp #$bd		; all through?
 	bcc bloop
 
-	ldy #0		; now smooth...
+	ldy workbuf	; now smooth...
 	sty lastnib
-sm3	lda wkbuf,y
+	ldy #0
+sm3	lda workbuf,y
 	tax
 	asl
 	asl
@@ -134,7 +146,7 @@ sm3	lda wkbuf,y
 	tax
 	lda coltab,x
 	and #$0f
-	sta smbuf,y
+	sta smthbuf,y
 	iny
 	cpy #200		; 200 bytes untereinander?
 	bne sm3
@@ -168,7 +180,7 @@ sm4	ldx #$f0
 	
 	ldx #0		; write back smoothed values
 bloop1	ldy #0
-tloop1	lda smbuf,x
+tloop1	lda smthbuf,x
 	bit mask
 	bvs sm5
 	asl
@@ -210,27 +222,177 @@ finish	rts
 
 ; -------------------------------------- Horizontal
 
-hsmooth	lda #3
+hsmooth	lda #5
 	sta cntwert
-	jsr initad
-	lda #$00		; set start of 4bit
-	ldy #$40
+
+	jsr initad	; init activity bar
+	jsr setbufs
+	lda #<sy_4bit	; from $4000...
+	ldy #>sy_4bit
+	sta src0
+	sta src
+	sty src0+1
+	sty src+1
+
+	ldy #0
+
+hbloop	jsr mv2buf	; write 1 line to buffer
+	jsr setbufs	; reset buffer pointers
+
+average	lda smthbuf	; now process line
+	sta lastpix
+
+avloop	lda lastpix	; color mode
+	asl
+	asl
+	asl
+	asl
+	ora (sbuf,x)
+	tay
+	lda coltab,y
+	and #$0f
+	jsr stwbuf
+
++	lda (sbuf,x)
+	sta lastpix
+	jsr incsbuf
+	lda sbuf+1
+	cmp #>smthbuf
+	beq avloop
+	lda sbuf
+	cmp #$40
+	bcc avloop
+
+	lda src0		; write processed line back to 4bit
+	ldy src0+1
 	sta src
 	sty src+1
-	
-	ldy #0		; pagewise
-st0	lda (src),y	; make double nibs
-	tax
-	lda coltab,x
-	sta (src),y
-	iny
-	bne st0
-	
+	jsr setbufs
+	ldy #0
+	jsr mv24bit
+
 	jsr adinc		; activity
-	inc src+1		; next page
-	lda src+1
-	cmp #$bd		; end of 4bit?
-	bne st0		; no, loop
+	ldy #0
+
+	lda src0		; proceed to next raster line
+	clc
+	adc #4
+	sta src0
+	sta src
+	cmp #32
+	bcs +
+	lda src0+1
+	sta src+1
+	bne hbloop
+
++	clc		; proceed to next block line
+	adc #$e0
+	sta src0
+	sta src
+	lda src0+1
+	adc #$04
+	sta src0+1
+	sta src+1
+	cmp #>sy_bigbuffer	; until end of 4bit
+	bcs +
+	jmp hbloop
+
++	jmp clearad	; end activity
+
+; -------------------------------------- 4Bit to Buffer
+
+mv2buf	sty line		; counter for line (40 tiles)
+	ldx #0
+-	sty cntln		; counter for tile (4 bytes)
+	lda (src),y	; spread to single pixels (320)
+	tay
+	lsr		; left
+	lsr
+	lsr
+	lsr
+	jsr stsbuf
+	tya
+	and #$0f		; right
+	jsr stsbuf
+	ldy cntln
+	iny
+	cpy #4
+	bcc -
+
+	lda src		; proceed to next tile
+	clc
+	adc #32
+	sta src
+	bcc +
+	inc src+1
++	inc line		; 40 tiles
+	lda line
+	cmp #40
+	bcs +
+	ldy #0
+	beq -
++	rts
+
+; -------------------------------------- Buffer to 4Bit
+
+mv24bit	sty line		; counter for line (40 tiles)
+	ldx #0
+-	sty cntln		; counter for tile (4 bytes)
+	lda (wbuf,x)	; combine to double pixels (160)
+	asl		; left
+	asl
+	asl
+	asl
+	jsr incwbuf
+	ora (wbuf,x)	; right
+	sta (src),y
+	jsr incwbuf
+	ldy cntln
+	iny
+	cpy #4
+	bcc -
+
+	lda src		; proceed to next tile
+	clc
+	adc #32
+	sta src
+	bcc +
+	inc src+1
++	inc line		; 40 tiles
+	lda line
+	cmp #40
+	bcs +
+	ldy #0
+	beq -
++	rts
+
+; --------------------------------------
+
+setbufs	lda #<workbuf
+	ldy #>workbuf
+	sta wbuf
+	sty wbuf+1
+setsbuf	lda #<smthbuf
+	ldy #>smthbuf
+	sta sbuf
+	sty sbuf+1
+	rts
+
+; --------------------------------------
+
+stsbuf	sta (sbuf,x)
+incsbuf	inc sbuf
+	bne +
+	inc sbuf+1
++	rts
+
+; --------------------------------------
+
+stwbuf	sta (wbuf,x)
+incwbuf	inc wbuf
+	bne +
+	inc wbuf+1
++	rts
 
 ; -------------------------------------- Activity: Exit
 
@@ -288,21 +450,21 @@ adskp	rts
 
 ; -------------------------------------- Table
 
-coltab	!by $00,$00,$00,$00,$22,$33,$22,$33,$33,$33,$33,$33,$33,$33,$33,$77
-	!by $00,$11,$33,$11,$33,$11,$33,$33,$88,$55,$33,$77,$88,$77,$77,$88
-	!by $00,$22,$22,$22,$44,$33,$22,$33,$77,$66,$33,$77,$77,$66,$aa,$77
-	!by $00,$11,$22,$33,$22,$33,$22,$33,$77,$77,$33,$77,$77,$77,$aa,$77
-	!by $22,$55,$44,$22,$44,$44,$44,$33,$55,$66,$33,$77,$77,$66,$33,$99
-	!by $33,$11,$44,$33,$44,$55,$44,$55,$88,$55,$77,$77,$88,$99,$33,$99
-	!by $22,$22,$22,$22,$44,$44,$66,$66,$77,$99,$66,$99,$77,$99,$aa,$99
+coltab	!by $00,$33,$33,$33,$22,$22,$22,$33,$33,$33,$33,$33,$33,$33,$33,$77
+	!by $33,$11,$33,$11,$33,$11,$22,$33,$88,$55,$33,$77,$88,$77,$77,$88
+	!by $33,$33,$22,$22,$44,$44,$22,$33,$77,$66,$33,$77,$bb,$66,$aa,$77
+	!by $33,$11,$22,$33,$22,$33,$22,$33,$77,$77,$33,$77,$77,$77,$aa,$77
+	!by $22,$33,$44,$22,$44,$44,$44,$33,$55,$66,$22,$77,$77,$66,$22,$99
+	!by $22,$11,$44,$33,$44,$55,$44,$55,$88,$55,$77,$77,$88,$99,$55,$99
+	!by $22,$22,$22,$22,$44,$44,$66,$66,$77,$99,$66,$99,$bb,$99,$aa,$99
 	!by $33,$33,$33,$33,$33,$55,$66,$77,$88,$99,$77,$77,$bb,$bb,$ee,$bb
-	!by $33,$88,$55,$77,$55,$88,$77,$88,$88,$99,$77,$88,$cc,$bb,$bb,$bb
+	!by $33,$88,$77,$77,$55,$88,$77,$88,$88,$99,$77,$88,$cc,$ee,$cc,$bb
 	!by $33,$55,$66,$77,$66,$55,$99,$99,$99,$99,$77,$bb,$bb,$99,$bb,$bb
-	!by $33,$11,$aa,$33,$22,$11,$66,$77,$88,$bb,$aa,$ee,$ee,$ee,$aa,$bb
+	!by $33,$33,$33,$33,$22,$77,$66,$77,$77,$77,$aa,$ee,$ee,$ee,$aa,$bb
 	!by $33,$77,$77,$77,$77,$77,$99,$77,$88,$bb,$ee,$bb,$bb,$dd,$bb,$ff
-	!by $33,$88,$ee,$77,$77,$88,$ee,$bb,$cc,$bb,$ee,$bb,$cc,$bb,$ee,$ff
-	!by $33,$77,$66,$77,$66,$99,$99,$bb,$bb,$99,$ee,$dd,$bb,$dd,$ee,$ff
-	!by $33,$11,$aa,$aa,$22,$55,$aa,$ee,$cc,$bb,$aa,$bb,$ee,$ee,$ee,$bb
+	!by $33,$88,$bb,$77,$77,$88,$bb,$bb,$cc,$bb,$ee,$bb,$cc,$bb,$ee,$ff
+	!by $33,$77,$66,$77,$66,$99,$99,$bb,$ee,$99,$ee,$dd,$bb,$dd,$ee,$ff
+	!by $33,$77,$aa,$aa,$22,$55,$aa,$ee,$cc,$bb,$aa,$bb,$ee,$ee,$ee,$bb
 	!by $77,$88,$77,$77,$99,$99,$99,$bb,$bb,$bb,$bb,$ff,$ff,$ff,$bb,$ff
 
 ; --------------------------------------
