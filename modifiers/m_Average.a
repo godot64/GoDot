@@ -13,18 +13,36 @@
 ; color:  0.99, 13.11.92, first release
 ; both:   1.01, 06.07.17, combined modifier gray & color
 ;         1.02, 06.01.19, changed some colors in coltab
+;         1.03, 09.02.19, completely recoded for correct results
 ;
 ; --------------------------------------
 
 
 ; -------------------------------------- Equates
 
-	adcnt		= $34
+	adcnt		= $30
+	cntln		= $31
+	line		= $32
+	src0		= $33	; /$34
 	src		= $35	; /$36
-	buf		= $39
+	lastpix		= $37
+	mode		= $38
+	sbuf		= $39	; /$3a
+	wbuf		= $3b	; /$3c
+
+	workbuf		= $bd00
+	smthbuf		= $ca00	; 320 bytes buffer
+
+	sprptr		= $07f8
 	spr255		= $3fc0
-	y2		= $d005
+
+	spr2x		= $d004
+	spr2y		= $d005
+	msbx		= spritehi
 	spren		= $d015
+	sprxe		= $d01d
+	border		= $d020
+	sprcol2		= $d029
 
 ; -------------------------------------- Header
 
@@ -36,96 +54,226 @@
 	!wo modend
 	!wo 0
 	!pet "average values  "
-	!pet "1.02"
-	!pet "06.01.19"
-	!pet "w.kling/ad      "
+	!pet "1.03"
+	!pet "09.02.19"
+	!pet "W.Kling/AD      "
 addtx	!pet "gray:nib+nib/2  "
 	!pet "col:nib+nib->tab"
 	!by 0
 
 ; -------------------------------------- Main
 
-start	ldx #<(avlst)
-	ldy #>(avlst)
+start	ldx #<avlst
+	ldy #>avlst
 	jmp gd_xmloop
 
 ; -------------------------------------- Event: gray
 
-evgray	jsr initad	; init activity bar
-	lda #$00		; from $4000...
-	ldy #$40
-	sta src
-	sty src+1
-
-	ldy #$00		; pagewise
-st0	lda (src),y	; get byte (double nibble)
-	pha
-	and #$0f
-	sta buf
-	pla
-	lsr
-	lsr
-	lsr
-	lsr
-	clc
-	adc buf		; add nibbles
-	lsr		; and halve
-	tax
-	lda dnibs,x	; get according gray
-	sta (src),y	; and set
-	iny
-	bne st0
-
-	jsr increm
-	bne st0
-	jmp clearad	; end activity
+evgray	lda #0
+	!by $2c
 
 ; -------------------------------------- Event: color
 
-evcolor	jsr initad	; init activity bar
-	lda #$00		; from $4000...
-	ldy #$40
+evcolor	lda #$ff
+	sta mode
+
+	jsr initad	; init activity bar
+	jsr setbufs
+	lda #<sy_4bit	; from $4000...
+	ldy #>sy_4bit
+	sta src0
 	sta src
+	sty src0+1
 	sty src+1
 
-	ldy #$00		; pagewise
-st1	lda (src),y	; get byte (double nibble)
-	tax
-	lda coltab,x	; get according new value
-	sta (src),y	; and set
-	iny
-	bne st1
+	ldy #0
 
-	jsr increm
-	bne st1
-	jmp clearad
+bloop	jsr mv2buf	; write 1 line to buffer
+	jsr setbufs	; reset buffer pointers
+
+average	lda smthbuf	; now process line
+	sta lastpix
+
+avloop	bit mode
+	bmi color
+
+gray	lda lastpix	; gray mode
+	clc
+	adc (sbuf,x)
+	lsr
+	jsr stwbuf
+	bne +
+
+color	lda lastpix	; color mode
+	asl
+	asl
+	asl
+	asl
+	ora (sbuf,x)
+	tay
+	lda coltab,y
+	and #$0f
+	jsr stwbuf
+
++	lda (sbuf,x)
+	sta lastpix
+	jsr incsbuf
+	lda sbuf+1
+	cmp #>smthbuf
+	beq avloop
+	lda sbuf
+	cmp #$40
+	bcc avloop
+
+	lda src0		; write processed line back to 4bit
+	ldy src0+1
+	sta src
+	sty src+1
+	jsr setbufs
+	ldy #0
+	jsr mv24bit
+
+	jsr adinc		; activity
+	ldy #0
+
+	lda src0		; proceed to next raster line
+	clc
+	adc #4
+	sta src0
+	sta src
+	cmp #32
+	bcs +
+	lda src0+1
+	sta src+1
+	bne bloop
+
++	clc		; proceed to next block line
+	adc #$e0
+	sta src0
+	sta src
+	lda src0+1
+	adc #$04
+	sta src0+1
+	sta src+1
+	cmp #>sy_bigbuffer	; until end of 4bit
+	bcs +
+	jmp bloop
+
++	jmp clearad	; end activity
+
+; -------------------------------------- 4Bit to Buffer
+
+mv2buf	sty line		; counter for line (40 tiles)
+	ldx #0
+-	sty cntln		; counter for tile (4 bytes)
+	lda (src),y	; spread to single pixels (320)
+	tay
+	lsr		; left
+	lsr
+	lsr
+	lsr
+	jsr stsbuf
+	tya
+	and #$0f		; right
+	jsr stsbuf
+	ldy cntln
+	iny
+	cpy #4
+	bcc -
+
+	lda src		; proceed to next tile
+	clc
+	adc #32
+	sta src
+	bcc +
+	inc src+1
++	inc line		; 40 tiles
+	lda line
+	cmp #40
+	bcs +
+	ldy #0
+	beq -
++	rts
+
+; -------------------------------------- Buffer to 4Bit
+
+mv24bit	sty line		; counter for line (40 tiles)
+	ldx #0
+-	sty cntln		; counter for tile (4 bytes)
+	lda (wbuf,x)	; combine to double pixels (160)
+	asl		; left
+	asl
+	asl
+	asl
+	jsr incwbuf
+	ora (wbuf,x)	; right
+	sta (src),y
+	jsr incwbuf
+	ldy cntln
+	iny
+	cpy #4
+	bcc -
+
+	lda src		; proceed to next tile
+	clc
+	adc #32
+	sta src
+	bcc +
+	inc src+1
++	inc line		; 40 tiles
+	lda line
+	cmp #40
+	bcs +
+	ldy #0
+	beq -
++	rts
 
 ; --------------------------------------
 
-increm	jsr adinc		; activity
-	inc src+1		; next page
-	lda src+1
-	cmp #$bd
+setbufs	lda #<workbuf
+	ldy #>workbuf
+	sta wbuf
+	sty wbuf+1
+setsbuf	lda #<smthbuf
+	ldy #>smthbuf
+	sta sbuf
+	sty sbuf+1
 	rts
+
+; --------------------------------------
+
+stsbuf	sta (sbuf,x)
+incsbuf	inc sbuf
+	bne +
+	inc sbuf+1
++	rts
+
+; --------------------------------------
+
+stwbuf	sta (wbuf,x)
+incwbuf	inc wbuf
+	bne +
+	inc wbuf+1
++	rts
 
 ; -------------------------------------- Activity Handler: Move Bar
 
 adinc	dec adcnt
-	bne st2
-	lda #$03
+	bne +
+	inc spr2y
+	inc spr2y+2
+	lda #5
 	sta adcnt
-	inc y2
-	inc y2+2
-st2	rts
++	rts 
 
 ; -------------------------------------- Clear Bar
 
-clearad	lda spren
+clearad	lda spren		; Wanderbalken aus
 	and #$f3
 	sta spren
-	lda spritehi
+	lda msbx
 	and #$f3
-	sta spritehi
+	sta msbx
 	lda #$01
 	sta gr_redisp
 
@@ -136,37 +284,38 @@ evcan	sec
 
 ; -------------------------------------- Init Bar
 
-initad	ldy #$3c
-	lda #$00
-adl0	sta spr255+3,y
-	dey
-	bpl adl0
-	sty spr255
+initad	ldy #60
+	lda #0
+-	sta spr255+3,y	; Spriteblock 255 vorbereiten
+	dey 
+	bpl -
+	sty spr255	; dünner Strich
 	sty spr255+1
 	sty spr255+2
-	lda #$0f
-	sta $d029
-	sta $d02a
-	lda $d01d
+	lda #$0f		; Farbe hellgrau
+	sta sprcol2
+	sta sprcol2+1
+	lda sprxe		; doppelt breit
 	ora #$0c
-	sta $d01d
-	lda spritehi
-	ora #$0c
-	sta spritehi
-	lda #$08
-	sta $d004
-	lda #$20
-	sta $d006
+	sta sprxe
 
-	lda #$92
-	sta y2
-	sta $d007
-	sty $07fa
-	sty $07fb
-	lda spren
+	lda msbx		; x über 255
 	ora #$0c
+	sta msbx
+	lda #8		; x-Ordinate: 8 (plus 256)
+	sta spr2x
+	lda #$20
+	sta spr2x+2
+	lda #$92		; y-Ordinate: 146
+	sta spr2y		; (im Image Information Fenster)
+	sta spr2y+2
+
+	sty sprptr+2	; Sprite 255
+	sty sprptr+3
+	lda spren
+	ora #$0c		; Activity-Balken aktivieren
 	sta spren
-	lda #$03
+	lda #5		; Startzähler (5 mal 40 = 200)
 	sta adcnt
 	rts
 
@@ -193,21 +342,21 @@ modetx	!scr "Color Values@"
 dnibs	!by $00,$11,$22,$33,$44,$55,$66,$77
 	!by $88,$99,$aa,$bb,$cc,$dd,$ee,$ff
 
-coltab	!by $00,$00,$00,$00,$22,$33,$22,$33,$33,$33,$33,$33,$33,$33,$33,$77
-	!by $00,$11,$33,$11,$33,$11,$33,$33,$88,$55,$33,$77,$88,$77,$77,$88
-	!by $00,$22,$22,$22,$44,$33,$22,$33,$77,$66,$33,$77,$77,$66,$aa,$77
-	!by $00,$11,$22,$33,$22,$33,$22,$33,$77,$77,$33,$77,$77,$77,$aa,$77
-	!by $22,$55,$44,$22,$44,$44,$44,$33,$55,$66,$33,$77,$77,$66,$33,$99
-	!by $33,$11,$44,$33,$44,$55,$44,$55,$88,$55,$77,$77,$88,$99,$33,$99
+coltab	!by $00,$33,$33,$33,$22,$22,$22,$33,$33,$33,$33,$33,$33,$33,$33,$77
+	!by $33,$11,$33,$11,$33,$11,$22,$33,$88,$55,$33,$77,$88,$77,$77,$88
+	!by $33,$33,$22,$22,$44,$44,$22,$33,$77,$66,$33,$77,$bb,$66,$aa,$77
+	!by $33,$11,$22,$33,$22,$33,$22,$33,$77,$77,$33,$77,$77,$77,$aa,$77
+	!by $22,$33,$44,$22,$44,$44,$44,$33,$55,$66,$22,$77,$77,$66,$22,$99
+	!by $22,$11,$44,$33,$44,$55,$44,$55,$88,$55,$77,$77,$88,$99,$55,$99
 	!by $22,$22,$22,$22,$44,$44,$66,$66,$77,$99,$66,$99,$bb,$99,$aa,$99
 	!by $33,$33,$33,$33,$33,$55,$66,$77,$88,$99,$77,$77,$bb,$bb,$ee,$bb
-	!by $33,$88,$55,$77,$55,$88,$77,$88,$88,$99,$77,$88,$cc,$ee,$bb,$bb
+	!by $33,$88,$77,$77,$55,$88,$77,$88,$88,$99,$77,$88,$cc,$ee,$cc,$bb
 	!by $33,$55,$66,$77,$66,$55,$99,$99,$99,$99,$77,$bb,$bb,$99,$bb,$bb
-	!by $33,$11,$aa,$33,$22,$11,$66,$77,$88,$bb,$aa,$ee,$ee,$ee,$aa,$bb
+	!by $33,$33,$33,$33,$22,$77,$66,$77,$77,$77,$aa,$ee,$ee,$ee,$aa,$bb
 	!by $33,$77,$77,$77,$77,$77,$99,$77,$88,$bb,$ee,$bb,$bb,$dd,$bb,$ff
-	!by $33,$88,$77,$77,$77,$88,$bb,$bb,$cc,$bb,$ee,$bb,$cc,$bb,$ee,$ff
+	!by $33,$88,$bb,$77,$77,$88,$bb,$bb,$cc,$bb,$ee,$bb,$cc,$bb,$ee,$ff
 	!by $33,$77,$66,$77,$66,$99,$99,$bb,$ee,$99,$ee,$dd,$bb,$dd,$ee,$ff
-	!by $33,$11,$aa,$aa,$22,$55,$aa,$ee,$cc,$bb,$aa,$bb,$ee,$ee,$ee,$bb
+	!by $33,$77,$aa,$aa,$22,$55,$aa,$ee,$cc,$bb,$aa,$bb,$ee,$ee,$ee,$bb
 	!by $77,$88,$77,$77,$99,$99,$99,$bb,$bb,$bb,$bb,$ff,$ff,$ff,$bb,$ff
 
 ; --------------------------------------
