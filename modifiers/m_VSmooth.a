@@ -1,6 +1,8 @@
 
 	!src "godotlib.lib"
 	*= $c000
+	!ct pet
+;	!sl "labels.txt"
 
 ; --------------------------------------
 ;
@@ -9,6 +11,8 @@
 ; Color:   0.99, 15.11.92, first release
 ; Gray :   0.99, 14.11.92, first release
 ; both :   1.00, 05.07.17, combined the two
+;          1.01, 07.01.19, changed some colors in coltab
+;          1.02, 10.02.19, got rid of colored bar on first rasterline
 ; 
 ; -------------------------------------- 
 
@@ -20,6 +24,7 @@
 	cnt320		= $39	; /$3a
 	lastnib		= $3f
 	mask		= $42
+
 	wkbuf		= $bd00
 	smbuf		= $cc00
 	spr255		= $3fc0
@@ -35,8 +40,8 @@
 	!wo modend
 	!wo 0
 	!pet "Vertical Smooth "
-	!pet "1.00"
-	!pet "05.07.17"
+	!pet "1.02"
+	!pet "10.02.19"
 	!pet "W.Kling         "
 addtx	!pet "VSmooth +coltab "
 	!pet "VSmooth gray    "
@@ -44,8 +49,8 @@ addtx	!pet "VSmooth +coltab "
 
 ; -------------------------------------- Main
 
-start	ldx #<(smlst)
-	ldy #>(smlst)
+start	ldx #<smlst
+	ldy #>smlst
 	jmp gd_xmloop
 
 ; -------------------------------------- Event: Gray
@@ -140,8 +145,11 @@ sm2	AND #$0F
 	lda mode		; color or gray?
 	bmi gray
 
-color	LDY #$00		; color: now smooth
-	STY lastnib
+; -------------------------------------- 
+
+color	ldy wkbuf		; color: now smooth...
+	sty lastnib
+	ldy #0
 sm3	LDA wkbuf,Y
 	TAX
 	asl
@@ -159,8 +167,11 @@ sm3	LDA wkbuf,Y
 	BNE sm3
 	beq continue
 	
-gray	ldy #$00		; gray: now smooth
+; -------------------------------------- 
+
+gray	ldy wkbuf		; gray: now smooth...
 	sty lastnib
+	ldy #0
 sm7	lda wkbuf,y
 	ldx lastnib	; .x+.a/2
 	sta lastnib
@@ -172,6 +183,8 @@ sm7	lda wkbuf,y
 	iny 
 	cpy #200
 	bne sm7
+
+; -------------------------------------- 
 
 continue	LDA cnt320+1
 	lsr
@@ -247,6 +260,8 @@ adinc	DEC adcnt
 adskip	JMP vloop
 finish	RTS
 
+; -------------------------------------- 
+
 clearad	LDA spren
 	AND #$F3
 	STA spren
@@ -254,6 +269,8 @@ clearad	LDA spren
 	AND #$F3
 	STA spritehi
 	RTS
+
+; -------------------------------------- 
 
 initad	STA adcnt
 	LDY #$3C
@@ -292,11 +309,14 @@ adl0	STA spr255+3,Y
 smlst	!by 0
 	!by 6,12,17,13,$81,0,0
 	!scr "Vertical Smooth@"
-sdith	!by 10,12,17,3,$ca,<evgray,>evgray
+sdith	!by 10,12,17,3,$ca
+	!wo evgray
 dithtx	!scr "Gray Values@"
-smode	!by 13,12,17,3,$ca,<evcolor,>evcolor
+smode	!by 13,12,17,3,$ca
+	!wo evcolor
 modetx	!scr "Color Values@"
-	!by 16,12,17,3,$c9,<evcan,>evcan
+	!by 16,12,17,3,$c9
+	!wo evcan
 	!scr "Cancel@"
 	!by $c0,8,12,15
 	!scr "Apply Pixels as@"
@@ -305,21 +325,22 @@ modetx	!scr "Color Values@"
 ; -------------------------------------- Data
 
 mode	!by $ff
-coltab	!by $00, $00, $00, $00, $22, $33, $22, $33, $33, $33, $33, $33, $33, $33, $33, $77
-	!by $00, $11, $33, $11, $33, $11, $33, $33, $88, $55, $33, $77, $88, $77, $77, $88
-	!by $00, $22, $22, $22, $44, $33, $22, $33, $77, $66, $33, $77, $77, $66, $aa, $77
-	!by $00, $11, $22, $33, $22, $33, $22, $33, $77, $77, $33, $77, $77, $77, $aa, $77
-	!by $22, $55, $44, $22, $44, $44, $44, $33, $55, $66, $33, $77, $77, $66, $33, $99
-	!by $33, $11, $44, $33, $44, $55, $44, $55, $88, $55, $77, $77, $88, $99, $33, $99
-	!by $22, $22, $22, $22, $44, $44, $66, $66, $77, $99, $66, $99, $77, $99, $aa, $99
-	!by $33, $33, $33, $33, $33, $55, $66, $77, $88, $99, $77, $77, $bb, $bb, $ee, $bb
-	!by $33, $88, $55, $77, $55, $88, $77, $88, $88, $99, $77, $88, $cc, $bb, $bb, $bb
-	!by $33, $55, $66, $77, $66, $55, $99, $99, $99, $99, $77, $bb, $bb, $99, $bb, $bb
-	!by $33, $11, $aa, $33, $22, $11, $66, $77, $88, $bb, $aa, $ee, $ee, $ee, $aa, $bb
-	!by $33, $77, $77, $77, $77, $77, $99, $77, $88, $bb, $ee, $bb, $bb, $dd, $bb, $ff
-	!by $33, $88, $ee, $77, $77, $88, $ee, $bb, $cc, $bb, $ee, $bb, $cc, $bb, $ee, $ff
-	!by $33, $77, $66, $77, $66, $99, $99, $bb, $bb, $99, $ee, $dd, $bb, $dd, $ee, $ff
-	!by $33, $11, $aa, $aa, $22, $55, $aa, $ee, $cc, $bb, $aa, $bb, $ee, $ee, $ee, $bb
-	!by $77, $88, $77, $77, $99, $99, $99, $bb, $bb, $bb, $bb, $ff, $ff, $ff, $bb, $ff
+
+coltab	!by $00,$33,$33,$33,$22,$22,$22,$33,$33,$33,$33,$33,$33,$33,$33,$77
+	!by $33,$11,$33,$11,$33,$11,$22,$33,$88,$55,$33,$77,$88,$77,$77,$88
+	!by $33,$33,$22,$22,$44,$44,$22,$33,$77,$66,$33,$77,$bb,$66,$aa,$77
+	!by $33,$11,$22,$33,$22,$33,$22,$33,$77,$77,$33,$77,$77,$77,$aa,$77
+	!by $22,$33,$44,$22,$44,$44,$44,$33,$55,$66,$22,$77,$77,$66,$22,$99
+	!by $22,$11,$44,$33,$44,$55,$44,$55,$88,$55,$77,$77,$88,$99,$55,$99
+	!by $22,$22,$22,$22,$44,$44,$66,$66,$77,$99,$66,$99,$bb,$99,$aa,$99
+	!by $33,$33,$33,$33,$33,$55,$66,$77,$88,$99,$77,$77,$bb,$bb,$ee,$bb
+	!by $33,$88,$77,$77,$55,$88,$77,$88,$88,$99,$77,$88,$cc,$ee,$cc,$bb
+	!by $33,$55,$66,$77,$66,$55,$99,$99,$99,$99,$77,$bb,$bb,$99,$bb,$bb
+	!by $33,$33,$33,$33,$22,$77,$66,$77,$77,$77,$aa,$ee,$ee,$ee,$aa,$bb
+	!by $33,$77,$77,$77,$77,$77,$99,$77,$88,$bb,$ee,$bb,$bb,$dd,$bb,$ff
+	!by $33,$88,$bb,$77,$77,$88,$bb,$bb,$cc,$bb,$ee,$bb,$cc,$bb,$ee,$ff
+	!by $33,$77,$66,$77,$66,$99,$99,$bb,$ee,$99,$ee,$dd,$bb,$dd,$ee,$ff
+	!by $33,$77,$aa,$aa,$22,$55,$aa,$ee,$cc,$bb,$aa,$bb,$ee,$ee,$ee,$bb
+	!by $77,$88,$77,$77,$99,$99,$99,$bb,$bb,$bb,$bb,$ff,$ff,$ff,$bb,$ff
 
 modend	!eof
