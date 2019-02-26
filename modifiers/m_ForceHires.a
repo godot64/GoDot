@@ -10,6 +10,7 @@
 ;   Module to render hires from any image data
 ;
 ; 1.00, 25.02.19, first release
+; 1.01, 26.02.19, added sensibility for Balancing
 ;
 ; --------------------------------------
 
@@ -72,8 +73,8 @@
 	!wo modend
 	!wo 0
 	!pet "Force Hires Mode"
-	!pet "1.00"
-	!pet "25.02.19"
+	!pet "1.01"
+	!pet "26.02.19"
 	!pet "A.Dettke        "
 
 ; -------------------------------------- Main
@@ -133,6 +134,8 @@ rcloop	tya		; Dither-Offset merken
 	lsr
 	lsr
 	lsr
+	tax		; include balancing
+	lda gr_btab,x
 mcskip	jsr pixel		; aufrastern
 	and #$f0		; kommt zurück mit Bitmuster-Byte
 	sta xbuf		; oberes Nibble merken
@@ -140,6 +143,8 @@ mcskip	jsr pixel		; aufrastern
 	lsr bitcnt	; Maske nach rechts: %01000000
 	lda bbuf		; Originalbyte zurückholen
 	and #$0f		; unteres Nibble bearbeitten
+	tax
+	lda gr_btab,x
 	jsr pixel		; aufrastern
 	and #$0f		; unteres Nibble isolieren
 	ora xbuf		; mit oberem verknüpfen
