@@ -14,10 +14,13 @@
 ;     1.01, 25.08.94, bugfix: retrieve correct startadress of "gofox"
 ;     1.02, 24.08.16, rewrote modifier
 ;     1.03, 05.01.19, bugfix: crashed when "gofox" wasn't on bootdrive
-;     1.04, 06.01.19, added: clear all 4 upper screens of pagefox before
-;                            switching over
-;                            blink the border if no Pagefox attached
-;                            reset balancing on Leave
+;     1.04, 06.01.19, added:  clear all 4 upper screens of pagefox before
+;                             switching over
+;                             blink the border if no Pagefox attached
+;                             reset balancing on Leave
+;     1.05, 21.03.19, changed: included "exfox" to 4Bit2PFox, now you
+;                             turn back to GoDot by typing "C=v" in
+;                             Pagefox
 ;
 ; --------------------------------------
 ;
@@ -26,19 +29,15 @@
 ;  4Bit2PFox braucht das Programm "gofox" (das durch Umbenennen von
 ;  "handyfox", "eddifox" oder "eddison" erzeugt wird), um in das  
 ;  Pagefox-Modul überzuwechseln.
-;  Wer von dort ohne Umwege wieder zu GoDot zurückkehren will, muss
-;  vor dem Start von GoDot mit LOAD "exfox",8,1 die Pagefox-Funktion
-;  C=V patchen.
-;  Startet man *zuerst* den Pagefox mit dem zugehörigen Booter (also
-;  "eddison" oder ähnlich), muss man zusätzlich zum Laden von "exfox"
-;  vor RUN noch POKE 684,bootdrive (normalerweise: 8) eingeben, sonst
-;  hängt sich der Rückumstieg von Pagefox zu GoDot auf.
+;  Wer von dort ohne Umwege wieder zu GoDot zurückkehren will,
+;  verwendet die Pagefox-Funktion C=V.
 ;
 ; --------------------------------------
 
 ; -------------------------------------- Equates
 
 	pport	= $01
+	direct	= $9d
 
 	dst	= $30
 	dst0	= $32
@@ -56,6 +55,12 @@
 	lcnt	= $44
 	bcnt	= $45
 
+	c64irq	= $0314
+	basstart	= $0801
+	initpfox	= $0816
+	patch	= $3c78
+	memtop	= $a000
+
 	buf	= $c900
 	destbuf	= $ca00
 
@@ -66,7 +71,16 @@
 	rausch	= $d41b
 
 	bswitch	= $de80
+
+	initram	= $e3bf
+	setbasvecs= $e453
+	oldirq	= $ea31
 	reset	= $fce2
+	setiovecs	= $fd15
+	setmemtop	= $fd8c
+	setvectors= $fda3
+	initvic	= $ff5b
+	load	= $ffd5
 
 
 ; --------------------------------------
@@ -78,8 +92,8 @@ header	jmp start
 	!word modend
 	!word 0
 	!text "4Bit->PageFox   "
-	!text "1.04"
-	!text "06.01.19"
+	!text "1.05"
+	!text "21.03.19"
 	!text "A.Dettke        "
 
 ; --------------------------------------
@@ -250,6 +264,7 @@ s51	lda src0
 
 done	jsr clearad
 	jsr gd_spron
+	jsr rsetbal
 	clc
 	rts
 
@@ -452,7 +467,7 @@ pw3	lda #$36		; end this pass
 	ldy sc_merk+1
 	rts
 
-; -------------------------------------- Event: Requester for Go to Pagefox
+; -------------------------------------- Event: Requester for "Go to Pagefox"
 
 sevstpf	lda sc_screenvek	; save current screenlist
 	pha
@@ -510,13 +525,14 @@ era0	sta (ls_vekta8),y
 	sei
 	lda sy_irqalt	; switch on C64 IRQ
 	ldx sy_irqalt+1
-	sta $0314
-	stx $0315
-	inc pport		; BASIC an
+	sta c64irq
+	stx c64irq+1
+	inc pport		; BASIC on
 	cli
 	jsr ldpfox	; LOAD "gofox",drive,1
 	bcs sevcan	; error?
 
+	jsr patchpfox	; no, patch "exfox"
 	ldy #sevcan-moveit
 -	lda moveit,y
 	sta sy_global,y
@@ -524,7 +540,7 @@ era0	sta (ls_vekta8),y
 	bpl -
 	jmp sy_global
 
-moveit	iny
+moveit	iny		; now erase screens 3 and 4
 	sei
 	lda #$30
 	sta pport
@@ -541,7 +557,7 @@ era2	sta (ls_vekta8),y
 	lda #$37
 	sta pport
 	cli
-	lda #64		; no, jump into Pagefox (and *don't* clear graphics!)
+	lda #64		; and jump into gofox (and *don't* clear graphics!)
 	jmp $1802		; :doesn't return
 
 ; -------------------------------------- Event: Leave
@@ -549,22 +565,32 @@ era2	sta (ls_vekta8),y
 sevcan	sei
 	lda #<gd_irq	; switch on GoDot IRQ
 	ldx #>gd_irq
-	sta $0314
-	stx $0315
+	sta c64irq
+	stx c64irq+1
 	lda #$36		; BASIC off (for GoDot)
 	sta pport
 	cli
 
+; -------------------------------------- Install Patch Pagefox C=v
+
+patchpfox	ldx ls_bootdrive
+	stx modend-1	; save bootdrive to patch data
+	ldy #modend-setpatch
+-	lda setpatch,y	; and patch it
+	sta patch,y
+	dey
+	bpl -
+	rts
+
 ; ----------------------------------------------------- Reset Balancing
 
-	ldy #16		; finished, reset Balancing
+rsetbal	ldy #16		; finished, reset Balancing
 	sty gr_ctr
 	sty gr_brt
 dc8	dey
 	tya
 	sta gr_btab,y
 	bne dc8
-	sec
 	rts
 
 ; -------------------------------------- Load Pagefox Booter
@@ -580,7 +606,7 @@ ldpfox	lda pflen
 	lda #0
 	ldx addr		; get start address
 	ldy addr+1
-	jmp $ffd5		; system LOAD
+	jmp load		; system LOAD
 
 ; -------------------------------------- Test if booter present
 
@@ -771,6 +797,54 @@ clearad	lda $d015
 	and #$f3
 	sta $d010
 	rts
+
+; -------------------------------------- Patch of Pagefox C=v
+
+setpatch
+
+!pseudopc patch {
+
+exfox	lda #5		; load GoDot booter ("godot")
+	ldx #<godot
+	ldy #>godot
+	jsr filnam
+	lda #16		; open 16,bootdrive,0
+	ldx bootdr
+	ldy #0
+	jsr filpar
+	sei 		; set irq
+	lda #<oldirq
+	sta c64irq
+	lda #>oldirq
+	sta c64irq+1
+	cli 
+	lda #0		; force program mode
+	sta direct
+	ldx #<basstart	; load booter to basic start
+	ldy #>basstart
+	jsr load
+	bcs goreset	; Reset if fail
+
+	sei 		; init c64 if not
+	jsr setvectors
+	ldx #<memtop
+	ldy #>memtop
+	jsr setmemtop
+	jsr setiovecs
+	jsr initvic
+	cli 
+	jsr setbasvecs
+	jsr initram
+	ldx #$fb
+	txs 
+	jmp initpfox	; and launch pagefox
+
+goreset	jmp reset
+
+godot	!tx "godot"	; name of booter
+bootdr	!by 0
+
+}			; end of exfox
 
 ; --------------------------------------
 
