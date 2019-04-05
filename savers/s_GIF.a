@@ -312,7 +312,7 @@ cl0	sta mess,x
 
 filltab	!by 160,93,103,127,126,124,105,109
 cntwert	!by 1
-txt	!scr " 87a"
+txt	!scr " 89a"
 	!by 0
 message	!fill 6,32
 mess	!fill 26,32
@@ -626,7 +626,7 @@ wr0	lda gifheader,x
 
 ; --------------------------------------------------------------------------
 
-gifheader	!by $47,$49,$46,$38,$37,$61	; GIF87a
+gifheader	!by $47,$49,$46,$38,$39,$61	; GIF89a
 width1	!wo 320			; Breite des Bildes
 height1	!wo 200			; Höhe des Bildes
 	!by %10110011		; Global, 8 Bit/Color, 4 Bit/Pixel
@@ -650,7 +650,7 @@ palette	!by $00,$00,$00	; schwarz
 	!by $aa,$ff,$66	; hellgrün
 	!by $ff,$ff,$ff	; weiß
 
-	!by $21,$ff	; comment follows	### 1.10
+	!by $21,$fe	; comment follows	### 1.10
 	!by 33		; length of comment
 	!tx "saved by c64 godot gif saver "
 version	!tx "1.10"
