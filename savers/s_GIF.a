@@ -1,8 +1,10 @@
 
-!src "godotlib.lib"
-*	= $c000
+	!src "godotlib.lib"	; Label-Library einbinden
+	*= $c000		; generelle Startadresse für alle Module
+	!ct pet		; Texte werden in PETSCII assembliert
 
 ; ----------------------------------------- 
+;
 ; svr.GIF
 ;     Saver for CompuServe Graphics Interchange Format (GIF)
 ;
@@ -20,6 +22,7 @@
 ; 1.07: 17.11.16 - Palette "Deekay" korrigiert
 ; 1.08: 18.11.16 - Palette "Coco" (Community Colors) zugefügt
 ; 1.09: 05.04.17 - Palette "Colodore" zugefügt
+; 1.10: 05.04.19 - Kommentar im Bildfile zugefügt ("gespeichert mit GoDot") 
 ;
 ; -------------------------------------------------------------- Header
 ;
@@ -31,9 +34,10 @@
 	!wo modend		; Endadresse+1 des Moduls
 	!wo 0			; unused
 	!pet "GIF 87a saver   "	; description
-	!pet "1.09"		; Versionsnummer
-	!pet "05.04.17"		; Datum
+cvers	!pet "1.10"		; Versionsnummer
+	!pet "05.04.19"		; Datum
 	!pet "A.Dettke        "	; author
+
 ; -------------------------------------------------------------- Definitionen
 
 	maxi	= $fe
@@ -79,11 +83,11 @@ start	ldx gr_nr		; Funktionsnummer testen
 	dex
 	bne st0		; Null, dann "Speichern"
 	jmp initinp	; eins, "Input"
-;
+
 ; -------------------------------------------------------------- Encode
 
 sk12	jmp noreu
-;
+
 ; -------------------------------------------------------------- 
 
 st0	lda ls_ramdrive	; REU angeschlossen?
@@ -130,6 +134,12 @@ st11	jsr gd_sproff	; Sprites aus
 	lda #9		; Undo-Kommando vorbereiten
 	sta getundo+1
 
+	ldx #3		; Versionsnummer eintragen	### 1.10
+-	lda cvers,x
+	sta version,x
+	dex
+	bpl -
+
 	jsr wopen		; Writefile öffnen
 	bne st2		; wenn Fehler: Ende
 	jsr getname	; Filenamen sichern
@@ -146,7 +156,7 @@ st2	jsr clrch		; Bus freigeben
 	jsr err9		; Floppystatus zeigen (kurz)
 	bne st1		; wenn fehlerfrei:
 	jsr setname	; Fileinfo aufbereiten
-;
+
 st1	pla		; Modularea wieder setzen
 	sta gd_modswitch
 
@@ -154,7 +164,7 @@ st12	jsr canc
 	jsr gd_spron	; Sprites wieder an
 	sec		; Leave-Flag
 	rts		; fertig
-;
+
 ; --------------------------- 
 ; --------------------------- Input Routines
 
@@ -225,7 +235,9 @@ palcolod	!by $00,$00,$00,$2d,$2b,$9a,$54,$37,$00,$49,$49,$49	; # 1.09 ---
 	!by $81,$33,$37,$8d,$3b,$97,$8d,$50,$29,$7b,$7b,$7b
 	!by $6f,$6d,$eb,$c3,$6c,$71,$55,$aa,$4c,$b1,$b1,$b1
 	!by $75,$ce,$c8,$ed,$f0,$71,$a9,$fe,$9f,$ff,$ff,$ff	; # 1.09 ---
+
 ; -------------------------------------------------------------- Filehandling
+
 wopen	jsr inull		; Initialize
 	bne err8
 	ldy wflen		; ",p,w" anhängen
@@ -246,7 +258,7 @@ wo1	lda pw,x
 	jsr filnam
 	jsr copen
 	jmp err9
-;
+
 inull	ldx #<drinit
 	ldy #>drinit
 	lda #2
@@ -256,19 +268,21 @@ err9	jsr gd_xmess
 	and #15
 err8 	sec
 	rts
+
 ; -------------------------------------------------------------- Activity
+
 messout	ldx #<message	; Textausgabe
 	ldy #>message
 	jmp gd_xtxout2
-;
+
 tcopy	ldy #0		; Text zur Ausgabe puffern
-tc0 	lda txt,x		; Offset in X!
+tc0 	lda txt,x		; Offset in .x!
 	beq clrmess
 	sta message,y
 	inx
 	iny
 	bne tc0
-;
+
 action	dec adcnt		; Activity, wenn 0
 	bne ld4
 	lda cntwert	; dann: Reload des Zählers
@@ -284,7 +298,7 @@ action	dec adcnt		; Activity, wenn 0
 	lda #7		; Ende wieder dünn
 	sta offx
 ld4 	rts
-;
+
 clrmess	ldx #25		; Puffer für Balken löschen
 	lda #32
 cl0	sta mess,x
@@ -295,7 +309,7 @@ cl0	sta mess,x
 	sty offy
 	stx offx
 	rts
-;
+
 filltab	!by 160,93,103,127,126,124,105,109
 cntwert	!by 1
 txt	!scr " 87a"
@@ -303,7 +317,9 @@ txt	!scr " 87a"
 message	!fill 6,32
 mess	!fill 26,32
 	!by 0
+
 ; -------------------------------------------------------------- Image Info
+
 getname	ldx #0		; aktuellen Filenamen sichern
 si0	lda ls_lastname,x
 	beq si1
@@ -312,7 +328,7 @@ si0	lda ls_lastname,x
 	cpx #16
 	bcc si0
 si1	rts
-;
+
 setname	lda #0		; Namen in Image Info eintragen
 	ldx #<ls_picname
 	ldy #>ls_picname
@@ -327,14 +343,15 @@ si4	lda nbuf,x
 	iny
 	bne si4
 si5	rts
-;
+
 nbuf	!fill 16,32
 	!by 0
+
 ; ----------------------------------------- Startup requester
 
 requ 	inc used
-	ldx #<(sgiflst)
-	ldy #>(sgiflst)
+	ldx #<sgiflst
+	ldy #>sgiflst
 	jsr gd_xmloop
 
 ; ----------------------------------------- Requester management
@@ -351,7 +368,9 @@ canc 	lda #$ff
 	sta used
 	sec
 	rts
+
 ; ------------------------------------ Event: Choose Palette
+
 evpalette	lda palflag
 	cmp #8
 	bne dp0
@@ -394,7 +413,7 @@ ea2	lda areatxts,x
 	bne dpi2
 
 ; ----------------------------------------- Set Save GIF data parameters
-;
+
 evsavgif	inc used
 	jsr setclip
 	jsr setvals
@@ -403,8 +422,8 @@ evsavgif	inc used
 
 ; ------------------------------------ Output gadget text routines
 
-tabigad	!by <palgad, >palgad
-	!by <areagad,>areagad
+tabigad	!wo palgad
+	!wo areagad
 
 settext	lda #<tabigad
 	sta ls_vekta8
@@ -460,6 +479,7 @@ setvals	ldy #0		; width
 	sta height2+1
 
 	rts
+
 ; ----------------------------------------- Set palette values
 
 setpalette
@@ -514,6 +534,7 @@ spl6	lda (sc_pos),y
 	dey
 	bpl spl6
 	rts
+
 ; ---------------------------------------- Compute Start address of Clip
 
 setclip	lda #$10		; 4Bit starting from $1000 in REU
@@ -561,13 +582,17 @@ scp8	rts
 sgiflst	!by 0
 	!by 4,11,18,14,$81,0,0
 	!scr "Save GIF@"
-palgad	!by 9,11,18,3,$ca,<(evpalette),>(evpalette)
+palgad	!by 9,11,18,3,$ca
+	!wo evpalette
 paltx	!scr "  GoDot   @"
-areagad	!by 11,23,6,3,$ce,<evarea,>evarea
+areagad	!by 11,23,6,3,$ce
+	!wo evarea
 areatx	!scr "Full@"
-	!by 13,11,18,3,$cb,<(evsavgif),>(evsavgif)
+	!by 13,11,18,3,$cb
+	!wo evsavgif
 	!scr "Save Image@"
-	!by 15,11,18,3,$cb,<(cn2),>(cn2)
+	!by 15,11,18,3,$cb
+	!wo cn2
 	!scr "Cancel Save@"
 	!by $c0,7,12,15
 	!scr "Select Palette:@"
@@ -578,13 +603,14 @@ areatx	!scr "Full@"
 ; -------------------------------------------------------------------------
 ; -------------------------------------------------------------- Write GIF
 ; -------------------------------------------------------------------------
-write	ldx #0		; Header ausgeben
+
+write	ldx #0		; Header ausgeben (Länge: 108 Bytes)
 wr0	lda gifheader,x
 	jsr bsout
 	inx
-	cpx #72
+	cpx #109		; ### 1.10
 	bne wr0
-;
+
 	lda #9		; Funktion "Undo ins Ram" setzen
 	sta getundo+1
 	jsr doundo	; automatisches Undo ausführen
@@ -597,6 +623,7 @@ wr0	lda gifheader,x
 	jsr doundo	; und ausführen
 	sec		; Leave-Flag
 	rts		; fertig
+
 ; --------------------------------------------------------------------------
 
 gifheader	!by $47,$49,$46,$38,$37,$61	; GIF87a
@@ -604,7 +631,7 @@ width1	!wo 320			; Breite des Bildes
 height1	!wo 200			; Höhe des Bildes
 	!by %10110011		; Global, 8 Bit/Color, 4 Bit/Pixel
 	!by 0			; Backgroundcolor (Offset)
-	!by 0			; (delimiter)
+	!by 0			; default aspect ratio
 
 palette	!by $00,$00,$00	; schwarz
 	!by $00,$00,$aa	; blau
@@ -622,15 +649,22 @@ palette	!by $00,$00,$00	; schwarz
 	!by $ee,$ee,$77	; gelb
 	!by $aa,$ff,$66	; hellgrün
 	!by $ff,$ff,$ff	; weiß
-	!by $2c		; (delimiter)
 
+	!by $21,$ff	; comment follows	### 1.10
+	!by 33		; length of comment
+	!tx "saved by c64 godot gif saver "
+version	!tx "1.10"
+	!by 0		; end of comment
+
+	!by $2c		; start of image
 	!wo 0,0		; linke obere Ecke auf Screen
 width2	!wo 320
 height2	!wo 200		; Screengröße (wie Bildgröße)
 	!by 3		; kein Interlace, 4 Bit/Pixel
 	!by 4		; Codesize
+
 ; -------------------------------------------------------------- Vorbereitung
-;
+
 initgif	lda #$80		; Bit wird 8mal geschoben
 	sta outcode
 	ldx #$35		; Codeadressentabelle anlegen
@@ -650,7 +684,7 @@ ig1	tya		; (sind auf jeden Fall vorhanden)
 	dex
 	dex
 	bpl ig1
-;
+
 	lda #5		; 4 (+1) Anzahl Bits
 	sta currbits
 	lda #3
@@ -663,7 +697,7 @@ ig1	tya		; (sind auf jeden Fall vorhanden)
 	sta tab1vek
 	lda #>table1
 	sta tab1vek+1
-;
+
 	lda #>table2	; table2 (Codetabelle) anlegen, Länge 4K
 	ldx #32
 	ldy #0
@@ -676,7 +710,7 @@ ig2	sta (tab2vek),y
 	inc tab2vek+1
 	dex
 	bne ig2
-;
+
 	stx outindex	; Index in Ausgabepuffer (0)
 	stx colcount	; zählt bis 16 (ab 0)
 	dex
@@ -687,7 +721,9 @@ ig2	sta (tab2vek),y
 	sta table2-2
 	sty table2-1	; y enthält 0
 	rts
+
 ; -------------------------------------------------------------- Encodierung
+
 encode	sta codebyte
 	lda now2code
 	sta ctabvek
@@ -697,11 +733,11 @@ encode	sta codebyte
 	clc
 	adc #>table2
 	sta ctabvek+1
-;
+
 	ldy #1
 	lda (ctabvek),y
 	bmi newcode
-;
+
 	pha
 	sta codetemp
 	dey
@@ -720,12 +756,12 @@ encode	sta codebyte
 	adc ctabvek+1
 	adc #>table1
 	sta ctabvek+1
-;
+
 	ldy #2
 	lda (ctabvek),y
 	cmp codebyte
 	beq exitc
-;
+
 	stx addrtemp
 	lda codetemp
 	sta addrtemp+1
@@ -745,7 +781,7 @@ encode	sta codebyte
 	adc #>table1
 	sta ctabvek+1
 	sty codetemp
-;
+
 enc3	ldy codetemp
 	inx
 	bne enc0
@@ -755,14 +791,14 @@ enc0	cpx addrtemp
 	bne enc1
 	cpy addrtemp+1
 	beq newcode
-;
+
 enc1	clc
 	lda ctabvek
 	adc #3
 	sta ctabvek
 	bcc enc2
 	inc ctabvek+1
-;
+
 enc2	ldy #0
 	lda (ctabvek),y
 	cmp now2code
@@ -775,19 +811,19 @@ enc2	ldy #0
 	lda (ctabvek),y
 	cmp codebyte
 	bne enc3
-;
+
 exitc	stx now2code
 	lda codetemp
 	sta last2code
 	rts
-;
+
 newcode	lda now2code
 	pha 
 	ldx codebyte
 	ldy colcount
 	cpy #16
 	beq out1
-;
+
 	ldy #0
 	sta (tab1vek),y
 	iny
@@ -804,15 +840,19 @@ newcode	lda now2code
 	lda colcount
 	and mask2
 	bne ncd0
+
 ; ----------------------------------------------------10.10.01------- Überschreiten der Codelänge 12 verhindern
+
 	lda currbits
 	cmp #12
 	beq ncd0
+
 ; ------------------------------------------------------------------- hier ist der Fehler!
+
 	inc currbits
 	rol mask1
 	rol mask2
-;
+
 ncd0	lda last2code
 	sta ctabvek+1
 	pla		; ist now2code
@@ -837,7 +877,7 @@ ncd1	lda tab1vek
 	sta tab1vek
 	bcc out1
 	inc tab1vek+1
-;
+
 out1	stx now2code	; now2code (neu) merken
 	ldx currbits	; Anzahl Ausgabebits holen
 	pla		; A ist now2code (alt)
@@ -851,7 +891,9 @@ out2	dex		; Ausgabebits abzählen
 	bne out0		; alle durch? 
 	stx last2code	; dann Rest merken, fertig codiert
 	rts
+
 ; ---------------------------------------------------------
+
 out	pha		; now2code retten
 	lda #8		; erst Bytezähler auffrischen
 	sta cnt1byte
@@ -863,7 +905,7 @@ out	pha		; now2code retten
 	pla		; now2code holen
 	inc outindex	; Index erhöhen
 	bne out2		; unbed. Sprung
-;
+
 out3	lda #outcnt	; Blocklänge ausgeben (maxi+1)
 	jsr bsout
 	ldy #0
@@ -872,12 +914,14 @@ out4	lda table3,y	; Block ausgeben
 	iny
 	cpy #outcnt	; Maximum+1 Bytes
 	bne out4
-;
+
 out5	pla		; Stack bereinigen
 	ldy #0		; Y ist Null
 	sty outindex
 	beq out2		; und weiter codieren
+
 ; -------------------------------------------------------------- Abschluß
+
 closefile	lda #0
 	sta last2code
 	lda #17
@@ -888,7 +932,7 @@ closefile	lda #0
 	beq cf0
 	ldx currbits
 	jsr out0
-;
+
 cf0 	ldx outindex	; letzte GIF-Blocklänge ausgeben (<> 255)
 	txa		; wenn nicht Null
 	beq cf1
@@ -899,15 +943,17 @@ cf2	lda table3,x
 	inx
 	cpx outindex
 	bne cf2
-;
+
 cf1	lda #0		; GIF-Delimiter dahinter
 	jsr bsout
 	lda #$3b		; GIF-Terminator ";" dahinter
 	jsr bsout
 	jmp clrch		; File schließen, GIF gespeichert
+
 ; ---------------------------------------------------------------------
 ; -------------------------------------------------------------- DoUndo
 ; ---------------------------------------------------------------------
+
 doundo	lda #<undo	; eigentliche Routine verschieben
 	ldx #>undo	; (weil das Modul ausgeblendet wird)
 	sta ls_vekta8
@@ -918,11 +964,11 @@ sloop	lda (ls_vekta8),y
 	dey
 	bpl sloop
 	jmp sy_global	; und dann ausführen
-;
+
 undo 	jsr gd_swapd	; Ram einblenden
 	ldx #10		; FirstInit
 	jsr rm_ramvec
-;
+
 	ldx #6		; Parameter setzen
 	lda #0
 md0	sta rm_werte,x
@@ -936,13 +982,15 @@ md0	sta rm_werte,x
 	sta rm_werte+6
 	lda #1		; Flag für 4Bit-Undo setzen
 	sta rm_nextentry
-;
+
 getundo	ldx #9		; und DoUndo
 	jsr rm_ramvec
 	ldx #1		; danach ForceOff (Ram ausblenden)
 	jsr rm_ramvec	
 	jmp gd_sproff	; und Sprite wieder aus, zurück
+
 ; -------------------------------------------------------------- Scanlines
+
 scanlines	ldx #6		; Ram-Record löschen
 	lda #0
 sl0	sta rm_werte,x
@@ -959,10 +1007,10 @@ sl0	sta rm_werte,x
 	sta rm_werte+2
 	stx src0+1
 	stx rm_werte+3
-;
+
 	lda clpho		; Anzahl Blockzeilen
 	sta lcnt8
-;
+
 lnloop8	lda #8		; zählt 1 Blockzeile (8 Linien)
 	sta lcnt
 tloop8	lda clpbr		; count x tiles (40 on full screen)
@@ -990,7 +1038,7 @@ btloop	stx xstore	; (x und y retten)
 	inc rm_werte+3
 s4	dex		; 4 Bytes = 1 Kachellinie
 	bne lnloop
-;
+
 	clc		; nächste Kachel
 	lda rm_werte+2
 	adc #28
@@ -999,7 +1047,7 @@ s4	dex		; 4 Bytes = 1 Kachellinie
 	inc rm_werte+3
 s3	dec tilecnt
 	bne tloop
-;
+
 	lda src0		; nächste Kachellinie
 	clc
 	adc #4
@@ -1012,7 +1060,7 @@ s5	lda src0+1
 	jsr action	; Laufbalken vorrücken
 	dec lcnt
 	bne tloop8
-;
+
 s51	lda src0		; nächste Blockzeile
 	clc
 	adc #<1248
@@ -1046,7 +1094,7 @@ ag2	pla
 	tay		; Name länger als 12 Zeichen?
 	cpy #13
 	bcs ag0		; ja, behandeln
-;
+
 ag5	ldx #3		; nein, ".gif" anhängen
 ag1	lda giftx,x
 ag3	sta ls_nambuf,y
@@ -1058,17 +1106,20 @@ ag3	sta ls_nambuf,y
 	sty wflen		; neue Länge merken, fertig
 	sty ls_flen
 	rts
-;
+
 ag0	dey		; auf 12 verkürzen
 	cpy #12
 	bne ag0
 	beq ag5		; unbed. Sprung		#--- 1.06
-;
+
 ; ----------------------------------------------------- 
-noreu	ldx #<(warnlst)
-	ldy #>(warnlst)
+
+noreu	ldx #<warnlst
+	ldy #>warnlst
 	jmp gd_xmloop
+
 ; ----------------------------------------------------- 
+
 warnlst	!by 0
 	!by 8,9,21,9,$81,0,0
 	!scr "MESSAGE@"
@@ -1079,7 +1130,7 @@ warnlst	!by 0
 	!by $c0,12,11,15
 	!scr "You can't save.@"
 	!by $80
+
 ; ----------------------------------------------------- 
 
 modend 	!eof
-
