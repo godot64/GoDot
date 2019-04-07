@@ -33,7 +33,7 @@
 	!by 1			; Dirty Flag (1 = dirty)
 	!wo modend		; Endadresse+1 des Moduls
 	!wo 0			; unused
-	!pet "GIF 87a saver   "	; description
+	!pet "GIF 89a saver   "	; description
 cvers	!pet "1.10"		; Versionsnummer
 	!pet "05.04.19"		; Datum
 	!pet "A.Dettke        "	; author
