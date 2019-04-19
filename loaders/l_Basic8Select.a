@@ -1,0 +1,1059 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ------------------------------------------------ 
+;
+;  ldr.Basic8Select
+;  Loader for pictures of C128 Basic8 (former UltraBasic)
+;
+;    1.00: 19.04.19, first release
+;
+; ------------------------------------------------ 
+
+; ------------------------------------------------ Equates
+
+	pport		= $01
+
+	hlinie		= $e0
+	vlinie		= $e1
+	eck		= $e2
+	shspace		= 160
+	hsign		= gr_pattern
+	vsign		= gr_pattern+8
+	esign		= gr_pattern+16
+
+	mbr		= $30
+	mho		= $31
+	msp		= $32
+	mrc		= $33
+	zstart		= $34
+	sstart		= $35
+
+	dst0		= $36
+	dst1		= $38
+	byte		= $3c
+	bycnt		= $3d
+	nibcnt		= $3e
+	bcnt		= $3f
+	dst		= $40
+	gbyte		= $42
+	adcnt		= $43
+	lcnt8		= $44
+	counter		= $46
+	pkflg		= $47
+
+	offx		= ls_adrmisc
+	offy		= offx+1
+
+; ------------------------------------------------ 
+
+head	jmp start
+	!by $80
+	!by 0
+	!by 0
+	!wo modend
+	!wo 0
+	!tx "Basic8SelectMono"
+	!tx "1.00"
+	!tx "19.04.19"
+	!tx "A.Dettke        "
+
+; ------------------------------------------------ 
+
+start	ldx used
+	bmi readhd
+
+; ------------------------------------------------ 
+
+cancel	jsr last
+ff	lda #$ff
+	sta used
+freq	sec
+	rts
+
+; ------------------------------------------------ Read File Header
+
+readhd	inc used
+	inx
+	stx xpos
+	stx ypos
+	jsr gd_xopen
+	ldy #0
+-	jsr onebyte	; read file header (18 bytes)
+	bne rdende
+	sta header,y
+	iny
+	cpy #18
+	bne -
+	jsr rd2		; close file
+
+	lda width
+	sta pbr
+	sta byte3
+	clc
+	lsr height+1
+	ror height
+	lsr height+1
+	ror height
+	lsr height+1
+	ror height
+	lda height
+	sta pho
+	sta byte2
+
+	jsr setconv	; prepare colors from file
+
+	jsr requ		; prepare requester
+	ldx #<b8lst	; and show on screen
+	ldy #>b8lst
+	jsr gd_xmloop	; wait for clicks
+
+	jmp start		; recursion
+
+; ------------------------------------------------ 
+
+rdende	jsr ff		; Error on read
+
+rd2	jsr ld5		; close file
+cont	clc		; but stay
+	rts
+
+jerror	jmp error
+
+; ------------------------------------------------ Read Basic8 Image
+
+sevbasic8	lda byte2
+	ora byte3
+	beq jerror
+
+	inc used
+	lda ls_flen	; point loader to filename (at $0200)
+	sta ls_temp
+	lda #2
+	sta ls_vekta8+1
+	lda #0
+	sta ls_vekta8
+	sta counter	; reset compression counter
+	sta pkflg		; and pack indicator
+	lda ypos		; set clip positions
+	sta zstart
+	lda xpos
+	sta sstart
+	lda #25		; height 25
+	sta pho
+	asl
+	sta cntwert
+	lda #40		; width 40
+	sta mro
+	sta rbr
+	asl
+	sta pbr
+
+	jsr getname	; store filename for image information
+	jsr gd_xopen	; open image file
+	ldx #<sy_4bit	; set destination
+	ldy #>sy_4bit
+	stx dst
+	stx dst0
+	stx dst1
+	sty dst+1
+	sty dst0+1
+	sty dst1+1
+	jsr gd_clrms	; prepare gauge
+	inx
+	stx adcnt
+
+	ldy #18
+-	jsr onebyte	; skip image header
+	bne jerror
+	dey
+	bne -
+
+fx1	lda byte2		; height
+	sec
+	sbc zstart
+	bcc jerror
+	cmp #26
+	bcs fx8
+	sta pho
+fx8	lda byte3		; width
+	sta pbr
+	tay
+	cmp #41
+	bcc fx9
+	sbc #40
+	sbc sstart
+	bcs fx12
+	tya
+	sec
+	sbc sstart
+	tay
+	bcs fx9
+fx12	ldy #40
+	!by $2c
+fx9	lda #0
+	sta mro
+	sty rbr
+
+	jsr readdumy	; skip at top
+
+fx0	ldx #0		; activate gauge
+	jsr tcopy
+	lda pho
+	sta lcnt8
+
+loop8	lda #8
+	sta bycnt		; get one blockrow:
+
+byloop	jsr readdumx1	; skip at left
+	lda rbr
+	sta bcnt
+bloop	jsr convblock	; read image
+	clc
+	lda dst
+	adc #28
+	sta dst
+	bcc +
+	inc dst+1
++	dec bcnt
+	bne bloop
+	clc
+	lda dst0
+	adc #4
+	sta dst0
+	sta dst
+	lda dst0+1
+	adc #0
+	sta dst0+1
+	sta dst+1
+	jsr readdumx2	; skip at right
+	dec bycnt
+	bne byloop
+
+	clc		; next block row
+	lda dst1+1
+	adc #5
+	sta dst1+1
+	sta dst+1
+	sta dst0+1
+	lda dst1
+	sta dst
+	sta dst0
+	dec lcnt8		; until height
+	bne loop8
+
+	beq ld3		; finished
+
+; ------------------------------------------------ 
+
+error	jsr ld5
+	clc
+	rts
+
+; ------------------------------------------------ Read Image Data
+
+convblock	jsr load		; get byte from disk
+	sta byte
+	lda #4
+	sta nibcnt	; convert to 4Bit
+nloop	lda #0		; 1 rasterline (of 1 tile)
+	tay
+	asl byte
+	rol
+	asl byte
+	rol
+	tax
+	lda conv,x
+	sta (dst),y
+	inc dst
+	bne skip0
+	inc dst+1
+skip0	dec nibcnt
+	bne nloop
+	jmp action	; activity
+
+; ------------------------------------------------ End Sequence
+
+ld3	jsr setinfo
+ld5	jsr gd_xclose	; close file
+	jsr gd_spron	; mouse on
+	jsr gd_xmess	; floppy message (flash)
+	sec		; leave module
+	rts
+
+; ------------------------------------------------ 
+
+messout   ldx #<message	; display message and gauge
+	ldy #>message
+	jmp gd_xtxout2
+
+tcopy	ldy #0		; Select message
+tc0	lda txt,x		; in .x: offset to message
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+
+clrmess   ldx #20		; clear gauge bar
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0		; init counters
+	ldx #7	
+	sty offy
+	stx offx
+	rts
+
+action	dec adcnt
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	cpy #20
+	bne act0
+	jsr clrmess
+act0	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts
+
+filltab   !by 160,93,103,127,126,124,105,109
+
+txt	!scr " Reading  @"
+	!scr " Skipping @"
+
+message   !fill 11,32
+mess	!fill 21,32
+	!by 0
+
+; ------------------------------------------------ 
+
+onebyte	jsr basin
+	ldx status
+	rts
+
+; ------------------------------------------------ 
+
+cntwert	!by 50
+
+; ------------------------------------------------ 
+
+readdumy	ldx zstart	; anything to skip?
+	beq nixy		; no
+
+	stx mho
+	ldx #11		; activate gauge
+	jsr tcopy
+ys0	lda pbr
+	sta mbr
+yl1	jsr load		; skip
+	dec cntr
+	bne yl1
+	lda #8
+	sta cntr
+	jsr action	; activity
+	dec mbr
+	bne yl1
+	dec mho
+	bne ys0
+nixy	rts
+
+; ------------------------------------------------ 
+
+readdumx1	lda pbr		; anything to skip?
+	cmp #41
+	bcc nixx1		; no
+
+	lda sstart
+	beq nixx1
+	sta msp
+xl10	jsr load		; skip
+	dec msp
+	bne xl10
+nixx1	rts
+
+; ------------------------------------------------ 
+
+readdumx2	lda mro		; anything to skip?
+	beq nixx2		; no
+
+	sta mrc
+xl20	jsr load
+	dec mrc
+	bne xl20
+nixx2	rts
+
+; ------------------------------------------------ Data
+
+byte2	!by 50		; height (400 px)
+byte3	!by 80		; width  (640 px)
+cntr	!by 8
+mro	!by 40
+rbr	!by 40
+pbr	!by 80
+pho	!by 25
+xpos	!by 0
+ypos	!by 0
+xkoo	!by 94
+ykoo	!by 88
+xkoomk	!by 0
+ykoomk	!by 0
+xmax	!by 134
+ymax	!by 163
+maxbr	!by 40
+maxho	!by 25
+used	!by $ff
+
+header	!wo 0		; default values for b8 file
+	!tx "brus"
+b8type	!by 4
+	!by 0
+	!wo 0
+cmprflg	!by 0
+colors	!by 1		; 1 = monochrome
+width	!by 80
+height	!wo 400
+bgr	!by 15
+fgr	!by 0
+border	!by 0
+
+pbuffer	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+zbr	!by 0
+zho	!by 0
+zsph	!by 0
+zspv	!by 0
+hwert	!by $80,$c0,$e0,$f0,$f8,$fc,$fe
+
+sprou	!by $fc,$ff,$ff	; select box
+sprmi	!by $04,$00,$80
+
+conv	!by $00,$0f,$f0,$ff
+
+dnibs	!by $00,$33,$11,$88,$aa,$ee,$cc,$77
+	!by $44,$99,$55,$66,$22,$dd,$bb,$ff
+
+; ------------------------------------------------ Decompress
+
+load	lda cmprflg	; compressed?
+	bne +
+	jmp basin		; no
+
++	lda counter	; yes, counting?
+	bne getit2	; yes, get bytes
+
+	jsr basin		; no, get flag/counter
+	pha
+	and #$80
+	sta pkflg
+	pla
+	and #$7f
+	sta counter
+	bne getit3
+
+getit2	bit pkflg
+	bmi getit1
+getit3	jsr basin
+	sta gbyte
+getit1	dec counter
+	lda gbyte
+	rts
+
+; ------------------------------------------------ Image Information Handler
+
+getname	ldx #0
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+; ------------------------------------------------ 
+
+setinfo	jsr setname
+	jsr setloader
+	jsr setmode
+	jmp setdata
+
+setname	lda #0
+	ldx #<ls_picname
+	ldy #>ls_picname
+	bne si3
+setloader	lda #17
+	ldx #<ls_iloader
+	ldy #>ls_iloader
+	bne si3
+setmode	lda #25
+	ldx #<ls_imode
+	ldy #>ls_imode
+	bne si3
+setdata	lda #33
+	ldx #<ls_idrive
+	ldy #>ls_idrive
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!fill 16,32
+	!by 0
+	!scr "Basic8 @"
+modetx	!scr "320x200@"
+datatype	!scr "Color@"
+
+; ------------------------------------------------ 
+
+first	ldy #23
+	ldx #0
+f3	lda gr_pattern,y
+	sta pbuffer,y
+	txa
+	sta gr_pattern,y
+	dey
+	bpl f3
+	rts
+
+; ------------------------------------------------ 
+
+last	ldy #23
+f4	lda pbuffer,y
+	sta gr_pattern,y
+	dey
+	bpl f4
+	rts
+
+; ------------------------------------------------ 
+
+sclear	ldy #9
+	lda #32
+f13	sta (sc_texttab),y
+	dey
+	bpl f13
+	ldy zsph
+	rts
+
+; ------------------------------------------------ 
+
+requ	lda #<string1
+	sta sc_texttab
+	lda #>string1
+	sta sc_texttab+1
+	jsr first		; init shapes
+	lda b8type
+	cmp #4
+	beq r0
+	jmp other
+
+r0	jsr settxt
+	lda byte3		; width
+	tay
+	lsr
+	lsr
+	lsr
+	sta zsph
+	tya
+	and #7
+	sta zbr
+	lda byte2		; height
+	tay
+	lsr
+	lsr
+	lsr
+	sta zspv
+	tya
+	and #7
+	sta zho
+	lda zspv
+	ora zsph
+	beq ecke
+hline	ldy zbr
+	lda hwert,y
+	ldy #7
+hl0	sta hsign,y
+	dey
+	bpl hl0
+vline	lda #$ff
+	ldy zho
+	bne hl01
+hl1	sta vsign,y
+hl01	dey
+	bpl hl1
+ecke	ldy zbr
+	lda hwert,y
+	ldy zho
+	bne hl02
+hl2	sta esign,y
+hl02	dey
+	bpl hl2
+
+	ldx zspv
+	beq hl8
+hl7	jsr sclear
+	lda zbr
+	beq hl5
+	lda #hlinie
+	sta (sc_texttab),y
+hl5	lda #shspace
+hl6	dey
+	bmi hl9
+	sta (sc_texttab),y
+	bne hl6
+hl9	clc
+	lda sc_texttab
+	adc #15
+	sta sc_texttab
+	bcc hl10
+	inc sc_texttab+1
+hl10	dex
+	bne hl7
+
+hl8	jsr sclear
+	lda zho
+	beq rest
+	lda zbr
+	beq hl13
+	lda #eck
+	sta (sc_texttab),y
+hl13	lda #vlinie
+hl11	dey
+	bmi rest
+	sta (sc_texttab),y
+	bne hl11
+rest	clc
+	lda sc_texttab
+	adc #15
+	sta sc_texttab
+	bcc rst0
+	inc sc_texttab+1
+rst0	ldy #0
+	lda (sc_texttab),y
+	cmp #$ff
+	beq rst1
+	lda #32
+rst2	sta (sc_texttab),y
+	iny
+	cpy #10
+	bne rst2
+	beq rest
+rst1	rts
+
+; ------------------------------------------------ 
+
+other	pha		; contains typeflag from file
+	lda #0
+	sta byte2
+	sta byte3
+	jsr settxt
+	pla
+	cmp #1		; 1: Pattern
+	bne ot0
+	ldx #0
+	beq ot4
+ot0	cmp #2		; 2: Logo
+	bne ot1
+	ldx #23
+	bne ot4
+ot1	cmp #3		; 3: Font
+	bne ot2
+	ldx #46
+	bne ot4
+ot2	ldx #69		; otherwise: no Basic8 image
+ot4	ldy #0
+ot3	lda ftxt,x
+	sta b8mess,y
+	inx
+	iny
+	cpy #23
+	bne ot3
+	jsr last
+	jsr sclear
+	jsr rest
+	clc
+	rts
+
+; ------------------------------------------------ 
+
+setconv	ldx bgr		; 0f     (example)
+	lda dnibs,x	; ->  ff
+	pha
+	sta conv
+	and #240		; f0
+	sta byte
+	ldx fgr		; 01
+	lda dnibs,x	; ->  11
+	tax
+	sta conv+3
+	and #15
+	ora byte
+	sta conv+1	; 10
+	pla
+	and #15
+	sta byte		; -  1f
+	txa
+	and #240
+	ora byte
+	sta conv+2
+	rts		; conv: $ff,$f1,$1f,$11
+
+; ------------------------------------------------ 
+
+settxt	lda byte3
+	jsr gd_xcnvdez
+	ldy #1
+	sta xtxt,y
+	txa
+	and #15
+	bne stx0
+	lda #32
+	!by $a2
+stx0	txa
+	dey
+	sta xtxt,y
+	ldy #2
+	lda byte2
+	cmp #$64
+	bne stx1
+	lda #$30
+stx2	sta ytxt,y
+	dey
+	bpl stx2
+	inc ytxt
+	bne stx3
+stx1	ldx #32
+	stx ytxt
+	jsr gd_xcnvdez
+	sta ytxt,y
+	txa
+	and #15
+	bne stx4
+	lda #32
+	!by $a2
+stx4	txa
+	dey
+	sta ytxt,y
+stx3	ldy fmdata+2
+	dey
+	dey
+	dey
+	lda #32
+	sta xpostxt+7
+	sta ypostxt+7
+stx5	sta b8mess,y
+	dey
+	cpy ls_flen
+	bcs stx5
+stx6	lda ls_lastname,y
+	sta b8mess+1,y
+	dey
+	bpl stx6
+	lda #$30
+	sta xpostxt+8
+	sta ypostxt+8
+	rts
+
+; ------------------------------------------------ 
+
+ftxt	!scr " This is a PATR file.  "	; 0
+	!scr " This is a LOGO file.  "	; 23
+	!scr " This is a FONT file.  "	; 46
+	!scr " This is no B8 image.  "	; 69
+
+; ------------------------------------------------ 
+
+ss7	jmp cont
+
+; ------------------------------------------------ 
+
+sevsclip	lda byte2
+	ora byte3
+	beq ss7
+	ldx #$40
+	stx sc_texttab
+	dex
+	stx sc_texttab+1
+	ldy #0
+ss4	ldx #2
+ss0	lda sprou,x
+	sta (sc_texttab),y
+	iny
+	dex
+	bpl ss0
+	cpy #42
+	beq ss3
+ss2	ldx #2
+ss1	lda sprmi,x
+	sta (sc_texttab),y
+	iny
+	dex
+	bpl ss1
+	cpy #39
+	bne ss2
+	beq ss4
+ss3	lda #0
+ss5	sta (sc_texttab),y
+	iny
+	cpy #64
+	bne ss5
+	lda $d002
+	sta xkoomk
+	clc
+	lda $d003
+	adc #24
+	sta ykoomk
+	lda $d010
+	pha
+	lda byte2
+	sec
+	sbc maxho
+	beq mm0
+	bcc mm0
+	!by $2c
+mm0	lda #0
+	clc
+	adc ykoo
+	sta ymax
+	lda byte3
+	sec
+	sbc maxbr
+	beq mm1
+	bcc mm1
+	!by $2c
+mm1	lda #0
+	clc
+	adc xkoo
+	sta xmax
+	lda ykoo
+	sta $d003
+	lda xkoo
+	sta $d002
+	lda #$02
+	sta $d017
+	sta $d01d
+	sta $d015
+	lda #0
+	sta sc_keyprs
+	sta $d01c
+	sta $d010
+	lda #253
+	sta $07f9
+ss6	jsr checkpos
+	beq ss6
+	lda xkoomk
+	sta $d002
+	lda ykoomk
+	sta $d003
+	pla
+	sta $d010
+	lda #11
+	sta $07f9
+	lda #0
+	sta $d017
+	sta $d01d
+	lda #3
+	sta $d015
+	clc
+	rts
+
+; ------------------------------------------------ 
+
+over1	tay
+	sec
+	sbc $d002,x
+	bcc ov0
+	tya
+	sta $d002,x
+ov0	rts
+
+; ------------------------------------------------ 
+
+over2	tay
+	sec
+	sbc $d002,x
+	bcs ov0
+	tya
+	sta $d002,x
+	rts
+
+; ------------------------------------------------ 
+
+checkpos	jsr settab
+	ldx #0
+	lda xkoo
+	jsr over1
+	lda xmax
+	jsr over2
+	inx
+	lda ykoo
+	jsr over1
+	lda ymax
+	jsr over2
+	sec
+	lda $d002
+	sbc xkoo
+	cmp xpos
+	beq ch1
+	sta xpos
+	jsr gd_xcnvdez
+	sta xpostxt+8
+	txa
+	and #15
+	bne ch2
+	lda #32
+	!by $a2
+ch2	txa
+	sta xpostxt+7
+	ldy #0
+	jsr gettab
+	ldy #6
+	jsr gd_xtxout1
+ch1	sec
+	lda $d003
+	sbc ykoo
+	cmp ypos
+	beq ch3
+	sta ypos
+	jsr gd_xcnvdez
+	sta ypostxt+8
+	txa
+	and #15
+	bne ch4
+	lda #32
+	!by $a2
+ch4	txa
+	sta ypostxt+7
+	ldy #2
+	jsr gettab
+	ldy #6
+	jsr gd_xtxout1
+ch3	lda sc_keyprs
+	rts
+
+; ------------------------------------------------ 
+
+tabigad	!wo xpostxt
+	!wo ypostxt
+
+settab	lda #<tabigad
+	sta sc_texttab
+	lda #>tabigad
+	sta sc_texttab+1
+	rts
+
+gettab	lda (sc_texttab),y
+	sta sc_screentab
+	iny
+	lda (sc_texttab),y
+	sta sc_screentab+1
+	lda #0
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #3
+	bne gt0
+	stx sc_ho
+	jsr gd_trim
+	jmp gd_initmove
+
+; ------------------------------------------------ 
+
+b8lst	!by 0
+	!by 2,7,27,20,$81
+	!wo 0
+	!scr "Clip 40x25 from Basic8Pic@"
+	!by 4,8,12,15,$00
+	!wo 0
+	!by 4,20,12,3,$a0
+	!wo 0
+typtxt	!scr " "
+xtxt	!scr "   x "
+ytxt	!scr "    @"
+xpostxt	!by 7,22,4,3,$a0
+	!wo 0
+	!scr " 0@"
+ypostxt	!by 7,28,4,3,$a0
+	!wo 0
+	!scr " 0@"
+	!by 10,21,10,3,$c0
+	!wo sevsclip
+	!scr "Set Clip@"
+	!by 13,21,10,3,$c0
+	!wo sevbasic8
+	!scr "Load Pic@"
+	!by 16,21,10,3,$c0
+	!wo freq
+	!scr "Cancel@"
+fmdata	!by 19,8,25,3,$9c
+	!wo 0
+b8mess	!fill 23,32
+	!by 0
+	!by $c0,7,20,1
+	!scr "X@"
+	!by $c0,7,26,1
+	!scr "Y@"
+	!by $c0,4,8,10
+string1	!fill 10,32	; Select box
+	!by 0
+	!by $c0,5,8,10
+	!fill 10,32
+	!by 0
+	!by $c0,6,8,10
+	!fill 10,32
+	!by 0
+	!by $c0,7,8,10
+	!fill 10,32
+	!by 0
+	!by $c0,8,8,10
+	!fill 10,32
+	!by 0
+	!by $c0,9,8,10
+	!fill 10,32
+	!by 0
+	!by $c0,10,8,10
+	!fill 10,32
+	!by 0
+	!by $c0,11,8,10
+	!fill 10,32
+	!by 0
+	!by $c0,12,8,10
+	!fill 10,32
+	!by 0
+	!by $c0,13,8,10
+	!fill 10,32
+	!by 0
+	!by $c0,14,8,10
+	!fill 10,32
+	!by 0
+	!by $c0,15,8,10
+	!fill 10,32
+	!by 0
+	!by $c0,16,8,10
+	!fill 10,32
+	!by 0
+	!by $80
+
+	!by 0,0,0,$ff	; tail
+
+; ------------------------------------------------ 
+
+modend	!eof
