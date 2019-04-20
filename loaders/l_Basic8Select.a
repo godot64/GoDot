@@ -9,7 +9,8 @@
 ;  ldr.Basic8Select
 ;  Loader for pictures of C128 Basic8 (former UltraBasic)
 ;
-;    1.00: 19.04.19, first release
+;    1.00, 19.04.19, first release
+;    1.01, 20.04.19, added information about file's graphics mode
 ;
 ; ------------------------------------------------ 
 
@@ -57,8 +58,8 @@ head	jmp start
 	!wo modend
 	!wo 0
 	!tx "Basic8SelectMono"
-	!tx "1.00"
-	!tx "19.04.19"
+	!tx "1.01"
+	!tx "20.04.19"
 	!tx "A.Dettke        "
 
 ; ------------------------------------------------ 
@@ -421,7 +422,7 @@ b8type	!by 4
 	!by 0
 	!wo 0
 cmprflg	!by 0
-colors	!by 1		; 1 = monochrome
+gmode	!by 0		; 0 = monochrome
 width	!by 80
 height	!wo 400
 bgr	!by 15
@@ -444,6 +445,9 @@ conv	!by $00,$0f,$f0,$ff
 
 dnibs	!by $00,$33,$11,$88,$aa,$ee,$cc,$77
 	!by $44,$99,$55,$66,$22,$dd,$bb,$ff
+
+modes	!scr "mono8x2 8x4 8x8 8x16"
+moffs	!by 3,7,11,15,23
 
 ; ------------------------------------------------ Decompress
 
@@ -767,9 +771,19 @@ stx6	lda ls_lastname,y
 	sta b8mess+1,y
 	dey
 	bpl stx6
-	lda #$30
-	sta xpostxt+8
-	sta ypostxt+8
+	ldy #$30
+	sty xpostxt+8
+	sty ypostxt+8
+	dey
+	sty b8mess+17
+	ldy gmode
+	ldx moffs,y
+	ldy #3
+-	lda modes,x
+	sta b8mess+18,y
+	dex
+	dey
+	bpl -
 	rts
 
 ; ------------------------------------------------ 
