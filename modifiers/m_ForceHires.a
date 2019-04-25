@@ -11,6 +11,7 @@
 ;
 ; 1.00, 25.02.19, first release
 ; 1.01, 26.02.19, added sensibility for Balancing
+; 1.02, 25.04.19, added correct image information
 ;
 ; --------------------------------------
 
@@ -73,18 +74,16 @@
 	!wo modend
 	!wo 0
 	!pet "Force Hires Mode"
-	!pet "1.01"
-	!pet "26.02.19"
+	!pet "1.02"
+	!pet "25.04.19"
 	!pet "A.Dettke        "
 
 ; -------------------------------------- Main
 
 start	jsr apply
 	jsr clearad
-	lda #$ff		; Grafik verändert
-	sta gr_redisp
 
-	clc 		; fertig
+	sec 		; leave and rebuild main screen
 	rts	
 
 ; -------------------------------------- Apply Dither
@@ -137,7 +136,7 @@ rcloop	tya		; Dither-Offset merken
 	tax		; include balancing
 	lda gr_btab,x
 mcskip	jsr pixel		; aufrastern
-	and #$f0		; kommt zurück mit Bitmuster-Byte
+	and #$f0		; kommt zurück mit Farb-Byte
 	sta xbuf		; oberes Nibble merken
 
 	lsr bitcnt	; Maske nach rechts: %01000000
@@ -242,7 +241,7 @@ dthab	sta zp1		; Ordered
 	tax
 	lda rtab,x
 	ldx ybuf		
-	ora offs,x	  ; ,y
+	ora offs,x
 	tax
 	lda gr_orderedpat,x
 	jmp dh1
@@ -255,7 +254,7 @@ dtpat	sta zp1		; Pattern
 	asl
 	asl
 	asl
-	ora ybuf		;hold
+	ora ybuf
 	tax
 	lda gr_pattern,x
 dh1	ldx zp1
@@ -522,6 +521,22 @@ nosort	and #15		; as background
 
 +	rts
 
+; ------------------------------------------------ 
+
+setmode	ldx #<ls_imode	; ### 1.02
+	ldy #>ls_imode
+	stx sc_texttab
+	sty sc_texttab+1
+	ldx #0
+	ldy #0
+si4	lda modetx,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
 ; ------------------------------------------------ Activity
 
 adinc	dec adcnt
@@ -540,6 +555,9 @@ clearad	lda spren		; Wanderbalken aus
 	lda msbx
 	and #$f3
 	sta msbx
+	jsr setmode	; ### 1.02
+	stx gr_redisp
+
 	rts 
 
 ; ------------------------------------------------ Init Activity
@@ -599,6 +617,8 @@ cou7	dec ls_vekta8
 	rts
 
 ; --------------------------------------
+
+modetx	!scr "320x200@"
 
 rdtab	!by $00,$f0,$78,$50
 	!by $3c,$30,$28,$22
