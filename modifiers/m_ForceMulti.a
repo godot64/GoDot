@@ -12,8 +12,9 @@
 ;         1.00, 05.09.04, bugfix in algorithm
 ; color:  0.99, 13.11.92, first release
 ; both:   1.01, 06.07.17, combined modifier gray & color
-;         1.02, 06.02.19, changed some colors in coltab
+;         1.02, 06.01.19, changed some colors in coltab
 ;                         changed name of module to mod.ForceMulti
+;         1.03, 25.04.19, added correct image information
 ;
 ; --------------------------------------
 
@@ -37,10 +38,10 @@
 	!wo modend
 	!wo 0
 	!pet "average values  "
-	!pet "1.02"
-	!pet "06.01.19"
+	!pet "1.03"
+	!pet "25.04.19"
 	!pet "w.kling/ad      "
-addtx	!pet "gray:nib+nib/2  "
+addtx	!pet "gray:(nib+nib)/2"
 	!pet "col:nib+nib->tab"
 	!by 0
 
@@ -53,8 +54,8 @@ start	ldx #<avlst
 ; -------------------------------------- Event: gray
 
 evgray	jsr initad	; init activity bar
-	lda #$00		; from $4000...
-	ldy #$40
+	lda #<sy_4bit	; from $4000...
+	ldy #>sy_4bit
 	sta src
 	sty src+1
 
@@ -84,8 +85,8 @@ st0	lda (src),y	; get byte (double nibble)
 ; -------------------------------------- Event: color
 
 evcolor	jsr initad	; init activity bar
-	lda #$00		; from $4000...
-	ldy #$40
+	lda #<sy_4bit	; from $4000...
+	ldy #>sy_4bit
 	sta src
 	sty src+1
 
@@ -106,14 +107,30 @@ st1	lda (src),y	; get byte (double nibble)
 increm	jsr adinc		; activity
 	inc src+1		; next page
 	lda src+1
-	cmp #$bd
+	cmp #>sy_bigbuffer
 	rts
+
+; ------------------------------------------------ 
+
+setmode	ldx #<ls_imode	; ### 1.03
+	ldy #>ls_imode
+	stx sc_texttab
+	sty sc_texttab+1
+	ldx #0
+	ldy #0
+si4	lda modetx,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
 
 ; -------------------------------------- Activity Handler: Move Bar
 
 adinc	dec adcnt
 	bne st2
-	lda #$03
+	lda #3
 	sta adcnt
 	inc y2
 	inc y2+2
@@ -127,8 +144,8 @@ clearad	lda spren
 	lda spritehi
 	and #$f3
 	sta spritehi
-	lda #$01
-	sta gr_redisp
+	jsr setmode	; ### 1.03
+	stx gr_redisp
 
 ; -------------------------------------- Event: Cancel
 
@@ -167,7 +184,7 @@ adl0	sta spr255+3,y
 	lda spren
 	ora #$0c
 	sta spren
-	lda #$03
+	lda #3
 	sta adcnt
 	rts
 
@@ -176,12 +193,12 @@ adl0	sta spr255+3,y
 avlst	!by 0
 	!by 6,12,17,13,$81,0,0
 	!scr "ForceMulti@"
-sdith	!by 10,12,17,3,$ca
+	!by 10,12,17,3,$ca
 	!wo evgray
-dithtx	!scr "Gray Values@"
-smode	!by 13,12,17,3,$ca
+	!scr "Gray Values@"
+	!by 13,12,17,3,$ca
 	!wo evcolor
-modetx	!scr "Color Values@"
+	!scr "Color Values@"
 	!by 16,12,17,3,$c9
 	!wo evcan
 	!scr "Cancel@"
@@ -191,19 +208,21 @@ modetx	!scr "Color Values@"
 
 ; --------------------------------------
 
+modetx	!scr "160x200@"
+
 dnibs	!by $00,$11,$22,$33,$44,$55,$66,$77
 	!by $88,$99,$aa,$bb,$cc,$dd,$ee,$ff
 
-coltab	!by $00,$33,$33,$33,$33,$22,$22,$33,$33,$22,$33,$33,$33,$33,$33,$77
+coltab	!by $00,$33,$33,$33,$22,$22,$22,$33,$33,$33,$33,$33,$33,$33,$33,$77
 	!by $33,$11,$33,$11,$33,$11,$22,$33,$88,$55,$33,$77,$88,$77,$77,$88
 	!by $33,$33,$22,$22,$44,$44,$22,$33,$77,$66,$33,$77,$bb,$66,$aa,$77
 	!by $33,$11,$22,$33,$22,$33,$22,$33,$77,$77,$33,$77,$77,$77,$aa,$77
-	!by $33,$33,$44,$22,$44,$44,$44,$33,$55,$66,$22,$77,$77,$66,$22,$99
+	!by $22,$33,$44,$22,$44,$44,$44,$33,$55,$66,$22,$77,$77,$66,$22,$99
 	!by $22,$11,$44,$33,$44,$55,$44,$55,$88,$55,$77,$77,$88,$99,$55,$99
 	!by $22,$22,$22,$22,$44,$44,$66,$66,$77,$99,$66,$99,$bb,$99,$aa,$99
 	!by $33,$33,$33,$33,$33,$55,$66,$77,$88,$99,$77,$77,$bb,$bb,$ee,$bb
 	!by $33,$88,$77,$77,$55,$88,$77,$88,$88,$99,$77,$88,$cc,$ee,$cc,$bb
-	!by $22,$55,$66,$77,$66,$55,$99,$99,$99,$99,$77,$bb,$bb,$99,$bb,$bb
+	!by $33,$55,$66,$77,$66,$55,$99,$99,$99,$99,$77,$bb,$bb,$99,$bb,$bb
 	!by $33,$33,$33,$33,$22,$77,$66,$77,$77,$77,$aa,$ee,$ee,$ee,$aa,$bb
 	!by $33,$77,$77,$77,$77,$77,$99,$77,$88,$bb,$ee,$bb,$bb,$dd,$bb,$ff
 	!by $33,$88,$bb,$77,$77,$88,$bb,$bb,$cc,$bb,$ee,$bb,$cc,$bb,$ee,$ff
