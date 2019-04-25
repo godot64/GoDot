@@ -1,4 +1,4 @@
-	!src "godotlib.lib"
+	!src "..\godotlib.lib"
 	*= $c000
 	!ct pet
 ;	!sl "labels.txt"
@@ -10,6 +10,7 @@
 ;   1.00, 10.08.04, first release
 ;   1.01, 24.08.04, added: preview
 ;   1.02, 20.03.18, added: scale any clip (using ClipWorks/LastClip)
+;   1.03, 25.04.19, added correct image information
 ; 
 ; -------------------------------------- 
 
@@ -58,8 +59,8 @@
 	!by 0
 	!by 0
 	!tx "Double Quadrant "
-	!tx "1.02"
-	!tx "20.03.18"
+	!tx "1.03"
+	!tx "25.04.19"
 	!tx "W.Kling/A.Dettke"
 
 ; -------------------------------------- Main 
@@ -72,6 +73,7 @@ start	lda gd_modswitch	; (v1.01)
 	jsr gd_eloop	; wait for clicks
 	pla
 	sta gd_modswitch
+	jsr setmode	; ### 1.03
 
 ; --------------------------------------- Event: Exit
 
@@ -592,6 +594,8 @@ mulply8	asl
 
 ; --------------------------------------- 
 
+modetx	!scr "160x100@"
+
 line8	!by $40, $45, $4a, $4f, $54
 	!by $59, $5e, $63, $68, $6d
 	!by $72, $77, $7c, $81, $86
@@ -607,6 +611,22 @@ frow	!by 0,0,100,100,0
 fcolumn	!by 0,160,0,160,0
 row	!by 0
 column	!by 0
+
+; ------------------------------------------------ 
+
+setmode	ldx #<ls_imode	; ### 1.03
+	ldy #>ls_imode
+	stx sc_texttab
+	sty sc_texttab+1
+	ldx #0
+	ldy #0
+si4	lda modetx,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
 
 ; --------------------------------------- 
 
