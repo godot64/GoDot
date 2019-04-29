@@ -771,7 +771,7 @@ stx6	lda ls_lastname,y
 	sta b8mess+1,y
 	dey
 	bpl stx6
-	ldy #$30
+	ldy #$30		; ### 1.01
 	sty xpostxt+8
 	sty ypostxt+8
 	dey
@@ -783,7 +783,7 @@ stx6	lda ls_lastname,y
 	sta b8mess+18,y
 	dex
 	dey
-	bpl -
+	bpl -		; ### /1.01
 	rts
 
 ; ------------------------------------------------ 
