@@ -6,9 +6,11 @@
 ; ----------------------------------------- 
 ;
 ; svr.Basic8mono
-;  Saver für C128 Basic8-Bilder im Format 640x400 monochrom 
+;  Saver für C128 Basic8-Bilder im Format 640x200 
 ;
-;  1.00, 27.04.19: first release
+;  1.00, 27.04.19, first release
+;  1.01, 30.04.19, bugfix: compress algorithm now works
+;                  added: auto prefix ("brus.") 
 ;
 ; ----------------------------------------- 
 
@@ -58,8 +60,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "IPaint - 640x400"
-	!pet "1.00"
-	!pet "27.04.19"
+	!pet "1.01"
+	!pet "30.04.19"
 	!pet "A.Dettke        "
 
 ; ----------------------------------------- Main
@@ -81,6 +83,7 @@ saver	jsr gd_sproff	; nein, Mauszeiger aus
 	beq st1		; ja, fertig
 
 	sta wflen		; Namenslänge merken
+	jsr addprefix	; Prefix "brus." zufügen
 	lda #1		; Activity beginnen
 	sta adcnt
 
@@ -215,7 +218,7 @@ filltab	!by 160,93,103,127,126,124,105,109
 
 cntwert	!by 1
 
-txt	!scr " B8mono @"
+txt	!scr " Basic8 @"
 
 message	!fill 8,32
 mess	!fill 24,32
@@ -276,6 +279,7 @@ write	jsr gd_clrms	; Message ausgeben
 	lda #$81
 	sta wave
 	jsr basic8	; Bild abspeichern
+;	jsr wrcolors	; Farben anhängen (folgt noch)
 	sec 
 	rts 
 
@@ -354,7 +358,7 @@ s4	cpx #80		; bis 40 erreicht
 	ldx #0
 s41	stx vertcnt
 	lda dbl
-	eor #$ff
+	eor #0		; ### $ff erzeugt 400 Linien
 	sta dbl
 	beq newline
 
@@ -513,8 +517,25 @@ wl5	ldy #0
 	dex 
 	bne wloop
 
-	lda byte		; flush buffer
-	eor #$ff
+	bit cpres		; ja, File ungepackt?
+	bmi +
+	rts		; dann raus
+
++	lda cnt		; sonst: flush buffer?
+	tax
+	ora cnteq
+	beq ++		; nicht erforderlich
+	txa		; doch: welchen?
+	beq +
+
+	sta ocnt		; flush uncompacted buffer
+	jsr straight
+	beq ++
+
++	jsr compact	; flush compacted buffer
+++	stx cnteq
+	rts		; jetzt: 640 Bytes fertig
+	
 
 ; ----------------------------------------- RLE-Komprimierung
 
@@ -524,12 +545,16 @@ pack	bit cpres		; Komprimierung aktiviert?
 
 +	sta current
 	stx xmrk		; sonst: .x retten
-	ldx cnt		; Zähler holen, neues Byte?
+-	ldx cnt		; Zähler holen, neues Byte?
 	beq wl1		; ja, merken
 	cpx #127		; höchsten Zählerstand erreicht?
-	bcs wl2		; ja, ausgeben
+	bcc +
 
-	lda current
+	jsr process	; ja, max buffer bearbeiten
+	stx cnteq
+	beq -		; dann normal fortsetzen
+
++	lda current
 	cmp byte		; aktuelles Byte gleich letztem Byte?
 	bne wl1		; nein, speichern
 
@@ -541,18 +566,18 @@ pack	bit cpres		; Komprimierung aktiviert?
 	sta cflag
 	bmi ++
 
-wl1	lda cnteq
+wl1	lda cnteq		; aktives Packen?
 	beq ++
 	cmp #3
 	bcc +
-	jsr process
+	jsr process	; ja, ausführen
 +	lda #0
 	sta cnteq
 
-++	lda current
+++	lda current	; sonst: 
 	sta byte
 incr	sta cbuf,x	; Byte puffern
-	inc cnt		; zählen
+	inc cnt		; und zählen
 	ldx xmrk		; .x rekonstruieren
 	rts 
 
@@ -580,9 +605,10 @@ wl3	ldx #0		; dann Zähler zurücksetzen
 	rts
 
 wl2	sta cbuf,x	; Wert 127 puffern
-	lda cflag		; aktive Komprimierung?
+	bit cflag		; aktive Komprimierung?
 	bmi -
 	stx ocnt
+	txa
 
 straight	jsr bsout		; Zähler ausgeben
 	ldx #0
@@ -603,7 +629,53 @@ wrh0	lda b8header,x
 	bne wrh0
 	rts 
 
+; ----------------------------------------- Namen verlängern
+
+addprefix	pha		; Länge merken
+	ldy #0
+ag4	lda ls_nambuf,y	; beginnt mit "brus."?
+	cmp prefix,y
+	bne ag2		; nein
+	iny
+	cpy #5		; (### anpassen)
+	bcc ag4
+	pla		; ja, fertig
+	rts
+	
+ag2	pla		; verlängern um 5 Zeichen
+	clc
+	adc #5		; (### anpassen)
+	tay		; Name nun länger als 16 Zeichen?
+	cpy #16
+	bcs ag0		; ja, behandeln
+
+ag5	ldx #10		; nein, "brus." vor den Namen (### anpassen)
+ag1	lda ls_nambuf,x
+	sta ls_nambuf+5,x
+	lda ls_lastname,x
+	sta ls_lastname+5,x
+	dex
+	bpl ag1
+	ldx #4		; Länge (### anpassen)
+ag3	lda prefix,x
+	sta ls_nambuf,x
+	lda prefixs,x
+	sta ls_lastname,x
+	dex
+	bpl ag3
+	sty wflen		; neue Länge merken, fertig
+	sty ls_flen
+	rts
+
+ag0	dey		; auf 16 verkürzen
+	cpy #16		; ### anpassen
+	bne ag0
+	beq ag5		; unbed. Sprung
+
 ; ----------------------------------------- 
+
+prefix	!pet "brus."	; Länge: plus 5, max 11
+prefixs	!scr "brus."
 
 offs	!by $00,$10,$20,$30
 	!by $00,$10,$20,$30
@@ -632,7 +704,7 @@ b8header	!wo 0		; Startadresse (im VDC)
 cmpr	!by 1		; Packflag (1=ja)
 	!by 0		; Anzahl Farben (0=mono)
 wid	!by 80		; Breite in Kacheln (=640 Pixel)
-hgt	!wo 400		; Höhe in Linien
+hgt	!wo 200		; Höhe in Linien
 	!by 1		; BGR (light grey)
 	!by 14		; FGR (dark grey)
 	!by 0		; Border (black)
