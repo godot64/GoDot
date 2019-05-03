@@ -5,12 +5,13 @@
 
 ; ----------------------------------------- 
 ;
-; svr.Basic8mono
-;  Saver für C128 Basic8-Bilder im Format 640x200 
+; svr.Basic8
+;  Saver für C128 Basic8-Bilder
 ;
 ;  1.00, 27.04.19, first release
-;  1.01, 30.04.19, bugfix: compress algorithm now works
-;                  added: auto prefix ("brus.") 
+;  1.01, 02.05.19, bugfix: compress algorithm now works
+;                  added: auto prefix ("brus.")
+;                  added: options requester
 ;
 ; ----------------------------------------- 
 
@@ -19,12 +20,12 @@
 
 	dst		= $30
 	dst0		= $32
-	cpres		= $34	; file compressed?
-	cflag		= $35	; running compression?
-	dbl		= $36
+	cpres		= $34	; file compressed? (if 1)
+	cflag		= $35	; running compression? (if $80)
+	dbl		= $36	; double height? (0: off, $ff: on)
 	vertcnt		= $37
 	byte		= $38
-	bitcnt		= $39
+	bitcnt		= $39	; double width? (1: off, 2: on)
 	bcnt1		= $3a
 	src		= $3b
 	hold		= $3d
@@ -37,6 +38,7 @@
 	ocnt		= $45
 	xmrk		= $46
 	current		= $48
+	yndex		= $49
 
 	offx		= $b2
 	offy		= $b3
@@ -59,9 +61,9 @@ header	jmp start
 	!by 1
 	!wo modend
 	!wo 0
-	!pet "IPaint - 640x400"
+	!pet "Basic8 images   "
 	!pet "1.01"
-	!pet "30.04.19"
+	!pet "02.05.19"
 	!pet "A.Dettke        "
 
 ; ----------------------------------------- Main
@@ -74,18 +76,50 @@ start	ldx gr_nr		; Input?
 
 ; ----------------------------------------- Basic8mono
 
-saver	jsr gd_sproff	; nein, Mauszeiger aus
-
-	lda gd_modswitch	; Modulmanagement
+saver	lda gd_modswitch	; Modulmanagement
 	pha 
 
 	lda ls_flen	; Keine Datei ausgewählt?
 	beq st1		; ja, fertig
 
 	sta wflen		; Namenslänge merken
-	jsr addprefix	; Prefix "brus." zufügen
 	lda #1		; Activity beginnen
 	sta adcnt
+
+	ldx #<b8lst	; Requester
+	ldy #>b8lst
+	jsr gd_screen
+	jsr gd_eloop	; warten auf Klicks
+
+st1	pla 
+	sta gd_modswitch
+
+	lda shift		; Shift (-Lock) gedrückt?
+	and #1
+	bne evleave
+
+	ldy #16		; nein, Balancing-Tabelle initialisieren
+	sty gr_ctr
+	sty gr_brt
+lll	dey 
+	tya 
+	sta gr_btab,y
+	bne lll
+
+; ----------------------------------------- Event: Beenden
+
+evleave	lda #0
+	sta wflen
+	sec 		; fertig
+	rts 
+
+; ----------------------------------------- Event: Save Image
+
+evsaveb8	lda wflen
+	beq +
+
+	jsr addprefix	; Prefix "brus." zufügen
+	jsr gd_sproff	; Mauszeiger aus
 
 	jsr wopen		; Datei öffnen
 	bne st2		; Fehlschlag?
@@ -99,27 +133,10 @@ st2	jsr clrch		; Datei schließen
 	lda #12
 	jsr close
 	jsr err9		; Fehler?
-	bne st1
+	bne +
 	jsr setname	; nein, Image Info eintragen
 
-st1	pla 
-	sta gd_modswitch
-
-	lda shift		; Shift (-Lock) gedrückt?
-	and #1
-	bne cn2
-
-	ldy #16		; nein, Balancing-Tabelle initialisieren
-	sty gr_ctr
-	sty gr_brt
-lll	dey 
-	tya 
-	sta gr_btab,y
-	bne lll
-
-cn2	jsr gd_spron	; Mauszeiger an
-	sec 		; fertig
-	rts 
++	jmp gd_spron	; Mauszeiger an
 
 ; ----------------------------------------- 
 ; ----------------------------------------- Input-Routinen
@@ -264,8 +281,7 @@ write	jsr gd_clrms	; Message ausgeben
 	beq +
 	lda #$80		; yes, tag it
 +	sta cpres
-	lda gr_dither	; Dithering berücksichtigen
-	tax 
+	ldx dither	; Dithering berücksichtigen
 	lda dlo,x
 	sta dmode
 	lda dhi,x
@@ -291,7 +307,7 @@ basic8	lda #<sy_4bit
 	sta src
 	stx src0+1
 	stx src+1
-	lda #0
+	lda #0		; steuert ysize
 	sta dbl
 	sta vertcnt
 
@@ -303,15 +319,17 @@ lnloop8	lda #0
 lnloop	jsr action
 ads0	ldx #0
 
-zloop	lda #2		; zählt zweimal (eine Kachellinie)
+zloop	lda #0
+	sta yndex
+	lda xzoom		; 1 bei 320, 2 zählt 640 (eine Rasterlinie)
 	sta bcnt1
 
-byloop	lda #$c0		; zählt vier Pixel
+byloop	lda xmask		; zählt vier Byte (8 Pixel)
 	sta bitcnt
 	lda #0
 	sta byte
 
-btloop	ldy #0
+btloop	ldy yndex
 	lda (src),y	; linkes Pixel
 	pha 
 	lsr 
@@ -321,35 +339,37 @@ btloop	ldy #0
 	tay 
 	lda gr_btab,y	; Balancing berücksichtigen
 	jsr makebyte
-	lsr bitcnt
-	lsr bitcnt
+	ldy xzoom
+-	lsr bitcnt
+	dey
+	bne -
 	pla 
 	and #$0f		; rechtes Pixel
 	tay 
 	lda gr_btab,y	; Balancing berücksichtigen
 	jsr makebyte
-	inc src
-	bne s3
-	inc src+1
-s3	lsr bitcnt	; bis 4 Pixel durch
-	lsr bitcnt
+	inc yndex		; nächstes Byte (von 4)
+s3	ldy xzoom
+-	lsr bitcnt
+	dey
+	bne -
 	bcc btloop
 
-	sta buf,x		; Ergebnis puffern
+	sta buf,x		; Ergebnis puffern (8 Pixel)
 	inx 
-	dec bcnt1		; zweimal das Ganze (8 Pixel)
+	dec bcnt1		; zweimal das Ganze (bei 640)
 	bne byloop
 
 	lda src		; nächste Kachel ansteuern
 	clc 
-	adc #28
+	adc #32
 	sta src
 	bcc s4
 	inc src+1
-s4	cpx #80		; bis 40 erreicht
+s4	cpx xtiles
 	bne zloop
 
-	jsr moveline	; Rasterzeile wegschreiben
+	jsr moveline	; Rasterzeile wegschreiben bis Blockzeile voll
 
 	ldx vertcnt	; Zeile verdoppeln
 	inx 
@@ -358,7 +378,7 @@ s4	cpx #80		; bis 40 erreicht
 	ldx #0
 s41	stx vertcnt
 	lda dbl
-	eor #0		; ### $ff erzeugt 400 Linien
+	eor yzoom
 	sta dbl
 	beq newline
 
@@ -485,13 +505,13 @@ mloop	lda buf,x
 	bne ml3
 	inc dst+1
 ml3	inx 
-	cpx #80
+	cpx xtiles
 	bne mloop
 	ldy vertcnt
 	cpy #7		; nach 8 Rasterzeilen speichern
 	bne ml4
 
-writeloop	ldx #5		; 5*128 (=8*80 =640) Bytes (1 Blockzeile)
+writeloop	ldx #8		; 8*80 =640 Bytes (1 Blockzeile)
 	lda #<destbuf
 	ldy #>destbuf
 	sta dst0
@@ -505,11 +525,11 @@ writeloop	ldx #5		; 5*128 (=8*80 =640) Bytes (1 Blockzeile)
 wloop	lda (dst0),y	; Speichern: Byte holen,
 	jsr pack		; packen und wegschreiben
 	iny 
-	cpy #128
+	cpy xtiles
 	bne wloop
 	clc 
 	lda dst0
-	adc #128
+	adc xtiles
 	sta dst0
 	bcc wl5
 	inc dst0+1
@@ -637,26 +657,26 @@ ag4	lda ls_nambuf,y	; beginnt mit "brus."?
 	cmp prefix,y
 	bne ag2		; nein
 	iny
-	cpy #5		; (### anpassen)
+	cpy #5
 	bcc ag4
 	pla		; ja, fertig
 	rts
 	
 ag2	pla		; verlängern um 5 Zeichen
 	clc
-	adc #5		; (### anpassen)
+	adc #5
 	tay		; Name nun länger als 16 Zeichen?
 	cpy #16
 	bcs ag0		; ja, behandeln
 
-ag5	ldx #10		; nein, "brus." vor den Namen (### anpassen)
+ag5	ldx #10		; nein, "brus." vor den Namen
 ag1	lda ls_nambuf,x
 	sta ls_nambuf+5,x
 	lda ls_lastname,x
 	sta ls_lastname+5,x
 	dex
 	bpl ag1
-	ldx #4		; Länge (### anpassen)
+	ldx #4		; Länge
 ag3	lda prefix,x
 	sta ls_nambuf,x
 	lda prefixs,x
@@ -668,14 +688,235 @@ ag3	lda prefix,x
 	rts
 
 ag0	dey		; auf 16 verkürzen
-	cpy #16		; ### anpassen
+	cpy #16
 	bne ag0
 	beq ag5		; unbed. Sprung
 
-; ----------------------------------------- 
+; ----------------------------------------- Event: XSize
+
+evxsize	ldx xsize		; 0: off, 1: on
+	beq +
+	ldx #$ff
++	lda #40
+	inx
+	beq +
+	asl
++	sta xtiles
+	sta wid
+	stx xsize
+	lda #$80
+	cpx #0
+	beq +
+	ora #$40
++	sta xmask
+	lda #<xsizetx
+	sta sc_texttab
+	lda #>xsizetx
+	sta sc_texttab+1
+	txa
+	inx
+	stx xzoom
+	asl
+	tay
+	lda xaddrs,y
+	tax
+	lda xaddrs+1,y
+	tay
+	jmp gd_xtxtggl
+
+; ----------------------------------------- Event: YSize
+
+evysize	ldx ysize		; 0: off, 1: on
+	beq +
+	ldx #$ff
++	lda #200
+	inx
+	stx hgt+1
+	bne +
+	sta hgt
+	beq ++
++	lda #$90
+	sta hgt
+
+++	stx ysize
+	beq +
+	lda #$ff
+	!by $2c
++	lda #0
+	sta yzoom
+	lda #<ysizetx
+	sta sc_texttab
+	lda #>ysizetx
+	sta sc_texttab+1
+	txa
+	asl
+	tay
+	lda yaddrs,y
+	tax
+	lda yaddrs+1,y
+	tay
+	jmp gd_xtxtggl
+
+; -------------------------------------- Event: Set Compress Mode
+
+evsetcmpr	ldx cmpr		; 0: off, 1: on
+	beq +
+	ldx #$ff
++	inx
+	stx cmpr
+	lda #<cmprstx
+	sta sc_texttab
+	lda #>cmprstx
+	sta sc_texttab+1
+	txa
+	asl
+	tay
+	lda caddrs,y
+	tax
+	lda caddrs+1,y
+	tay
+	jmp gd_xtxtggl
+
+; ----------------------------------------- Event: Set Color Mode
+
+evsetmode	lda modes
+	cmp #4
+	bne +
+	lda #$ff
+	sta modes
++	inc modes
+	ldx modes
+	stx mode
+	lda modeoffs,x
+	tax
+	ldy #3
+-	lda modetxts,x
+	sta modetx,y
+	dex
+	dey
+	bpl -
+	ldy #0
+	jsr settext
+	ldy #6
+	jmp gd_xtxout1
+
+; ----------------------------------------- Event: Set Dither Mode
+
+evsetdith	lda dither
+	cmp #4
+	bne +
+	lda #$ff
+	sta dither
++	inc dither
+	ldx dither
+	lda dithoffs,x
+	tax
+	ldy #6
+-	lda dithtxts,x
+	sta dithtx,y
+	dex
+	dey
+	bpl -
+	ldy #2
+	jsr settext
+	ldy #6
+	jmp gd_xtxout1
+
+; ------------------------------------ Output gadget text routines
+
+tabigad	!wo modegad	; 0
+	!wo dithgad	; 2
+
+settext	lda #<tabigad
+	sta ls_vekta8
+	lda #>tabigad
+	sta ls_vekta8+1
+; ---	rts
+
+gettext	lda (ls_vekta8),y
+	sta sc_screentab
+	iny
+	lda (ls_vekta8),y
+	sta sc_screentab+1
+	lda #0
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #3
+	bne gt0
+	stx sc_ho
+	jsr gd_trim
+	jmp gd_initmove
+
+; ----------------------------------------- Screenlist
+
+b8lst	!by 0
+	!by 5,12,15,15,$81
+	!wo 0
+	!scr "Save Basic8",0
+	!by 7,22,5,3,$cd
+	!wo evxsize
+xsizetx	!scr "320",0
+	!by 9,22,5,3,$ce
+	!wo evysize
+ysizetx	!scr "200",0
+	!by 11,22,5,3,$ce
+	!wo evsetcmpr
+cmprstx	!scr "yes",0
+modegad	!by 13,21,6,3,$ce
+	!wo evsetmode
+modetx	!scr "mono",0
+dithgad	!by 15,18,9,3,$ce
+	!wo evsetdith
+dithtx	!scr "Ordered",0
+	!by 17,13,6,3,$cc
+	!wo evsaveb8
+	!scr "Save",0
+	!by 17,19,8,3,$ce
+	!wo evleave
+	!scr "Cancel",0
+	!by $c0,7,12,6
+	!scr "XSize:",0
+	!by $c0,9,12,6
+	!scr "YSize:",0
+	!by $c0,11,12,9
+	!scr "Compress:",0
+	!by $c0,13,12,7
+	!scr "Colors:",0
+	!by $c0,15,12,5
+	!scr "Dith:",0
+	!by $80
+	
+; ----------------------------------------- Data
 
 prefix	!pet "brus."	; Länge: plus 5, max 11
 prefixs	!scr "brus."
+
+xsizet1	!scr "320@"
+xsizet2	!scr "640@"
+xsize	!by 0
+xzoom	!by 1		; 1: off, 2 : on
+xtiles	!by 40		; zoom off: 40, on: 80
+xmask	!by $80		; zoom off: $80, on: $c0
+xaddrs	!wo xsizet1,xsizet2
+
+ysizet1	!scr "200@"
+ysizet2	!scr "400@"
+ysize	!by 0		; 0: off (200), 1: on (400)
+yzoom	!by 0		; 0: 200, $ff: 400
+yaddrs	!wo ysizet1,ysizet2
+
+cmprst1	!scr " no@"
+cmprst2	!scr "yes@"
+caddrs	!wo cmprst1,cmprst2
+
+modetxts	!scr "mono8x2 8x4 8x8 8x16"
+modeoffs	!by 3,7,11,15,19
+modes	!by 0
+
+dithtxts	!scr "  Off  OrderedPattern Noise Random "
+dithoffs	!by 6,13,20,27,34
+dither	!by 1
 
 offs	!by $00,$10,$20,$30
 	!by $00,$10,$20,$30
@@ -702,11 +943,11 @@ b8header	!wo 0		; Startadresse (im VDC)
 	!by 0		; Startspalte
 	!wo 0		; Startlinie
 cmpr	!by 1		; Packflag (1=ja)
-	!by 0		; Anzahl Farben (0=mono)
-wid	!by 80		; Breite in Kacheln (=640 Pixel)
+mode	!by 0		; Anzahl Farben (0=mono)
+wid	!by 40		; Breite in Kacheln (80=640 Pixel)
 hgt	!wo 200		; Höhe in Linien
-	!by 1		; BGR (light grey)
-	!by 14		; FGR (dark grey)
+	!by 1		; BGR (dark grey)
+	!by 14		; FGR (light grey)
 	!by 0		; Border (black)
 
 ; ----------------------------------------- 
