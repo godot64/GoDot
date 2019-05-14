@@ -1,0 +1,591 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ------------------------------------------------ 
+;
+;  ldr.B8Colors
+;  Test loader for colors from C128 Basic8 images
+;
+;    1.00, 14.05.19, first release
+;
+; ------------------------------------------------ 
+
+; ------------------------------------------------ Equates
+
+	pport		= $01
+
+	mbr		= $30
+	mho		= $31
+	msp		= $32
+	mrc		= $33
+	zstart		= $34
+	sstart		= $35
+	dst0		= $36
+	dst1		= $38
+	byte		= $3c
+	bycnt		= $3d
+	nibcnt		= $3e
+	bcnt		= $3f
+	dst		= $40
+	gbyte		= $42
+	adcnt		= $43
+	lcnt8		= $44
+	counter		= $46
+	pkflg		= $47
+	xmrk		= $48
+	colors		= $49
+	evenodd		= $4b
+	field		= $4c
+	pattern		= $4d
+	cheight		= $4e
+
+	offx		= ls_adrmisc
+	offy		= offx+1
+
+	cbufe		= $ca00
+	cbufo		= cbufe+80
+
+; ------------------------------------------------ 
+
+head	jmp start
+	!by $80
+	!by 0
+	!by 0
+	!wo modend
+	!wo 0
+	!tx "Get Basic8 Colrs"
+	!tx "1.00"
+	!tx "14.05.19"
+	!tx "A.Dettke        "
+
+; ------------------------------------------------ 
+
+start	jsr gd_xopen
+	ldy #0
+-	jsr onebyte	; read file header (18 bytes)
+	bne jerror
+	sta header,y
+	iny
+	cpy #18
+	bne -
+
+	lda #8		; counter for tiles (8 = tile in bitmap)
+	sta current
+	lda #25		; counter for image height
+	sta cheight
+	lda width		; get width in tiles
+	sta pbr
+	sta byte3		; and store
+	clc		; get height in tiles (height/8)
+	lsr height+1
+	ror height
+	lsr height+1
+	ror height
+	lsr height+1
+	ror height
+	lda height
+	sta pho
+	sta byte2		; and store
+	cmp #25		; if >25 delimit to 25
+	bcs +
+	sta cheight
+
++	ldx gmode		; mode 0 (mono)?
+	bne +
+	jsr setconv	; yes, colorize
+
++	jsr skipbmap	; skip complete bitmap
+	jsr getcmap	; get colors from file
+
+; ------------------------------------------------ 
+
+cancel	sec		; finish
+	rts
+
+; ------------------------------------------------ 
+
+jerror	jmp error
+
+; ------------------------------------------------ Read Basic8 Image
+
+skipbmap	lda byte2		; file chosen?
+	ora byte3
+	beq jerror	; no, error
+
+	jsr getname	; yes, store filename for image information
+	lda #0
+	sta counter	; reset compression counter
+	sta pkflg		; and pack indicator
+
+	ldx #<sy_4bit	; set destination vectors
+	ldy #>sy_4bit
+	stx dst
+	stx dst0
+	stx dst1
+	sty dst+1
+	sty dst0+1
+	sty dst1+1
+	jsr gd_clrms	; prepare gauge
+	inx
+	stx adcnt
+
+	ldx byte2		; set values: height
+	lda byte3		; width
+	sta pbr
+	tay
+	cmp #41
+	bcc fx9
+	sbc #40		; compute right skip (if necessary)
+	bcc fx9
+	ldy #40
+	!by $2c
+fx9	lda #0
+	sta mro
+	sty rbr
+
+; ------------------------------------------------ skip bitmap
+
+readdumy	stx mho		; .x: height
+	ldx #0		; activate gauge
+	jsr tcopy
+ys0	lda pbr
+	sta mbr
+yl1	jsr load		; skip (current*mbr*mho bytes)
+	dec cntr
+	bne yl1
+	lda current
+	sta cntr
+	jsr action	; activity
+	dec mbr
+	bne yl1
+	dec mho
+	bne ys0
+	rts
+
+; ------------------------------------------------ 
+
+getcmap	jsr findchunk	; find color chunk (doesn't return if not)
+
+	ldx #9		; found, so activate gauge
+	jsr tcopy
+	lda cheight	; Höhe in Blockzeilen (max 25)
+	sta lcnt8
+
+loop8	lda #0
+	sta field		; Halbbild des Interlace wählen
+	lda #8
+	sta bycnt		; get one blockrow:
+
+byloop	and #1		; even= field 1, odd= field 2
+	sta evenodd
+
+	lda gmode		; which graphics mode?
+	beq ++		; 0: mono (then skip)
+	cmp #1
+	bne +
+	lda bycnt		; 1: 8x2  (then get colors after 4 lines)
+	cmp #4
+	bne +
+	lda #0
+	sta field
+
++	bit field		; color rows already present?
+	bmi ++		; yes, skip getcols
+
+	jsr getcols	; read two color rows
+	
+++	jsr setpixels	; then convert bitmap to colors
+
++	clc		; next raster line
+	lda dst0
+	adc #4
+	sta dst0
+	sta dst
+	lda dst0+1
+	adc #0
+	sta dst0+1
+	sta dst+1
+
+	dec bycnt		; count raster lines (8)
+	lda bycnt
+	bne byloop
+
+	clc		; next block row
+	lda dst0
+	adc #<1248
+	sta dst0
+	sta dst
+	lda dst0+1
+	adc #>1248
+	sta dst0+1
+	sta dst+1
+	
+	dec lcnt8		; until height
+	bne loop8
+
+; ------------------------------------------------ End Sequence
+
+ld3	jsr setinfo	; set image information
+	sty gr_redisp	; flag: re-render graphics
+ld5	jsr gd_xclose	; close file
+	jsr gd_spron	; mouse on
+	jsr gd_xmess	; floppy message (in a flash)
+	sec		; leave module
+	rts
+
+; ------------------------------------------------ 
+
+findchunk	lda gmode		; mode 0? (no color chunk)
+	beq +
+
+--	ldy #0		; check for color chunk ("colr")
+-	jsr onebyte
+	bne off		; until EOF
+	cmp cchunk,y
+	bne --
+	iny
+	cpy #4
+	bne -
+
++	rts		; chunk found if .y=4 (or mode=0)
+
+; ------------------------------------------------ 
+
+off	pla
+	pla
+
+error	jsr ld5
+	clc
+	rts
+
+; ------------------------------------------------ Read Image Data
+
+getcols	lda byte3		; width
+	sta bcnt
+bloop	jsr load		; get byte from disk
+	sta byte
+	sec
+	lda byte3		; width as counter
+	sbc bcnt
+	tax
+	lda byte
+
+	pha
+	lda gmode		; which graphics mode?
+	cmp #3		; 3: 8x8
+	beq m8x8
+
+	pla
+	bit field
+	bpl +
+	sta cbufo,x	; get color values
+	bmi ++
++	sta cbufe,x
+++	dec bcnt		; count width
+	bne bloop
+
+-	dec field		; choose interlace field
+	lda field
+	cmp #$fe
+	bne getcols
+
+	rts		; now retrieved two color rows
+
+m8x8	pla		; mode 3:
+	sta cbufe,x	; get color values
+	sta cbufo,x
+	dec bcnt
+	bne bloop
+	dec field
+	bmi -
+
+; ------------------------------------------------ Set test pattern
+
+setpixels	lda evenodd	; set pattern: rasterline even?
+	bne +
+	lda #$aa		; yes: %10101010
+	!by $2c
++	lda #$55		; no : %01010101
+	sta pattern
+
+	ldx #0		; index in cbuf (0..width)
+
+--	lda evenodd
+	bne +
+	lda cbufe,x
+	jmp ++
++	lda cbufo,x
+++	tay
+	lsr
+	lsr
+	lsr
+	lsr
+	sta colors	; split color byte
+	tya
+	and #15
+	sta colors+1
+
+	stx xmrk		; store index 
+	lda pattern	; set test pattern
+	ldy #0
+	clc
+
+-	asl		; test bits of one tile
+	pha
+	jsr convert	; left pixel
+	and #$f0
+	sta byte
+	pla
+	asl		; next bit
+	pha
+	jsr convert	; right pixel
+	and #$0f
+	ora byte
+	sta (dst),y	; write to GoDot's 4Bit buffer
+	pla
+	iny
+	cpy #4
+	bne -
+
+	clc		; next tile
+	lda dst
+	adc #32
+	sta dst
+	bcc +
+	inc dst+1
+
++	jsr action	; activity
+	ldx xmrk		; until width (max 40)
+	inx
+	cpx rbr
+	bne --
+
+	rts	
+
+; ------------------------------------------------ Apply 4Bit Colors 
+
+convert	bcs +
+	ldx colors	; background
+	!by $2c
++	ldx colors+1	; foreground
+	lda ipcols,x
+	tax
+	lda dnibs,x
+	rts
+
+; ------------------------------------------------ 
+
+onebyte	jsr basin
+	ldx status
+	rts
+
+; ------------------------------------------------ Text Output Handler
+
+messout   ldx #<message	; display message and gauge
+	ldy #>message
+	jmp gd_xtxout2
+
+tcopy	ldy #0		; Select message
+tc0	lda txt,x		; in .x: offset to message
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+
+clrmess   ldx #20		; clear gauge bar
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0		; init counters
+	ldx #7	
+	sty offy
+	stx offx
+	rts
+
+action	dec adcnt
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	cpy #20
+	bne act0
+	jsr clrmess
+act0	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts
+
+filltab   !by 160,93,103,127,126,124,105,109
+cntwert	!by 50
+
+txt	!scr " Bitmap @"
+	!scr " Colors @"
+
+message   !fill 11,32
+mess	!fill 21,32
+	!by 0
+
+; ------------------------------------------------ Decompress
+
+load	lda cmprflg	; compressed?
+	bne +
+	jmp basin		; no
+
++	lda counter	; yes, counting?
+	bne getit2	; yes, get bytes
+
+	jsr basin		; no, get flag/counter
+	pha
+	and #$80
+	sta pkflg
+	pla
+	and #$7f
+	sta counter
+	bne getit3
+
+getit2	bit pkflg
+	bmi getit1
+getit3	jsr basin
+	sta gbyte
+getit1	dec counter
+	lda gbyte
+	rts
+
+; ------------------------------------------------ Image Information Handler
+
+getname	ldx #0
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+; ------------------------------------------------ 
+
+setinfo	jsr setname
+	jsr setloader
+	jsr setmode
+	jmp setdata
+
+setname	lda #0
+	ldx #<ls_picname
+	ldy #>ls_picname
+	bne si3
+setloader	lda #17
+	ldx #<ls_iloader
+	ldy #>ls_iloader
+	bne si3
+setmode	lda #25
+	ldx #<ls_imode
+	ldy #>ls_imode
+	bne si3
+setdata	lda #33
+	ldx #<ls_idrive
+	ldy #>ls_idrive
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!fill 16,32
+	!by 0
+	!scr "Test B8@"
+modetx	!scr "40 x 25@"
+datatype	!scr "Color@"
+
+; ------------------------------------------------ Apply Monochrome Colors
+
+setconv	ldx bgr		; 0f     (example)
+	lda dnibs,x	; ->  ff
+	pha
+	sta conv
+	and #240		; f0
+	sta byte
+	ldx fgr		; 01
+	lda dnibs,x	; ->  11
+	tax
+	sta conv+3
+	and #15
+	ora byte
+	sta conv+1	; 10
+	pla
+	and #15
+	sta byte		; -  1f
+	txa
+	and #240
+	ora byte
+	sta conv+2
+
+	ldx #0		; Puffer füllen
+-	sta cbufe,x
+	inx
+	cpx #160
+	bne -
+
+	rts		; conv: $ff,$f1,$1f,$11
+
+; ------------------------------------------------ Data
+
+byte2	!by 50		; height (400 px)
+byte3	!by 80		; width  (640 px)
+cntr	!by 8
+current	!by 8
+mro	!by 40
+rbr	!by 40
+pbr	!by 80
+pho	!by 25
+xpos	!by 0
+ypos	!by 0
+
+header	!wo 0		; default values for b8 file
+	!tx "brus"
+b8type	!by 4
+	!by 0
+	!wo 0
+cmprflg	!by 0
+gmode	!by 0		; 0 = monochrome
+width	!by 80
+height	!wo 400
+bgr	!by 15
+fgr	!by 0
+border	!by 0
+
+cchunk	!tx "colr"
+conv	!by $00,$0f,$f0,$ff
+
+ipcols	!by $00,$03,$01,$08,$0a,$0e,$0c,$0b
+	!by $04,$09,$05,$0c,$06,$0d,$0b,$0f
+
+gdcols	!by $00,$06,$09,$0b,$02,$04,$08,$0c
+	!by $0e,$0a,$05,$0f,$03,$07,$0d,$01
+
+	;   blk blu bwn dgr red pur ora mgr
+	;   lbl lrd grn lgr cya yel lgn wht
+
+dnibs	!by $00,$11,$22,$33,$44,$55,$66,$77
+	!by $88,$99,$aa,$bb,$cc,$dd,$ee,$ff
+
+; ------------------------------------------------ 
+
+modend	!eof
+
