@@ -11,14 +11,13 @@
 ;
 ;    1.00, 19.04.19, first release
 ;    1.01, 20.04.19, added information about file's graphics mode
+;    1.02, 17.05.19, added colors
 ;
 ; ------------------------------------------------ 
 
 ; ------------------------------------------------ Equates
 
-	pport		= $01
-
-	hlinie		= $e0
+	hlinie		= $e0		; constants
 	vlinie		= $e1
 	eck		= $e2
 	shspace		= 160
@@ -26,7 +25,11 @@
 	vsign		= gr_pattern+8
 	esign		= gr_pattern+16
 
-	mbr		= $30
+	pport		= $01		; system
+	offx		= ls_adrmisc
+	offy		= offx+1
+
+	mbr		= $30		; variables
 	mho		= $31
 	msp		= $32
 	mrc		= $33
@@ -46,8 +49,15 @@
 	counter		= $46
 	pkflg		= $47
 
-	offx		= ls_adrmisc
-	offy		= offx+1
+	xmrk		= $48
+	colors		= $49
+	evenodd		= $4b
+	field		= $4c
+	pattern		= $4d
+	cheight		= $4e
+
+	cbufe		= $cd60		; buffers
+	cbufo		= cbufe+80
 
 ; ------------------------------------------------ 
 
@@ -58,8 +68,8 @@ head	jmp start
 	!wo modend
 	!wo 0
 	!tx "Basic8SelectMono"
-	!tx "1.01"
-	!tx "20.04.19"
+	!tx "1.02"
+	!tx "17.05.19"
 	!tx "A.Dettke        "
 
 ; ------------------------------------------------ 
@@ -91,10 +101,12 @@ readhd	inc used
 	bne -
 	jsr rd2		; close file
 
-	lda width
+	lda #25		; counter for image height
+	sta cheight
+	lda width		; get width in tiles
 	sta pbr
-	sta byte3
-	clc
+	sta byte3		; and store
+	clc		; get height in tiles (height/8)
 	lsr height+1
 	ror height
 	lsr height+1
@@ -103,11 +115,16 @@ readhd	inc used
 	ror height
 	lda height
 	sta pho
-	sta byte2
+	sta byte2		; and store
+	cmp #25		; if >25 delimit to 25
+	bcs +
+	sta cheight
 
-	jsr setconv	; prepare colors from file
++	ldx gmode		; mode 0 (mono)?
+	bne +
+	jsr setconv	; yes, colorize
 
-	jsr requ		; prepare requester
++	jsr requ		; prepare requester
 	ldx #<b8lst	; and show on screen
 	ldy #>b8lst
 	jsr gd_xmloop	; wait for clicks
@@ -116,21 +133,23 @@ readhd	inc used
 
 ; ------------------------------------------------ 
 
-rdende	jsr ff		; Error on read
+rdende	jsr ff		; error on read
 
 rd2	jsr ld5		; close file
 cont	clc		; but stay
 	rts
 
+; ------------------------------------------------ 
+
 jerror	jmp error
 
 ; ------------------------------------------------ Read Basic8 Image
 
-sevbasic8	lda byte2
+sevbasic8	lda byte2		; anything selected?
 	ora byte3
-	beq jerror
+	beq jerror	; no
 
-	inc used
+	inc used		; yes: 
 	lda ls_flen	; point loader to filename (at $0200)
 	sta ls_temp
 	lda #2
@@ -139,33 +158,30 @@ sevbasic8	lda byte2
 	sta ls_vekta8
 	sta counter	; reset compression counter
 	sta pkflg		; and pack indicator
-	lda ypos		; set clip positions
-	sta zstart
+
+	lda #8		; counter for tiles (8 = tile in bitmap)
+	sta current
+	ldx #3		; reset color table (to black and white)
+-	lda bandw,x
+	sta conv,x
+	dex
+	bpl -
+
+	lda ypos		; set clip positions:
+	sta zstart	; row
 	lda xpos
-	sta sstart
-	lda #25		; height 25
+	sta sstart	; column
+	lda #25		; set height to 25 (max)
 	sta pho
 	asl
 	sta cntwert
-	lda #40		; width 40
+	lda #40		; and width to 40 (max)
 	sta mro
 	sta rbr
-	asl
-	sta pbr
 
 	jsr getname	; store filename for image information
-	jsr gd_xopen	; open image file
-	ldx #<sy_4bit	; set destination
-	ldy #>sy_4bit
-	stx dst
-	stx dst0
-	stx dst1
-	sty dst+1
-	sty dst0+1
-	sty dst1+1
-	jsr gd_clrms	; prepare gauge
-	inx
-	stx adcnt
+	jsr gd_xopen	; re-open image file for bitmap
+	jsr initvals	; set vectors
 
 	ldy #18
 -	jsr onebyte	; skip image header
@@ -214,14 +230,14 @@ byloop	jsr readdumx1	; skip at left
 	sta bcnt
 bloop	jsr convblock	; read image
 	clc
-	lda dst
+	lda dst		; next tile
 	adc #28
 	sta dst
 	bcc +
 	inc dst+1
-+	dec bcnt
++	dec bcnt		; until width
 	bne bloop
-	clc
+	clc		; next rasterline
 	lda dst0
 	adc #4
 	sta dst0
@@ -230,25 +246,35 @@ bloop	jsr convblock	; read image
 	adc #0
 	sta dst0+1
 	sta dst+1
-	jsr readdumx2	; skip at right
-	dec bycnt
+	jsr readdumx2	; (skip at right)
+	dec bycnt		; until one tile
 	bne byloop
 
-	clc		; next block row
-	lda dst1+1
-	adc #5
-	sta dst1+1
-	sta dst+1
-	sta dst0+1
-	lda dst1
-	sta dst
-	sta dst0
-	dec lcnt8		; until height
+	jsr nextrow	; set pointers to next block row
+	dec lcnt8		; until image height
 	bne loop8
 
-	beq ld3		; finished
+	lda #0
+	sta counter	; reset compression counter again
+	sta pkflg		; and pack indicator
+	jmp getcmap	; bitmap finished, now colors
 
 ; ------------------------------------------------ 
+
+findchunk	ldy #0		; check for color chunk ("colr")
+-	jsr onebyte
+	bne off		; until EOF
+	cmp cchunk,y
+	bne findchunk
+	iny
+	cpy #4
+	bne -
+	rts		; chunk found if .y=4 (or mode=0)
+
+; ------------------------------------------------ 
+
+off	pla
+	pla
 
 error	jsr ld5
 	clc
@@ -276,13 +302,198 @@ skip0	dec nibcnt
 	bne nloop
 	jmp action	; activity
 
+; ------------------------------------------------ Read Image Data
+
+getcmap	lda gmode		; mode 0? (no color chunk)
+	bne +
+	jmp ld3		; yes, finish load
+
++	jsr findchunk	; find color chunk (doesn't return if not)
+
+	ldx #1
+	lda gmode
+	cmp #2
+	bcc +
+	inx
++	stx current	; set skip factor to 1 (or 2 resp.)
+	jsr initvals
+	lda sstart	; compute index end (in color row)
+	clc
+	adc rbr
+	sta cend
+	
+	jsr readdumy	; skip top rows
+	ldx #22		; found color chunk, so activate gauge
+	jsr tcopy
+	lda pho		; Höhe in Blockzeilen (max 25)
+	sta lcnt8
+
+loop80	lda #0
+	sta field		; Halbbild des Interlace wählen
+	lda #8
+	sta bycnt		; get one blockrow:
+
+byloop0	and #1		; even= field 1, odd= field 2
+	sta evenodd
+
+	lda gmode		; which graphics mode?
+	cmp #1
+	bne +
+	lda bycnt		; 1: 8x2  (then get colors after 4 lines)
+	cmp #4
+	bne +
+	lda #0
+	sta field
+
++	bit field		; color rows already present?
+	bmi ++		; yes, skip getcols
+
+	jsr getcols	; read two color rows
+	
+++	jsr setpixels	; then convert bitmap to colors
+
++	clc		; next raster line
+	lda dst0
+	adc #4
+	sta dst0
+	sta dst
+	lda dst0+1
+	adc #0
+	sta dst0+1
+	sta dst+1
+
+	dec bycnt		; count raster lines (8)
+	lda bycnt
+	bne byloop0
+
+	clc		; next block row
+	lda dst1+1
+	adc #5
+	sta dst1+1
+	sta dst0+1
+	sta dst+1
+	lda #0
+	sta dst1
+	sta dst0
+	sta dst
+	
+	dec lcnt8		; until height
+	bne loop80
+
 ; ------------------------------------------------ End Sequence
 
 ld3	jsr setinfo
+	sty gr_redisp	; flag: re-render graphics
 ld5	jsr gd_xclose	; close file
 	jsr gd_spron	; mouse on
 	jsr gd_xmess	; floppy message (flash)
 	sec		; leave module
+	rts
+
+; ------------------------------------------------ 
+
+getcols	lda byte3		; width
+	sta bcnt
+bloopc	jsr load		; get byte from disk
+	sta byte
+	sec
+	lda byte3		; width as counter (in .x)
+	sbc bcnt
+	tax
+	lda byte
+
+	pha
+	lda gmode		; which graphics mode?
+	cmp #3		; 3: 8x8
+	beq m8x8
+
+	pla
+	bit field
+	bpl +
+	sta cbufo,x	; get color values
+	bmi ++
++	sta cbufe,x
+++	dec bcnt		; count width
+	bne bloopc
+
+-	dec field		; choose interlace field
+	lda field
+	cmp #$fe
+	bne getcols
+
+	rts		; now retrieved two color rows
+
+m8x8	pla		; mode 3:
+	sta cbufe,x	; get color values
+	sta cbufo,x
+	dec bcnt
+	bne bloopc
+	dec field
+	bmi -
+
+; ------------------------------------------------ Set test pattern
+
+setpixels	ldx sstart	; index in cbuf (0..width)
+
+--	lda evenodd
+	bne +
+	lda cbufe,x
+	jmp ++
++	lda cbufo,x
+++	tay
+	lsr
+	lsr
+	lsr
+	lsr
+	sta colors	; split color byte
+	tya
+	and #15
+	sta colors+1
+
+	stx xmrk		; store index 
+	ldy #0
+-	lda (dst),y	; get 4bit pixels
+	pha		; test pixels of one tile:
+	and #$f0
+	cmp #$f0
+	jsr convert	; left pixel
+	and #$f0
+	sta byte
+	pla
+	and #$0f
+	cmp #$0f
+	jsr convert	; right pixel
+	and #$0f
+	ora byte
+	sta (dst),y	; write back to GoDot's 4Bit buffer
+	iny
+	cpy #4
+	bne -
+
+	clc		; next tile
+	lda dst
+	adc #32
+	sta dst
+	bcc +
+	inc dst+1
+
++	jsr action	; activity
+	ldx xmrk		; until width (max 40)
+	inx
+	cpx cend
+	bne --
+
+	rts	
+
+; ------------------------------------------------ Apply 4Bit Colors 
+
+convert	bcs +
+	ldx colors	; background
+	!by $2c
++	ldx colors+1	; foreground
+	lda ipcols,x
+	tax
+	lda dnibs,x
 	rts
 
 ; ------------------------------------------------ 
@@ -331,12 +542,30 @@ ld4	rts
 
 filltab   !by 160,93,103,127,126,124,105,109
 
-txt	!scr " Reading  @"
-	!scr " Skipping @"
+txt	!scr " Bitmap   @"	; 0
+	!scr " Skipping @"	; 11
+	!scr " Colors   @"	; 22
 
 message   !fill 11,32
 mess	!fill 21,32
 	!by 0
+
+; ------------------------------------------------ 
+
+initvals	ldx #<sy_4bit	; set destination
+	ldy #>sy_4bit
+	stx dst
+	stx dst0
+	stx dst1
+	sty dst+1
+	sty dst0+1
+	sty dst1+1
+	jsr gd_clrms	; prepare gauge
+	inx
+	stx adcnt
+	lda current
+	sta cntr
+	rts
 
 ; ------------------------------------------------ 
 
@@ -350,10 +579,23 @@ cntwert	!by 50
 
 ; ------------------------------------------------ 
 
+nextrow	clc		; next block row
+	lda dst1+1
+	adc #5
+	sta dst1+1
+	sta dst+1
+	sta dst0+1
+	lda dst1
+	sta dst
+	sta dst0
+	rts
+
+; ------------------------------------------------ 
+
 readdumy	ldx zstart	; anything to skip?
 	beq nixy		; no
 
-	stx mho
+rdm0	stx mho
 	ldx #11		; activate gauge
 	jsr tcopy
 ys0	lda pbr
@@ -361,7 +603,7 @@ ys0	lda pbr
 yl1	jsr load		; skip
 	dec cntr
 	bne yl1
-	lda #8
+	lda current
 	sta cntr
 	jsr action	; activity
 	dec mbr
@@ -400,10 +642,12 @@ nixx2	rts
 byte2	!by 50		; height (400 px)
 byte3	!by 80		; width  (640 px)
 cntr	!by 8
+current	!by 8
 mro	!by 40
 rbr	!by 40
 pbr	!by 80
 pho	!by 25
+cend	!by 39
 xpos	!by 0
 ypos	!by 0
 xkoo	!by 94
@@ -441,10 +685,18 @@ hwert	!by $80,$c0,$e0,$f0,$f8,$fc,$fe
 sprou	!by $fc,$ff,$ff	; select box
 sprmi	!by $04,$00,$80
 
+cchunk	!tx "colr"
+bandw	!by $00,$0f,$f0,$ff
 conv	!by $00,$0f,$f0,$ff
 
-dnibs	!by $00,$33,$11,$88,$aa,$ee,$cc,$77
-	!by $44,$99,$55,$66,$22,$dd,$bb,$ff
+ipcols	!by $00,$03,$01,$08,$0a,$0e,$0b,$0c	; c128 colors
+	!by $04,$09,$05,$0c,$06,$0d,$0b,$0f
+
+gdcols	!by $00,$06,$09,$0b,$02,$04,$08,$0c	; GoDot colors
+	!by $0e,$0a,$05,$0f,$03,$07,$0d,$01
+
+dnibs	!by $00,$11,$22,$33,$44,$55,$66,$77	; double nibbles
+	!by $88,$99,$aa,$bb,$cc,$dd,$ee,$ff
 
 modes	!scr "mono8x2 8x4 8x8 8x16"
 moffs	!by 3,7,11,15,23
@@ -698,27 +950,31 @@ ot3	lda ftxt,x
 
 ; ------------------------------------------------ 
 
-setconv	ldx bgr		; 0f     (example)
+setconv	ldx bgr		; c128: 0f  wht   (example)
+	lda ipcols,x	; god : 0f
+	tax
 	lda dnibs,x	; ->  ff
 	pha
 	sta conv
 	and #240		; f0
 	sta byte
-	ldx fgr		; 01
-	lda dnibs,x	; ->  11
+	ldx fgr		; c128: 01 (dgr)
+	lda ipcols,x	; god : 03
+	tax
+	lda dnibs,x	; ->  33
 	tax
 	sta conv+3
 	and #15
 	ora byte
-	sta conv+1	; 10
+	sta conv+1	; ->  f3
 	pla
-	and #15
-	sta byte		; -  1f
+	and #15		; 0f
+	sta byte
 	txa
 	and #240
-	ora byte
+	ora byte		; ->  3f
 	sta conv+2
-	rts		; conv: $ff,$f1,$1f,$11
+	rts		; conv: $ff,$f3,$3f,$33
 
 ; ------------------------------------------------ 
 
