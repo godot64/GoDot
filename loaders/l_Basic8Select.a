@@ -14,6 +14,7 @@
 ;    1.02, 17.05.19, added colors
 ;    1.03, 20.05.19, bugfixes
 ;                    added mode 4
+;    1.04, 21.05.19, reworked mode 1 (stretch height)
 ;
 ; ------------------------------------------------ 
 
@@ -116,13 +117,17 @@ readhd	inc used
 	lsr height+1
 	ror height
 	lda height
-	sta pho
+	ldx gmode		; mode 1?
+	cpx #1
+	bne +
+	asl		; yes, set double height
++	sta pho
 	sta byte2		; and store
 	cmp #25		; if >25 delimit to 25
 	bcs +
 	sta cheight
 
-+	ldx gmode		; mode 0 (mono)?
++	txa		; mode 0 (mono)?
 	bne +
 	jsr setconv	; yes, colorize
 
@@ -193,6 +198,13 @@ sevbasic8	lda byte2		; anything selected?
 	dey
 	bne -
 
+	ldx gmode
+	cpx #1
+	bne fx1
+	lda zstart
+	lsr
+	sta zstart
+
 fx1	lda byte2		; height
 	sec
 	sbc zstart
@@ -219,7 +231,7 @@ fx9	lda #0
 	sta mro
 	sty rbr
 
-	jsr readdumy	; skip at top
+	jsr readdumy	; skip at top	!!!
 
 fx0	ldx #0		; activate gauge
 	jsr tcopy
@@ -241,7 +253,11 @@ bloop	jsr convblock	; read image
 	inc dst+1
 +	dec bcnt		; until width
 	bne bloop
-	clc		; next rasterline
+	lda gmode		; now double line if mode 1
+	cmp #1
+	bne +
+	jsr copyline
++	clc		; next rasterline
 	lda dst0
 	adc #4
 	sta dst0
@@ -318,7 +334,7 @@ getcmap	lda gmode		; mode 0? (no color chunk!)
 	cmp #2
 	bne +
 	inx
-+	stx current	; set skip counter to 1 (byte)
++	stx current	; set skip counter to 1 or 2 (bytes)
 	jsr initvals
 
 	lda zstart
@@ -460,10 +476,10 @@ bloopc	jsr load		; get byte from disk
 
 	pha
 	lda gmode		; which graphics mode?
-	cmp #3		; 3/4: 8x8
-	bcs m8x8
+	cmp #2
+	bne m8x8
 
-	pla
+	pla		; mode 2
 	bit field
 	bpl +
 	sta cbufo,x	; get color values
@@ -482,7 +498,7 @@ bloopc	jsr load		; get byte from disk
 +++	dec field
 	rts
 
-m8x8	pla		; modes 3 and 4:
+m8x8	pla		; modes 1, 3 and 4:
 	sta cbufe,x	; get color values
 	sta cbufo,x
 	dec bcnt
@@ -490,7 +506,7 @@ m8x8	pla		; modes 3 and 4:
 	dec field
 	bmi -
 
-; ------------------------------------------------ Set test pattern
+; ------------------------------------------------ Set bitmap pixels
 
 setpixels	ldx sstart	; index in cbuf (0..width)
 
@@ -543,6 +559,60 @@ setpixels	ldx sstart	; index in cbuf (0..width)
 	bne --
 
 	rts	
+
+; ------------------------------------------------ 
+
+copyline	lda rbr		; max 40 tiles
+	sta bcnt
+
+	clc		; to next rasterline
+	lda dst0
+	sta dst		; from last one
+	adc #4
+	sta dst0
+	pha		; save start of line
+	lda dst0+1
+	sta dst+1
+	adc #0
+	sta dst0+1
+	pha
+
+	ldy #0		; copy
+--	lda #4		; 1 tile, 1 line
+	sta nibcnt
+-	lda (dst),y
+	sta (dst0),y
+	inc dst
+	bne +
+	inc dst+1
++	inc dst0
+	bne +
+	inc dst0+1
++	dec nibcnt
+	bne -
+
+	clc		; next tile
+	lda dst
+	adc #28
+	sta dst
+	bcc +
+	inc dst+1
++	clc
+	lda dst0
+	adc #28
+	sta dst0
+	bcc +
+	inc dst0+1
+
++	dec bcnt		; until width
+	bne --
+
+	pla		; restore start
+	sta dst0+1
+	pla
+	sta dst0
+	dec bycnt
+	rts
 
 ; ------------------------------------------------ Apply 4Bit Colors 
 
@@ -1054,7 +1124,7 @@ stx0	txa
 	ldy #2
 	lda byte2
 	cmp #$64
-	bne stx1
+	bcc stx1
 	lda #$30
 stx2	sta ytxt,y
 	dey
