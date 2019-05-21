@@ -12,6 +12,8 @@
 ;    1.00, 19.04.19, first release
 ;    1.01, 20.04.19, added information about file's graphics mode
 ;    1.02, 17.05.19, added colors
+;    1.03, 20.05.19, bugfixes
+;                    added mode 4
 ;
 ; ------------------------------------------------ 
 
@@ -67,9 +69,9 @@ head	jmp start
 	!by 0
 	!wo modend
 	!wo 0
-	!tx "Basic8SelectMono"
-	!tx "1.02"
-	!tx "17.05.19"
+	!tx "Basic8 Select   "
+	!tx "1.03"
+	!tx "20.05.19"
 	!tx "A.Dettke        "
 
 ; ------------------------------------------------ 
@@ -158,6 +160,7 @@ sevbasic8	lda byte2		; anything selected?
 	sta ls_vekta8
 	sta counter	; reset compression counter
 	sta pkflg		; and pack indicator
+	sta oddrow	; and mode 4 flag
 
 	lda #8		; counter for tiles (8 = tile in bitmap)
 	sta current
@@ -167,6 +170,7 @@ sevbasic8	lda byte2		; anything selected?
 	dex
 	bpl -
 
+	stx m4tog		; init mode 4 toggle
 	lda ypos		; set clip positions:
 	sta zstart	; row
 	lda xpos
@@ -254,9 +258,6 @@ bloop	jsr convblock	; read image
 	dec lcnt8		; until image height
 	bne loop8
 
-	lda #0
-	sta counter	; reset compression counter again
-	sta pkflg		; and pack indicator
 	jmp getcmap	; bitmap finished, now colors
 
 ; ------------------------------------------------ 
@@ -304,25 +305,64 @@ skip0	dec nibcnt
 
 ; ------------------------------------------------ Read Image Data
 
-getcmap	lda gmode		; mode 0? (no color chunk)
+getcmap	lda gmode		; mode 0? (no color chunk!)
 	bne +
 	jmp ld3		; yes, finish load
 
 +	jsr findchunk	; find color chunk (doesn't return if not)
-
-	ldx #1
+	ldx #0
+	stx counter	; reset compression counter
+	stx pkflg		; and pack indicator for color chunk
+	inx
 	lda gmode
 	cmp #2
-	bcc +
+	bne +
 	inx
-+	stx current	; set skip factor to 1 (or 2 resp.)
++	stx current	; set skip counter to 1 (byte)
 	jsr initvals
-	lda sstart	; compute index end (in color row)
+
+	lda zstart
+	ldx gmode		; which mode?
+	cpx #1		; 1: 8x2
+	bne +
+	asl		; skip mal 4
+	asl
++	cpx #3		; mode 3 or 4?
+	bcc +++		; no, it's 1 or 2
+
+	pha		; mode 3 and 4:
+	and #1		; odd row?
+	sta oddrow	; (set flag for mode 4)
+	beq ++		; no, skip adjustments
+
+	tax		; yes, skip first color row in file	
+	jsr crdumy
+	pla
+	tax
+	dex
+	stx zstart	; then adjust skip amount
+	txa
+	pha
+	ldx gmode
+	cpx #3		; mode 3?
+	bne ++
+	jmp +
+
+++	cpx #4		; mode 4?
+	bne +
+	pla		; yes, reget zstart and halve
+	lsr
+	pha
+
++	pla
++++	tax		; then skip to first row of clip
+	beq +
+	jsr crdumy
++	lda sstart	; compute index end (in color row)
 	clc
 	adc rbr
 	sta cend
 	
-	jsr readdumy	; skip top rows
 	ldx #22		; found color chunk, so activate gauge
 	jsr tcopy
 	lda pho		; Höhe in Blockzeilen (max 25)
@@ -339,6 +379,7 @@ byloop0	and #1		; even= field 1, odd= field 2
 	lda gmode		; which graphics mode?
 	cmp #1
 	bne +
+
 	lda bycnt		; 1: 8x2  (then get colors after 4 lines)
 	cmp #4
 	bne +
@@ -346,13 +387,13 @@ byloop0	and #1		; even= field 1, odd= field 2
 	sta field
 
 +	bit field		; color rows already present?
-	bmi ++		; yes, skip getcols
+	bmi +		; yes, skip getcols
 
 	jsr getcols	; read two color rows
 	
-++	jsr setpixels	; then convert bitmap to colors
++	jsr setpixels	; then convert bitmap to colors
 
-+	clc		; next raster line
+	clc		; next raster line
 	lda dst0
 	adc #4
 	sta dst0
@@ -392,7 +433,22 @@ ld5	jsr gd_xclose	; close file
 
 ; ------------------------------------------------ 
 
-getcols	lda byte3		; width
+getcols	lda gmode		; when entering: field=0
+	cmp #4
+	bne aloopc
+
+	ldx oddrow
+	lda #0
+	sta oddrow	; clear possible flag for mode 4
+	txa
+	bne +++
+
+	lda m4tog		; 4: 8x16
+	eor #$ff
+	sta m4tog		; skip 2 loads every 2 times
+	bmi +++
+
+aloopc	lda byte3		; width
 	sta bcnt
 bloopc	jsr load		; get byte from disk
 	sta byte
@@ -404,8 +460,8 @@ bloopc	jsr load		; get byte from disk
 
 	pha
 	lda gmode		; which graphics mode?
-	cmp #3		; 3: 8x8
-	beq m8x8
+	cmp #3		; 3/4: 8x8
+	bcs m8x8
 
 	pla
 	bit field
@@ -419,11 +475,14 @@ bloopc	jsr load		; get byte from disk
 -	dec field		; choose interlace field
 	lda field
 	cmp #$fe
-	bne getcols
+	bne aloopc
 
 	rts		; now retrieved two color rows
 
-m8x8	pla		; mode 3:
++++	dec field
+	rts
+
+m8x8	pla		; modes 3 and 4:
 	sta cbufe,x	; get color values
 	sta cbufo,x
 	dec bcnt
@@ -595,7 +654,7 @@ nextrow	clc		; next block row
 readdumy	ldx zstart	; anything to skip?
 	beq nixy		; no
 
-rdm0	stx mho
+crdumy	stx mho
 	ldx #11		; activate gauge
 	jsr tcopy
 ys0	lda pbr
@@ -643,11 +702,13 @@ byte2	!by 50		; height (400 px)
 byte3	!by 80		; width  (640 px)
 cntr	!by 8
 current	!by 8
+m4tog	!by $ff
+oddrow	!by 0
 mro	!by 40
 rbr	!by 40
 pbr	!by 80
 pho	!by 25
-cend	!by 39
+cend	!by 40
 xpos	!by 0
 ypos	!by 0
 xkoo	!by 94
@@ -699,7 +760,7 @@ dnibs	!by $00,$11,$22,$33,$44,$55,$66,$77	; double nibbles
 	!by $88,$99,$aa,$bb,$cc,$dd,$ee,$ff
 
 modes	!scr "mono8x2 8x4 8x8 8x16"
-moffs	!by 3,7,11,15,23
+moffs	!by 3,7,11,15,19
 
 ; ------------------------------------------------ Decompress
 
