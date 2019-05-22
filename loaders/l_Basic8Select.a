@@ -14,7 +14,8 @@
 ;    1.02, 17.05.19, added colors
 ;    1.03, 20.05.19, bugfixes
 ;                    added mode 4
-;    1.04, 21.05.19, reworked mode 1 (stretch height)
+;    1.04, 21.05.19, reworked mode 1 (stretched height)
+;    1.05, 22.05.19, added option to only load the bitmap
 ;
 ; ------------------------------------------------ 
 
@@ -71,8 +72,8 @@ head	jmp start
 	!wo modend
 	!wo 0
 	!tx "Basic8 Select   "
-	!tx "1.03"
-	!tx "20.05.19"
+	!tx "1.05"
+	!tx "22.05.19"
 	!tx "A.Dettke        "
 
 ; ------------------------------------------------ 
@@ -104,7 +105,13 @@ readhd	inc used
 	bne -
 	jsr rd2		; close file
 
-	lda #25		; counter for image height
+	lda gr_howmany	; check for number of colors (GoDot)
+	cmp #2
+	bne +
+	lda #0		; if 2, set mode to 0 (monochrome)
+	sta gmode
+
++	lda #25		; counter for image height
 	sta cheight
 	lda width		; get width in tiles
 	sta pbr
