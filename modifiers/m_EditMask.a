@@ -10,15 +10,15 @@
 ;     for ldr.4Bit&Mask
 ;
 ; 1.00: 12.01.01, first release
-; 1.01: 07.01.02, added clear visible screen feature
+; 1.01: 07.01.02, added clear visible screen feature (wipe)
 ;                 added mouse access to gadgets when in edit mode
-; 1.02: 08.08.16, added more key commands (T, L)
+; 1.02: 08.08.16, added more key commands (*T*opright, bottom*L*eft)
 ;                 added navigation options
 ;                 changed start values of tile buffer
 ; 1.03, 28.01.17: changed mouse register due to change in system driver
 ; 1.04, 29.01.17: added Hold Mouse Position on Move Commands
 ;                 changed Wipe to follow mode (erase/draw)
-; 1.05, 11.02.18: added CTRL-i (Invert Tile)
+; 1.05, 11.02.18: added CTRL-i (*I*nvert tile)
 ;                 finally solved mouse positioning problem when moving from
 ;                 keyboard (mouse pointer now stays in place)
 ; 1.06, 13.02.18: added display of screen position (column/row of topleft edge)
@@ -26,6 +26,7 @@
 ; 1.08, 14.02.18: really solved the problem (was use of CTRL instead of CBM key!)
 ; 1.09, 03.03.18: changed navigation icons
 ; 1.10, 24.11.18: fix grid color for next call of module
+; 1.11, 27.05.19: added key commands *f*lip, *m*irror & *u*psidedown canvas
 ;
 ; ----------------------------------------- 
 
@@ -35,7 +36,7 @@
 	zli 		= $33
 	cnt 		= $34
 	screenpnt 	= $35
-	col 		= $37
+	line 		= $37
 	bitcnt		= $38
 	storespx		= $39
 	storespy		= $3a
@@ -47,28 +48,37 @@
 	horizont		= $40
 	oldv		= $41
 	oldh		= $42	; ### bis hier
+	stscrpnt		= $43	; ### 1.11
+	currline		= $45
+	dst		= $47
+	mkh		= $49
+	row		= $4a
 
 	zeile		= sc_merk
 	spalte		= zeile+1
-	lastkey 		= $c5       ; current key
+	lastkey 		= $c5	; current key
 	mac 		= $fb
 
 	commoflag 	= $028d
 	shiftvekt 	= $028f
-	sprites 		= $07f8     ; Sprite definition pointers
+	sprites 		= $07f8	; Sprite definition pointers
 
-	spr255 		= $3fc0     ; Spriteblock 255
+	spr255 		= $3fc0	; Spriteblock 255
 
-	sprp4 		= $d008     ; spr #4 x pos
-	sprp5 		= $d00a     ; spr #5 x pos
-	sprp6 		= $d00c     ; spr #6 x pos
-	sprp7 		= $d00e     ; spr #7 x pos
-	sprenable 	= $d015     ; spr display
-	sprxy 		= $d017     ; expand spr y
-	sprmulti 		= $d01c     ; multicolr
-	sprxx 		= $d01d     ; exp spr x
+	sprp4 		= $d008	; spr #4 x pos
+	sprp5 		= $d00a	; spr #5 x pos
+	sprp6 		= $d00c	; spr #6 x pos
+	sprp7 		= $d00e	; spr #7 x pos
+	sprenable 	= $d015	; spr display
+	sprxy 		= $d017	; expand spr y
+	sprmulti 		= $d01c	; multicolr
+	sprxx 		= $d01d	; exp spr x
+	border		= $d020
 	sprcols 		= $d02b
 
+	linebuf1		= $ccb0	; first line
+	linebuf2		= $ccd8	; second line
+	mirrtab		= $cd00	; table for mirror values ### 1.11
 	vram2 		= $ce0b
 	vram1 		= $de0b
 	cstart 		= $ee0b
@@ -81,8 +91,8 @@
 	!word (modend)
 	!byte 0,0
 	!pet "Edit Mask pixels"
-	!pet "1.10"
-	!pet "24.11.18"
+	!pet "1.11"
+	!pet "27.05.19"
 	!pet "A.Dettke/Mac    "
 
 ; ----------------------------------------- Main
@@ -90,11 +100,12 @@
 start:	jsr makech	; define new character
 	jsr makenav	; define new navigation icons
 	jsr makespr	; define spritebox
+	jsr makemtab	; generate mirror table ### 1.11
 	jsr savecols	; save screen colors
 	jsr bestcols	; set best colors for black
-	ldx #<(pixlst)      ; build requesters
-	ldy #>(pixlst)
-	jsr gd_screen       ; returns with .A = 0
+	ldx #<pixlst	; build requesters
+	ldy #>pixlst
+	jsr gd_screen	; returns with .A = 0
 	jsr messoff	; hide Edit Mode message
 	lda #0
 	sta vertical
@@ -119,11 +130,11 @@ cancel: 	jsr restcols	; restore screen colors
 
 palzl:   	!byte 0
 palsp:   	!byte 0
-hold:    	!byte 0
-vert:    	!byte 0
+hold:	!byte 0
+vert:	!byte 0
 plast:   	!byte 0
-cntx:    	!byte 0
-cnty:    	!byte 0
+cntx:	!byte 0
+cnty:	!byte 0
 storesv: 	!word 0
 c64pal:  	!byte $00,$ff,$44,$cc,$55,$aa,$11,$dd
 	!byte $66,$22,$99,$33,$77,$ee,$88,$bb
@@ -138,7 +149,7 @@ fill: 	ldy #0		; set textscreen as destination
 	sta sc_br
 	lda #24		; height 24 (3x8)
 	sta sc_ho
-	jsr gd_initmove     ; compute screenaddress
+	jsr gd_initmove	; compute screenaddress
 	lda #223		; get fill character
 	jmp gd_fi0	; fill now
 
@@ -163,6 +174,24 @@ mc0: 	lda char,x
 	bpl mc0
 	rts
 
+; ----------------------------------------- Generate Mirror Table
+
+makemtab	ldy #0		; mirror each value
+	sty mky
+--	ldx #7
+	tya
+-	asl
+	ror mky
+	dex
+	bpl -
+	lda mky
+	sta mirrtab,y	; and store
+	eor mky
+	sta mky
+	iny
+	bne --
+	rts
+
 ; ----------------------------------------- Make Sprites for grid
 
 makespr: 	ldx #0
@@ -182,7 +211,7 @@ masp: 	lda sprstore,x 	; load sprite
 	bne ++
 +	jsr gridcl
 ++	lda #$ff		; all sprites
-	sta sprites+2       ; point to $ff
+	sta sprites+2	; point to $ff
 	sta sprites+3
 	sta sprites+4
 	sta sprites+5
@@ -277,7 +306,7 @@ ckgads: 	lda sc_merk+1	; horizontal in Gadgetgebiet?
 	cmp gdzl2		; ist im Chooser?
 	bcc ok1		; nein, dazwischen
 	cmp gdho2 	; ist in Wipe?
-	bcc jended 	; ja, visible Screen löschen
+	bcc jended 	; ja, visible Screen lï¿½schen
 	cmp gdzl3 	; ist in Wipe?
 	bcc ok1		; nein, zwischen Wipe und Draw
 jended: 	pla
@@ -308,8 +337,8 @@ md1 	lda drawtxt,y
 	ldy #4
 	jsr gd_setpar
 	jsr gd_initmove
-	ldx #<(drawm)
-	ldy #>(drawm)
+	ldx #<drawm
+	ldy #>drawm
 	jmp gd_xtxout2
 
 ; ----------------------------------------- Save colors
@@ -369,12 +398,12 @@ ed0: 	jsr ckgads	; in einem der Auswahlgadgets?
 	cmp #$18		; too far dwn
 	bcc edx3
 edx1: 	ldx #2		; border red
-	stx $d020
+	stx border
 edx2: 	inx		; delay
 	bne edx2
 	jsr gd_position
 	lda #0		; border black
-	sta $d020
+	sta border
 	beq ed0		; loop until in box again
 edx3: 	lda sc_keyprs 	; FIRE/RETURN/STOP?
 	ora commoflag 	; CBM key?
@@ -519,11 +548,13 @@ pe5: 	cpx #37		; "k" key
 	sta sprenable 
 
 pete: 	cpx #60		; left mouse button?
-	beq shifted
+	beq +
 	cmp #3
-	beq shifted
+	beq +
 	cmp #2
-	bne kmb
+	beq unshifted
+	jmp kmd
++	jmp shifted
 
 unshifted	cpx #2		; CRSR right
 	bne km0
@@ -532,15 +563,23 @@ unshifted	cpx #2		; CRSR right
 km0: 	cpx #7		; CRSR down
 	bne km4
 	jsr down
-	bne km1
+	beq km4
+km01:	jmp km1
 km4: 	cpx #29		; "h" for Home
-	bne km5
+	bne +
 	jsr evhome
-	bcc km6
+	bcc ++
++	cpx #21		; "f" for Flip
+	bne +
+	jsr flip
++	cpx #30		; "u" for UpsideDown
+	bne km5
+	jsr mirror
+	jsr flip
 km5: 	cpx #28		; "b" for Bottom Right
 	bne km51
 	jsr evbotrght
-	bcc km6
+++	bcc km6
 km51:	cpx #22		; "t" for Top Right
 	bne km52
 	jsr evtoprght
@@ -553,16 +592,17 @@ km7: 	cpx #49		; "*" for Center
 	bne km8
 	jsr evcenter
 	bcc km6
-km8: 	cpx #38		; "o" for Overview
+km8: 	cpx #36		; "m" for Mirror	### 1.11
+	bne +
+	jsr mirror
++ 	cpx #38		; "o" for Overview
 	bne kma
 	jsr evdisplay
 	jsr messon
 	jsr hiedi
 	beq km6
 
-kma 	cpx #36		; "m" for Mode
-kmb 	beq kmd
-	cpx #41		; "p" also for mode
+kma	cpx #41		; "p" for drawmode (Paint)
 	bne kmc
 kmd	jsr tdelay
 	jsr evmode
@@ -585,7 +625,7 @@ shifted: 	cpx #60		; Shift Space (left mouse button)?
 km9: 	cpx #2		; CRSR left
 	bne km2
 	jsr left
-km01:	bne km1
+	bne km1
 km2: 	cpx #7		; CRSR up
 	bne km3
 	jsr up
@@ -654,7 +694,7 @@ display: 	jsr fill		; fill with new character
 	lda pcols		; set background color
 	sta $d021
 	ldx #0		; black border
-	stx $d020
+	stx border
 home: 	jsr setstart 	; compute address in Bitmap
 dp00:	jsr showxy	; ### 1.06
  	ldx screenpnt 	; get address
@@ -809,12 +849,14 @@ evhome: 	ldy #0
 	sty vertical	; row/column: 0
 	sty horizont
 	jmp home		; display
+
 ; ----------------------------------------- 
 evcenter	lda #11		; center position
 	sta vertical
 	lda #18
 	sta horizont
 	jmp home		; display
+
 ; ----------------------------------------- 
 evbotrght	lda #22		; bottom right position
 	sta vertical
@@ -845,7 +887,7 @@ down: 	ldx vertical
 	cpx #23
 	bcs dw0
 	stx vertical
-	lda screenpnt
+d1ln	lda screenpnt
 	adc #$40
 	sta screenpnt
 	lda screenpnt+1	; next Bitmap row
@@ -859,7 +901,7 @@ up: 	ldx vertical
 	dex
 	bmi dw0
 	stx vertical
-	sec
+u1ln	sec
 	lda screenpnt
 	sbc #$40
 	sta screenpnt
@@ -875,7 +917,7 @@ right: 	ldx horizont
 	cpx #37
 	bcs ri0
 	stx horizont
-	lda screenpnt	; next Bitmap column
+r1cl	lda screenpnt	; next Bitmap column
 	adc #8
 	sta screenpnt
 	bcc ri0
@@ -945,7 +987,7 @@ dp11b:	jsr disp2		; show graphics
 ; ----------------------------------------- 
 dp13: 	sty sc_stop 	; re-init stop flag
 	lda sc_maincolor 	; restore colors
-	sta $d020
+	sta border
 	sta $d021
 	jsr setspr 	; set pointer to last tile
 	jsr gd_spron 	; switch sprites on
@@ -954,35 +996,26 @@ dp13: 	sty sc_stop 	; re-init stop flag
 
 ; ----------------------------------------- Define Bitmap address
 
-setstart	lda #0		; base address: $2000
+setstart	lda #0		; point to $2000 (bitmap)
 	sta screenpnt
 	lda #$20
 	sta screenpnt+1
 
-set4bit: 	lda vertical	; row (of tiles)
-	beq ss0
-	sta cnt		; compute row address
-ss1: 	clc
-	lda screenpnt
-	adc #$40
-	sta screenpnt
-	lda screenpnt+1
-	adc #1
-	sta screenpnt+1
-	dec cnt
-	bne ss1
-ss0:	lda horizont	; column (of tiles)
+set4bit:	lda horizont	; column (of tiles)
 	beq ss2
 	sta cnt
 ss4: 	clc		; compute indent into row
-	lda screenpnt
-	adc #8
-	sta screenpnt
-	bcc ss3
-	inc screenpnt+1
+	jsr r1cl		; one column right 
 ss3: 	dec cnt
 	bne ss4
-ss2: 	rts		; result in screenpnt (byte in bitmap)
+ss2: 	lda vertical	; row (of tiles)
+	beq ss0
+	sta cnt		; compute row address
+ss1: 	clc
+	jsr d1ln		; one line down
+	dec cnt
+	bne ss1
+ss0: 	rts		; result in screenpnt (byte in bitmap)
 
 ; ----------------------------------------- Display graphics
 
@@ -1067,6 +1100,206 @@ rp2: 	jsr tmode
 	ldy sc_screenvek+1
 	jsr gd_screen
 rp3: 	clc
+	rts
+
+; ----------------------------------------- 
+
+mirror	jsr inittfer	; init
+
+--	jsr setstart	; set start of source row
+	clc
+	lda screenpnt	; add scanline
+	adc line
+	jsr avc0		; now at start of line to transfer
+	jsr getline	; .x=40, .y=0, fill buffer
+	dex
+	dec border
+
+-	sty mky
+	lda linebuf1,y	; revert buffer
+	tay
+	lda mirrtab,y
+	pha
+	lda linebuf1,x
+	tay
+	lda mirrtab,y
+	ldy mky
+	sta linebuf1,y
+	pla
+	sta linebuf1,x
+	dex
+	iny
+	cpy #20
+	bne -
+
+	jsr setline	; write back buffer
+	inc border
+	inc line
+	lda line
+	cmp #8
+	bne --
+
+	lda #0
+	sta line
+	inc vertical
+	lda vertical
+	cmp #25
+	bcc --
+	
+restbase	lda mkx		; restore current value of screenpnt
+	sta vertical
+	lda mkh
+	sta horizont
+	lda stscrpnt
+	sta screenpnt
+	lda stscrpnt+1
+	sta screenpnt+1
+	ldx #38
+	rts
+
+inittfer	jsr savebase
+	jsr setbase	; set $2000 to dst/screenpnt
+	stx vertical
+	stx horizont
+	stx line
+	stx row
+	rts
+
+; ----------------------------------------- 
+
+flip	jsr inittfer	; init
+
+-	dec border
+	lda #<linebuf1	; set getline to buffer1
+	sta smd1+1
+
+	jsr setstart	; set start of source row
+	clc
+	lda screenpnt	; add scanline
+	adc line
+	jsr avc0		; now at start of line to transfer
+	ldx screenpnt	; save for later in dst
+	lda screenpnt+1
+	jsr sb0
+	jsr getline	; transfer line0up to buffer1
+
+	lda #<linebuf2	; set getline to buffer2
+	sta smd1+1
+	pha
+
+	sec
+	lda #24
+	sbc row
+	sta vertical
+	jsr setstart	; set start of target row
+	sec
+	lda #7		; add reverted scanline
+	sbc line
+	sta mac
+	clc
+	lda screenpnt
+	adc mac
+	jsr avc0		; now at start of line to transfer
+	jsr getline	; transfer line199dn to buffer2
+
+	inc border
+	lda #<linebuf1	; set setline to buffer1
+	sta smd2+1
+
+	jsr setline	; transfer buffer1 to line199dn
+
+	jsr getdst	; reget line0up
+	lda screenpnt
+	sta currline
+	lda screenpnt+1
+	sta currline+1
+
+	pla
+	sta smd2+1	; set setline to buffer2
+	jsr setline	; transfer buffer2 back to line0up
+
+	lda row
+	sta vertical
+	inc line		; next scanline
+	cmp #12		; row 12? (middle of screen)
+	bne +
+	ldy #4		; yes, process only 4 scanlines
+	!by $2c
++	ldy #8		; otherwise 8
+	cpy line
+	bne -
+
+	lda #0
+	sta line
+	inc row		; next row
+	lda row
+	sta vertical
+	cmp #13		; up to 12
+	bcc -
+	
++	lda #<linebuf1	; reset getline and setline to buffer1
+	sta smd1+1
+	sta smd2+1
+	jmp restbase	; uncond. branch, finished
+
+; ----------------------------------------- 
+
+setbase	ldx #0		; base address: $2000
+	lda #$20
+sb1	stx screenpnt
+	sta screenpnt+1
+sb0	stx dst
+	sta dst+1
+	rts
+
+getdst	ldx dst
+	lda dst+1
+	bne sb1
+
+savebase	lda vertical	; save current value of screenpnt
+	sta mkx
+	lda horizont
+	sta mkh
+	lda screenpnt
+	sta stscrpnt
+	lda screenpnt+1
+	sta stscrpnt+1
+	rts
+
+; ----------------------------------------- 
+
+getline	lda screenpnt
+	sta currline
+	lda screenpnt+1
+	sta currline+1
+	ldy #0
+	ldx #0
+-	lda (screenpnt),y
+smd1	sta linebuf1,x	; self modifying buffer address
+	jsr advance
+	bne -
+--	lda currline
+	sta screenpnt
+	lda currline+1
+	sta screenpnt+1
+	rts
+
+setline	ldy #0
+	ldx #0
+smd2	lda linebuf1,x
+	sta (screenpnt),y
+	jsr advance
+	bne smd2
+	beq --
+
+advance	clc
+	lda screenpnt
+	adc #8
+avc0	sta screenpnt
+	bcc +
+	inc screenpnt+1
++	inx
+	cpx #40
 	rts
 
 ; ----------------------------------------- 
@@ -1230,7 +1463,7 @@ stu1 	lda pmove,y
 
 hv1: 	lda screenpnt+1 	; lda msb
 	sta sc_texttab+1
-	inc $d020		; flash border
+	inc border	; flash border
 	lda screenpnt
 	sta sc_texttab
 	jsr gd_position
@@ -1263,7 +1496,7 @@ hh2: 	lda sc_texttab
 	inc sc_texttab+1
 hh5:	dey
 	bne hh2
-hh3:	dec $d020		; restore border
+hh3:	dec border	; restore border
 	rts
 
 ; ------------------------------------------ 
