@@ -7,8 +7,9 @@
 ; svr.Loadstar
 ;     Saver for Loadstar SHP splash screen files
 ;
-; 1.00: 10.6.01, first release
-; 1.01: 14.6.01, bug: "Cancel Save" didn't work (fixed)
+; 1.00: 10.06.01, first release
+; 1.01: 14.06.01, bug: "Cancel Save" didn't work (fixed)
+; 1.02: 28.05.19; bug: add signature, now correct
 ;
 ; ----------------------------------------- 
 
@@ -38,8 +39,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "Loadstar SHP    "
-	!tx "1.01"
-	!tx "14.06.01"
+	!tx "1.02"
+	!tx "28.05.19"
 	!tx "A.Dettke        "
 
 ; ----------------------------------------- Main
@@ -119,7 +120,8 @@ st12	jsr gd_spron
 pw	!tx "w,p,"
 drinit	!tx "i0"
 wflen	!by 0
-shptx	!tx "phs."
+shptx	!pet "phs."
+shptxs	!scr "phs."
 
 ; ----------------------------------------- Open Write File
 
@@ -138,21 +140,37 @@ wo1	lda pw,x
 	ldx ls_drive
 	jsr filpar
 	lda wflen
-	ldx #<(ls_nambuf)
-	ldy #>(ls_nambuf)
+	ldx #<ls_nambuf
+	ldy #>ls_nambuf
 	jsr filnam
 	jsr copen
 	jmp err9
 
 ; ----------------------------------------- Add ".shp" to filename
 
-addshp	tay		; Name longer than 12 chars?
-	cpy #12
+addshp	pha		; Länge merken
+	tay
+	dey
+	ldx #0
+ag4	lda ls_nambuf,y	; endet auf ".SHP"?
+	cmp shptx,x
+	bne ag2		; nein
+	dey
+	inx
+	cpx #4
+	bcc ag4
+	pla		; ja, fertig
+	rts
+	
+ag2	pla
+	tay		; Name longer than 12 chars?
+	cpy #13
 	bcs ag0		; yes, treat it
 
-	ldx #3		; no, add ".shp" 
+ag5	ldx #3		; no, add ".shp" 
 ag1	lda shptx,x
 ag3	sta ls_nambuf,y
+	lda shptxs,x	; auch für Image Info
 	sta ls_lastname,y
 	iny
 	dex
@@ -162,17 +180,14 @@ ag3	sta ls_nambuf,y
 	rts
 
 ag0	dey		; get last char
-	lda ls_nambuf,y
-ag2	dey		; shorten to 12 
-	cpy #11
-	bne ag2
-	ldx #04		; counter for chars
-	bne ag3		; unconditional jump
+	cpy #12
+	bne ag0
+	beq ag5		; unbed. Sprung
 
 ; ----------------------------------------- Initialize Disk
 
-inull	ldx #<(drinit)
-	ldy #>(drinit)
+inull	ldx #<drinit
+	ldy #>drinit
 	lda #2
 	jsr gd_sendcom
 err9	jsr gd_xmess
@@ -183,8 +198,8 @@ err8	sec
 
 ; ----------------------------------------- Activity gauge Routines
 
-messout	ldx #<(message)
-	ldy #>(message)
+messout	ldx #<message
+	ldy #>message
 	jmp gd_xtxout2
 
 tcopy	ldy #0
@@ -252,8 +267,8 @@ si1	rts
 ; ----------------------------------------- Publish new filename
 
 setname	lda #0
-	ldx #<(ls_picname)
-	ldy #>(ls_picname)
+	ldx #<ls_picname
+	ldy #>ls_picname
 si3	stx sc_texttab
 	sty sc_texttab+1
 	tax
@@ -272,8 +287,8 @@ nbuf	!fill 16,32
 ; ----------------------------------------- Display Startup requester
 
 requ	inc used
-	ldx #<(lstarlst)
-	ldy #>(lstarlst)
+	ldx #<lstarlst
+	ldy #>lstarlst
 	jsr gd_xmloop
 
 ; ----------------------------------------- Requester management
@@ -306,13 +321,17 @@ ec01	stx mode
 ; ----------------------------------------- Screenlist
 
 lstarlst	!by 0
-	!by 4,11,18,16,$81,0,0
+	!by 4,11,18,16,$81
+	!wo 0
 	!scr "Save Loadstar@"
-	!by 9,11,18,3,$ca,<(evhires),>(evhires)
+	!by 9,11,18,3,$ca
+	!wo evhires
 	!scr " as Hires @"
-	!by 12,11,18,3,$ca,<(evmulti),>(evmulti)
+	!by 12,11,18,3,$ca
+	!wo evmulti
 	!scr " as Multi @"
-	!by 15,11,18,3,$ca,<(cn2),>(cn2)
+	!by 15,11,18,3,$ca
+	!wo cn2
 	!scr "Cancel Save@"
 	!by $c0,6,14,11
 	!scr "Select Mode@"
@@ -329,22 +348,22 @@ mode	!by 0
 
 getpic	lda #$0b		; from $ce0b
 	sta sc_texttab
-	lda #<(vid1)
-	ldx #>(vid1)
+	lda #<vid1
+	ldx #>vid1
 	ldy #$ce
 	jsr move		; move 500 bytes
 
 	lda #$0b		; from $ee0b
 	sta sc_texttab
-	lda #<(vid2)
-	ldx #>(vid2)
+	lda #<vid2
+	ldx #>vid2
 	ldy #$ee
 	jsr move		; move 500 bytes
 
 	lda #$0b		; from $de0b
 	sta sc_texttab
-	lda #<(colram)
-	ldx #>(colram)
+	lda #<colram
+	ldx #>colram
 	ldy #$de
 	jsr movec		; move 1000 bytes
 	lda gr_bkcol	; set background color
@@ -357,8 +376,8 @@ getpic	lda #$0b		; from $ce0b
 move	sty sc_texttab+1
 	sta sc_vekt20
 	stx sc_vekt20+1
-	lda #<(500)
-	ldx #>(500)
+	lda #<500
+	ldx #>500
 	sta ls_vekta8
 	stx ls_vekta8+1
 	sei
@@ -379,8 +398,8 @@ mv0	lda (sc_texttab),y
 movec	sty sc_texttab+1
 	sta sc_vekt20
 	stx sc_vekt20+1
-	lda #<(500)
-	ldx #>(500)
+	lda #<500
+	ldx #>500
 	sta ls_vekta8
 	stx ls_vekta8+1
 	sei
@@ -448,12 +467,12 @@ writem	jsr wrheader	; Header: $00 $40 $00 $ad
 	lda back		; write background color
 	jsr bsout
 
-wm0	lda #<(8000)	; count bitmap (8000 bytes)
-	ldx #>(8000)
+wm0	lda #<8000	; count bitmap (8000 bytes)
+	ldx #>8000
 	sta ls_vekta8
 	stx ls_vekta8+1
-	lda #<($2000)	; start from $2000
-	ldx #>($2000)
+	lda #<$2000	; start from $2000
+	ldx #>$2000
 	sta sc_texttab
 	stx sc_texttab+1
 	jsr writeit	; write section 
@@ -469,12 +488,12 @@ wm1	ldx #24		; Text on screen: "Hires"
 	sty comprfl	; .y is $00: compress indicator is 0 now
 	lda #7
 	sta cntwert
-	lda #<(1000)	; count 1000 bytes video RAM
-	ldx #>(1000)
+	lda #<1000	; count 1000 bytes video RAM
+	ldx #>1000
 	sta ls_vekta8
 	stx ls_vekta8+1
-	lda #<(colors)	; start from color buffer
-	ldx #>(colors)
+	lda #<colors	; start from color buffer
+	ldx #>colors
 	sta sc_texttab
 	stx sc_texttab+1
 	jsr writeit	; write section
@@ -489,21 +508,21 @@ wm1	ldx #24		; Text on screen: "Hires"
 	sty comprfl	; .y is $ff: compress indicator is 255 now
 	lda #7
 	sta cntwert
-	lda #<(1000)	; count 1000 bytes color RAM
-	ldx #>(1000)
+	lda #<1000	; count 1000 bytes color RAM
+	ldx #>1000
 	sta ls_vekta8
 	stx ls_vekta8+1
-	lda #<(colram)	; start from color buffer
-	ldx #>(colram)
+	lda #<colram	; start from color buffer
+	ldx #>colram
 	sta sc_texttab
 	stx sc_texttab+1
 	jsr writeit	; write section
 
-wm2	lda #<(vid1)	; restore colors to their buffer
+wm2	lda #<vid1	; restore colors to their buffer
 	sta sc_texttab
 	lda #$0b
 	ldx #$ce
-	ldy #>(vid1)
+	ldy #>vid1
 	jsr move
 
 	jmp canc		; finish
@@ -570,4 +589,3 @@ writeit	ldy #0		; get byte to write to file
 	rts
 
 modend	!eof
-
