@@ -22,6 +22,7 @@
 ;    1.02: 12.06.95, set netdrive to unit 8 (precaution)
 ;    1.03: 12.10.18, added recoloring of texts
 ;                    bugfix: cancelled Input caused crash
+;    1.04: 29.05.19, bugfix: module too long
 ;
 ; ------------------------------------------------ 
 
@@ -98,10 +99,10 @@
 	!wo modend
 	!wo $00
 	!tx "FileCopy 64Net  "
-	!tx "1.03"
-	!tx "12.10.18"
+	!tx "1.04"
+	!tx "29.05.19"
 	!tx "P.GardnerStephen"
-addtx	!tx "and A.Dettke    "
+addtx	!tx "and A.Dettke"
 	!by 0
 
 ; ------------------------------------------------ 
