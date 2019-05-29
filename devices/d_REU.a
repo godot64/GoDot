@@ -140,8 +140,8 @@ instfix	ldy #30		; 		### 1.08 <--
 	bpl -
 leave	rts		; [12]
 
-fixlength	lda modul+15	; Slot4?
-	eor modul+4015
+fixlength	lda modul+7	; Slot4?
+	eor #$cf
 	tay
 	bne +
 nofix	lda #$10		; ja, dann Länge $1000
@@ -155,7 +155,7 @@ nofix	lda #$10		; ja, dann Länge $1000
 setfix	jsr dirbuf	; = fixlength +24
 	jmp getmod	; Load/Execute (in dev, Teil2)
 
-	!fi 5,$ad		; padding		### 1.08 -->
+	!fi 6,$ad		; padding		### 1.08 -->
 
 ; -------------------------------------- Header
 
