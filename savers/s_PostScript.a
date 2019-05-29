@@ -1,6 +1,7 @@
 
-!src "godotlib.lib"
-*	= $c000
+	!src "godotlib.lib"	; Label-Library einbinden
+	*= $c000		; generelle Startadresse für alle Module
+	!ct pet		; Texte werden in PETSCII assembliert
 
 ; ----------------------------------------- 
 ; svr.PostScript
@@ -19,10 +20,10 @@
 ;                          - correct adding of ".eps" to filename
 ; 1.06: 23.11.16, changed: - palettes "Pepto" and "Coco" added
 ; 1.07: 06.04.17, changed: - palette "Colodore" added
+; 1.08: 29.05.19, changed: - palette "Brix" removed (module too long!)
 ;
 ; ----------------------------------------- 
 
-;
 	footlen		= hexchars-ffooter
 	src		= $30
 	src0		= $32
@@ -38,7 +39,7 @@
 	clpbr		= $3f
 	clpho		= $40
 	indent		= $41
-;
+
 ; ----------------------------------------- 
 
 header	jmp start
@@ -48,17 +49,19 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "Encapsulated PS "
-version	!pet "1.07"
-	!pet "06.04.17"
+version	!pet "1.08"
+	!pet "29.05.19"
 	!pet "A.Dettke        "
-;
+
 ; ----------------------------------------- 
 
 start	ldx gr_nr
 	dex
 	bne st0
 	jmp initinp
-;
+
+; ----------------------------------------- PostScript
+
 st0	jsr requester	; display requester
 	lda used		; cancelled?
 	cmp #3
@@ -103,7 +106,7 @@ st1	pla
 st12	jsr gd_spron
 	sec
 	rts
-;
+
 ; --------------------------- 
 ; --------------------------- Input Routines
 
@@ -119,7 +122,7 @@ drinit	!pet "i0"
 wflen	!by 0
 epstx	!pet "spe."
 epstxs	!scr "spe."
-;
+
 wopen	jsr inull
 	bne err8
 	ldy wflen
@@ -135,12 +138,12 @@ wo1	lda pw,x
 	ldx ls_drive
 	jsr filpar
 	lda wflen
-	ldx #<(ls_nambuf)
-	ldy #>(ls_nambuf)
+	ldx #<ls_nambuf
+	ldy #>ls_nambuf
 	jsr filnam
 	jsr copen
 	jmp err9
-;
+
 ; ----------------------------------------- Add ".eps" to filename
 
 addeps	pha		; Länge merken		#--- 1.05
@@ -161,7 +164,7 @@ ag2	pla
 	tay		; Name länger als 12 Zeichen?
 	cpy #13
 	bcs ag0		; ja, behandeln
-;
+
 ag5	ldx #3		; nein, ".eps" anhängen
 ag1	lda epstx,x
 ag3	sta ls_nambuf,y
@@ -173,16 +176,16 @@ ag3	sta ls_nambuf,y
 	sty wflen		; neue Länge merken, fertig
 	sty ls_flen
 	rts
-;
+
 ag0	dey		; auf 12 verkürzen
 	cpy #12
 	bne ag0
 	beq ag5		; unbed. Sprung		#--- 1.05
-;
+
 ; ----------------------------------------- 
 
-inull	ldx #<(drinit)
-	ldy #>(drinit)
+inull	ldx #<drinit
+	ldy #>drinit
 	lda #2
 	jsr gd_sendcom
 err9	jsr gd_xmess
@@ -190,14 +193,14 @@ err9	jsr gd_xmess
 	and #15
 err8	sec
 	rts
-;
+
 
 ; ----------------------------------------- Activity gauge
 
-messout	ldx #<(message)
-	ldy #>(message)
+messout	ldx #<message
+	ldy #>message
 	jmp gd_xtxout2
-;
+
 tcopy	ldy #0
 tc0	lda txt,x
 	beq clrmess
@@ -205,7 +208,7 @@ tc0	lda txt,x
 	inx
 	iny
 	bne tc0
-;
+
 action	dec adcnt
 	bne ld4
 	lda cntwert
@@ -221,7 +224,7 @@ action	dec adcnt
 	lda #7
 	sta offx
 ld4	rts
-;
+
 clrmess	ldx #23
 	lda #32
 cl0	sta mess,x
@@ -232,13 +235,13 @@ cl0	sta mess,x
 	sty offy
 	stx offx
 	rts
-;
+
 filltab	!by 160,93,103,127,126,124,105,109
-;
+
 cntwert	!by 50
-;
+
 txt	!scr " Bitmap@" 	; 0
-;
+
 message	!fill 8,32
 mess	!fill 24,32
 	!by 0
@@ -260,8 +263,8 @@ si2	ora #$20		; upper case
 si1	rts
 ; ----------------------------------------- Publish new filename
 setname	lda #0
-	ldx #<(ls_picname)
-	ldy #>(ls_picname)
+	ldx #<ls_picname
+	ldy #>ls_picname
 si3	stx sc_texttab
 	sty sc_texttab+1
 	tax
@@ -273,15 +276,15 @@ si4	lda nbuf,x
 	iny
 	bne si4
 si5	rts
-;
+
 nbuf	!fill 16,32
 	!by 0
 
 ; ----------------------------------------- Startup requester
 
 requ	inc used
-	ldx #<(epslst)
-	ldy #>(epslst)
+	ldx #<epslst
+	ldy #>epslst
 	jsr gd_xmloop
 
 ; ----------------------------------------- Requester management
@@ -301,7 +304,7 @@ canc	lda #$ff
 
 ; ------------------------------------ Event: Choose Palette
 evpalette	lda palflag
-	cmp #7		; # 1.03 (and every other adding)
+	cmp #6		; # 1.03 (and every other adding)
 	bne dp0
 	lda #$ff
 	sta palflag
@@ -364,9 +367,9 @@ ev2	lda viewtxts,x
 
 ; ------------------------------------ Output gadget text routines
 
-tabigad	!by <palgad, >palgad
-	!by <areagad,>areagad
-	!by <viewgad,>viewgad
+tabigad	!wo palgad
+	!wo areagad
+	!wo viewgad
 
 
 settext	lda #<tabigad
@@ -417,17 +420,12 @@ spl2	dex		; 4: Deekay
 	lda #<paldeekay
 	ldx #>paldeekay
 	bne spl5
-spl3	dex		; 5: Brix
-	bne spl31
-	lda #<palbrix
-	ldx #>palbrix
-	bne spl5
-spl31	dex		; 6: Vice
+spl3	dex		; 5: Vice
 	bne spl0
 	lda #<palvice
 	ldx #>palvice
 	bne spl5
-spl0	lda #<palgray	; 7: Gray16
+spl0	lda #<palgray	; 6: Gray16
 	ldx #>palgray
 spl5	sta sc_pos
 	stx sc_pos+1
@@ -439,7 +437,7 @@ spl6	lda (sc_pos),y
 	rts
 
 ; ----------------------------------------- Set Save EPS data parameters
-;
+
 evsaveps	inc used
 	jsr setversion
 	jsr setclip
@@ -600,15 +598,20 @@ di3	lda sy_numbers,y
 epslst	!by 0
 	!by 4,11,18,16,$81,0,0
 	!scr "Save EPS@"
-palgad	!by 9,11,18,3,$ca,<(evpalette),>(evpalette)
+palgad	!by 9,11,18,3,$ca
+	!wo evpalette
 paltx	!scr "  GoDot   @"
-areagad	!by 11,23,6,3,$ce,<evarea,>evarea
+areagad	!by 11,23,6,3,$ce
+	!wo evarea
 areatx	!scr "Full@"
-viewgad	!by 13,18,11,3,$ce,<evview,>evview
+viewgad	!by 13,18,11,3,$ce
+	!wo evview
 viewtx	!scr "Landscape@"
-	!by 15,11,18,3,$cb,<(evsaveps),>(evsaveps)
+	!by 15,11,18,3,$cb
+	!wo evsaveps
 	!scr "Save Image@"
-	!by 17,11,18,3,$cb,<(cn2),>(cn2)
+	!by 17,11,18,3,$cb
+	!wo cn2
 	!scr "Cancel Save@"
 	!by $c0,7,12,15
 	!scr "Select Palette:@"
@@ -796,13 +799,6 @@ paldeekay	!tx "000000 1a0c92 441e00 464646"	; # 1.05 ---
 	!tx "4d91d1 d28074 4dab19 bababa"
 	!by 13,10,32,32
 	!tx "65cda8 ebe353 8ef68e ffffff"	; # 1.05 ---
-palbrix	!tx "000000 4242c6 846339 7b7b7b"
-	!by 13,10,32,32
-	!tx "ad524a bd6bbd c88e2f 949494"
-	!by 13,10,32,32
-	!tx "9c9cf7 ff9c9c 73e773 cecece"
-	!by 13,10,32,32
-	!tx "73f7f7 ffff7b a5ffa5 ffffff"
 palgray	!tx "000000 111111 222222 333333"
 	!by 13,10,32,32
 	!tx "444444 555555 666666 777777"
@@ -834,7 +830,7 @@ palcolod	!tx "000000 2d2b9a 543700 494949"	; # 1.07 ---
 
 !ct pet
 
-gadoffs	!by 9,19,29,39,49,59,69,79	; # 1.03 (and all other addings)
+gadoffs	!by 9,19,29,39,49,59,69	; # 1.03 (and all other addings)
 gadoffs2	!by 3,7
 palflag	!by 0
 areaflag	!by $ff
@@ -845,9 +841,8 @@ paltxts	!scr "  GoDot   "	; 0
 	!scr " Colodore "	; 20
 	!scr "  Pepto   "	; 30
 	!scr "  Deekay  "	; 40
-	!scr "   Brix   "	; 50
-	!scr "   VICE   "	; 60
-	!scr "  Gray16  "	; 70
+	!scr "   VICE   "	; 50
+	!scr "  Gray16  "	; 60
 
 areatxts	!scr "Full" 	; 0
 	!scr "Clip" 	; 4
@@ -884,4 +879,3 @@ wrf0	lda ffooter,y
 ; ----------------------------------------- 
 
 modend	!eof
-
