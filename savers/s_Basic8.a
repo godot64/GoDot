@@ -12,14 +12,15 @@
 ;  1.01, 02.05.19, bugfix: compress algorithm now works
 ;                  added: auto prefix ("brus.")
 ;                  added: options requester
+;  1.02, 01.06.19, added: selective prefixes ("brus.", "pict.", "ip.")
 ;
 ; ----------------------------------------- 
 
 
 ; ----------------------------------------- Equates
 
-	dst		= $30
-	dst0		= $32
+	dst		= $30	; /$31
+	dst0		= $32	; /$33
 	cpres		= $34	; file compressed? (if 1)
 	cflag		= $35	; running compression? (if $80)
 	dbl		= $36	; double height? (0: off, $ff: on)
@@ -27,9 +28,9 @@
 	byte		= $38
 	bitcnt		= $39	; double width? (1: off, 2: on)
 	bcnt1		= $3a
-	src		= $3b
+	src		= $3b	; /$3c
 	hold		= $3d
-	src0		= $3e
+	src0		= $3e	; /$3f
 	adcnt		= $40
 	lcnt8		= $41
 	lcnt		= $42
@@ -39,6 +40,7 @@
 	xmrk		= $46
 	current		= $48
 	yndex		= $49
+	prendx		= $4a
 
 	offx		= $b2
 	offy		= $b3
@@ -49,9 +51,9 @@
 	filter		= $d418
 	rausch		= $d41b
 
-	buf		= $cd00
+	buf		= $cae0
 	cbuf		= buf+80
-	destbuf		= $ca00
+	destbuf		= cbuf+80
 
 ; ----------------------------------------- Header
 
@@ -62,8 +64,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "Basic8 images   "
-	!pet "1.01"
-	!pet "02.05.19"
+	!pet "1.02"
+	!pet "01.06.19"
 	!pet "A.Dettke        "
 
 ; ----------------------------------------- Main
@@ -307,9 +309,9 @@ basic8	lda #<sy_4bit
 	sta src
 	stx src0+1
 	stx src+1
-	lda #0		; steuert ysize
-	sta dbl
-	sta vertcnt
+	lda #0		; steuert per yzoom ($00 oder $ff) die Höhe
+	sta dbl		; Flag
+	sta vertcnt	; zählt Ergebnisrasterzeilen (können doppelt so viele sein)
 
 	lda #25
 	sta lcnt8
@@ -349,7 +351,7 @@ btloop	ldy yndex
 	lda gr_btab,y	; Balancing berücksichtigen
 	jsr makebyte
 	inc yndex		; nächstes Byte (von 4)
-s3	ldy xzoom
+	ldy xzoom
 -	lsr bitcnt
 	dey
 	bne -
@@ -371,13 +373,13 @@ s4	cpx xtiles
 
 	jsr moveline	; Rasterzeile wegschreiben bis Blockzeile voll
 
-	ldx vertcnt	; Zeile verdoppeln
+	ldx vertcnt	; alle 8 Rasterzeilen im Ergebnispuffer fertig?
 	inx 
 	cpx #8
 	bne s41
-	ldx #0
+	ldx #0		; (wenn ja, Zähler zurücksetzen)
 s41	stx vertcnt
-	lda dbl
+	lda dbl		; Zeile verdoppeln? (wenn yzoom=$ff)
 	eor yzoom
 	sta dbl
 	beq newline
@@ -386,9 +388,9 @@ s41	stx vertcnt
 	sta src
 	lda src0+1
 	sta src+1
-	bne ads0		; noch einmal
+	bne ads0		; Rasterzeile noch einmal
 
-newline	lda src0		; nächste Rasterzeile
+newline	lda src0		; sonst nächste Rasterzeile
 	clc 
 	adc #4
 	sta src0
@@ -397,7 +399,7 @@ newline	lda src0		; nächste Rasterzeile
 	inc src0+1
 s5	lda src0+1
 	sta src+1
-	inc lcnt
+	inc lcnt		; alle 8 Rasterzeilen im 4Bit fertig?
 	lda #8
 	cmp lcnt
 	beq s51
@@ -412,7 +414,7 @@ s51	lda src0		; sonst: nächste Kachelzeile
 	adc #>1248
 	sta src0+1
 	sta src+1
-	dec lcnt8		; zählen (bis 25)
+	dec lcnt8		; Kachelzeilen zählen (bis 25)
 	beq done
 	jmp lnloop8	; von vorn
 done	rts 		; bzw. fertig
@@ -472,20 +474,6 @@ dn2	!by $2c
 dn1	lda #$ff
 	and bitcnt
 dn0	ora byte
-	sta byte
-	rts 
-
-dithrnd	cmp #8
-	beq dr0
-	bcs dr1
-	bcc dr2
-dr0	lda rausch
-	!by $2c
-dr1	lda bitcnt
-	and bitcnt
-	!by $2c
-dr2	lda #0
-	ora byte
 	sta byte
 ml4	rts 
 
@@ -652,39 +640,73 @@ wrh0	lda b8header,x
 ; ----------------------------------------- Namen verlängern
 
 addprefix	pha		; Länge merken
+
+	lda mode		; Welcher Modus?
+	beq ap1
+	cmp #1
+	bne +
+	lda #<prepict	; 1: "pict."
+	ldx #>prepict
+	bne ap2
++	cmp #2
+	bne ap1
+	ldy #3
+	lda #<preip	; 2: "ip."
+	ldx #>preip
+	bne ap0
+ap1	lda #<prefix	; 0, 3 u. 4: "brus."
+	ldx #>prefix
+ap2	ldy #5
+ap0	sta src
+	clc
+	tya
+	adc src
+	sta src0
+	stx src+1
+	stx src0+1
+	sty prendx
+	
 	ldy #0
-ag4	lda ls_nambuf,y	; beginnt mit "brus."?
-	cmp prefix,y
+ag4	lda ls_nambuf,y	; beginnt mit "xxx."?
+	cmp (src),y
 	bne ag2		; nein
 	iny
-	cpy #5
+	cpy prendx
 	bcc ag4
 	pla		; ja, fertig
 	rts
 	
-ag2	pla		; verlängern um 5 Zeichen
+ag2	pla		; verlängern um .y Zeichen
 	clc
-	adc #5
+	adc prendx
 	tay		; Name nun länger als 16 Zeichen?
 	cpy #16
 	bcs ag0		; ja, behandeln
 
-ag5	ldx #10		; nein, "brus." vor den Namen
+ag5	sty wflen		; neue Länge merken, fertig
+	sty ls_flen
+	lda #15		; nein, "xxx." vor den Namen
+	sec
+	sbc prendx
+	tax		; .x=10 oder =12
+	clc
+	adc prendx
+	tay		; .y=.x+prendx
 ag1	lda ls_nambuf,x
-	sta ls_nambuf+5,x
+	sta ls_nambuf,y
 	lda ls_lastname,x
-	sta ls_lastname+5,x
+	sta ls_lastname,y
+	dey
 	dex
 	bpl ag1
-	ldx #4		; Länge
-ag3	lda prefix,x
-	sta ls_nambuf,x
-	lda prefixs,x
-	sta ls_lastname,x
-	dex
+	ldy prendx	; Länge
+	dey
+ag3	lda (src),y
+	sta ls_nambuf,y
+	lda (src0),y
+	sta ls_lastname,y
+	dey
 	bpl ag3
-	sty wflen		; neue Länge merken, fertig
-	sty ls_flen
 	rts
 
 ag0	dey		; auf 16 verkürzen
@@ -694,99 +716,115 @@ ag0	dey		; auf 16 verkürzen
 
 ; ----------------------------------------- Event: XSize
 
-evxsize	ldx xsize		; 0: off, 1: on
-	beq +
-	ldx #$ff
-+	lda #40
+evxsize	ldx xsize
+	beq exs0
+exs1	ldx #$ff
+exs0	lda #40
 	inx
 	beq +
 	asl
-+	sta xtiles
-	sta wid
-	stx xsize
++	sta xtiles	; double if .x=1 (dann 80)
+	sta wid		; in header
+	stx xsize		; .x: 0: 320 (40), 1: 640 (80)
+	stx xzoom		; Verdoppelungsfaktor setzen (1 oder 2)
+	inc xzoom
 	lda #$80
 	cpx #0
 	beq +
 	ora #$40
-+	sta xmask
-	lda #<xsizetx
-	sta sc_texttab
-	lda #>xsizetx
-	sta sc_texttab+1
-	txa
-	inx
-	stx xzoom
-	asl
-	tay
-	lda xaddrs,y
++	sta xmask		; entweder %10000000 oder %11000000
+
+	lda xyoffs,x
 	tax
-	lda xaddrs+1,y
-	tay
-	jmp gd_xtxtggl
+	ldy #2
+-	lda xsizets,x
+	sta xsizetx,y
+	dex
+	dey
+	bpl -
+	ldy #4
+	jmp esd0
 
 ; ----------------------------------------- Event: YSize
 
-evysize	ldx ysize		; 0: off, 1: on
-	beq +
-	ldx #$ff
-+	lda #200
+evysize	ldx ysize
+	beq eys0
+eys1	ldx #$ff
+eys0	lda #200
 	inx
-	stx hgt+1
-	bne +
-	sta hgt
-	beq ++
-+	lda #$90
-	sta hgt
+	stx hgt+1		; in header
+	beq +
+	lda #$90
++	sta hgt
 
-++	stx ysize
+++	stx ysize		; .x: 0: off (200), 1: on (400)
 	beq +
 	lda #$ff
 	!by $2c
 +	lda #0
-	sta yzoom
-	lda #<ysizetx
-	sta sc_texttab
-	lda #>ysizetx
-	sta sc_texttab+1
-	txa
-	asl
-	tay
-	lda yaddrs,y
+	sta yzoom		; .a: $00: 200, $ff: 400
+
+	lda xyoffs,x
 	tax
-	lda yaddrs+1,y
-	tay
-	jmp gd_xtxtggl
+	ldy #2
+-	lda ysizets,x
+	sta ysizetx,y
+	dex
+	dey
+	bpl -
+	ldy #6
+	jmp esd0
 
 ; -------------------------------------- Event: Set Compress Mode
 
-evsetcmpr	ldx cmpr		; 0: off, 1: on
+evsetcmpr	ldx cmpr
 	beq +
 	ldx #$ff
 +	inx
-	stx cmpr
-	lda #<cmprstx
+	stx cmpr		; 0: off, 1: on
+	lda #<cmprstx	; Adresse in der Screenlist setzen
 	sta sc_texttab
 	lda #>cmprstx
 	sta sc_texttab+1
 	txa
 	asl
 	tay
-	lda caddrs,y
-	tax
+	lda caddrs,y	; Adresse des neuen Textes holen
+	tax		; nach .x und .y
 	lda caddrs+1,y
-	tay
-	jmp gd_xtxtggl
+esc0	tay
+	jmp gd_xtxtggl	; Texte austauschen und Ergebnis anzeigen
 
 ; ----------------------------------------- Event: Set Color Mode
 
 evsetmode	lda modes
-	cmp #4
+	cmp #3
 	bne +
 	lda #$ff
 	sta modes
 +	inc modes
-	ldx modes
-	stx mode
+	lda modes
+	pha
+
+	ldx #0		; .x preset to 0 (=off)
+	cmp #1		; 8x2? (Mode 1)
+	bne +
+	jsr exs0		; 640x200 (returns .c=0, .x=0)
+	jsr eys1
+	bcc ++
++	cmp #2		; 8x4? (Mode 2)
+	bne +
+	jsr exs0		; 640x400
+	jsr eys0
+	bcc ++
++	cmp #3		; 8x8? (Mode 3)
+	bne ++
+	jsr exs1		; 320x200
+	jsr eys1
+
+++	pla		; nein, mono (Mode 0) oder 8x16 (Mode 4)
+	sta mode
+	tax
 	lda modeoffs,x
 	tax
 	ldy #3
@@ -796,14 +834,12 @@ evsetmode	lda modes
 	dey
 	bpl -
 	ldy #0
-	jsr settext
-	ldy #6
-	jmp gd_xtxout1
+	beq esd0
 
 ; ----------------------------------------- Event: Set Dither Mode
 
 evsetdith	lda dither
-	cmp #4
+	cmp #3
 	bne +
 	lda #$ff
 	sta dither
@@ -818,7 +854,7 @@ evsetdith	lda dither
 	dey
 	bpl -
 	ldy #2
-	jsr settext
+esd0	jsr settext
 	ldy #6
 	jmp gd_xtxout1
 
@@ -826,6 +862,8 @@ evsetdith	lda dither
 
 tabigad	!wo modegad	; 0
 	!wo dithgad	; 2
+	!wo xsizegad	; 4
+	!wo ysizegad	; 6
 
 settext	lda #<tabigad
 	sta ls_vekta8
@@ -854,10 +892,10 @@ b8lst	!by 0
 	!by 5,12,15,15,$81
 	!wo 0
 	!scr "Save Basic8",0
-	!by 7,22,5,3,$cd
+xsizegad	!by 7,22,5,3,$cd
 	!wo evxsize
 xsizetx	!scr "320",0
-	!by 9,22,5,3,$ce
+ysizegad	!by 9,22,5,3,$ce
 	!wo evysize
 ysizetx	!scr "200",0
 	!by 11,22,5,3,$ce
@@ -887,54 +925,6 @@ dithtx	!scr "Ordered",0
 	!scr "Dith:",0
 	!by $80
 	
-; ----------------------------------------- Data
-
-prefix	!pet "brus."	; Länge: plus 5, max 11
-prefixs	!scr "brus."
-
-xsizet1	!scr "320@"
-xsizet2	!scr "640@"
-xsize	!by 0
-xzoom	!by 1		; 1: off, 2 : on
-xtiles	!by 40		; zoom off: 40, on: 80
-xmask	!by $80		; zoom off: $80, on: $c0
-xaddrs	!wo xsizet1,xsizet2
-
-ysizet1	!scr "200@"
-ysizet2	!scr "400@"
-ysize	!by 0		; 0: off (200), 1: on (400)
-yzoom	!by 0		; 0: 200, $ff: 400
-yaddrs	!wo ysizet1,ysizet2
-
-cmprst1	!scr " no@"
-cmprst2	!scr "yes@"
-caddrs	!wo cmprst1,cmprst2
-
-modetxts	!scr "mono8x2 8x4 8x8 8x16"
-modeoffs	!by 3,7,11,15,19
-modes	!by 0
-
-dithtxts	!scr "  Off  OrderedPattern Noise Random "
-dithoffs	!by 6,13,20,27,34
-dither	!by 1
-
-offs	!by $00,$10,$20,$30
-	!by $00,$10,$20,$30
-
-dlo	!by <dithoff
-	!by <dithrst
-	!by <dithpat
-	!by <dithnoi
-	!by <dithrnd
-
-dhi	!by >dithoff
-	!by >dithrst
-	!by >dithpat
-	!by >dithnoi
-	!by >dithrnd
-
-dmode	!by 0,0
-
 ; ----------------------------------------- Basic8 Header
 
 b8header	!wo 0		; Startadresse (im VDC)
@@ -949,6 +939,52 @@ hgt	!wo 200		; Höhe in Linien
 	!by 1		; BGR (dark grey)
 	!by 14		; FGR (light grey)
 	!by 0		; Border (black)
+
+; ----------------------------------------- Data
+
+dmode	!wo 0		; Verteiler für Dither
+
+prefix	!pet "brus."	; Länge: plus 5, max 11, mode 0/3/4
+prefixs	!scr "brus."
+prepict	!pet "pict."	; dito, mode 1
+prepicts	!scr "pict."
+preip	!pet "ip."	; Länge: plus 3, max 13, mode 2
+preips	!scr "ip."
+
+xsizets	!scr "320640"
+ysizets	!scr "200400"
+xyoffs	!by 2,5
+xsize	!by 0		; 0: off (320), 1: on (640)
+ysize	!by 0		; 0: off (200), 1: on (400)
+xzoom	!by 1		; 1: 320,   2: 640
+yzoom	!by 0		; 0: 200, $ff: 400
+xtiles	!by 40		; zoom off: 40, on: 80
+xmask	!by $80		; zoom off: $80, on: $c0
+
+cmprst1	!scr " no@"
+cmprst2	!scr "yes@"
+caddrs	!wo cmprst1,cmprst2
+
+modetxts	!scr "mono8x2 8x4 8x8 "
+modeoffs	!by 3,7,11,15
+modes	!by 0
+
+dithtxts	!scr "  Off  OrderedPattern Noise "
+dithoffs	!by 6,13,20,27
+dither	!by 1
+
+offs	!by $00,$10,$20,$30
+	!by $00,$10,$20,$30
+
+dlo	!by <dithoff
+	!by <dithrst
+	!by <dithpat
+	!by <dithnoi
+
+dhi	!by >dithoff
+	!by >dithrst
+	!by >dithpat
+	!by >dithnoi
 
 ; ----------------------------------------- 
 
