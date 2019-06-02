@@ -152,7 +152,7 @@ nofix	lda #$10		; ja, dann Länge $1000
 	sta rm_werte+6
 	rts		; [24]
 
-setfix	jsr dirbuf	; = fixlength +24
+setfix	jsr dirbuf	; = fixlength +23
 	jmp getmod	; Load/Execute (in dev, Teil2)
 
 	!fi 6,$ad		; padding		### 1.08 -->
@@ -850,7 +850,7 @@ rldex	jsr gd_swapd	; Entry for #3 and #4: Dir ausblenden
 
 ; -------------------------------------- F#3
 
-	jsr dirbuf+24	; Funktion 3: Load Module - aus REU laden (### 1.05)
+	jsr dirbuf+23	; Funktion 3: Load Module - aus REU laden (### 1.08, 1.05)
 	jsr gd_getback	; an seinen Platz verschieben (Slot x)
 	jsr chgtxt	; Namen eintragen
 	jmp exrdy		; und ForceOff (dabei Dir ausblenden), fertig
