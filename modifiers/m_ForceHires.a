@@ -6,12 +6,10 @@
 
 ; --------------------------------------
 ;
-; mod.ForceHires
+; mod.MakeHires
 ;   Module to render hires from any image data
 ;
-; 1.00, 25.02.19, first release
-; 1.01, 26.02.19, added sensibility for Balancing
-; 1.02, 25.04.19, added correct image information
+; 1.00, 11.06.19, first release
 ;
 ; --------------------------------------
 
@@ -20,35 +18,22 @@
 
 	adcnt		= $30
 	src		= $31	; /$32
-	dst		= $33	; /$34
+	find		= $33	; /$34
 	vram		= $35	; /$36
 	xbuf		= $37
 	cols		= $38
-	bitcnt		= $39
-	bbuf		= $3a
-	ybuf		= $3b
-	rstart		= $3c
-	rend		= $3d
-	rstep		= $3e
-	howmin1		= $3f
-	pos		= $40	; /$41
-	hold		= $42
-	zp1		= $43
-	col00		= $44	; ..$47
-	bkgr		= $48
-	frgr		= $49
-	numcols		= $4a
-	max		= $4b
+	bbuf		= $39
+	col00		= $3a	; ..$3d
+	bkgr		= $3e
+	frgr		= $3f
+	majorcol		= $40
+	max		= $41
 
 	sprptr		= $07f8
 	spr255		= $3fc0
 
-	qtab		= $c900
-	fgtab		= $c910
-	bgtab		= $c920
-	etab		= $c930
-	rtab		= $c940
-	hist		= $c950
+	hist0		= $c9d0
+	hist1		= hist0+16
 	colors		= $ca00
 	
 	spr2x		= $d004
@@ -59,11 +44,6 @@
 	border		= $d020
 	sprcol2		= $d029
 
-	oszi3		= $d40e
-	wave		= $d412
-	filter		= $d418
-	rausch		= $d41b
-
 ; -------------------------------------- Header
 
 	jmp start
@@ -73,377 +53,118 @@
 	!by 0
 	!wo modend
 	!wo 0
-	!pet "Force Hires Mode"
-	!pet "1.02"
-	!pet "25.04.19"
+	!pet "Convert to Hires"
+	!pet "1.00"
+	!pet "11.06.19"
 	!pet "A.Dettke        "
 
 ; -------------------------------------- Main
 
-start	jsr apply
+start	jsr initad
+	jsr getcolors	; Farben speichern
+
+	jsr initad
+	jsr apply		; Farben zuweisen
 	jsr clearad
 
-	sec 		; leave and rebuild main screen
+	sec 		; fertig, rebuild main screen
 	rts	
 
-; -------------------------------------- Apply Dither
+; -------------------------------------- Convert to Hires 
 
-apply	jsr initad	; Init Activity
+apply	jsr setvecs	; Vektoren setzen
 
-	ldx #2
-	stx numcols	; Anzahl Farben: 2
-	dex		; merken
-	stx howmin1
-	jsr inittabs	; Tabellen generieren
-
-	ldx #$80		; Random initialisieren
-	stx filter
-	stx oszi3
-	stx oszi3+1
-	lda #0
-	sta wave
-	inx
-	stx wave
-
-	jsr setvecs
-	jsr getcolors
-	jsr initad
-	jsr setvecs
-
-mnloop	ldy #0
+mnloop	ldy #0		; Farben für die aktuelle Kachel holen
 	lda (vram),y
 	pha
 	lsr
 	lsr
 	lsr
 	lsr
-	sta bkgr
-	pla
-	and #15
 	sta frgr
+	pla
+	and #$0f
+	sta bkgr
+	jsr analyse	; sets xbuf
 
-rcloop	tya		; Dither-Offset merken
+rcloop	lda (src),y	; linkes Pixel aus Kachel holen
+	pha
+	lsr		; ins Lo-Nibble
 	lsr
 	lsr
-	sta ybuf
-
-	lda (src),y	; zwei Pixel, zuerst das linke...
+	lsr
 	sta bbuf		; merken
-	lsr		; dann Pixel ins Lo-Nibble
-	lsr
-	lsr
-	lsr
-	tax		; include balancing
-	lda gr_btab,x
-mcskip	jsr pixel		; aufrastern
-	and #$f0		; kommt zurück mit Farb-Byte
-	sta xbuf		; oberes Nibble merken
+	ldx frgr		; Alternative setzen
+	cmp frgr
+	beq +
+	cmp bkgr
+	beq ++
+	cmp xbuf		; näher an frgr?
+	beq +
+	bcs +
+++	ldx bkgr		; nein, dann bkgr (sonst frgr)
++	txa
+	asl		; zurück ins obere Nibble
+	asl
+	asl
+	asl
+	sta bbuf		; merken
 
-	lsr bitcnt	; Maske nach rechts: %01000000
-	lda bbuf		; Originalbyte zurückholen
-	and #$0f		; unteres Nibble bearbeitten
-	tax
-	lda gr_btab,x
-	jsr pixel		; aufrastern
-	and #$0f		; unteres Nibble isolieren
-	ora xbuf		; mit oberem verknüpfen
-
+	pla		; Originalbyte zurückholen
+	and #$0f		; und das rechte Pixel bearbeiten
+	ldx frgr
+	cmp frgr
+	beq +
+	cmp bkgr
+	beq ++
+	cmp xbuf		; näher an frgr?
+	beq +
+	bcs +
+++	ldx bkgr
++	txa
+	ora bbuf		; mit linkem verknüpfen
 	sta (src),y	; nach 4Bit zurückschreiben
 
-	lsr bitcnt	; Maske rücken: %00100000
-	bcc bclr
-	ror bitcnt	; wenn abgearbeitet: Bit wieder oben einfügen
-bclr	iny		; eine Kachel
+	iny		; eine Kachel durch
 	cpy #32
 	bne rcloop
 
 	jsr adinc		; Activity (nach 25 Kacheln)
 	jsr count		; 1000 Kacheln zählen
-	bne mnloop
+	bne mnloop	; nächste Kachel
 
-	lda gr_dither	; dither on?
-	beq breset	; no, then finished
+	rts		; fertig
 
-	jsr setvecs
-	jsr initad
+; -------------------------------------- 
 
-dloop	ldy #0		; yes, then apply colors
-	lda (vram),y
-	pha
-	lsr
-	lsr
-	lsr
-	lsr
-	sta frgr
-	pla
-	and #15
-	sta bkgr
-
-dlp0	lda (src),y
-	bne +
-	ldx bkgr
-	lda dnib,x
-	jmp ++
-
-+	bmi +
-	ldx frgr
-	lda dnib,x
-	and #$f0
-	ora bkgr
-	jmp ++
-	
-+	ldx frgr
-	lda dnib,x
-
-++	sta (src),y	; count 1000 tiles
-
-	iny
-	cpy #32
-	bne dlp0
-
+getcolors	jsr setvecs
+-	jsr dohist	; histogram for 1 tile
 	jsr adinc
-	jsr count
-	bne dloop
-
-breset	ldy #15		; Balancingtabelle resetten
-rsloop	tya
-	sta gr_btab,y
-	dey
-	bpl rsloop
-	lda #16
-	sta gr_ctr
-	sta gr_brt
-
-	rts
-
-; -------------------------------------- Dither routines
-
-pixel	jmp (pos)
-
-dithadr	!wo dtoff
-	!wo dthab
-	!wo dtpat
-	!wo dtnoi
-	!wo dtrnd
-
-; -------------------------------------- 
-
-dtoff	cmp bkgr
-	beq +
-	lda frgr
-+	tax
-	lda dnib,x
+	jsr count		; count 1000
+	bne -
 	rts
 
 ; -------------------------------------- 
 
-dthab	sta zp1		; Ordered
-	tax
-	lda rtab,x
-	ldx ybuf		
-	ora offs,x
-	tax
-	lda gr_orderedpat,x
-	jmp dh1
-
-; -------------------------------------- 
-
-dtpat	sta zp1		; Pattern
-	tax
-	lda rtab,x
-	asl
-	asl
-	asl
-	ora ybuf
-	tax
-	lda gr_pattern,x
-dh1	ldx zp1
-	and bitcnt
-	beq bgr
-	bne fgr
-
-; -------------------------------------- 
-
-dtrnd	tax		; Random
-	lda rtab,x
-	beq bgr
-	cmp #8
-	bcs fgr
-	lda rtab+1,x
-	beq dr0
-	cmp #8
-	bcc bgr
-dr0	jsr getrnd
-rold	lda zp1
-	and #1
-	beq bgr
-	bne fgr
-
-; -------------------------------------- 
-
-dtnoi	tax		; Noise
-	lda rtab,x
-	beq bgr
-	sta hold
-	jsr getrnd
-nold	lda hold
-	cmp zp1
-	bcs fgr
-
-bgr	lda bgtab,x
-	rts
-
-fgr	lda fgtab,x
-	rts
-
-; -------------------------------------- 
-
-getrnd	lda rausch
-	and #15
-	sta zp1
-gr01	rts
-
-; -------------------------------------- 
-
-getcolors	jsr dohist
-	jsr adinc
-	jsr count
-	bne getcolors
-	rts
-
-; -------------------------------------- 
-
-setvecs	lda gr_dither	; Dithermodus anwählen
-	asl
-	tay
-	lda dithadr,y
-	ldx dithadr+1,y
-	sta pos
-	stx pos+1
-	lda #$80		; Bitmaske %1000000 erstellen
-	sta bitcnt
-	lda #<sy_4bit	; ab $4000 (4Bit)
-	ldx #>sy_4bit
-	sta src
-	stx src+1
-	lda #<colors
+setvecs	lda #<colors	; into buffer at $ca00
 	ldx #>colors
 	sta vram
 	stx vram+1
-	lda #<1000	; tile counter
+	lda #<1000	; tile counter (1000)
 	ldx #>1000
 	sta ls_vekta8
 	stx ls_vekta8+1
-	rts
-
-; -------------------------------------- Create Tables
-
-inittabs	lda #0
-	sta qtab		; quantization table
-	ldy #1
-	clc
-itl1	adc numcols	; number of grays used (2)
-	tax
-	lsr
-	lsr
-	lsr
-	lsr
-	sta qtab,y
-	sty bbuf
-	txa
-	sec
-	sbc bbuf
-	lsr
-	lsr
-	lsr
-	lsr
-	sta bgtab-1,y	; table for backgrounds
-	txa
-	iny
-	cpy #16
-	bcc itl1
-	lda bgtab+14
-	sta bgtab+15
-
-	ldy #1
-	ldx #0
-	stx etab		; table for dither ranges
-	inx
-itl2	lda bgtab,y
-	cmp bgtab-1,y
-	beq its1
-	tya
-	sta etab,x
-	inx
-its1	iny
-	cpy #16
-	bcc itl2
-	lda #15
-	sta etab,x
-	sta rtab+15
-
-	ldy #15
-itl3	ldx bgtab,y
-	inx
-	txa
-	sta fgtab,y	; foreground grays
-	dey
-	bpl itl3
-
-	ldx #0
---	lda etab,x	; create dither
-	sta rstart	; start of range
-	lda etab+1,x
-	sta rend		; end of range
-	sec
-	sbc rstart
-	tay		; .y = range
-	lda rdtab,y	; see below
-	sta rstep
-	ldy rstart
-	lda #0		; one range ---
--	sta bbuf
-	lsr
-	lsr
-	lsr
-	lsr
-	sta rtab,y
-	lda bbuf
-	clc
-	adc rstep
-	iny
-	cpy rend
-	bcc -		; /one range ---
-	inx		; next range
-	cpx howmin1	; until number of grays
-	bcc --
-
-	ldy #15
-itl4	ldx qtab,y	; exchange offsets with grays (from dnib)
-	lda etab,x
-	tax
-	lda dnib,x
-	sta qtab,y	; quantization table
-	ldx fgtab,y
-	lda etab,x
-	tax
-	lda dnib,x
-	sta fgtab,y	; foreground table
-	ldx bgtab,y
-	lda etab,x
-	tax
-	lda dnib,x
-	sta bgtab,y	; background table
-	dey
-	bpl itl4
-
+	lda #<sy_4bit	; from $4000 (4Bit)
+	ldx #>sy_4bit
+	sta src
+	stx src+1
 	rts
 
 ; -------------------------------------- Histogram for one Tile
 
 dohist	ldx #15
 	lda #0
--	sta hist,x
+-	sta hist0,x
 	dex
 	bpl -
 
@@ -461,65 +182,62 @@ lp6	lda (src),y	; check 32 bytes
 	lsr
 	lsr
 	tax
-	inc hist,x
+	inc hist0,x
 	pla
 	and #15
 	tax
-	inc hist,x
+	inc hist0,x
 	dey
 	bpl lp6
 
-s07	ldx #3
+s07	ldx #3		; count 3 colors (2 of them needed)
 lp7	ldy #0
 	sty max
 
-lp8	lda hist,y	; find 3 most frequent colors
-	beq s08
-	cmp max
-	bcc s08
-	sta max
-	sty col00,x
+lp8	lda hist0,y	; find 3 most frequent colors
+	beq s08		; any pixels of this color? No if 0
+	cmp max		; most frequent already found?
+	bcc s08		; yes if current is lower
+	sta max		; otherwise: store as max (stores also if equal!)
+	sty col00,x	; store color
 s08	iny
-	cpy #16		; check all colors
+	cpy #16		; check all possible 16 colors
 	bne lp8
 
-	ldy col00,x
+	ldy col00,x	; clear found color from histogram
 	lda #0
-	sta hist,y
-	dex		; now find 2nd/3rd color
-	bne lp7
+	sta hist0,y
+	dex		; now find 2nd and 3rd color
+	bne lp7		; index 0 gets skipped (multi bckgr)
 
 	ldy #0
 	ldx col00+2	; only one color in tile?
 	cpx #32
-	bne ms1		; no, don't fake the other one
-
-	ldx col00+3	; yes, do it
-	lda gr_dither	; if no dither: do it differently
-	beq ms1
-	lda fgrays,x
-	tax
+	bcc ms1		; no, don't fake the other one
+	ldx col00+3	; yes, fake 2nd color (set the same there)
 ms1	stx col00+2
 
-	lda col00+3
-	cmp col00+2
-	bpl nosort
-	ldx col00+2
-	sta col00+2
-	stx col00+3
-	txa
-nosort	and #15		; as background
+	lda col00+3	; set as foreground (upper)
 	asl
 	asl
 	asl
 	asl
 	sta cols
 	lda col00+2	
-	and #15		; as foregound
+	and #15		; set as backgound (lower)
 	ora cols
-	sta (vram),y
+	sta (vram),y	; into buffer (.y=0)
 
-+	rts
+	rts
+
+; ------------------------------------------------ 
+
+analyse	clc
+	lda bkgr
+	adc frgr
+	lsr
+	sta xbuf
+	rts
 
 ; ------------------------------------------------ 
 
@@ -543,7 +261,7 @@ adinc	dec adcnt
 	bne +
 	inc spr2y
 	inc spr2y+2
-	lda #25
+	lda cntwert
 	sta adcnt
 +	rts 
 
@@ -555,9 +273,8 @@ clearad	lda spren		; Wanderbalken aus
 	lda msbx
 	and #$f3
 	sta msbx
-	jsr setmode	; ### 1.02
+	jsr setmode
 	stx gr_redisp
-
 	rts 
 
 ; ------------------------------------------------ Init Activity
@@ -594,7 +311,7 @@ initad	ldy #60
 	ora #$0c		; Activity-Balken aktivieren
 	sta spren
 	lda #25		; Startzähler (25 mal 40 = 1000)
-	sta adcnt
+	sta cntwert
 	rts
 
 ; ------------------------------------------------ Counters
@@ -618,24 +335,9 @@ cou7	dec ls_vekta8
 
 ; --------------------------------------
 
+cntwert	!by 25
+
 modetx	!scr "320x200@"
-
-rdtab	!by $00,$f0,$78,$50
-	!by $3c,$30,$28,$22
-	!by $1e,$1b,$18,$16
-	!by $14,$12,$11,$10
-
-dnib	!by $00,$11,$22,$33,$44,$55,$66,$77
-	!by $88,$99,$aa,$bb,$cc,$dd,$ee,$ff
-
-gdcols 	!by $00,$ff,$44,$cc,$55,$aa,$11,$dd
-	!by $66,$22,$99,$33,$77,$ee,$88,$bb
-
-fgrays	!by $00,$33,$33,$33,$77,$77,$77,$77
-	!by $bb,$bb,$bb,$bb,$ff,$ff,$ff,$ff
-
-offs	!by $00,$10,$20,$30
-	!by $00,$10,$20,$30
 
 ; --------------------------------------
 
