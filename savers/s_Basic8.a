@@ -13,7 +13,7 @@
 ;                  added: auto prefix ("brus.")
 ;                  added: options requester
 ;  1.02, 01.06.19, added: selective prefixes ("brus.", "pict.", "ip.")
-;  1.03, 14.06.19, added: undo, colors
+;  1.03, 17.06.19, added: undo, colors
 ;
 ; ----------------------------------------- 
 
@@ -55,10 +55,10 @@
 	filter		= $d418
 	rausch		= $d41b
 
-	buf		= $cae0
+	buf		= rendered+8000
 	cbuf		= buf+80
-	destbuf		= cbuf+80
-	hist0		= destbuf
+	destbuf		= rendered
+	hist0		= cbuf+80
 	hist1		= hist0+16
 
 ; ----------------------------------------- Header
@@ -71,7 +71,7 @@ header	jmp start
 	!wo 0
 	!pet "Basic8 images   "
 	!pet "1.03"
-	!pet "14.06.19"
+	!pet "17.06.19"
 	!pet "A.Dettke        "
 
 ; ----------------------------------------- Main
@@ -98,7 +98,11 @@ saver	lda gd_modswitch	; Modulmanagement
 	lda #1		; Activity beginnen
 	sta adcnt
 
-	ldx #<b8lst	; Requester
+	lda hasreu
+	bne +
+	jsr undo		; save data if reu present
+
++	ldx #<b8lst	; Requester
 	ldy #>b8lst
 	jsr gd_screen
 	jsr gd_eloop	; warten auf Klicks
@@ -108,7 +112,7 @@ st1	pla
 
 	lda shift		; Shift (-Lock) gedrückt?
 	and #1
-	bne evleave
+	bne tidyup
 
 	ldy #16		; nein, Balancing-Tabelle initialisieren
 	sty gr_ctr
@@ -120,15 +124,14 @@ lll	dey
 
 ; ----------------------------------------- Event: Beenden
 
+tidyup	lda hasreu
+	bne evleave
+	jsr undo		; restore data if reu present
+
 evleave	lda #0
 	sta wflen
 	sec 		; fertig
 	rts 
-
-tidyup	lda hasreu
-	bne evleave
-	jsr undo		; restore data if reu present
-	bne evleave	; uncond. branch
 
 ; ----------------------------------------- Event: Save Image
 
@@ -835,7 +838,14 @@ esc0	tay
 
 ; ----------------------------------------- Event: Set Color Mode
 
-evsetmode	lda modes
+evsetmode	lda #$8e		; care for correct dither mode
+	sta dithgad+4
+	lda #$ce
+	sta ysizegad+4
+	ldx #4
+	jsr esd1
+
+	lda modes
 	cmp #3
 	bne +
 	lda #$ff
@@ -847,6 +857,8 @@ evsetmode	lda modes
 	ldx #0		; .x preset to 0 (=off)
 	cmp #1		; 8x2? (Mode 1)
 	bne +
+	lda #$8e
+	sta ysizegad+4
 	jsr exs0		; 640x200 (returns .c=0, .x=0)
 	jsr eys1
 	bcc ++
@@ -856,11 +868,16 @@ evsetmode	lda modes
 	jsr eys0
 	bcc ++
 +	cmp #3		; 8x8? (Mode 3)
-	bne ++
+	bne +
 	jsr exs1		; 320x200
 	jsr eys1
+	bcc ++
 
-++	pla		; nein, mono (Mode 0) oder 8x16 (Mode 4)
++	lda #$ce		; nein, mono (Mode 0)
+	sta dithgad+4	; care for correct dither mode
+	jsr esd2
+	
+++	pla
 	sta mode
 	tax
 	lda modeoffs,x
@@ -882,8 +899,8 @@ evsetdith	lda dither
 	lda #$ff
 	sta dither
 +	inc dither
-	ldx dither
-	lda dithoffs,x
+esd2	ldx dither
+esd1	lda dithoffs,x
 	tax
 	ldy #6
 -	lda dithtxts,x
@@ -1041,7 +1058,7 @@ cmprstx	!scr "yes",0
 modegad	!by 13,21,6,3,$ce
 	!wo evsetmode
 modetx	!scr "mono",0
-dithgad	!by 15,18,9,3,$ce
+dithgad	!by 15,18,9,3,$ce		; toggles to $8e
 	!wo evsetdith
 dithtx	!scr "Ordered",0
 	!by 17,13,6,3,$cc
@@ -1107,8 +1124,8 @@ modetxts	!scr "mono8x2 8x4 8x8 "
 modeoffs	!by 3,7,11,15
 modes	!by 0
 
-dithtxts	!scr "  Off  OrderedPattern Noise "
-dithoffs	!by 6,13,20,27
+dithtxts	!scr "  Off  OrderedPattern Noise  ----- "
+dithoffs	!by 6,13,20,27,34
 dither	!by 1
 
 colchunk	!tx "colr"	; Farb-Chunk-Kennung
