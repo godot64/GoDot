@@ -1,6 +1,8 @@
 
-	!src "..\godotlib.lib"
+	!src "godotlib.lib"
 	*= $c000
+	!ct pet
+;	!sl "labels.txt"
 
 ; ------------------------------------------------------------ 
 ;
