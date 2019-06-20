@@ -31,6 +31,7 @@
 ;   1.38, 23.07.18: fix gridcolor for next start
 ;   1.39, 24.07.18: solved problem /w writing to right border of canvas when clicking to far left
 ;   1.40, 27.07.18: finally take account of mouse hotspot offsets
+;   1.41, 20.06.19: added init keyboard for SuperCPU
 ;
 ; ------------------------------------------------------------ 
 
@@ -93,8 +94,8 @@
 	!wo (modend)
 	!wo 0
 	!pet "Edit 4bit pixels"
-	!pet "1.40"
-	!pet "27.07.18"
+	!pet "1.41"
+	!pet "20.06.19"
 	!pet "AD/ H.McMenamin "
 
 ; ------------------------------------------ Main
@@ -1445,6 +1446,7 @@ redisplay:
 	stx gr_redisp
 	dex
 	stx sc_stop
+	stx sc_keyprs
 	jsr redis
 	jsr rp1
 	pla
