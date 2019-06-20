@@ -1,6 +1,7 @@
 
-	!src "godotlib.lib"
-	*= $c000
+	!src "godotlib.lib"	; Label-Library einbinden
+	*= $c000		; generelle Startadresse für alle Module
+	!ct pet		; Texte werden in PETSCII assembliert
 
 ; ------------------------------------------------------------ 
 ;
@@ -12,6 +13,7 @@
 ;    1.01, 08.04.01, Bugfix
 ;    1.02, 09.04.01, REUSIZE gets set automatically
 ;    1.03, 02.07.17, added: delete entries from REU directory
+;    1.04, 20.07.19, bugfixes: care for SuperCPU RAM
 ;
 ; ------------------------------------------------------------ 
 
@@ -29,6 +31,7 @@
 	status		= $90
 	swappfox		= $1714
 	func3		= $186f	; !! self modifying the kernel !!
+	ramtype		= $1d8f	; ### 1.04
 
 	mtarget		= $9000
 	mal19		= $bd8c	; part of dev.REU
@@ -43,11 +46,11 @@
 	jmp start
 	!by $20
 	!by $00,$01
-	!wo (modend)
+	!wo modend
 	!by $00,$00
 	!pet "Tool for REUs   "
-	!pet "1.03"
-	!pet "02.07.17"
+	!pet "1.04"
+	!pet "20.07.19"
 	!pet "A.Dettke        "
 
 ; ----------------------------------------------- Main 
@@ -64,8 +67,8 @@ start	ldx sc_screenvek	; rette Main-Screenlist
 	jsr reustat	; berechne verfügbaren Space
 	jsr setram	; Anzeige des RAM-Typen vorbereiten
 
-	ldx #<(reulst)	; Requester ausgeben
-	ldy #>(reulst)
+	ldx #<reulst	; Requester ausgeben
+	ldy #>reulst
 	jsr gd_screen
 	ldx sc_screenvek	; und sich dies merken
 	ldy sc_screenvek+1
@@ -119,7 +122,14 @@ st5	ora #$30
 ; ----------------------------------------------- 
 
 setram	ldx ramflag	; get RAM type value (0-11)
-	inx
+	cpx #7		; ### 1.04 --
+	bne +
+	lda ramtype+12
+	sta scpumem+1
+	lda ramtype+13
+	sta scpumem+2
+	ldx #11		; ### bis hier --
++	inx
 	lda ramind,x	; write text to gadget
 	tax
 sr0	ldy #3
@@ -144,18 +154,21 @@ ok	clc
 
 isreu	ldx ramflag	; Ergebnis des RAM-Check holen
 	bmi ok2		; kein REU? dann aussteigen
-	cpx #3		; mindestens 128 K?
+	cpx #4		; mindestens 128 K?
 	bcs ok1
 ok2	pla		; nein, aussteigen
 	pla
-ok1	rts
+ok1	cpx #7		; ### 1.04
+	rts
 
 ; ----------------------------------------------- Event: Install module to REU
 
 evinst	jsr isreu		; Check RAM, kehrt bei fail nicht zurück
+	beq show		; ### 1.04
+
 	jsr chgdrv	; care for bootdrive
-	ldx #<(mtarget)	; save $9000 to REU
-	ldy #>(mtarget)
+	ldx #<mtarget	; save $9000 to REU
+	ldy #>mtarget
 	stx ls_adrmisc
 	sty ls_adrmisc+1
 	lda #0
@@ -170,9 +183,9 @@ evinst	jsr isreu		; Check RAM, kehrt bei fail nicht zurück
 	sta func3+2
 	jsr lddir		; open file requester
 	jsr gd_eloop	; wait for events
-	lda #<(rm_ramvec)	; then unpatch vector
+	lda #<rm_ramvec	; then unpatch vector
 	sta func3+1
-	lda #>(rm_ramvec)
+	lda #>rm_ramvec
 	sta func3+2
 
 	lda ls_flen	; any file selected now?
@@ -200,6 +213,8 @@ show	ldx last		; then overlay REUTool Requester
 
 ; ----------------------------------------------- Fehler
 
+fail2	ldx #32
+	!by $2c
 fail	ldx #0
 	ldy #0
 fl0	lda err1,x
@@ -209,25 +224,24 @@ fl0	lda err1,x
 	cpy #32
 	bne fl0
 	jsr gd_clrms
-	ldx #<(message)
-	ldy #>(message)
+	ldx #<message
+	ldy #>message
 	jsr gd_xtxout2
 	jmp ei0
 
 ; ----------------------------------------------- GoDot: Load Misc
 
-lddir	lda #<(chootype)
+lddir	lda #<chootype
 	pha
-	lda #>(chootype)
+	lda #>chootype
 	pha
 	lda #8
 	jmp gd_xloadm
 
 ; ----------------------------------------------- Load File
 
-readfile	lda #0		; load file to $9000
+readfile	jsr gd_sproff	; load file to $9000
 	sta success
-	sta sprite	; Maus aus
 	jsr gd_xopen
 	jsr onebyte
 	bne lderr
@@ -244,8 +258,7 @@ ld7	lda status
 	bne ld7
 lderr	jsr gd_xclose
 	jsr gd_xmess
-	lda #3		; Maus wieder an
-	sta sprite
+	jsr gd_spron	; Maus wieder an
 	sec
 	rts
 
@@ -264,16 +277,16 @@ sf0	lda msf,x
 	bpl sf0
 	jmp sy_global	; ...and execute
 
-msf	lda #>(mtarget)	; Swap routine: swap $9000 and $c000
-	ldx #>(modul)
+msf	lda #>mtarget	; Swap routine: swap $9000 and $c000
+	ldx #>modul
 	jsr swappfox
 	jsr gd_swapd	; swap $c000 and reu device
 	pla		; get module type
 	tay
 	ldx #6		; execute function #6: Install to REU
 	jsr rm_ramvec
-	lda #>(mtarget)	; swap $c000 and $9000
-	ldx #>(modul)
+	lda #>mtarget	; swap $c000 and $9000
+	ldx #>modul
 	jsr swappfox
 nofile	sec		; transfer complete
 	rts
@@ -341,7 +354,11 @@ gstat	jsr gd_swapd	; get offsets for next mod entry
 
 ; ----------------------------------------------- Calculate AVAIL
 
-reustat	ldx #32		; transfer routine to GLOBAL (1st pt)
+reustat	jsr isreu
+	bne +		; ### 1.04
+	rts
+
++	ldx #32		; transfer routine to GLOBAL (1st pt)
 rs1	lda gstat,x
 	sta sy_global,x
 	dex
@@ -400,6 +417,9 @@ rs4	jsr gd_swapd
 ; ----------------------------------------------- Check for more RAM
 
 newsize	jsr isreu		; Check RAM, kehrt bei fail nicht zurück
+	bne tr3		; ### 1.04
+	rts
+
 tr3	inx		; .x contains RAMFLAG (max value on start: 5 for 512KB)
 	lda banks,x	; check if more RAM available: next bank
 	sta werte0+4
@@ -422,8 +442,7 @@ tr4	ldx ramflag	; check for limits
 	dex
 	dec ramflag	; yes, set 11 as value (eq more than 4MB)
 tr5	stx rm_reusize	; set value
-	jsr setsize		
-	rts
+	jmp setsize		
 
 ; ----------------------------------------------- Set REU Record
 
@@ -433,11 +452,12 @@ tr6	lda werte0,x
 	dex
 	bpl tr6
 	sty reucom
-	rts
+-	rts
 
 ; ----------------------------------------------- publish size of RAM
 
 setsize	jsr isreu		; Check RAM, kehrt bei fail nicht zurück
+	beq -		; ### 1.04
 	ldx ramflag	; get RAM size value
 	lda banks,x	; get # of banks available
 	pha
@@ -503,10 +523,13 @@ delall	jsr setnext	; nächsten Eintrag anpeilen
 
 dellast	jsr setnext	; nächsten Eintrag anpeilen
 del0	stx tentry	; und setzen
+	jsr isreu		; ### 1.04
+	beq +
+	ldx tentry
 	cpx #5		; letztmöglicher Eintrag erreicht?
 	bcs rd6
 	inc nextentry	; ja, anpassen
-	rts
++	rts
 
 setnext	ldx rm_nextram	; lowest possible entry?
 	cpx #5
@@ -586,8 +609,11 @@ rc1	cpx #4		; REU 1764?
 rc2	cpx #5		; REU 1750?
 	bne rc3
 	lda #5		; eq 512K
-rc3	sta ramflag	; no, store to RAM flag
-rc4	rts
+rc3	cpx #7		; is SuperCPU? ### 1.04
+	bne rc4
+	txa
+rc4	sta ramflag	; no, store to RAM flag
+	rts
 
 ; ----------------------------------------------- Event: Choose type of module to install
 
@@ -616,9 +642,9 @@ evc3	jsr settab
 
 tabigad	!wo choosegad,ramgad,delgad
 
-settab	lda #<(tabigad)
+settab	lda #<tabigad
 	sta sc_texttab
-	lda #>(tabigad)
+	lda #>tabigad
 	sta sc_texttab+1
 	rts
 
@@ -655,6 +681,7 @@ mega	!scr " 0K "		; 0 no RAM
 	!scr " 2M "		; 9
 	!scr " 4M "		; 10
 	!scr " >4M"		; 11
+scpumem	!scr " ..M"		; 12 (SuperCPU)
 
 yesno	!by 25,5,19,32,14,15
 chootype	!by 76,68,82,46,42,0
@@ -663,7 +690,7 @@ chosen	!by 0
 delwhat	!by $ff
 choind	!by 2,5,8
 ramflag	!by $ff
-ramind	!by 3,7,11,15,19,23,27,31,35,39,43,47
+ramind	!by 3,7,11,15,19,23,27,31,35,39,43,47,51
 list	!wo 0
 last	!wo 0
 success	!by 0
@@ -675,6 +702,7 @@ werte0	!by $b0,0,1,0,0,1,0,$1f,0
 ;	     c64 ,REU  ,bytes
 
 err1	!scr "       Can't clone Files.       "
+	!scr "        No dev.SCPU yet.        "	; ### 1.04
 message	!fill 32,32
 	!by 0
 
