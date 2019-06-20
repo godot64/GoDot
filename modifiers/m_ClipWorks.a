@@ -16,6 +16,7 @@
 ; 1.07, 05.07.17: bugfix: activity bar exceeding lower limit on clrclp outside
 ; 1.08, 18.07.17: added Preview
 ; 1.09, 26.05.18: made Preview safer (avoiding color trash on Show after Execute from RAM)
+; 1.10, 20.06.19: added debounce on key presses when displaying graphics
 ;
 ; ------------------------------------------------ 
 
@@ -84,8 +85,8 @@
 	!wo modend
 	!wo 0
 	!pet "ClipWorks       "
-	!pet "1.09"
-	!pet "26.05.18"
+	!pet "1.10"
+	!pet "20.06.19"
 	!pet "A. Dettke       "
 
 ; ------------------------------------------------ Main
@@ -447,8 +448,9 @@ gt0	jsr gd_setpos
 
 ss14	jmp ss15
 
-sevsetcl	ldx #0		; clear STOP flag
+sevsetcl	ldx #0		; clear STOP flag and keyboard
 	stx sc_stop
+	stx sc_keyprs	; ### 1.10
 	jsr redisplay	; display graphics
 ss0	lda sc_stop	; STOP?
 	bne ss14		; yes, switch to textmode, show values
