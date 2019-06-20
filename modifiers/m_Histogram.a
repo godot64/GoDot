@@ -1,6 +1,8 @@
 
-!src "godotlib.lib"
-*	= $c000
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
 
 ; ------------------------------------------------------------ 
 ;
@@ -15,6 +17,7 @@
 ;    1.03, 12.11.16, added: no graphics view when in Execute mode (would crash)
 ;                           blinks red on try
 ;    1.04, 10.02.17, added: display "Counting" when counting, "Working" when applying data
+;    1.05, 20.06.19, added: init keyboard for SuperCPU
 ;
 ; ------------------------------------------------------------ 
 
@@ -64,8 +67,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "4BitHistogram   "
-	!pet "1.04"
-	!pet "10.02.17"
+	!pet "1.05"
+	!pet "20.06.19"
 	!pet "A. Dettke       "
 
 ; --------------------------------------- Main
@@ -985,6 +988,7 @@ evview	lda rm_swapw+6	; REU-Management checken
 	stx gr_redisp
 	dex
 	stx sc_stop
+	stx sc_keyprs
 	jsr redis
 	jsr rp1
 	pla
