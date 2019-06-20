@@ -16,6 +16,7 @@
 ;  1.03, 15.11.18, exchanged btab and qtab,
 ;                  added STOP from graphics screen
 ;                  re-init of STOP after display
+;  1.04, 20.06.19, added init keyboard for SuperCPU
 ;
 ; ------------------------------------------------------------ 
 
@@ -55,8 +56,8 @@
 	!wo modend
 	!wo 0
 	!pet "colors/block    "
-	!pet "1.03"
-	!pet "15.11.18"
+	!pet "1.04"
+	!pet "20.06.19"
 	!pet "W.Kling/A.Dettke"
 
 ; --------------------------------------------- Main
@@ -188,6 +189,8 @@ wloop	lda sc_keyprs
 
 ++	lda gr_redisp	; Maus: schon gerendert?
 	bne +
+	sta sc_stop
+	sta sc_keyprs
 	jsr redisplay	; dann zeigen
 	lda sc_stop
 	bne -
