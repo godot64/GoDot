@@ -1,5 +1,5 @@
 
-	!src "godotlib.lib"
+	!src "..\godotlib.lib"
 	*= $c000
 
 ; ------------------------------------------------------------ 
@@ -14,6 +14,7 @@
 ;    1.04, 12.09.16, bugfix, sprite only one color? fixed
 ;    1.05, 14.09.16, added: select sprite on graphics screen
 ;    1.06, 22.05.17, added: save sprite pointer chunk (as $ad-bytes)
+;    1.07, 20.06.19, added init keyboard for SuperCPU
 ;
 ; ------------------------------------------------------------ 
 
@@ -68,8 +69,8 @@ header 	jmp start
 	!wo  modend
 	!wo  0
 	!pet "Boss Converter  "
-	!pet "1.06"
-	!pet "22.05.17"
+	!pet "1.07"
+	!pet "20.06.19"
 	!pet "A. Dettke       "
 
 ; --------------------------------------- Main
@@ -445,6 +446,7 @@ do_grafix	lda gr_redisp
 	stx gr_redisp
 	dex
 	stx sc_stop
+	stx sc_keyprs
 	jsr redis
 	cli
 	jsr rp1
