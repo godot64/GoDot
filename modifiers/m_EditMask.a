@@ -27,6 +27,7 @@
 ; 1.09, 03.03.18: changed navigation icons
 ; 1.10, 24.11.18: fix grid color for next call of module
 ; 1.11, 27.05.19: added key commands *f*lip, *m*irror & *u*psidedown canvas
+; 1.12, 20.06.19: added init keyboard for SuperCPU
 ;
 ; ----------------------------------------- 
 
@@ -91,8 +92,8 @@
 	!word (modend)
 	!byte 0,0
 	!pet "Edit Mask pixels"
-	!pet "1.11"
-	!pet "27.05.19"
+	!pet "1.12"
+	!pet "20.06.19"
 	!pet "A.Dettke/Mac    "
 
 ; ----------------------------------------- Main
@@ -1086,6 +1087,7 @@ red0 	sta $03ff,y
 	sta $06ed,y
 	dey
 	bne red0
+	sty sc_keyprs	; ### 1.12
 rp4: 	lda #$1b
 	sta $d018
 	lda #$3b
