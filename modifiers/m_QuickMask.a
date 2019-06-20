@@ -16,6 +16,7 @@
 ;  1.03, 14.01.01, final release
 ;  1.04, 08.11.18, added fill feature for better masking
 ;  1.05, 26.11.18, better usability
+;  1.06, 20.06.19, added init keyboard for SuperCPU
 ;
 ; ----------------------------------------- 
 
@@ -66,8 +67,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "Generate Mask   "
-	!tx "1.05"
-	!tx "26.11.18"
+	!tx "1.06"
+	!tx "20.06.19"
 	!tx "ADettke/M.Bohnet"
 
 ; ----------------------------------------- Main
@@ -164,6 +165,7 @@ vw0	sta colors-1,y
 	dey
 	bne vw0
 	sty sc_stop
+	sty sc_keyprs
 
 	jsr wait		; wait for click
 	bit fillflg	; check if used from evfill
