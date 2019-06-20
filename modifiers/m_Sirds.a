@@ -14,6 +14,7 @@
 ;    1.00, 17.11.94, first release (by Peter Steinseifer)
 ;    1.01, 25.10.18, re-organized code (by Arndt Dettke)
 ;    1.02, 28.10.18, implemented 16 (!) grays finally
+;    1.03, 20.06.19, added init keyboard for SuperCPU
 ;
 ; ------------------------------------------------------------
 
@@ -59,8 +60,8 @@
 	!wo modend
 	!wo 0 
 	!tx "SIRDS Generator "
-	!tx "1.02"
-	!tx "28.10.18"
+	!tx "1.03"
+	!tx "20.06.19"
 	!tx "P.Steinseifer/AD"
 
 ; ----------------------------------------- Screenlist
@@ -412,6 +413,7 @@ showsirds	jsr gd_sproff
 	bne -
 
 	stx sc_stop	; wait
+	stx sc_keyprs
 -	lda sc_keyprs
 	ora sc_stop
 	beq -
