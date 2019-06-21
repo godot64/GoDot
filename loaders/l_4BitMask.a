@@ -19,6 +19,7 @@
 ;    1.10, 28.08.04, added: preview
 ;    1.11, 07.09.16, added: get mask from undo
 ;    1.12, 18.01.18, added: merge mask from undo
+;    1.13, 21.06.19, added init keyboard for SuperCPU
 ;
 ; ------------------------------------------------------------ 
 
@@ -59,8 +60,8 @@ header 	jmp start
 	!wo modend
 	!wo 0
 	!pet "4Bit+BmMask+Clip"
-	!pet "1.12"
-	!pet "18.01.18"
+	!pet "1.13"
+	!pet "21.06.19"
 	!pet "A.Dettke/W.Kling"
 
 ; ----------------------------------------- Leave Loader
@@ -521,6 +522,7 @@ sevview 	lda #$1b		; hires on
 	ldy #250
 	ldx #0
 	stx sc_stop
+	stx sc_keyprs	; ### 1.13
 vw0 	sta colors-1,y
 	sta colors+249,y
 	sta colors+499,y
