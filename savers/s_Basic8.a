@@ -13,7 +13,7 @@
 ;                  added: auto prefix ("brus.")
 ;                  added: options requester
 ;  1.02, 01.06.19, added: selective prefixes ("brus.", "pict.", "ip.")
-;  1.03, 17.06.19, added: undo, colors
+;  1.03, 25.06.19, added: undo, colors
 ;
 ; ----------------------------------------- 
 
@@ -22,6 +22,8 @@
 
 	dst		= $30	; /$31
 	dst0		= $32	; /$33
+	vram1		= dst
+	vram2		= dst0
 	cpres		= $34	; file compressed? (if 1)
 	cflag		= $35	; running compression? (if $80)
 	dbl		= $36	; double height? (0: off, $ff: on)
@@ -39,10 +41,15 @@
 	cnteq		= $44
 	ocnt		= $45
 	xmrk		= $46
+	cols		= xmrk
 	current		= $48
 	yndex		= $49
 	prendx		= $4a
 	majorcol		= $4b
+	col00		= $4c	; ..$4f
+	bkgr		= $50
+	frgr		= $51
+	max		= $52
 
 	offx		= $b2
 	offy		= $b3
@@ -58,6 +65,8 @@
 	buf		= rendered+8000
 	cbuf		= buf+80
 	destbuf		= rendered
+	color1		= rendered
+	color2		= color1+4000
 	hist0		= cbuf+80
 	hist1		= hist0+16
 
@@ -71,7 +80,7 @@ header	jmp start
 	!wo 0
 	!pet "Basic8 images   "
 	!pet "1.03"
-	!pet "17.06.19"
+	!pet "25.06.19"
 	!pet "A.Dettke        "
 
 ; ----------------------------------------- Main
@@ -97,6 +106,7 @@ saver	lda gd_modswitch	; Modulmanagement
 	sta wflen		; Namenslänge merken
 	lda #1		; Activity beginnen
 	sta adcnt
+	sta cntwert
 
 	lda hasreu
 	bne +
@@ -339,7 +349,181 @@ wrc0	lda colchunk,x	; Chunk-Kennung schreiben
 	cpx #4
 	bne wrc0
 
+	ldx #9
+	jsr tcopy		; .y=0
+	iny
+	sty adcnt
+	ldx #6
+	stx cntwert
+
+	jsr setvecs	; fill 2x1000 bytes colors:
+-	jsr dohist	; histogram for 1 tile, store result
+	jsr action
+	jsr count		; count 1000
+	bne -
+
 	rts		; to be continued
+
+; -------------------------------------- Histogram for one Tile
+
+dohist	ldx #15
+	lda #0
+-	sta hist0,x
+	dex
+	bpl -
+
+	ldy #32
+	sty col00
+	sty col00+1
+	sty col00+2
+	sty col00+3
+	dey
+
+	jsr scan		; first field
+	sec
+	lda src
+	sbc #28
+	sta src
+	bcs +
+	dec src+1
+
++	ldx #2		; count 2 colors
+lp7	ldy #0
+	sty max
+
+lp8	lda hist0,y	; find 2 most frequent colors
+	beq +		; any pixels of this color? No if 0
+	cmp max		; most frequent already found?
+	bcc +		; yes if current is lower
+	sta max		; otherwise: store as max (stores also if equal!)
+	sty col00+1,x	; store color
++	iny
+	cpy #16		; check all possible 16 colors
+	bne lp8
+
+	ldy col00+1,x	; clear found color from histogram
+	lda #0
+	sta hist0,y
+	dex		; now find 2nd color
+	bne lp7
+
+	ldy #0
+	ldx col00+2	; only one color in tile?
+	cpx #32
+	bcc +		; no, don't fake the other one
+	ldx majorcol	; yes, fake 2nd color (set general col there)
++	stx col00+2
+	lda col00+3
+	jsr storecol
+
+	jsr scan		; second field
+	sec		; adjust
+	lda src
+	sbc #4
+	sta src
+	bcs +
+	dec src+1
+
++	ldx #2		; count next 2 colors
+lp71	ldy #0
+	sty max
+
+lp81	lda hist0,y	; find 2 most frequent colors
+	beq +		; any pixels of this color? No if 0
+	cmp max		; most frequent already found?
+	bcc +		; yes if current is lower
+	sta max		; otherwise: store as max (stores also if equal!)
+	sty col00-1,x	; store color
++	iny
+	cpy #16		; check all possible 16 colors
+	bne lp81
+
+	ldy col00-1,x	; clear found color from histogram
+	lda #0
+	sta hist0,y
+	dex		; now find 2nd color
+	bne lp71
+
+	ldy #1
+	ldx col00		; only one color in tile?
+	cpx #32
+	bcc +		; no, don't fake the other one
+	ldx majorcol	; yes, fake 2nd color (set general col there)
++	stx col00
+	lda col00+1
+	jsr storecol
+
++	rts
+
+; ------------------------------------------------ Scan one tileline
+
+scan	lda #4		; f1: src, f2: src+4
+	sta lcnt8		; check 4 bytes (8 pixels)
+lp5	ldy #0
+lp6	lda (src),y
+	pha
+	lsr
+	lsr
+	lsr
+	lsr
+	tax
+	inc hist0,x
+	pla
+	and #15
+	tax
+	inc hist0,x
+	iny
+	cpy #4
+	bne lp6
+	clc
+	lda src
+	adc #8
+	sta src
+	bcc +
+	inc src+1
++	dec lcnt8
+	bne lp5
+	rts
+
+; --------------------------------------
+
+storecol	asl		; set .a as foreground (upper nib)
+	asl
+	asl
+	asl
+	sta cols
+	txa
+	and #15		; set .x as backgound (lower nib)
+	ora cols
+	cpy #1
+	beq +
+	sta (vram1),y	; into buffers
+	rts
++	dey
+	sta (vram2),y
+	rts
+
+; ------------------------------------------------ Counters
+
+count	lda src		; nächste Kachel 4Bit
+	clc
+	adc #32
+	sta src
+	bcc +
+	inc src+1
++	inc vram2		; und Color Fields
+	bne +
+	inc vram2+1
++	inc vram1
+	bne cou6
+	inc vram1+1
+cou6	lda ls_vekta8
+	bne cou7
+	dec ls_vekta8+1
+cou7	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	rts
 
 ; ----------------------------------------- Bitmap gedithert rendern
 
@@ -916,12 +1100,24 @@ esd0	jsr settext
 
 ; ------------------------------------ 
 
-setstart	lda #<sy_4bit
+setvecs	lda #<color1	; into buffer from $2000
+	ldx #>color1
+	sta vram1
+	stx vram1+1
+	lda #<color2
+	ldx #>color2
+	sta vram2
+	stx vram2+1
+	lda #<1000	; tile counter (1000)
+	ldx #>1000
+	sta ls_vekta8
+	stx ls_vekta8+1
+setstart	lda #<sy_4bit	; from $4000 (4Bit)
 	ldx #>sy_4bit
-	sta src0
 	sta src
-	stx src0+1
 	stx src+1
+	sta src0
+	stx src0+1
 	rts
 
 ; ------------------------------------ Get Major Color
