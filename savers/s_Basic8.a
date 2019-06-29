@@ -13,7 +13,7 @@
 ;                  added: auto prefix ("brus.")
 ;                  added: options requester
 ;  1.02, 01.06.19, added: selective prefixes ("brus.", "pict.", "ip.")
-;  1.03, 25.06.19, added: undo, colors
+;  1.03, 29.06.19, added: undo, colors
 ;
 ; ----------------------------------------- 
 
@@ -80,7 +80,7 @@ header	jmp start
 	!wo 0
 	!pet "Basic8 images   "
 	!pet "1.03"
-	!pet "25.06.19"
+	!pet "29.06.19"
 	!pet "A.Dettke        "
 
 ; ----------------------------------------- Main
@@ -311,7 +311,6 @@ write	lda mode		; monochrom?
 	jsr tcopy		; .y=0
 	iny
 	sty adcnt
-	jsr getmcol	; find major color (general bkgnd)
 
 +	jsr wrheader	; Basic8-Header schreiben
 	lda cmpr		; file compressed?
@@ -411,7 +410,7 @@ lp8	lda hist0,y	; find 2 most frequent colors
 	ldx col00+2	; only one color in tile?
 	cpx #32
 	bcc +		; no, don't fake the other one
-	ldx majorcol	; yes, fake 2nd color (set general col there)
+	ldx col00+2	; yes, fake 2nd color (set same col there)
 +	stx col00+2
 	lda col00+3
 	jsr storecol
@@ -448,7 +447,7 @@ lp81	lda hist0,y	; find 2 most frequent colors
 	ldx col00		; only one color in tile?
 	cpx #32
 	bcc +		; no, don't fake the other one
-	ldx majorcol	; yes, fake 2nd color (set general col there)
+	ldx col00		; yes, fake 2nd color (set same col there)
 +	stx col00
 	lda col00+1
 	jsr storecol
@@ -562,17 +561,19 @@ btloop	ldy yndex
 	lsr 
 	lsr 
 	lsr 
-	lsr 
+	lsr
+	sta frgr		; ist Vordergrundfarbe
 	tay 
-	lda gr_btab,y	; Balancing berücksichtigen
+	pla 
+	and #$0f		; rechtes Pixel
+	sta bkgr		; ist Hintergrundfarbe
+	lda gr_btab,y	; Balancing berücksichtigen (Bitmap)
 	jsr makebyte
 	ldy xzoom
 -	lsr bitcnt
 	dey
 	bne -
-	pla 
-	and #$0f		; rechtes Pixel
-	tay 
+	ldy bkgr
 	lda gr_btab,y	; Balancing berücksichtigen
 	jsr makebyte
 	inc yndex		; nächstes Byte (von 4)
@@ -650,9 +651,16 @@ makebyte	jmp (dmode)
 
 ; ----------------------------------------- Dithering
 
-dithoff	cmp #8
+dithoff	pha		; Pixel merken
+	clc		; Mitte finden
+	lda bkgr
+	adc frgr
+	lsr
+	sta cols
+	pla
+	cmp cols		; vergleichen
 	bpl do0
-	lda #0
+	lda #0		; Bitmap bilden
 	!by $2c
 do0	lda bitcnt
 	ora byte
@@ -1118,69 +1126,6 @@ setstart	lda #<sy_4bit	; from $4000 (4Bit)
 	stx src+1
 	sta src0
 	stx src0+1
-	rts
-
-; ------------------------------------ Get Major Color
-
-getmcol	jsr setstart
-	tax
--	sta hist0,x	; clear histogram
-	sta hist1,x
-	inx
-	cpx #16
-	bne -
-	tay
--	lda (src),y	; count colors all over
-	pha
-	and #$0f
-	tax
-	inc hist0,x
-	bne +
-	inc hist1,x
-+	pla
-	lsr
-	lsr
-	lsr
-	lsr
-	tax
-	inc hist0,x
-	bne +
-	inc hist1,x
-+	iny
-	bne -
-	jsr action
-	ldy #0
-	inc src+1
-	lda src+1
-	cmp #>sy_bigbuffer
-	bne -
-
-	ldx #0		; .y=0
-	stx src0+1
-	stx src0
-	stx majorcol
--	lda hist0,x	; any count?
-	ora hist1,x
-	beq +		; no, if 0
-
-	lda hist1,x	; yes, get max counted value
-	cmp src0+1
-	beq fd0		; hi gleich, dann lo
-	bcc +		; kleiner, dann nichts tun
-	sta src0+1	; größer, dann hi+lo merken
-	lda hist0,x
-	sta src0
-	bcs ++		; und .x auch
-fd0	sta src0+1	; lo kleiner
-	lda hist0,x
-	cmp src0
-	bcc +
-	sta src0
-++	stx majorcol	; and set as major color
-
-+	inx
-	cpx #16
-	bne -
 	rts
 
 ; ----------------------------------------- Save Rendered Bitmap if REU present
