@@ -652,11 +652,15 @@ makebyte	jmp (dmode)
 ; ----------------------------------------- Dithering
 
 dithoff	pha		; Pixel merken
-	clc		; Mitte finden
+	lda mode		; bei mode 0: Mitte=8
+	bne +
+	lda #8
+	bne ++
++	clc		; Mitte finden
 	lda bkgr
 	adc frgr
 	lsr
-	sta cols
+++	sta cols
 	pla
 	cmp cols		; vergleichen
 	bpl do0
