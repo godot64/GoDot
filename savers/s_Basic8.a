@@ -13,7 +13,7 @@
 ;                  added: auto prefix ("brus.")
 ;                  added: options requester
 ;  1.02, 01.06.19, added: selective prefixes ("brus.", "pict.", "ip.")
-;  1.03, 29.06.19, added: undo, colors
+;  1.03, 02.07.19, added: undo, colors
 ;
 ; ----------------------------------------- 
 
@@ -22,8 +22,6 @@
 
 	dst		= $30	; /$31
 	dst0		= $32	; /$33
-	vram1		= dst
-	vram2		= dst0
 	cpres		= $34	; file compressed? (if 1)
 	cflag		= $35	; running compression? (if $80)
 	dbl		= $36	; double height? (0: off, $ff: on)
@@ -41,15 +39,14 @@
 	cnteq		= $44
 	ocnt		= $45
 	xmrk		= $46
-	cols		= xmrk
-	current		= $48
-	yndex		= $49
-	prendx		= $4a
-	majorcol		= $4b
-	col00		= $4c	; ..$4f
-	bkgr		= $50
-	frgr		= $51
-	max		= $52
+	prendx		= xmrk
+	current		= $47
+	yndex		= $48
+	vram1		= $49	; /$4a
+	vram2		= $4b	; /$4c
+	max		= $4d
+	col00		= $4e	; ..$51
+	cols		= $52
 
 	offx		= $b2
 	offy		= $b3
@@ -64,7 +61,7 @@
 
 	buf		= rendered+8000
 	cbuf		= buf+80
-	destbuf		= rendered
+	destbuf		= sy_bigbuffer
 	color1		= rendered
 	color2		= color1+4000
 	hist0		= cbuf+80
@@ -80,7 +77,7 @@ header	jmp start
 	!wo 0
 	!pet "Basic8 images   "
 	!pet "1.03"
-	!pet "29.06.19"
+	!pet "02.07.19"
 	!pet "A.Dettke        "
 
 ; ----------------------------------------- Main
@@ -334,21 +331,26 @@ write	lda mode		; monochrom?
 	lda mode		; monochrom?
 	beq +		; ja, Farben übergehen
 	jsr colors	; sonst: Farben rendern
+	jsr mono		; Farbbitmap rendern
+	jsr colorchk
 	beq ++
 +	jsr mono		; monochrome Bitmap rendern
 ++	sec 
 	rts 
 
-; ----------------------------------------- Render Colors
+; ----------------------------------------- Write Chunk Signature
 
-colors	ldx #0
+colorchk	ldx #0
 wrc0	lda colchunk,x	; Chunk-Kennung schreiben
 	jsr bsout
 	inx 
 	cpx #4
 	bne wrc0
+	rts
 
-	ldx #9
+; ----------------------------------------- Render Colors
+
+colors	ldx #9
 	jsr tcopy		; .y=0
 	iny
 	sty adcnt
@@ -358,7 +360,7 @@ wrc0	lda colchunk,x	; Chunk-Kennung schreiben
 	jsr setvecs	; fill 2x1000 bytes colors:
 -	jsr dohist	; histogram for 1 tile, store result
 	jsr action
-	jsr count		; count 1000
+	jsr cou5		; count 1000
 	bne -
 
 	rts		; to be continued
@@ -401,16 +403,18 @@ lp8	lda hist0,y	; find 2 most frequent colors
 	bne lp8
 
 	ldy col00+1,x	; clear found color from histogram
+	cpy #32
+	beq +
 	lda #0
 	sta hist0,y
-	dex		; now find 2nd color
++	dex		; now find 2nd color
 	bne lp7
 
 	ldy #0
 	ldx col00+2	; only one color in tile?
 	cpx #32
 	bcc +		; no, don't fake the other one
-	ldx col00+2	; yes, fake 2nd color (set same col there)
+	ldx col00+3	; yes, fake 2nd color (set same col there)
 +	stx col00+2
 	lda col00+3
 	jsr storecol
@@ -438,21 +442,23 @@ lp81	lda hist0,y	; find 2 most frequent colors
 	bne lp81
 
 	ldy col00-1,x	; clear found color from histogram
+	cpy #32
+	beq +
 	lda #0
 	sta hist0,y
-	dex		; now find 2nd color
++	dex		; now find 2nd color
 	bne lp71
 
 	ldy #1
 	ldx col00		; only one color in tile?
 	cpx #32
 	bcc +		; no, don't fake the other one
-	ldx col00		; yes, fake 2nd color (set same col there)
+	ldx col00+1	; yes, fake 2nd color (set same col there)
 +	stx col00
 	lda col00+1
 	jsr storecol
 
-+	rts
+	rts
 
 ; ------------------------------------------------ Scan one tileline
 
@@ -508,9 +514,9 @@ count	lda src		; nächste Kachel 4Bit
 	clc
 	adc #32
 	sta src
-	bcc +
+	bcc cou5
 	inc src+1
-+	inc vram2		; und Color Fields
+cou5	inc vram2		; und Color Fields
 	bne +
 	inc vram2+1
 +	inc vram1
@@ -531,8 +537,10 @@ mono	jsr gd_clrms	; neue Message ausgeben
 	jsr tcopy
 	iny
 	sty adcnt
+	sty cntwert
 
-	jsr setstart	; 4Bit anwählen (src und src0)
+	jsr setvecs	; 4Bit anwählen (src/src0, vram1/2)
+	jsr rstvecs	; Vektoren sichern
 	lda #0		; steuert per yzoom ($00 oder $ff) die Höhe
 	sta dbl		; Flag
 	sta vertcnt	; zählt Ergebnisrasterzeilen (können doppelt so viele sein)
@@ -541,6 +549,7 @@ mono	jsr gd_clrms	; neue Message ausgeben
 	sta lcnt8
 lnloop8	lda #0
 	sta lcnt
+	sta evenodd
 
 lnloop	jsr action
 ads0	ldx #0
@@ -555,25 +564,26 @@ byloop	lda xmask		; zählt vier Byte (8 Pixel)
 	lda #0
 	sta byte
 
-btloop	ldy yndex
+btloop	lda mode
+	bne cbloop
+
+	ldy yndex		; monochrom:
 	lda (src),y	; linkes Pixel
 	pha 
 	lsr 
 	lsr 
 	lsr 
 	lsr
-	sta frgr		; ist Vordergrundfarbe
 	tay 
-	pla 
-	and #$0f		; rechtes Pixel
-	sta bkgr		; ist Hintergrundfarbe
 	lda gr_btab,y	; Balancing berücksichtigen (Bitmap)
 	jsr makebyte
 	ldy xzoom
 -	lsr bitcnt
 	dey
 	bne -
-	ldy bkgr
+	pla 
+	and #$0f		; rechtes Pixel
+	tay
 	lda gr_btab,y	; Balancing berücksichtigen
 	jsr makebyte
 	inc yndex		; nächstes Byte (von 4)
@@ -582,22 +592,62 @@ btloop	ldy yndex
 	dey
 	bne -
 	bcc btloop
+	bcs contn
 
-	sta buf,x		; Ergebnis puffern (8 Pixel)
+cbloop	ldy #0
+	lda evenodd
+	bne +
+	lda (vram1),y
+	!by $2c
++	lda (vram2),y
+	pha
+	lsr
+	lsr
+	lsr
+	lsr
+	sta frgr
+	pla
+	and #15
+	sta bkgr
+	clc
+	adc frgr
+	lsr
+	sta cols
+
+--	ldy yndex
+	lda (src),y
+	pha
+	lsr
+	lsr
+	lsr
+	lsr
+	jsr getcbmap
+	ldy xzoom
+-	lsr bitcnt
+	dey
+	bne -
+	pla
+	and #15
+	jsr getcbmap
+	inc yndex
+	ldy xzoom
+-	lsr bitcnt
+	dey
+	bne -
+	bcc --
+
+contn	sta buf,x		; Ergebnis puffern (8 Pixel)
 	inx 
 	dec bcnt1		; zweimal das Ganze (bei 640)
-	bne byloop
+	beq +
+	jmp byloop
 
-	lda src		; nächste Kachel ansteuern
-	clc 
-	adc #32
-	sta src
-	bcc s4
-	inc src+1
-s4	cpx xtiles
-	bne zloop
++	jsr count		; nächste Kachel ansteuern
+	cpx xtiles
+	beq +
+	jmp zloop
 
-	jsr moveline	; Rasterzeile wegschreiben bis Blockzeile voll
++	jsr moveline	; Rasterzeile wegschreiben bis Blockzeile voll
 
 	ldx vertcnt	; alle 8 Rasterzeilen im Ergebnispuffer fertig?
 	inx 
@@ -610,13 +660,14 @@ s41	stx vertcnt
 	sta dbl
 	beq newline
 
-	lda src0		; ja, Zeiger zurücksetzen
+	jsr strvecs	; ja, Vektoren zurück
+	lda src0		; 4Bit-Zeiger zurücksetzen
 	sta src
 	lda src0+1
 	sta src+1
-	bne ads0		; Rasterzeile noch einmal
+	jmp lnloop	; Rasterzeile noch einmal
 
-newline	lda src0		; sonst nächste Rasterzeile
+newline	lda src0		; sonst: nächste Rasterzeile
 	clc 
 	adc #4
 	sta src0
@@ -629,6 +680,7 @@ s5	lda src0+1
 	lda #8
 	cmp lcnt
 	beq s51
+	jsr strvecs	; Vektoren zurück
 	jmp lnloop	; Sprung, wenn Kachel noch nicht durch
 
 s51	lda src0		; sonst: nächste Kachelzeile
@@ -642,6 +694,7 @@ s51	lda src0		; sonst: nächste Kachelzeile
 	sta src+1
 	dec lcnt8		; Kachelzeilen zählen (bis 25)
 	beq done
+	jsr rstvecs	; neue Vektoren merken
 	jmp lnloop8	; von vorn
 done	rts 		; bzw. fertig
 
@@ -651,34 +704,11 @@ makebyte	jmp (dmode)
 
 ; ----------------------------------------- Dithering
 
-dithoff	pha		; Pixel merken
-	lda mode		; bei mode 0: Mitte=8
-	bne +
-	lda #8
-	bne ++
-+	clc		; Mitte finden
-	lda bkgr
-	adc frgr
-	lsr
-++	sta cols
-	pla
-	cmp cols		; vergleichen
-	bpl do0
-	lda #0		; Bitmap bilden
-	!by $2c
-do0	lda bitcnt
-	ora byte
-	sta byte
-	rts 
-
 dithrst	ldy vertcnt
 	ora offs,y
 	tay 
 	lda gr_orderedpat,y
-	and bitcnt
-	ora byte
-	sta byte
-	rts 
+	jmp ddone3
 
 dithpat	asl 
 	asl 
@@ -686,12 +716,9 @@ dithpat	asl
 	ora vertcnt
 	tay 
 	lda gr_pattern,y
-	and bitcnt
-	ora byte
-	sta byte
-	rts 
+	jmp ddone3
 
-dithnoi	beq dn0
+dithnoi	beq ddone
 	cmp #15
 	beq dn1
 	ldy #0
@@ -709,8 +736,18 @@ dn3	lda rausch
 	ora #$55
 dn2	!by $2c
 dn1	lda #$ff
-	and bitcnt
-dn0	ora byte
+ddone3	and bitcnt
+	jmp ddone
+
+dithoff	cmp #8		; vergleichen
+	jmp ddone2
+
+getcbmap	cmp cols
+ddone2	bpl +
+	lda #0
+	!by $2c
++	lda bitcnt
+ddone	ora byte
 	sta byte
 ml4	rts 
 
@@ -1132,6 +1169,20 @@ setstart	lda #<sy_4bit	; from $4000 (4Bit)
 	stx src0+1
 	rts
 
+strvecs	ldy #3
+-	lda vecs,y
+	sta vram1,y
+	dey
+	bpl -
+	rts
+
+rstvecs	ldy #3
+-	lda vram1,y
+	sta vecs,y
+	dey
+	bpl -
+	rts
+
 ; ----------------------------------------- Save Rendered Bitmap if REU present
 
 undo	jsr initreu	; reset values
@@ -1242,7 +1293,10 @@ hgt	!wo 200		; Höhe in Linien
 ; ----------------------------------------- Data
 
 dmode	!wo 0		; Verteiler für Dither
+evenodd	!by 0		; Flag für Halbbild
 hasreu	!by $ff		; REU attached if 0
+bkgr	!by 0
+frgr	!by 0
 
 prefix	!pet "brus."	; Länge: plus 5, max 11, mode 0/3/4
 prefixs	!scr "brus."
@@ -1274,6 +1328,8 @@ dithoffs	!by 6,13,20,27,34
 dither	!by 1
 
 colchunk	!tx "colr"	; Farb-Chunk-Kennung
+
+vecs	!wo 0,0		; Temp für vram1 und vram2
 
 offs	!by $00,$10,$20,$30
 	!by $00,$10,$20,$30
