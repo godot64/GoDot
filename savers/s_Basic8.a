@@ -13,7 +13,7 @@
 ;                  added: auto prefix ("brus.")
 ;                  added: options requester
 ;  1.02, 01.06.19, added: selective prefixes ("brus.", "pict.", "ip.")
-;  1.03, 02.07.19, added: undo, colors
+;  1.03, 08.07.19, added: undo, colors
 ;
 ; ----------------------------------------- 
 
@@ -25,28 +25,30 @@
 	cpres		= $34	; file compressed? (if 1)
 	cflag		= $35	; running compression? (if $80)
 	dbl		= $36	; double height? (0: off, $ff: on)
-	vertcnt		= $37
-	byte		= $38
-	bitcnt		= $39	; double width? (1: off, 2: on)
-	bcnt1		= $3a
+	vertcnt		= $37	; counts lines per tile
+	byte		= $38	; location to combine bitmap bits
+	bitcnt		= $39	; bitmask to combine in BYTE
+	bcnt1		= $3a	; double width? (1: off, 2: on)
 	src		= $3b	; /$3c
-	hold		= $3d
+	hold		= $3d	; helper for NOISE
+	xhold		= hold	; helper for write colors
 	src0		= $3e	; /$3f
-	adcnt		= $40
-	lcnt8		= $41
-	lcnt		= $42
-	cnt		= $43
-	cnteq		= $44
-	ocnt		= $45
-	xmrk		= $46
-	prendx		= xmrk
-	current		= $47
-	yndex		= $48
+	adcnt		= $40	; for progression bar
+	lcnt8		= $41	; blockline counter
+	lcnt		= $42	; line counter
+	cnt		= $43	; compression counter
+	cnteq		= $44	; flag if compacting
+	ocnt		= $45	; counts uncompacted bytes
+	xmrk		= $46	; save values temporarily
+	prendx		= xmrk	; use for prefix
+	current		= $47	; contains current byte from disk
+	yndex		= $48	; counts one 4bit tile line (up to 4)
 	vram1		= $49	; /$4a
 	vram2		= $4b	; /$4c
-	max		= $4d
+	max		= $4d	; used by histogram
+	yhold		= max	; helper for write colors
 	col00		= $4e	; ..$51
-	cols		= $52
+	cols		= $52	; result byte, compare byte
 
 	offx		= $b2
 	offy		= $b3
@@ -59,13 +61,13 @@
 	filter		= $d418
 	rausch		= $d41b
 
-	buf		= rendered+8000
-	cbuf		= buf+80
-	destbuf		= sy_bigbuffer
 	color1		= rendered
 	color2		= color1+4000
-	hist0		= cbuf+80
+	cbuf		= rendered+8000
+	buf		= cbuf+80
+	hist0		= buf+80
 	hist1		= hist0+16
+	destbuf		= sy_bigbuffer
 
 ; ----------------------------------------- Header
 
@@ -77,7 +79,7 @@ header	jmp start
 	!wo 0
 	!pet "Basic8 images   "
 	!pet "1.03"
-	!pet "02.07.19"
+	!pet "08.07.19"
 	!pet "A.Dettke        "
 
 ; ----------------------------------------- Main
@@ -328,36 +330,20 @@ write	lda mode		; monochrom?
 	lda #$81
 	sta wave
 
+	jsr gd_clrms	; Message vorbereiten
+	jsr colors	; Farben rendern
+	jsr mono		; Bitmap rendern
 	lda mode		; monochrom?
 	beq +		; ja, Farben übergehen
-	jsr colors	; sonst: Farben rendern
-	jsr mono		; Farbbitmap rendern
-	jsr colorchk
-	beq ++
-+	jsr mono		; monochrome Bitmap rendern
-++	sec 
+	jsr colorchk	; write signature
+	jsr wrcolors	; Farben speichern
++	sec 
 	rts 
 
-; ----------------------------------------- Write Chunk Signature
+; ----------------------------------------- Render Color Base
 
-colorchk	ldx #0
-wrc0	lda colchunk,x	; Chunk-Kennung schreiben
-	jsr bsout
-	inx 
-	cpx #4
-	bne wrc0
-	rts
-
-; ----------------------------------------- Render Colors
-
-colors	ldx #9
-	jsr tcopy		; .y=0
-	iny
-	sty adcnt
-	ldx #6
-	stx cntwert
-
-	jsr setvecs	; fill 2x1000 bytes colors:
+colors	jsr colmsg	; message on screen
+	jsr setvecs	; fill 2 buffers of 1000 bytes colors:
 -	jsr dohist	; histogram for 1 tile, store result
 	jsr action
 	jsr cou5		; count 1000
@@ -380,9 +366,8 @@ dohist	ldx #15
 	sty col00+3
 	dey
 
-	jsr scan		; first field
-	sec
-	lda src
+	jsr scan		; first field (f1)
+	sec		; (adjust for second)
 	sbc #28
 	sta src
 	bcs +
@@ -403,31 +388,32 @@ lp8	lda hist0,y	; find 2 most frequent colors
 	bne lp8
 
 	ldy col00+1,x	; clear found color from histogram
-	cpy #32
-	beq +
+	cpy #32		; only 1 color?
+	beq +		; yes, skip find second
 	lda #0
 	sta hist0,y
-+	dex		; now find 2nd color
+	dex		; no, find 2nd color
 	bne lp7
 
+	ldx col00+2	; two colors in f1 tile
+	!by $2c
++	ldx col00+3	; only one color in f1 tile
+	sty hold		; set flag: # of colors in tile
 	ldy #0
-	ldx col00+2	; only one color in tile?
-	cpx #32
-	bcc +		; no, don't fake the other one
-	ldx col00+3	; yes, fake 2nd color (set same col there)
-+	stx col00+2
+	stx col00+2
 	lda col00+3
 	jsr storecol
+	and #$0f
+	sta xmrk		; store bkgr
 
-	jsr scan		; second field
-	sec		; adjust
-	lda src
+	jsr scan		; second field (f2)
+	sec		; (adjust for first)
 	sbc #4
 	sta src
 	bcs +
 	dec src+1
 
-+	ldx #2		; count next 2 colors
++	ldx #2		; recount for next 2 colors
 lp71	ldy #0
 	sty max
 
@@ -436,34 +422,58 @@ lp81	lda hist0,y	; find 2 most frequent colors
 	cmp max		; most frequent already found?
 	bcc +		; yes if current is lower
 	sta max		; otherwise: store as max (stores also if equal!)
-	sty col00-1,x	; store color
+	sty col00-1,x	; store color index
 +	iny
 	cpy #16		; check all possible 16 colors
 	bne lp81
 
 	ldy col00-1,x	; clear found color from histogram
-	cpy #32
-	beq +
+	cpy #32		; only 1 color?
+	beq +		; yes, proceed
 	lda #0
 	sta hist0,y
-+	dex		; now find 2nd color
+	dex		; no, find 2nd color
 	bne lp71
+	tay		; .y=0 (make sure .y is 0)
 
-	ldy #1
-	ldx col00		; only one color in tile?
-	cpx #32
-	bcc +		; no, don't fake the other one
-	ldx col00+1	; yes, fake 2nd color (set same col there)
-+	stx col00
+	ldx col00		; 2 colors in f2 tile
+	!by $2c
++	ldx col00+1
+	sty max
+	ldy #1		; flag for f2 (color in .x)
+	stx col00
 	lda col00+1
-	jsr storecol
+	jsr storecol	; returns .y=0
 
+	lda hold		; only 1 color in f1?
+	cmp #$20
+	bne +		; no, check f2
+	cmp max		; only 1 color also in f2?
+	beq +		; yes, skip here	
+	jsr chkf1		; no, set bkgr of f2 (in .x) to f1
+
++	lda max		; only 1 color in f2 ?
+	beq +		; no, leave (colors are set)
+
+	lda xmrk		; yes, insert bkgr of f1 to f2
+	sta cols
+	lda (vram2),y
+	and #$f0
+	ora cols
+	sta (vram2),y
++	rts
+
+chkf1	stx cols		; no, then insert bkgr of f2 to f1
+	lda (vram1),y
+	and #$f0
+	ora cols
+	sta (vram1),y
 	rts
 
-; ------------------------------------------------ Scan one tileline
+; ------------------------------------------------ Scan one tile
 
 scan	lda #4		; f1: src, f2: src+4
-	sta lcnt8		; check 4 bytes (8 pixels)
+	sta lcnt		; check 4 bytes (8 pixels)
 lp5	ldy #0
 lp6	lda (src),y
 	pha
@@ -486,19 +496,24 @@ lp6	lda (src),y
 	sta src
 	bcc +
 	inc src+1
-+	dec lcnt8
++	dec lcnt
 	bne lp5
 	rts
 
 ; --------------------------------------
 
-storecol	asl		; set .a as foreground (upper nib)
+storecol	sta cols		; sort
+	cpx cols
+	bcs +
+	stx cols
+	tax
+	lda cols
++	asl		; set .a as foreground (upper nib)
 	asl
 	asl
 	asl
 	sta cols
-	txa
-	and #15		; set .x as backgound (lower nib)
+	txa		; set .x as backgound (lower nib)
 	ora cols
 	cpy #1
 	beq +
@@ -508,39 +523,38 @@ storecol	asl		; set .a as foreground (upper nib)
 	sta (vram2),y
 	rts
 
-; ------------------------------------------------ Counters
+; ----------------------------------------- Write Chunk Signature
 
-count	lda src		; nächste Kachel 4Bit
-	clc
-	adc #32
-	sta src
-	bcc cou5
-	inc src+1
-cou5	inc vram2		; und Color Fields
-	bne +
-	inc vram2+1
-+	inc vram1
-	bne cou6
-	inc vram1+1
-cou6	lda ls_vekta8
-	bne cou7
-	dec ls_vekta8+1
-cou7	dec ls_vekta8
-	lda ls_vekta8
-	ora ls_vekta8+1
+colorchk	ldx #0
+wc0	lda colchunk,x	; Chunk-Kennung schreiben
+	jsr bsout
+	inx 
+	cpx #4
+	bne wc0
+	rts
+
+; -------------------------------------- Screen Message
+
+colmsg	ldx #9
+	jsr tcopy		; .y=0
+	iny
+	sty adcnt
+	ldx #6
+	stx cntwert
 	rts
 
 ; ----------------------------------------- Bitmap gedithert rendern
 
-mono	jsr gd_clrms	; neue Message ausgeben
-	ldx #0
+mono	ldx #0
 	jsr tcopy
 	iny
 	sty adcnt
 	sty cntwert
+	ldy #8
+	sty cols
 
 	jsr setvecs	; 4Bit anwählen (src/src0, vram1/2)
-	jsr rstvecs	; Vektoren sichern
+	jsr strvecs	; Vektoren sichern
 	lda #0		; steuert per yzoom ($00 oder $ff) die Höhe
 	sta dbl		; Flag
 	sta vertcnt	; zählt Ergebnisrasterzeilen (können doppelt so viele sein)
@@ -567,7 +581,7 @@ byloop	lda xmask		; zählt vier Byte (8 Pixel)
 btloop	lda mode
 	bne cbloop
 
-	ldy yndex		; monochrom:
+--	ldy yndex		; monochrom:
 	lda (src),y	; linkes Pixel
 	pha 
 	lsr 
@@ -591,7 +605,7 @@ btloop	lda mode
 -	lsr bitcnt
 	dey
 	bne -
-	bcc btloop
+	bcc --
 	bcs contn
 
 cbloop	ldy #0
@@ -621,14 +635,14 @@ cbloop	ldy #0
 	lsr
 	lsr
 	lsr
-	jsr getcbmap
+	jsr dithoff
 	ldy xzoom
 -	lsr bitcnt
 	dey
 	bne -
 	pla
 	and #15
-	jsr getcbmap
+	jsr dithoff
 	inc yndex
 	ldy xzoom
 -	lsr bitcnt
@@ -660,7 +674,7 @@ s41	stx vertcnt
 	sta dbl
 	beq newline
 
-	jsr strvecs	; ja, Vektoren zurück
+	jsr rstvecs	; ja, Vektoren zurückholen
 	lda src0		; 4Bit-Zeiger zurücksetzen
 	sta src
 	lda src0+1
@@ -676,11 +690,14 @@ newline	lda src0		; sonst: nächste Rasterzeile
 	inc src0+1
 s5	lda src0+1
 	sta src+1
+	lda evenodd	; Field wechseln
+	eor #1
+	sta evenodd
 	inc lcnt		; alle 8 Rasterzeilen im 4Bit fertig?
 	lda #8
 	cmp lcnt
 	beq s51
-	jsr strvecs	; Vektoren zurück
+	jsr rstvecs	; Vektoren zurückholen
 	jmp lnloop	; Sprung, wenn Kachel noch nicht durch
 
 s51	lda src0		; sonst: nächste Kachelzeile
@@ -694,7 +711,7 @@ s51	lda src0		; sonst: nächste Kachelzeile
 	sta src+1
 	dec lcnt8		; Kachelzeilen zählen (bis 25)
 	beq done
-	jsr rstvecs	; neue Vektoren merken
+	jsr strvecs	; neue Vektoren merken
 	jmp lnloop8	; von vorn
 done	rts 		; bzw. fertig
 
@@ -739,11 +756,12 @@ dn1	lda #$ff
 ddone3	and bitcnt
 	jmp ddone
 
-dithoff	cmp #8		; vergleichen
-	jmp ddone2
-
-getcbmap	cmp cols
-ddone2	bpl +
+dithoff	cmp cols		; vergleichen
+	beq ++
+	bpl +
+++	lda bkgr
+	eor cols
+	beq +
 	lda #0
 	!by $2c
 +	lda bitcnt
@@ -773,16 +791,17 @@ ml3	inx
 	cpy #7		; nach 8 Rasterzeilen speichern
 	bne ml4
 
-writeloop	ldx #8		; 8*80 =640 Bytes (1 Blockzeile)
-	lda #<destbuf
+writeloop	ldx #8		; 80*8 =640 Bytes (1 Bitmap-Blockzeile)
+	lda #<destbuf	; from sy_bigbuffer
 	ldy #>destbuf
+
 	sta dst0
 	sty dst0+1
 	ldy #0		; Wiederholungszähler auf Null
 	sty cnt
 	sty cnteq
 	sty cflag
-	sty byte		; reset lastbyte
+	sty byte		; reset latest byte
 
 wloop	lda (dst0),y	; Speichern: Byte holen,
 	jsr pack		; packen und wegschreiben
@@ -800,22 +819,22 @@ wl5	ldy #0
 	bne wloop
 
 	bit cpres		; ja, File ungepackt?
-	bmi +
+	bmi flush
 	rts		; dann raus
 
-+	lda cnt		; sonst: flush buffer?
+flush	lda cnt		; sonst: flush buffer?
 	tax
 	ora cnteq
 	beq ++		; nicht erforderlich
-	txa		; doch: welchen?
+	txa		; doch: aber welchen?
 	beq +
 
-	sta ocnt		; flush uncompacted buffer
+	sta ocnt		; :flush uncompacted buffer
 	jsr straight
 	beq ++
 
-+	jsr compact	; flush compacted buffer
-++	stx cnteq
++	jsr compact	; :flush compacted buffer
+++	stx cnteq		; .x=0
 	rts		; jetzt: 640 Bytes fertig
 	
 
@@ -910,6 +929,117 @@ wrh0	lda b8header,x
 	cpx #18
 	bne wrh0
 	rts 
+
+; ----------------------------------------- Farben schreiben
+
+wrcolors	jsr colmsg
+	sty cntwert
+	jsr setvecs	; init addresses
+	lda xtiles	; save width
+	pha
+	lda #40		; set real width of color buffer
+	sta xtiles
+	lda xsize		; save flag for width (1 if double)
+	sta xhold
+	bne +
+	lda #$ff		; set flag: not double width
+	sta xsize
++	lda ysize		; save flag for width (1 if double)
+	sta yhold
+	bne wrc0
+	lda #$ff		; set flag: not double width
+	sta ysize
+
+wrc0	lda #25		; set real height of color buffer
+	sta lcnt8
+
+wrc3	ldy #0		; Wiederholungszähler auf Null
+	sty cnt
+	sty cnteq
+	sty cflag
+	sty byte		; reset latest byte
+
+wrc4	jsr wrcols1	; write 1 byte of field 1
+	bmi +		; double?
+	beq wrc4		; yes, repeat
+	lda xhold
+	sta xsize
++	iny 		; until row complete
+	cpy xtiles
+	bne wrc4
+
+	ldy #0
+	lda ysize		; double hight?
+	bmi wrc1
+	dec ysize		; yes, repeat
+	beq wrc4
+	lda yhold		; then reset
+	sta ysize
+
+wrc1	jsr wrcols2	; write 1 byte of field 2
+	bmi +		; double?
+	beq wrc1		; yes, repeat
+	lda xhold		; then reset
+	sta xsize
++	iny 		; until row complete
+	cpy xtiles
+	bne wrc1
+
+	ldy #0
+	lda ysize		; double hight?
+	bmi wrc2
+	dec ysize		; yes, repeat
+	beq wrc1
+	lda yhold		; then reset
+	sta ysize
+
+wrc2	jsr flush
+	lda vram1		; next row
+	clc
+	adc #40
+	sta vram1
+	bcc +
+	inc vram1+1
++	lda vram2
+	clc
+	adc #40
+	sta vram2
+	bcc +
+	inc vram2+1
++	jsr action
+	ldy #0
+	dec lcnt8		; until finished
+	bne wrc3
+
+	pla		; reset xtiles
+	sta xtiles
+	rts
+
+wrcols1	lda (vram1),y
+	!by $2c
+wrcols2	lda (vram2),y
+	pha
+	lsr
+	lsr
+	lsr
+	lsr
+	tax
+	lda ipcols,x
+	tax
+	lda dnibs,x
+	and #$f0
+	sta cols
+	pla
+	and #$0f
+	tax
+	lda ipcols,x
+	ora cols
+	jsr pack
+	lda xsize		; double width? (save same again)
+	bmi +
+	eor #1
+	sta xsize
++	rts
 
 ; ----------------------------------------- Namen verlängern
 
@@ -1147,9 +1277,27 @@ esd0	jsr settext
 	jmp gd_xtxout1
 
 
-; ------------------------------------ 
+; ------------------------------------ Handling of Scan Vectors
 
-setvecs	lda #<color1	; into buffer from $2000
+rstvecs	ldy #3		; restore vectors
+-	lda vecs,y
+	sta vram1,y
+	dey
+	bpl -
+	rts
+
+strvecs	ldy #3		; save vectors
+-	lda vram1,y
+	sta vecs,y
+	dey
+	bpl -
+	rts
+
+setvecs	lda #<1000	; tile counter (1000)
+	ldx #>1000
+	sta ls_vekta8
+	stx ls_vekta8+1
+	lda #<color1	; into buffer at $2000
 	ldx #>color1
 	sta vram1
 	stx vram1+1
@@ -1157,10 +1305,6 @@ setvecs	lda #<color1	; into buffer from $2000
 	ldx #>color2
 	sta vram2
 	stx vram2+1
-	lda #<1000	; tile counter (1000)
-	ldx #>1000
-	sta ls_vekta8
-	stx ls_vekta8+1
 setstart	lda #<sy_4bit	; from $4000 (4Bit)
 	ldx #>sy_4bit
 	sta src
@@ -1169,18 +1313,26 @@ setstart	lda #<sy_4bit	; from $4000 (4Bit)
 	stx src0+1
 	rts
 
-strvecs	ldy #3
--	lda vecs,y
-	sta vram1,y
-	dey
-	bpl -
-	rts
+; ------------------------------------------------ Counters
 
-rstvecs	ldy #3
--	lda vram1,y
-	sta vecs,y
-	dey
-	bpl -
+count	lda src		; nächste Kachel 4Bit
+	clc
+	adc #32
+	sta src
+	bcc cou5
+	inc src+1
+cou5	inc vram2		; und Color Fields
+	bne +
+	inc vram2+1
++	inc vram1
+	bne cou6
+	inc vram1+1
+cou6	lda ls_vekta8
+	bne cou7
+	dec ls_vekta8+1
+cou7	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
 	rts
 
 ; ----------------------------------------- Save Rendered Bitmap if REU present
@@ -1330,6 +1482,12 @@ dither	!by 1
 colchunk	!tx "colr"	; Farb-Chunk-Kennung
 
 vecs	!wo 0,0		; Temp für vram1 und vram2
+
+ipcols	!by $00,$02,$0c,$01,$08,$0a,$0c,$01	; c128 colors
+	!by $03,$09,$04,$0e,$06,$0d,$05,$0f
+
+dnibs	!by $00,$11,$22,$33,$44,$55,$66,$77	; double nibbles
+	!by $88,$99,$aa,$bb,$cc,$dd,$ee,$ff
 
 offs	!by $00,$10,$20,$30
 	!by $00,$10,$20,$30
