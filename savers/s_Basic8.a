@@ -14,6 +14,7 @@
 ;                  added: options requester
 ;  1.02, 01.06.19, added: selective prefixes ("brus.", "pict.", "ip.")
 ;  1.03, 08.07.19, added: undo, colors
+;  1.04, 09.07.19, removed: mode 3
 ;
 ; ----------------------------------------- 
 
@@ -78,8 +79,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "Basic8 images   "
-	!pet "1.03"
-	!pet "08.07.19"
+	!pet "1.04"
+	!pet "09.07.19"
 	!pet "A.Dettke        "
 
 ; ----------------------------------------- Main
@@ -118,10 +119,6 @@ saver	lda gd_modswitch	; Modulmanagement
 
 st1	pla 
 	sta gd_modswitch
-
-	lda shift		; Shift (-Lock) gedrückt?
-	and #1
-	bne tidyup
 
 	ldy #16		; nein, Balancing-Tabelle initialisieren
 	sty gr_ctr
@@ -359,21 +356,17 @@ dohist	ldx #15
 	dex
 	bpl -
 
-	ldy #32
-	sty col00
-	sty col00+1
-	sty col00+2
-	sty col00+3
+	ldy #3
+	lda #32
+-	sta col00,y
 	dey
+	bpl -
 
 	jsr scan		; first field (f1)
-	sec		; (adjust for second)
-	sbc #28
-	sta src
-	bcs +
-	dec src+1
+	ldx #28
+	jsr adjust
 
-+	ldx #2		; count 2 colors
+	ldx #2		; count 2 colors
 lp7	ldy #0
 	sty max
 
@@ -407,11 +400,8 @@ lp8	lda hist0,y	; find 2 most frequent colors
 	sta xmrk		; store bkgr
 
 	jsr scan		; second field (f2)
-	sec		; (adjust for first)
-	sbc #4
-	sta src
-	bcs +
-	dec src+1
+	ldx #4
+	jsr adjust
 
 +	ldx #2		; recount for next 2 colors
 lp71	ldy #0
@@ -1058,7 +1048,7 @@ addprefix	pha		; Länge merken
 	lda #<preip	; 2: "ip."
 	ldx #>preip
 	bne ap0
-ap1	lda #<prefix	; 0, 3 u. 4: "brus."
+ap1	lda #<prefix	; 0: "brus."
 	ldx #>prefix
 ap2	ldy #5
 ap0	sta src
@@ -1209,7 +1199,7 @@ evsetmode	lda #$8e		; care for correct dither mode
 	jsr esd1
 
 	lda modes
-	cmp #3
+	cmp #2
 	bne +
 	lda #$ff
 	sta modes
@@ -1229,11 +1219,6 @@ evsetmode	lda #$8e		; care for correct dither mode
 	bne +
 	jsr exs0		; 640x400
 	jsr eys0
-	bcc ++
-+	cmp #3		; 8x8? (Mode 3)
-	bne +
-	jsr exs1		; 320x200
-	jsr eys1
 	bcc ++
 
 +	lda #$ce		; nein, mono (Mode 0)
@@ -1335,6 +1320,14 @@ cou7	dec ls_vekta8
 	ora ls_vekta8+1
 	rts
 
+adjust	stx cols
+	sec		; adjust for next field
+	sbc cols
+	sta src
+	bcs +
+	dec src+1
++	rts
+
 ; ----------------------------------------- Save Rendered Bitmap if REU present
 
 undo	jsr initreu	; reset values
@@ -1371,7 +1364,6 @@ settext	lda #<tabigad
 	sta ls_vekta8
 	lda #>tabigad
 	sta ls_vekta8+1
-; ---	rts
 
 gettext	lda (ls_vekta8),y
 	sta sc_screentab
@@ -1450,7 +1442,7 @@ hasreu	!by $ff		; REU attached if 0
 bkgr	!by 0
 frgr	!by 0
 
-prefix	!pet "brus."	; Länge: plus 5, max 11, mode 0/3/4
+prefix	!pet "brus."	; Länge: plus 5, max 11, mode 0
 prefixs	!scr "brus."
 prepict	!pet "pict."	; dito, mode 1
 prepicts	!scr "pict."
@@ -1471,8 +1463,8 @@ cmprst1	!scr " no@"
 cmprst2	!scr "yes@"
 caddrs	!wo cmprst1,cmprst2
 
-modetxts	!scr "mono8x2 8x4 8x8 "
-modeoffs	!by 3,7,11,15
+modetxts	!scr "mono8x2 8x4 "
+modeoffs	!by 3,7,11
 modes	!by 0
 
 dithtxts	!scr "  Off  OrderedPattern Noise  ----- "
