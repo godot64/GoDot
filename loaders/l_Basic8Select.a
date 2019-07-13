@@ -827,8 +827,8 @@ cchunk	!tx "colr"
 bandw	!by $00,$0f,$f0,$ff
 conv	!by $00,$0f,$f0,$ff
 
-ipcols	!by $00,$03,$01,$08,$0a,$0e,$0b,$0c	; c128 colors
-	!by $04,$09,$05,$0c,$06,$0d,$0b,$0f
+ipcols	!by $00,$03,$01,$08,$0a,$0e,$0c,$0c	; c128 colors
+	!by $04,$09,$05,$0c,$02,$0d,$0b,$0f
 
 gdcols	!by $00,$06,$09,$0b,$02,$04,$08,$0c	; GoDot colors
 	!by $0e,$0a,$05,$0f,$03,$07,$0d,$01
