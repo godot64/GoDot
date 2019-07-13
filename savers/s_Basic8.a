@@ -5,8 +5,8 @@
 
 ; ----------------------------------------- 
 ;
-; svr.Basic8
-;  Saver für C128 Basic8-Bilder
+; svr.Basic8.02
+;  Saver für C128 Basic8-Bilder in Mode 0 (mono) und 2 (8x4)
 ;
 ;  1.00, 27.04.19, first release
 ;  1.01, 02.05.19, bugfix: compress algorithm now works
@@ -14,7 +14,7 @@
 ;                  added: options requester
 ;  1.02, 01.06.19, added: selective prefixes ("brus.", "pict.", "ip.")
 ;  1.03, 08.07.19, added: undo, colors
-;  1.04, 09.07.19, removed: mode 3
+;  1.04, 13.07.19, removed: mode 2 and mode 3
 ;
 ; ----------------------------------------- 
 
@@ -80,7 +80,7 @@ header	jmp start
 	!wo 0
 	!pet "Basic8 images   "
 	!pet "1.04"
-	!pet "09.07.19"
+	!pet "13.07.19"
 	!pet "A.Dettke        "
 
 ; ----------------------------------------- Main
@@ -91,7 +91,7 @@ start	ldx gr_nr		; Input?
 
 	jmp initinp	; ja
 
-; ----------------------------------------- Basic8mono
+; ----------------------------------------- Basic8
 
 saver	lda gd_modswitch	; Modulmanagement
 	pha 
@@ -120,7 +120,7 @@ saver	lda gd_modswitch	; Modulmanagement
 st1	pla 
 	sta gd_modswitch
 
-	ldy #16		; nein, Balancing-Tabelle initialisieren
+	ldy #16		; Balancing-Tabelle initialisieren
 	sty gr_ctr
 	sty gr_brt
 lll	dey 
@@ -128,11 +128,11 @@ lll	dey
 	sta gr_btab,y
 	bne lll
 
-; ----------------------------------------- Event: Beenden
-
 tidyup	lda hasreu
 	bne evleave
 	jsr undo		; restore data if reu present
+
+; ----------------------------------------- Event: Beenden
 
 evleave	lda #0
 	sta wflen
@@ -340,13 +340,45 @@ write	lda mode		; monochrom?
 ; ----------------------------------------- Render Color Base
 
 colors	jsr colmsg	; message on screen
-	jsr setvecs	; fill 2 buffers of 1000 bytes colors:
+	lda mode
+	and #1
+	beq +
+	jsr setvecs2	; buffer length: 2000
+	bne ++
++	jsr setvecs	; fill 2 buffers (of 1000) of colors:
+--
+++	lda xtiles	; set parameters for mode 1
+	sta lcnt8		; tile counter
+	lda src		; save start address
+	ldx src+1
+	sta src0
+	stx src0+1
 -	jsr dohist	; histogram for 1 tile, store result
 	jsr action
-	jsr cou5		; count 1000
-	bne -
+	jsr cou5		; count
+	lda mode
+	and #1		; mode 1?
+	beq ++
 
-	rts		; to be continued
+	dec lcnt8		; yes, count tiles
+	bne ++		; 1 row?
+
+	lda src0		; yes, next row: start over
+	ldx src0+1
+	sta src
+	stx src+1
+	dec md2cnt	; repeat for 2nd half
+	ldx md2cnt
+	beq +
+	jsr advance	; advance to 2nd half
+	txa
+	bne --
++	jsr revert	; set repeat flag for mode 1 (value of 2)
+
+++	jsr cou8		; count (1000/2000) finished?
+	bne -		; no, repeat
+
+	rts
 
 ; -------------------------------------- Histogram for one Tile
 
@@ -363,7 +395,8 @@ dohist	ldx #15
 	bpl -
 
 	jsr scan		; first field (f1)
-	ldx #28
+	ldx mode
+	ldy adjval,x	; adjust for 2nd
 	jsr adjust
 
 	ldx #2		; count 2 colors
@@ -400,8 +433,12 @@ lp8	lda hist0,y	; find 2 most frequent colors
 	sta xmrk		; store bkgr
 
 	jsr scan		; second field (f2)
-	ldx #4
-	jsr adjust
+	ldy md2cnt
+	cpy #2
+	bne +
+	jsr advance
++	ldy #4
+	jsr adjust	; re-adjust for 1st
 
 +	ldx #2		; recount for next 2 colors
 lp71	ldy #0
@@ -462,7 +499,7 @@ chkf1	stx cols		; no, then insert bkgr of f2 to f1
 
 ; ------------------------------------------------ Scan one tile
 
-scan	lda #4		; f1: src, f2: src+4
+scan	lda md2lines	; f1: src, f2: src+4
 	sta lcnt		; check 4 bytes (8 pixels)
 lp5	ldy #0
 lp6	lda (src),y
@@ -1198,24 +1235,32 @@ evsetmode	lda #$8e		; care for correct dither mode
 	ldx #4
 	jsr esd1
 
-	lda modes
+	lda modes		; mode 1 gets ignored!
 	cmp #2
 	bne +
 	lda #$ff
 	sta modes
+-
 +	inc modes
-	lda modes
+	ldx #4
+	lda modes		; 0 (, 1) or 2
+	cmp #1
+	beq -
 	pha
+	beq +
+	asl
+	tax
++	stx md2lines	; 2 or 4
 
 	ldx #0		; .x preset to 0 (=off)
-	cmp #1		; 8x2? (Mode 1)
+	cmp #2		; 8x2? (Mode 1)
 	bne +
 	lda #$8e
 	sta ysizegad+4
 	jsr exs0		; 640x200 (returns .c=0, .x=0)
 	jsr eys1
 	bcc ++
-+	cmp #2		; 8x4? (Mode 2)
++	cmp #4		; 8x4? (Mode 2)
 	bne +
 	jsr exs0		; 640x400
 	jsr eys0
@@ -1227,8 +1272,9 @@ evsetmode	lda #$8e		; care for correct dither mode
 	
 ++	pla
 	sta mode
-	tax
-	lda modeoffs,x
+	tay
+	jsr revert
+	lda modeoffs,y
 	tax
 	ldy #3
 -	lda modetxts,x
@@ -1280,7 +1326,10 @@ strvecs	ldy #3		; save vectors
 
 setvecs	lda #<1000	; tile counter (1000)
 	ldx #>1000
-	sta ls_vekta8
+	bne +
+setvecs2	lda #<2000	; tile counter mode 2
+	ldx #>2000
++	sta ls_vekta8
 	stx ls_vekta8+1
 	lda #<color1	; into buffer at $2000
 	ldx #>color1
@@ -1316,17 +1365,32 @@ cou6	lda ls_vekta8
 	bne cou7
 	dec ls_vekta8+1
 cou7	dec ls_vekta8
-	lda ls_vekta8
+cou8	lda ls_vekta8
 	ora ls_vekta8+1
 	rts
 
-adjust	stx cols
-	sec		; adjust for next field
+advance	clc		; adjust for next field (1st pass)
+	adc #16
+	sta src
+	bcc +
+	inc src+1
++	rts
+
+adjust	sty cols
+	sec		; adjust for next field (2nd pass)
 	sbc cols
 	sta src
 	bcs +
 	dec src+1
 +	rts
+
+revert	ldx #1
+	lda mode
+	beq +
+	eor #3
+	tax
++	stx md2cnt
+	rts
 
 ; ----------------------------------------- Save Rendered Bitmap if REU present
 
@@ -1466,6 +1530,9 @@ caddrs	!wo cmprst1,cmprst2
 modetxts	!scr "mono8x2 8x4 "
 modeoffs	!by 3,7,11
 modes	!by 0
+adjval	!by 28,12,28
+md2cnt	!by 1
+md2lines	!by 4
 
 dithtxts	!scr "  Off  OrderedPattern Noise  ----- "
 dithoffs	!by 6,13,20,27,34
