@@ -5,8 +5,8 @@
 
 ; ----------------------------------------- 
 ;
-; svr.Basic8.02
-;  Saver für C128 Basic8-Bilder in Mode 0 (mono) und 2 (8x4)
+; svr.IPaint
+;  Saver für C128 Basic8-Bilder in Mode 0 (mono) und 2 (IPaint 8x4)
 ;
 ;  1.00, 27.04.19, first release
 ;  1.01, 02.05.19, bugfix: compress algorithm now works
@@ -14,7 +14,7 @@
 ;                  added: options requester
 ;  1.02, 01.06.19, added: selective prefixes ("brus.", "pict.", "ip.")
 ;  1.03, 08.07.19, added: undo, colors
-;  1.04, 13.07.19, removed: mode 2 and mode 3
+;  1.04, 13.07.19, removed: mode 1 and mode 3
 ;
 ; ----------------------------------------- 
 
@@ -78,7 +78,7 @@ header	jmp start
 	!by 1
 	!wo modend
 	!wo 0
-	!pet "Basic8 images   "
+	!pet "IPaint images   "
 	!pet "1.04"
 	!pet "13.07.19"
 	!pet "A.Dettke        "
@@ -1449,7 +1449,7 @@ gt0	jsr gd_setpos
 b8lst	!by 0
 	!by 5,12,15,15,$81
 	!wo 0
-	!scr "Save Basic8",0
+	!scr "Save IPaint",0
 xsizegad	!by 7,22,5,3,$cd
 	!wo evxsize
 xsizetx	!scr "320",0
