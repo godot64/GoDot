@@ -1,0 +1,369 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ------------------------------------------------------------ 
+;
+; mod.Membrane
+; Module to fill a mask with patterns which can be used as filters to affect colors
+;
+;   1.00, 24.07.19: first release
+;
+; ------------------------------------------ 
+
+	jmp start
+	!by $20
+	!wo 0
+	!wo modend
+	!wo 0
+	!pet "Make Membranes  "
+	!pet "1.00"
+	!pet "24.07.19"
+	!pet "A. Dettke       "
+
+; ------------------------------------------ 
+
+	dst		= $30	; /$31
+	xbuf		= $32
+	ybuf		= $33
+	merk		= $34
+
+	rendered		= $2000
+
+; --------------------------------------- Main
+
+start 	ldx sc_screenvek	; save current screenlist (mainlst)
+	stx list
+	ldx sc_screenvek+1
+	stx list+1
+	lda gr_redisp	; save current rendermode
+	sta redisp
+	jsr makechr
+	jsr makepats
+	jsr showreq	; show requester
+	jmp gd_eloop	; wait for clicks
+
+; --------------------------------------- Event: Exit
+
+evexit	jsr makepats
+	sec		; leave module
+	rts
+
+; ----------------------------------------- Event: Revert
+
+evrevert	ldx #63
+-	lda gr_pattern,x
+	eor #$ff
+	sta gr_pattern,x
+	dex
+	bpl -
+	lda reverted
+	beq +
+	inx
++	stx reverted
+	txa
+	beq +
+	lda #"1"
+	ldx #"0"
+	sta all
+	stx all+1
+	lda #"7"
+	ldx #"8"
+	bne ++
++	lda #" "
+	sta all
+	sta all+1
+	lda #"2"
+	ldx #"1"
+++	stx eight
+	sta eight+1
+	sta four
+	jmp showreq
+
+; ----------------------------------------- Event: Switch Mode
+
+evmode: 	ldx mode		; Mode: Hires/Multi
+	inx
+	cpx #2
+	bcc md0
+	ldx #0
+md0	stx mode
+	ldy mdoffs,x
+	ldx #6
+md1	lda modetxt,y
+	sta mdtx,x
+	dey
+	dex
+	bpl md1
+
+	ldx #7
+-	lda mod0,x
+	eor #4
+	sta mod0,x
+	lda mod1,x
+	eor #4
+	sta mod1,x
+	lda mod2,x
+	eor #4
+	sta mod2,x
+	lda mod3,x
+	eor #4
+	sta mod3,x
+	dex
+	bpl -
+
+	ldx #<mdtx
+	ldy #>mdtx
+	jsr gd_xtxout2
+	jmp showreq
+
+; ------------------------------------------ Event: Apply Pattern
+
+evapply	lda strength
+	asl
+	asl
+	asl
+	ldx mode
+	beq +
+	clc
+	adc #32
++	sta xbuf
+
+	lda #<1000
+	sta ls_vekta8
+	lda #>1000
+	sta ls_vekta8+1
+	lda #<rendered
+	sta dst
+	lda #>rendered
+	sta dst+1
+
+--	ldx xbuf
+	ldy #0
+-	lda gr_pattern,x
+	sta (dst),y
+	inx
+	iny
+	cpy #8
+	bne -
+	jsr count
+	beq +
+	clc
+	lda dst
+	adc #8
+	sta dst
+	bcc --
+	inc dst+1
+	bne --
++	jmp evview	
+	
+; ------------------------------------------ Events: Set Strength
+
+evplain	ldy #0
+	!by $2c
+eveighth	ldy #1
+	!by $2c
+evquarter	ldy #2
+	!by $2c
+evhalf	ldy #3
+	sty strength
+	jmp indicate
+
+; ------------------------------------------ Event: View
+
+evview	jsr view		; switch graphics on (returns .y=0)
+
+	lda #0
+	sta sc_keyprs
+	sta sc_stop
+kl	lda sc_stop
+	ora sc_keyprs	; wait for key
+	beq kl
+
+ 	jsr rp2		; switch text mode on, display main screenlist
+	lda redisp	; restore render mode
+	sta gr_redisp
+
+; --------------------------------------- Show Requester
+
+showreq	ldx #<memblst	; display Membrane requester
+	ldy #>memblst
+	jsr gd_screen
+	lda strength
+	sta ybuf
+	jsr showind
+	clc
+	rts
+
+; --------------------------------------- Kringel definieren
+
+makechr	ldx #7
+-	lda chschr,x
+	sta sc_undochar,x
+	dex
+	bpl -
+	rts
+
+; ------------------------------------------ Redisplay routines
+
+; ---------------------------------------- Switch Graphics/Text
+
+view:	ldx #1
+	stx gr_redisp
+
+redis:	ldy #251
+	lda #$f0		; ink: lgrey, paper: black
+red0	sta $03ff,y
+	sta $04f9,y
+	sta $05f3,y
+	sta $06ed,y
+	dey
+	bne red0
+
+rp4:	lda #$1b		; hires graphics on
+	sta $d018
+	lda #$3b
+	sta $d011
+	lda gr_redisp 	; leave if flag set
+	bne rp3
+
+rp2:	jsr tmode
+	ldx list
+	ldy list+1
+	jsr gd_screen
+rp3:	clc
+	rts
+
+tmode:	ldx #$13		; back to text mode (graphics off)
+	lda #$1b
+	stx $d018
+	sta $d011
+	lda #$08
+	sta $d016
+	rts
+
+; --------------------------------------- Counters
+
+count 	lda ls_vekta8	; decrement ls_vekta8/9 by 1
+	bne cou7
+	dec ls_vekta8+1
+cou7 	dec ls_vekta8
+	lda ls_vekta8	; and check if 0 (sets .e)
+	ora ls_vekta8+1
+	rts
+
+; ------------------------------------------ Toggle to new navi icons
+
+makepats:	ldx #63
+mn0:	lda gr_pattern,x	; buffer syspattern (chars 224 to 227)
+	ldy membpats,x
+	sta membpats,x
+	tya
+	sta gr_pattern,x
+	dex
+	bpl mn0
+	rts
+
+; ------------------------------------------ Show Indicator Arrow
+
+indicate	lda #32
+	sta indicator
+	sty ybuf
+	ldx #3
+	stx xbuf
+-	lda xbuf
+	jsr rep
+	dec xbuf
+	bpl -
+
+showind	lda #$5e
+	sta indicator
+	lda ybuf
+
+rep	asl
+	sta merk
+	clc
+	lda #8
+	adc merk
+	ldx #19
+	ldy #1
+	jsr gd_setpar
+	jsr gd_initmove
+	ldx #<indicator
+	ldy #>indicator
+	jmp gd_xtxout2
+
+; ------------------------------------------ Data
+
+chschr	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
+
+list	!wo 0
+redisp 	!by 0
+indicator	!by $5e,0
+mode	!by 0
+modetxt	!scr $df," Hires",$df," Multi"
+mdoffs	!by 6,13
+strength	!by 3
+reverted	!by 0
+
+membpats	!by $00,$00,$00,$00,$00,$00,$00,$00
+	!by $88,$00,$22,$00,$88,$00,$22,$00
+	!by $88,$22,$88,$22,$88,$22,$88,$22
+	!by $aa,$55,$aa,$55,$aa,$55,$aa,$55
+	!by $00,$00,$00,$00,$00,$00,$00,$00
+	!by $cc,$00,$00,$00,$cc,$00,$00,$00
+	!by $cc,$00,$33,$00,$cc,$00,$33,$00
+	!by $cc,$33,$cc,$33,$cc,$33,$cc,$33
+
+; --------------------------------------- Screenlist 
+
+memblst	!by 0
+	!by 3,11,19,17,$81
+	!wo 0
+	!scr "Generate Membrane@"
+	!by 7,20,10,3,$cd
+	!wo evplain
+mod0	!by $e0,$e0,$e0,$e0,$e0,$e0,$e0,$e0,0
+	!by 9,20,10,3,$ce
+	!wo eveighth
+mod1	!by $e1,$e1,$e1,$e1,$e1,$e1,$e1,$e1,0
+	!by 11,20,10,3,$ce
+	!wo evquarter
+mod2	!by $e2,$e2,$e2,$e2,$e2,$e2,$e2,$e2,0
+	!by 13,20,10,3,$ce
+	!wo evhalf
+mod3	!by $e3,$e3,$e3,$e3,$e3,$e3,$e3,$e3,0
+	!by 15,11,6,3,$c7
+	!wo evrevert
+	!scr "Revt@"
+	!by 15,17,6,3,$c0
+	!wo evview
+	!scr "View@"
+	!by 15,23,7,3,$ce
+	!wo evapply
+	!scr "Apply@"
+	!by 17,11,10,3,$c7
+	!wo evmode
+mdtx	!scr $df," Hires @"
+	!by 17,21,9,3,$ce
+	!wo evexit
+	!scr " Leave @"
+	!by $c0,5,11,8
+	!scr "Opacity:@"
+	!by $c0,5,20,8
+	!scr "Pattern:@"
+	!by $c0,7,13,4
+all	!scr "  0%@"
+	!by $c0,9,12,5
+eight	!scr "12.5%@"
+	!by $c0,11,14,3
+four	!scr "25%@"
+	!by $c0,13,14,3
+	!scr "50%@"
+	!by $80
+
+; --------------------------------------- 
+
+modend	!eof
