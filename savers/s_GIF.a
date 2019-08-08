@@ -22,7 +22,8 @@
 ; 1.07: 17.11.16 - Palette "Deekay" korrigiert
 ; 1.08: 18.11.16 - Palette "Coco" (Community Colors) zugefügt
 ; 1.09: 05.04.17 - Palette "Colodore" zugefügt
-; 1.10: 05.04.19 - Kommentar im Bildfile zugefügt ("gespeichert mit GoDot") 
+; 1.10: 05.04.19 - Kommentar im Bildfile zugefügt ("gespeichert mit GoDot")
+; 1.11: 08.08.19 - Default Aspect Ratio festgelegt (1:1)
 ;
 ; -------------------------------------------------------------- Header
 ;
@@ -34,8 +35,8 @@
 	!wo modend		; Endadresse+1 des Moduls
 	!wo 0			; unused
 	!pet "GIF 89a saver   "	; description
-cvers	!pet "1.10"		; Versionsnummer
-	!pet "05.04.19"		; Datum
+cvers	!pet "1.11"		; Versionsnummer
+	!pet "08.08.19"		; Datum
 	!pet "A.Dettke        "	; author
 
 ; -------------------------------------------------------------- Definitionen
@@ -631,7 +632,7 @@ width1	!wo 320			; Breite des Bildes
 height1	!wo 200			; Höhe des Bildes
 	!by %10110011		; Global, 8 Bit/Color, 4 Bit/Pixel
 	!by 0			; Backgroundcolor (Offset)
-	!by 0			; default aspect ratio
+	!by $31			; default aspect ratio (1:1)  ### 1.11
 
 palette	!by $00,$00,$00	; schwarz
 	!by $00,$00,$aa	; blau
