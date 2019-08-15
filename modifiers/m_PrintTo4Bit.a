@@ -1,5 +1,5 @@
 
-	!src "godotlib.lib"
+	!src "..\godotlib.lib"
 	*= $c000
 	!ct pet
 ;	!sl "labels.txt"
@@ -22,6 +22,7 @@
 ;                    fixed wrong buffer address after adding Show Font routines
 ;    1.09: 04.03.18, bugfix: last byte of file got lost
 ;    1.10: 28.03.18, added SPC and TAB (including Comma-Tabs)
+;    1.11: 15.08.19, added recognition of GET, GOTO, POKE and WAIT (to skip them)
 ;
 ; --------------------------- 
 
@@ -82,8 +83,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "basic text rem/?"
-	!pet "1.10"
-	!pet "28.03.18"
+	!pet "1.11"
+	!pet "15.08.19"
 	!pet "W.Kling/A.Dettke"
 
 ; --------------------------- 
@@ -389,10 +390,18 @@ lineloop	jsr basin		; Link lo
 	stx lnr
 	sta lnr+1
 
-	jsr basin		; get BASIC command
-	tax 
+ll3	jsr basin		; get BASIC command
+	tax
+	cpx #$97		; POKE?		### 1.11
+	beq +
+	cpx #$a1		; GET?
+	beq +
+	cpx #$89		; GOTO?
+	beq +
+	cpx #$92		; WAIT?
++	beq skipcomm	; 		### bis hier
 ll0	jsr basin		; get follower
-	beq cr		; just PRINT, then end of line?		; yes
+	beq cr		; just PRINT, then end of line? if yes, new line
 	cmp #" "		; Space?
 	beq ll0		; yes, skip
 ll2	cmp #$a3		; ### 1.10, ab hier: TAB?
@@ -401,9 +410,9 @@ ll2	cmp #$a3		; ### 1.10, ab hier: TAB?
 	bne ll0
 +	cmp #$a6		; SPC?
 	bne +
-	jsr tabs
+	jsr spcs
 	bne ll0
-+	cmp #$2c		; Comma?
++	cmp #","		; Komma?
 	bne +
 	lda $d3		; get column
 	sec
@@ -434,7 +443,9 @@ print	jsr basin		; PRINT ausführen, nächstes Zeichen holen
 	beq cr		; End of Line?
 	cmp #";"		; Semikolon?
 	beq nocr
-	jmp ll2		; und sonst?
+	cmp #":"		; Befehlsende?
+	beq ll3		; ja, neuer Befehl kommt
+	jmp ll2		; sonst: TAB/SPC/Komma?
 ll1	jsr bsout		; nein, Zeichen ausgeben
 	jmp print
 
@@ -448,13 +459,23 @@ ok	lda #1
 
 rem	ldx #0
 reml1	jsr basin		; neue holen (wenn da)
-	beq lineloop
-	cmp #$3a		; ab Kolon: ausführen
+	bne +
+	jmp lineloop
++	cmp #$3a		; ab Kolon: ausführen
 	beq remtxt
 	sta txmodes,x	; Codes puffern
 	inx 
 	bne reml1
 	beq failc
+
+; --------------------------- POKE / WAIT
+
+skipcomm	jsr basin		; end of line?	### 1.11
+	bne +
+	jmp lineloop	; yes, next line
++	cmp #$3a		; ":"?
+	bne skipcomm	; loop		### bis hier
+	jmp ll3		; continue parsing
 
 ; --------------------------- Error Handler
 
@@ -1163,10 +1184,14 @@ til	sta txmodes,y	; Rest löschen
 
 ; -------------------------------------- TAB / SPC / Comma
 
-tabs	jsr gword
+spcs	lda #$a0
+	!by $2c
+tabs	lda #$1d		; CRSR right
+	sta space
+	jsr gword
 	beq +
 tab10	tax
-	lda #$1d		; CRSR right
+	lda space		; Einrückungszeichen
 -	jsr bsout
 	dex
 	bne -
@@ -1247,6 +1272,7 @@ tabigad	!wo bgrgad	; 0
 	!wo fgrgad	; 6
 mlist	!wo 0		; Zeiger auf Mainlist
 chschr	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
+space	!by $a0		; Einrückungszeichen
 
 ; --------------------------- Screenliste
 
