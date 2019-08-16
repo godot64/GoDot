@@ -22,7 +22,7 @@
 ;                    fixed wrong buffer address after adding Show Font routines
 ;    1.09: 04.03.18, bugfix: last byte of file got lost
 ;    1.10: 28.03.18, added SPC and TAB (including Comma-Tabs)
-;    1.11: 15.08.19, added recognition of GET, GOTO, POKE and WAIT (to skip them)
+;    1.11: 15.08.19, added recognition of GET, IF, POKE and WAIT (to skip them)
 ;
 ; --------------------------- 
 
@@ -396,7 +396,7 @@ ll3	jsr basin		; get BASIC command
 	beq +
 	cpx #$a1		; GET?
 	beq +
-	cpx #$89		; GOTO?
+	cpx #$8b		; IF?
 	beq +
 	cpx #$92		; WAIT?
 +	beq skipcomm	; 		### bis hier
