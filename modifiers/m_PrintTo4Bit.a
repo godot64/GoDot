@@ -23,6 +23,7 @@
 ;    1.09: 04.03.18, bugfix: last byte of file got lost
 ;    1.10: 28.03.18, added SPC and TAB (including Comma-Tabs)
 ;    1.11: 15.08.19, added recognition of GET, IF, POKE and WAIT (to skip them)
+;    1.12: 17.08.19, bugfix: avoid empty screen on ERRORs
 ;
 ; --------------------------- 
 
@@ -83,13 +84,13 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "basic text rem/?"
-	!pet "1.11"
-	!pet "15.08.19"
+	!pet "1.12"
+	!pet "17.08.19"
 	!pet "W.Kling/A.Dettke"
 
 ; --------------------------- 
 
-	!pet "mode1: print    "
+addtxt	!pet "mode1: print    "
 	!pet "mode2: rem      "
 	!pet " code1: align   "
 	!pet " code2: txcolor "
@@ -113,8 +114,8 @@ st1	lda nofont,x
 	sta nofnttx,x
 	dex
 	bpl st1
-st0	ldx #<(btxlist)
-	ldy #>(btxlist)
+st0	ldx #<btxlist
+	ldy #>btxlist
 	jsr gd_screen	; Requester aufbauen
 	lda sc_screenvek	; Zeiger auf diese Liste retten für ERROR
 	sta list
@@ -167,7 +168,7 @@ getfile	jsr chgdrv
 	sta sc_screenvek
 	lda #$4c
 	sta header	; unpatch mod (JMP START)
-	lda #<(start)
+	lda #<start
 	sta header+1
 	jsr swppname
 
@@ -203,7 +204,15 @@ nofile	jsr errnf
 err	lda prflg		; kein Requester, wenn kein PRINT	
 	beq finish
 
-errnf	ldx list		; sonst: Requester einblenden
+errnf	ldx mlist		; sonst: Main aufbauen ### 1.12
+	ldy mlist+1
+	jsr gd_screen
+	lda ls_flen	; Filerequester mit Cancel verlassen?
+	beq +
+	ldx #<errorlst	; nein: Ausgabegadget einblenden
+	ldy #>errorlst
+	jsr gd_screen	; 		   ### bis hier
++	ldx list		; Modul-Requester einblenden
 	ldy list+1
 	jsr gd_screen
 	jsr gm4	
@@ -249,8 +258,8 @@ clm	sta mess,x
 	bpl clm
 	rts
 
-messout 	ldx #<(message)
-	ldy #>(message)
+messout 	ldx #<message
+	ldy #>message
 	jmp gd_xtxout2
 
 message	!scr " BText "
@@ -271,8 +280,8 @@ err6	!scr "  ERROR: File can't be a Font!  "	; 160
 sevldfont	jsr clrmssg
 	jsr chgdrv
 
-	ldx #<(display)
-	ldy #>(display)
+	ldx #<display
+	ldy #>display
 	stx ls_adrmisc
 	sty ls_adrmisc+1
 	ldx #0
@@ -301,7 +310,7 @@ sevldfont	jsr clrmssg
 	sta sc_screenvek
 	lda #$4c
 	sta header	; unpatch mod (to JMP START)
-	lda #<(start)
+	lda #<start
 	sta header+1
 	jsr swppname
 
@@ -355,11 +364,11 @@ cf6	lda ls_lastname,x
 	sta nofnttx,x
 	dex
 	bpl cf6
-cf4	lda #<(nofntgad)	; Fontnamen ansteuern
-	ldx #>(nofntgad)
+cf4	lda #<nofntgad	; Fontnamen ansteuern
+	ldx #>nofntgad
 	jsr setpos
-	ldx #<(nofnttx)	; ausgeben
-	ldy #>(nofnttx)
+	ldx #<nofnttx	; ausgeben
+	ldy #>nofnttx
 	jsr gd_xtxout2
 	ldx #3		; hiliten
 	jmp gd_fcol
@@ -468,7 +477,7 @@ reml1	jsr basin		; neue holen (wenn da)
 	bne reml1
 	beq failc
 
-; --------------------------- POKE / WAIT
+; --------------------------- POKE / WAIT / GET / IF
 
 skipcomm	jsr basin		; end of line?	### 1.11
 	bne +
@@ -872,8 +881,8 @@ dnib	!by $00,$ff,$44,$cc,$55,$aa,$11,$dd
 
 ; --------------------------- 4Bit löschen
 
-clrdata	lda #<(sy_4bit)	; $4000
-	ldx #>(sy_4bit)
+clrdata	lda #<sy_4bit	; $4000
+	ldx #>sy_4bit
 	sta dst
 	stx dst+1
 	ldy #$00
@@ -889,8 +898,8 @@ clrl	sta (dst),y
 
 ; --------------------------- Char-Puffer löschen
 
-clrbuffer	lda #<(display)	; $2000
-	ldx #>(display)
+clrbuffer	lda #<display	; $2000
+	ldx #>display
 	sta dst
 	stx dst+1
 	ldy #$00
@@ -937,8 +946,8 @@ scc1	lda mcols,x
 
 ; --------------------------- Zeichensatz umkopieren
 
-sevgetfnt	ldy #<(display)	; Ziel: $2000
-	lda #>(display)
+sevgetfnt	ldy #<display	; Ziel: $2000
+	lda #>display
 	sty dst
 	sta dst+1
 	sty src
@@ -987,12 +996,12 @@ gm1	lda modetx,x	; Text eintragen...
 	dex
 	dey
 	bpl gm1
-	lda #<(modegad)
-	ldx #>(modegad)
+	lda #<modegad
+	ldx #>modegad
 	jsr setpos
 	jsr gd_trim
-	ldx #<(modeis-1)	; ...und ausgeben
-	ldy #>(modeis-1)
+	ldx #<modeis-1	; ...und ausgeben
+	ldy #>modeis-1
 	jsr gd_xtxout2
 
 gm4	ldx gmode		; ...und Hiliten/Ausgrauen
@@ -1000,8 +1009,8 @@ gm4	ldx gmode		; ...und Hiliten/Ausgrauen
 	inx		; Offset auf Farbe
 	txa
 	pha
-	lda #<(inactive)	; Beschriftungen umfärben
-	ldx #>(inactive)
+	lda #<inactive	; Beschriftungen umfärben
+	ldx #>inactive
 	jsr setpos
 	pla
 	tax
@@ -1009,8 +1018,8 @@ gm4	ldx gmode		; ...und Hiliten/Ausgrauen
 
 tgmode	lda #0		; Multianzeige...
 	sta sc_loop
-	lda #<(mcolgad)
-	ldx #>(mcolgad)
+	lda #<mcolgad
+	ldx #>mcolgad
 	jsr setpos
 	jsr gd_initmove
 	jsr gd_invert	; ...invertieren
@@ -1042,8 +1051,8 @@ cf1	lda fonttx,x
 	dex
 	dey
 	bpl cf1
-	ldx #<(fontis-1)
-	ldy #>(fontis-1)
+	ldx #<fontis-1
+	ldy #>fontis-1
 	jmp gd_xtxout2
 
 ; --------------------------- Zeichensatz anzeigen
@@ -1274,36 +1283,48 @@ mlist	!wo 0		; Zeiger auf Mainlist
 chschr	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
 space	!by $a0		; Einrückungszeichen
 
-; --------------------------- Screenliste
+; --------------------------- Screenlisten
 
 btxlist	!by 0
 	!by 2,11,18,21,$81,0,0
 	!scr "PRINT To 4Bit@"
-	!by 7,11,11,3,$c8,<(sevload),>(sevload)
+	!by 7,11,11,3,$c8
+	!wo sevload
 	!scr " Replace @"
-	!by 10,11,11,3,$c8,<(sevovl),>(sevovl)
+	!by 10,11,11,3,$c8
+	!wo sevovl
 	!scr " Overlay @"
-	!by 13,11,5,3,$c8,<(sevgetfnt),>(sevgetfnt)
+	!by 13,11,5,3,$c8
+	!wo sevgetfnt
 	!scr "Get@"
-	!by 13,16,13,3,$cf,<(sevchsfnt),>(sevchsfnt)
+	!by 13,16,13,3,$cf
+	!wo sevchsfnt
 	!by 223
 fontis	!scr "GoDot Font@"
-	!by 16,11,9,3,$c8,<(sevldfont),>(sevldfont)
+	!by 16,11,9,3,$c8
+	!wo sevldfont
 	!scr "Ld Font@"
-modegad	!by 16,20,9,3,$cf,<(sevgmode),>(sevgmode)
+modegad	!by 16,20,9,3,$cf
+	!wo sevgmode
 	!by 223
 modeis	!scr " Hires@"
-	!by 19,11,11,3,$c8,<(sevshow),>(sevshow)
+	!by 19,11,11,3,$c8
+	!wo sevshow
 	!scr "Show Font@"
-	!by 19,22,7,3,$cf,<(cancel),>(cancel)
+	!by 19,22,7,3,$cf
+	!wo cancel
 	!scr "Leave@"
-bgrgad	!by 7,25,4,3,$cf,<(sevbgr),>(sevbgr)
+bgrgad	!by 7,25,4,3,$cf
+	!wo sevbgr
 bgrtx	!scr "  @"
-mc1gad	!by 8,25,4,3,$cf,<(sevmc1),>(sevmc1)
+mc1gad	!by 8,25,4,3,$cf
+	!wo sevmc1
 mc1tx	!scr "  @"
-mc2gad	!by 9,25,4,3,$cf,<(sevmc2),>(sevmc2)
+mc2gad	!by 9,25,4,3,$cf
+	!wo sevmc2
 mc2tx	!scr "  @"
-fgrgad	!by 10,25,4,3,$cf,<(sevfgr),>(sevfgr)
+fgrgad	!by 10,25,4,3,$cf
+	!wo sevfgr
 fgrtx	!scr "  @"
 	!by 7,25,4,6,$0f,0,0
 	!by $c0
@@ -1322,5 +1343,9 @@ nofnttx	!scr " No Font loaded @"
 inactive	!by 8,22,3,4
 mcolgad	!by 8,26,2,4
 nofntgad	!by 5,12,16,1
+
+errorlst	!by 0,22,3,34,3,$02,0,0,$80
+
+; --------------------------- 
 
 modend	!eof
