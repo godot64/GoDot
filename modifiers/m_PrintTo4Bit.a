@@ -24,6 +24,7 @@
 ;    1.10: 28.03.18, added SPC and TAB (including Comma-Tabs)
 ;    1.11: 15.08.19, added recognition of GET, IF, POKE and WAIT (to skip them)
 ;    1.12: 17.08.19, bugfix: avoid empty screen on ERRORs
+;    1.13: 23.08.19, bugfix: REM wasn't parsed decently
 ;
 ; --------------------------- 
 
@@ -42,6 +43,7 @@
 	ccnt	= $3e
 	cnt	= ccnt
 	lnr	= $3f
+	rvsflag	= $40
 
 	list	= $41
 	chrcol	= $43
@@ -84,8 +86,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "basic text rem/?"
-	!pet "1.12"
-	!pet "17.08.19"
+	!pet "1.13"
+	!pet "23.08.19"
 	!pet "W.Kling/A.Dettke"
 
 ; --------------------------- 
@@ -373,6 +375,12 @@ cf4	lda #<nofntgad	; Fontnamen ansteuern
 	ldx #3		; hiliten
 	jmp gd_fcol
 
+; --------------------------- Abschluss
+
+ok	lda #1
+	sta gr_redisp	; Flag: Bild neu rendern
+	rts
+
 ; --------------------------- BASIC einlesen
 
 getlines	jsr basin
@@ -383,7 +391,8 @@ getlines	jsr basin
 	bne jfaila
 	beq lineloop
 
-cr	lda #13
+cr	sta rvsflag
+	lda #13
 	jsr bsout
 	bne lineloop
 nocr	jsr basin
@@ -408,7 +417,8 @@ ll3	jsr basin		; get BASIC command
 	cpx #$8b		; IF?
 	beq +
 	cpx #$92		; WAIT?
-+	beq skipcomm	; 		### bis hier
++	bne ll0
+	jmp skipcomm	; 		### bis hier
 ll0	jsr basin		; get follower
 	beq cr		; just PRINT, then end of line? if yes, new line
 	cmp #" "		; Space?
@@ -432,11 +442,11 @@ ll2	cmp #$a3		; ### 1.10, ab hier: TAB?
 	jsr tab10		; ### 1.10, bis hier
 	bne ll0
 
-+	cmp #$22		; leading quote?
++	cpx #$8f		; REM?  ### 1.13
+	beq rem
+	cmp #$22		; leading quote?
 	bne failb		; no, error
 
-	cpx #$8f		; REM?
-	beq rem
 	cpx #$99		; PRINT?
 	bne failb		; no, error
 
@@ -449,33 +459,34 @@ print	jsr basin		; PRINT ausführen, nächstes Zeichen holen
 	cmp #$22		; End-Quote?
 	bne ll1
 	jsr basin		; nein, danach folgt:
-	beq cr		; End of Line?
-	cmp #";"		; Semikolon?
-	beq nocr
-	cmp #":"		; Befehlsende?
+	bne +
+	jmp cr		; End of Line?
++	cmp #$12		; RVS on?
+	bne +
+	sta rvsflag
++	cmp #";"		; Semikolon?
+	bne +
+	jmp nocr
++	cmp #":"		; Befehlsende?
 	beq ll3		; ja, neuer Befehl kommt
 	jmp ll2		; sonst: TAB/SPC/Komma?
 ll1	jsr bsout		; nein, Zeichen ausgeben
 	jmp print
 
-; --------------------------- Abschluss
-
-ok	lda #1
-	sta gr_redisp	; Flag: Bild neu rendern
-	rts
-
 ; --------------------------- REM 
 
 rem	ldx #0
-reml1	jsr basin		; neue holen (wenn da)
+	cmp #$22		; leading quote?  ### 1.13
+	bne skipcomm	; no, skip whole line
+reml1	jsr basin		; end of line?
 	bne +
-	jmp lineloop
+	jmp lineloop	; yes, get next one
 +	cmp #$3a		; ab Kolon: ausführen
 	beq remtxt
-	sta txmodes,x	; Codes puffern
+	sta txmodes,x	; sonst: Codes puffern
 	inx 
 	bne reml1
-	beq failc
+	beq failc		; Fehler, wenn kein Doppelpunkt
 
 ; --------------------------- POKE / WAIT / GET / IF
 
@@ -1193,10 +1204,13 @@ til	sta txmodes,y	; Rest löschen
 
 ; -------------------------------------- TAB / SPC / Comma
 
-spcs	lda #$a0
+spcs	lda #32
+	ldx rvsflag
+	beq +
+	lda #$a0
 	!by $2c
 tabs	lda #$1d		; CRSR right
-	sta space
++	sta space
 	jsr gword
 	beq +
 tab10	tax
