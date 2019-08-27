@@ -11,6 +11,7 @@
 ;
 ;   0.99, 10.04.95, first ever release
 ;   1.00, 06.09.18, first running release
+;   1.01, 27.08.19, added sychronisation of dma to rasterbeam
 ;
 ; ------------------------------------------------ 
 
@@ -39,8 +40,8 @@
 	!wo modend
 	!wo 0
 	!tx "Animator        "
-	!tx "1.00"
-	!tx "06.09.18"
+	!tx "1.01"
+	!tx "27.08.19"
 	!tx "A.Dettke        "
 
 ; ------------------------------------------------ 
@@ -80,34 +81,24 @@ loop	lda #<records	; Vorbereitungen
 
 display	jsr setimgdta	; startrecord setzen
 
-	ldy #6		; bitmap (nach $2000)
--	lda recbmap,y
-	sta reuwerte,y
-	dey 
-	bpl -
-	lda #$91
-	sta reucom
-
-	ldy #6		; video ram (nach $0400)
--	lda recvram,y
-	sta reuwerte,y
-	dey 
-	bpl -
-	lda #$91
-	sta reucom
-
 	ldy #6		; color ram + bg (nach $4000)
 -	lda reccram,y
 	sta reuwerte,y
 	dey 
 	bpl -
-	lda #$91
+	lda #255
+-	bit $d011		; Rasterstrahl synchronisieren
+	bmi -
+	cmp $d012
+	beq -
+-	cmp $d012
+	bne -
+	lda #$91		; DMA auslösen (holen)
 	sta reucom
 
 	lda bkgr		; background color
 	sta backgr
-
--	iny 
+-	iny 		; .y was $ff
 	lda cram,y	; 4 viertel (250)
 	sta coloram,y	; color ram füllen
 	lda cram+250,y
@@ -119,6 +110,37 @@ display	jsr setimgdta	; startrecord setzen
 	cpy #250
 	bne -
 
+
+	ldy #6		; bitmap (nach $2000)
+-	lda recbmap,y
+	sta reuwerte,y
+	dey 
+	bpl -
+	lda #255
+-	bit $d011		; Rasterstrahl synchronisieren
+	bmi -
+	cmp $d012
+	beq -
+-	cmp $d012
+	bne -
+	lda #$91		; DMA auslösen (holen)
+	sta reucom
+
+	ldy #6		; video ram (nach $0400)
+-	lda recvram,y
+	sta reuwerte,y
+	dey 
+	bpl -
+	lda #255
+-	bit $d011		; Rasterstrahl synchronisieren
+	bmi -
+	cmp $d012
+	beq -
+-	cmp $d012
+	bne -
+	lda #$91		; DMA auslösen (holen)
+	sta reucom
+
 	ldx mehrfach	; kurz warten
 	jsr gd_dl2	; slow down (Speed)
 	dec passes
@@ -128,9 +150,11 @@ display	jsr setimgdta	; startrecord setzen
 	lda recs2+1
 	adc #21		; nächster Record
 	sta recs2+1
-	bcc display
-	inc recs2+2
-	bcs display
+	bcs ++
+	jmp display
+++	inc recs2+2
+	bcc +
+	jmp display
 
 +	jsr restore
 	lda sc_stop
