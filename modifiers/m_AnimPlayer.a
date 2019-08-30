@@ -12,6 +12,7 @@
 ;   0.99, 10.04.95, first ever release
 ;   1.00, 06.09.18, first running release
 ;   1.01, 27.08.19, added sychronisation of dma to rasterbeam
+;   1.02, 29.08.19, added double buffering
 ;
 ; ------------------------------------------------ 
 
@@ -19,10 +20,15 @@
 
 	passes		= $30
 	mehrfach		= $31
+	evenodd		= $32
+	running		= $33
 
 	cram		= sy_4bit
-	bkgr		= $43e8
-	records		= $4400
+	cram0		= cram
+	bkgr0		= cram0+1000
+	cram1		= cram0+$4000
+	bkgr1		= bkgr0+$4000
+	records		= cram+$800
 	reuwerte		= reubase+2
 
 	grafreg		= $d011
@@ -31,6 +37,7 @@
 	rahmen		= $d020
 	backgr		= $d021
 	coloram		= $d800
+	vicbank		= $dd00
 
 ; ------------------------------------------------ 
 
@@ -40,26 +47,31 @@
 	!wo modend
 	!wo 0
 	!tx "Animator        "
-	!tx "1.01"
-	!tx "27.08.19"
+	!tx "1.02"
+	!tx "29.08.19"
 	!tx "A.Dettke        "
 
 ; ------------------------------------------------ 
 
 start	jsr chk4anim	; Anim vorhanden? (kehrt nicht zurück, wenn nicht)
+	iny
+	sty running
 
 	lda gd_modswitch
 	sta mswitch
 
+	jsr gd_sproff	; Maus aus
 	lda #$18		; grafik an
 	sta multreg
 	lda #$1b
 	sta charreg
 	lda #$3b
 	sta grafreg
+	lda #3		; VIC-Bank 0 aktivieren
+	sta vicbank
 
-loop	lda #<records	; Vorbereitungen
-	sta recs1+1
+loop	lda #<records	; Vorbereitungen: 
+	sta recs1+1	; records auf anfang
 	sta recs2+1
 	lda #>records
 	sta recs1+2
@@ -74,108 +86,145 @@ loop	lda #<records	; Vorbereitungen
 	stx sc_pos
 	lda #0
 	sta sc_stop
+	sta evenodd
 	sta sc_pos+1
-	jsr gd_mal5	; Faktor 5
+	jsr gd_mal5	; howmany mal 5
 	lda sc_pos
 	sta mehrfach
 
-display	jsr setimgdta	; startrecord setzen
+	bit running
+	bmi display
+	jsr getimage	; bild beim ersten mal doppelt holen
+	jsr change
 
-	ldy #6		; color ram + bg (nach $4000)
--	lda reccram,y
-	sta reuwerte,y
-	dey 
-	bpl -
-	lda #255
--	bit $d011		; Rasterstrahl synchronisieren
-	bmi -
-	cmp $d012
-	beq -
--	cmp $d012
-	bne -
-	lda #$91		; DMA auslösen (holen)
-	sta reucom
+display	lda evenodd	; vic flag toggeln
+	eor #1
+	sta evenodd
+	bne +
+	lda #3		; vic 0
+	!by $2c
++	lda #2		; vic 1
+	sta vicbank
 
-	lda bkgr		; background color
-	sta backgr
--	iny 		; .y was $ff
-	lda cram,y	; 4 viertel (250)
-	sta coloram,y	; color ram füllen
-	lda cram+250,y
-	sta coloram+250,y
-	lda cram+500,y
-	sta coloram+500,y
-	lda cram+750,y
-	sta coloram+750,y
-	cpy #250
-	bne -
-
-
-	ldy #6		; bitmap (nach $2000)
--	lda recbmap,y
-	sta reuwerte,y
-	dey 
-	bpl -
-	lda #255
--	bit $d011		; Rasterstrahl synchronisieren
-	bmi -
-	cmp $d012
-	beq -
--	cmp $d012
-	bne -
-	lda #$91		; DMA auslösen (holen)
-	sta reucom
-
-	ldy #6		; video ram (nach $0400)
--	lda recvram,y
-	sta reuwerte,y
-	dey 
-	bpl -
-	lda #255
--	bit $d011		; Rasterstrahl synchronisieren
-	bmi -
-	cmp $d012
-	beq -
--	cmp $d012
-	bne -
-	lda #$91		; DMA auslösen (holen)
-	sta reucom
+	jsr getimage	; bild laden
 
 	ldx mehrfach	; kurz warten
-	jsr gd_dl2	; slow down (Speed)
-	dec passes
-	beq +
+	jsr gd_dl2	; (slow down speed)
+	dec passes	; frames herunterzählen
+	beq +		; null?
 
 	clc 
 	lda recs2+1
-	adc #21		; nächster Record
+	adc #21		; nein, nächstes bild
 	sta recs2+1
-	bcs ++
-	jmp display
-++	inc recs2+2
-	bcc +
-	jmp display
+	bcc display
+	inc recs2+2
+	bcs display
 
-+	jsr restore
-	lda sc_stop
++	jsr restore	; am ende: zurück auf start
+	sty running
+	lda sc_stop	; STOP gedrückt?
 	bne leave
-	jmp loop
+	jmp loop		; nein, von vorn
 
 ; ------------------------------------------------ 
 
-leave	ldx #$13		; grafik aus
+leave	ldx #$13		; ja, grafik aus
 	lda #$1b
 	stx charreg
 	sta grafreg
 	lda #$08
 	sta multreg
-	lda sc_maincolor
+	lda #3		; vic 0
+	sta vicbank
+	lda sc_maincolor	; GoDot farben
 	sta rahmen
 	sta backgr
+	jsr gd_spron	; Maus an
 	lda mswitch
 	sta gd_modswitch
-	sec 		; finish
+	sec 		; ende
 	rts 
+
+; ------------------------------------------------ 
+
+setcram0	lda bkgr0		; background color bank 0
+	sta backgr
+-	iny 		; .y was $ff
+	lda cram0,y	; 4 viertel (250)
+	sta coloram,y	; color ram füllen
+	lda cram0+250,y
+	sta coloram+250,y
+	lda cram0+500,y
+	sta coloram+500,y
+	lda cram0+750,y
+	sta coloram+750,y
+	cpy #250
+	bne -
+	lda #$20		; prepare double buffering
+	sta recbmap+1
+	lda #$04
+	sta recbmap+8
+	lda #$40
+	sta recbmap+15
+	rts
+
+setcram1	lda bkgr1		; background color bank 1
+	sta backgr
+-	iny 		; .y was $ff
+	lda cram1,y	; 4 viertel (250)
+	sta coloram,y	; color ram füllen
+	lda cram1+250,y
+	sta coloram+250,y
+	lda cram1+500,y
+	sta coloram+500,y
+	lda cram1+750,y
+	sta coloram+750,y
+	cpy #250
+	bne -
+change	lda #$60
+	sta recbmap+1
+	lda #$44
+	sta recbmap+8
+	lda #$80
+	sta recbmap+15
+	rts
+
+; ------------------------------------------------ 
+
+getimage	jsr setimgdta	; startrecord setzen (von records holen)
+
+	ldy #6		; color ram + bg (nach $4000/$6000)
+-	lda reccram,y
+	sta reuwerte,y
+	dey 
+	bpl -
+	lda #$91		; DMA auslösen (holen)
+	sta reucom
+
+	ldy #6		; bitmap (nach $2000/$4000)
+-	lda recbmap,y
+	sta reuwerte,y
+	dey 
+	bpl -
+	lda #$91		; DMA auslösen (holen)
+	sta reucom
+
+	ldy #6		; video ram (nach $0400/$4400)
+-	lda recvram,y
+	sta reuwerte,y
+	dey 
+	bpl -
+	lda #$91		; DMA auslösen (holen)
+	sta reucom
+
+	ldx evenodd	; Colorram eintragen
+	bne +
+	jsr setcram0
+	bne ++
++	jsr setcram1
+
+++	rts
 
 ; ------------------------------------------------ 
 
@@ -188,7 +237,8 @@ recs2	lda records,y
 
 ; ------------------------------------------------ Playertabelle aufbauen
 
-buildtab	ldy #20
+buildtab	ldx #0		; Framecounter
+again	ldy #20
 -	lda recdata,y	; aktueller Frame
 recs1	sta records,y
 	dey 
@@ -230,8 +280,26 @@ recs1	sta records,y
 	sta recs1+1
 	bcc +
 	inc recs1+2
-+	dex 		; .x mal wiederholen
-	bne buildtab
++	inx 		; .x mal wiederholen
+	txa
+	and #1
+	bne +
+	lda #$20		; prepare double buffering
+	sta recdata+1
+	lda #$04
+	sta recdata+8
+	lda #$40
+	sta recdata+15
+	bne ++
++	lda #$60
+	sta recdata+1
+	lda #$44
+	sta recdata+8
+	lda #$80
+	sta recdata+15
+++	cpx frames
+	beq restore
+	jmp again
 
 ; ------------------------------------------------ 
 
@@ -319,7 +387,7 @@ ctrlrec	!by 0,0,0
 
 ; ------------------------------------------------ Player Records
 
-recback	!fill 21
+recback	!fill 21				; allererster Record
 
 recdata	!by $00,$20,$00,$00,$04,$40,$1f	; nach bank 4: (Dummy-Einträge)
 	!by $00,$04,$40,$1f,$04,$e8,$03
@@ -329,9 +397,10 @@ recbmap	!by $00,$20,$00,$00,$04,$40,$1f	; bitmap    (8000)
 recvram	!by $00,$04,$40,$1f,$04,$e8,$03	; video ram (1000)
 reccram	!by $00,$40,$28,$23,$04,$e9,$03	; color ram (1001)
 
-control	!by <frames,>frames			; nach: frames
-	!by $0e,$00,$00			; von REU: Byte 14, Bank 0
-	!by 4,0				; 4 Bytes
+control	!wo frames			; nach: frames
+	!wo 14				; von REU: Byte 14
+	!by 0				; Bank 0
+	!wo 4				; 4 Bytes
 
 ; ------------------------------------------------ 
 
