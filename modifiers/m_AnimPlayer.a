@@ -12,7 +12,8 @@
 ;   0.99, 10.04.95, first ever release
 ;   1.00, 06.09.18, first running release
 ;   1.01, 27.08.19, added sychronisation of dma to rasterbeam
-;   1.02, 29.08.19, added double buffering
+;   1.02, 30.08.19, added double buffering
+;   1.03, 31.08.19, added undo of 4bit
 ;
 ; ------------------------------------------------ 
 
@@ -47,8 +48,8 @@
 	!wo modend
 	!wo 0
 	!tx "Animator        "
-	!tx "1.02"
-	!tx "29.08.19"
+	!tx "1.03"
+	!tx "31.08.19"
 	!tx "A.Dettke        "
 
 ; ------------------------------------------------ 
@@ -60,6 +61,7 @@ start	jsr chk4anim	; Anim vorhanden? (kehrt nicht zurück, wenn nicht)
 	lda gd_modswitch
 	sta mswitch
 
+	jsr doundo
 	jsr gd_sproff	; Maus aus
 	lda #$18		; grafik an
 	sta multreg
@@ -96,6 +98,8 @@ loop	lda #<records	; Vorbereitungen:
 	bmi display
 	jsr getimage	; bild beim ersten mal doppelt holen
 	jsr change
+	lda bkgr0
+	sta backgr
 
 display	lda evenodd	; vic flag toggeln
 	eor #1
@@ -140,11 +144,43 @@ leave	ldx #$13		; ja, grafik aus
 	lda sc_maincolor	; GoDot farben
 	sta rahmen
 	sta backgr
+	jsr getundo
 	jsr gd_spron	; Maus an
 	lda mswitch
 	sta gd_modswitch
 	sec 		; ende
 	rts 
+
+; ------------------------------------------------ 
+
+getimage	jsr setimgdta	; startrecord setzen (von records holen)
+
+	ldy #6		; bitmap (nach $2000/$4000)
+-	lda recbmap,y
+	sta reuwerte,y
+	dey 
+	bpl -
+	lda #$91		; DMA auslösen (holen)
+	sta reucom
+
+	ldy #6		; video ram (nach $0400/$4400)
+-	lda recvram,y
+	sta reuwerte,y
+	dey 
+	bpl -
+	lda #$91		; DMA auslösen (holen)
+	sta reucom
+
+	ldy #6		; color ram + bg (nach $4000/$6000)
+-	lda reccram,y
+	sta reuwerte,y
+	dey 
+	bpl -
+	lda #$91		; DMA auslösen (holen)
+	sta reucom
+
+	ldx evenodd	; Colorram eintragen
+	bne setcram1
 
 ; ------------------------------------------------ 
 
@@ -189,42 +225,6 @@ change	lda #$60
 	lda #$80
 	sta recbmap+15
 	rts
-
-; ------------------------------------------------ 
-
-getimage	jsr setimgdta	; startrecord setzen (von records holen)
-
-	ldy #6		; color ram + bg (nach $4000/$6000)
--	lda reccram,y
-	sta reuwerte,y
-	dey 
-	bpl -
-	lda #$91		; DMA auslösen (holen)
-	sta reucom
-
-	ldy #6		; bitmap (nach $2000/$4000)
--	lda recbmap,y
-	sta reuwerte,y
-	dey 
-	bpl -
-	lda #$91		; DMA auslösen (holen)
-	sta reucom
-
-	ldy #6		; video ram (nach $0400/$4400)
--	lda recvram,y
-	sta reuwerte,y
-	dey 
-	bpl -
-	lda #$91		; DMA auslösen (holen)
-	sta reucom
-
-	ldx evenodd	; Colorram eintragen
-	bne +
-	jsr setcram0
-	bne ++
-+	jsr setcram1
-
-++	rts
 
 ; ------------------------------------------------ 
 
@@ -377,6 +377,71 @@ store	ldy #20		; zuerst sichern
 	dey 
 	bpl -
 	rts 
+
+; ------------------------------------------------ 
+
+doundo	jsr setundo	; set parameters
+	lda ls_flen	; save ls_flen
+	pha
+
+	ldx #setundo-stst	; perform Undo 4Bit
+sts1	lda stst,x
+	sta sy_global,x
+	dex
+	bpl sts1
+	jsr sy_global
+
+	pla
+	sta ls_flen
+	rts
+
+; ------------------------------------------------ 
+
+stst	jsr gd_swapd	; REU einblenden
+
+	iny		; .y=0
+	sty rm_werte
+	sty rm_werte+4
+	sty rm_werte+2
+	lda #$10		; address "Undo 4Bit"
+	sta rm_werte+3
+	ldx #9		; save 4Bit to REU (perform Undo 4Bit)
+	jsr rm_ramvec
+	jmp gd_swapd	; REU ausblenden
+
+; ------------------------------------------------ 
+
+setundo	ldx #1		; set index to Undo 4Bit
+	stx rm_nextentry
+	lda rm_ramundo	; set Flag for Undo 4Bit
+	and #$fe
+	ora #1
+	sta rm_ramundo
+	rts
+
+; ------------------------------------------------ 
+
+getundo	jsr setundo	; set parameters
+
+	ldx #mswitch-gtud	; transfer routine
+gu0	lda gtud,x
+	sta sy_global,x
+	dex
+	bpl gu0
+	jmp sy_global	; and perform
+
+; ------------------------------------------------ 
+
+gtud	jsr gd_swapd	; switch REU on
+	iny
+	sty rm_werte	; set parameters for Undo 4bit
+	sty rm_werte+4
+	sty rm_werte+2
+	lda #$10
+	sta rm_werte+3
+	ldx #8		; load Undo 4Bit to C64
+	jsr rm_ramvec
+	jmp gd_swapd	; switch REU off
 
 ; ------------------------------------------------ Data
 
