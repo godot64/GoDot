@@ -8,10 +8,11 @@
 ;
 ; ldr.AnimFrames
 ;  Loader for Amica Paint images which are part of
-;  a GoDot Full Screen Animation. Can be up to 255 images
-;  Only works in combination with mod.AnimBatch:
+;  a GoDot Full Screen Animation. Can be up to 255 images.
+;  Only works in combination with mod.AnimPlayer
 ;
 ;   0.99, 25.04.95, first release
+;   1.00, 31.08.19, added: check for end of REU
 ;
 ; ------------------------------------------------ 
 
@@ -21,6 +22,7 @@
 	gbyte		= $31
 	pcount		= $32
 	type		= $33
+	maxbank		= $34
 
 	offx		= ls_adrmisc
 	offy		= offx+1
@@ -28,6 +30,8 @@
 	offlo		= ramrec+2
 	offhi		= ramrec+3
 	bank		= ramrec+4
+
+	rahmen		= $d020
 
 ; ------------------------------------------------ 
 
@@ -37,14 +41,10 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "AnimFrames 2 REU"
-	!tx "0.99"
-	!tx "25.04.95"
+	!tx "1.00"
+	!tx "31.08.19"
 	!tx "A.Dettke        "
-;
-; ------------------------------------------------ 
 
-jerror	jmp error
-;
 ; ------------------------------------------------ 
 
 start	jsr ramcheck	; reu present? (leaves loader if not)
@@ -57,21 +57,21 @@ start	jsr ramcheck	; reu present? (leaves loader if not)
 	sta pcount	; init pack counter
 	sta sy_framecount	; and frame counter
 
-loops	jsr setfname	; set pointer to ls_nambuf ans transfer filename there
+loops	jsr setfname	; set pointer to ls_nambuf and transfer filename there
 	ldx #1
 	stx adcnt
 
 	dex
-	stx sc_stop
+	stx sc_stop	; init STOP key (would abort after loading currrent frame)
 	ldy #>sy_4bit	; target address: 4Bit
 	stx sc_texttab
 	sty sc_texttab+1
-;
-stt2	jsr gd_xopen	; read image
+
+stt2	jsr gd_xopen	; read frame:
 	jsr onebyte	; skip start address
 	bne sk3
 	jsr onebyte
-	bne jerror
+	bne error
 	asl		; take hi as filetype (for compress)
 	sta type
 	jsr gd_clrms
@@ -81,51 +81,54 @@ stt2	jsr gd_xopen	; read image
 	sta ls_vekta8
 	lda #>10001
 	sta ls_vekta8+1
-;
+
 loop	jsr action
-	jsr unpack	; get image data
+	jsr unpack	; get frame data
 	ldy #0
 	sta (sc_texttab),y	; write to 4Bit
 	inc sc_texttab
-	bne sk
+	bne sk0
 	inc sc_texttab+1
-sk	lda sc_stop
-	bne jerror
-	lda ls_vekta8
+sk0	lda ls_vekta8
 	bne sk1
-	dec ls_vekta8+1	; now count
+	dec ls_vekta8+1	; now count bytes (10001)
 sk1	dec ls_vekta8
 	lda ls_vekta8
 	ora ls_vekta8+1
 	beq sk2
-	lda status
-	beq loop
 
-sk2	jsr gd_xclose	; close file
-	jsr stash		; save image to REU (no control of limits yet!)
-	jsr incfname	; address next file
-	beq loops		; and read it
+	lda sc_stop	; STOP?
+	bne error		; yes, abort
+	lda status	; disk error?
+	beq loop		; no, continue load
+	
+sk2	jsr gd_xclose	; close frame file
+	jsr stash		; save frame to REU
+	jsr incfname	; address next frame
+	beq loops		; and read it (until end or STOP)
 
 sk3	jsr gd_xclose
-
-sk10	jsr getundo	; fetch Undo 4Bit
+	jsr getundo	; fetch Undo 4Bit
 	jsr gd_xmess	; show floppy message
 	jsr setfcount	; write final framecount into REU
 	jsr gd_spron	; mouse pointer on
 	sec		; leave loader
 	rts
-;
+
 ; ------------------------------------------------ 
 
 onebyte	jsr basin
 	ldx status
 	rts
-;
-error	jsr gd_xclose
-	jsr sk10
+
+; ------------------------------------------------ 
+
+error	ldy #2
+	jsr graphon
+	jsr sk3
 	clc
 	rts
-;
+
 ; ------------------------------------------------ 
 
 messout   ldx #<message	; display message and gauge
@@ -173,8 +176,8 @@ cl0	sta mess,x
 filltab   !by 160,93,103,127,126,124,105,109
 cntwert   !by 63
 
-txt	!scr " pi"
-current	!scr "c000 @"
+txt	!scr " Frame"
+current	!scr " 000 @"
 fname	!tx "a000.animations "
 
 message   !fill 11,32
@@ -184,14 +187,14 @@ mess	!fill 21,32
 ; ------------------------------------------------ 
 
 initfname	ldx #15
-	lda #32		; clear filename
+	lda #32		; clear framename
 inm3	cpx ls_flen
 	bmi inm0
 	sta fname,x
 	dex
 	bpl inm3
 
-inm0	lda ls_nambuf,x	; set current filename
+inm0	lda ls_nambuf,x	; set current framename
 	sta fname,x
 	dex
 	bpl inm0
@@ -209,7 +212,7 @@ inm4	lda ramrec,x
 	dex
 	bpl inm4
 	rts
-;
+
 ; ------------------------------------------------ 
 
 setfname	ldx ls_flen
@@ -223,10 +226,10 @@ inm2	lda fname,x
 	dex
 	bpl inm2
 	bmi setfn
-;
+
 ; ------------------------------------------------ 
 
-incfname	ldx #$30
+incfname	ldx #$30		; increment counter in framename
 	inc fname+3
 	lda fname+3
 	cmp #$3a
@@ -241,11 +244,11 @@ incfname	ldx #$30
 	lda fname+1
 	cmp #$3a
 	bcc ifn0
-	inc sc_stop
+	inc sc_stop	; corrupt framename?
 ifn0	inc sy_framecount
 	lda sc_stop
 	rts
-;
+
 ; ------------------------------------------------ Decompress Amica Paint
 
 unpack	lda pcount
@@ -263,12 +266,26 @@ getit1	sta gbyte
 getit2	dec pcount
 	lda gbyte
 	rts
-;
+
 ; ------------------------------------------------ 
 
-stash	lda #$90		; Stash to REU
+stash	lda maxbank	; in last bank?
+	cmp bank
+	bcc ++
+	bne ++
+	lda #$d8		; yes, does 1 more frame fit?
+	cmp offhi
+	bcc +
+	lda #$ef
+	cmp offlo
+	bcs ++
++	ldy #2
+	jmp graphon	; no, blink border, don't stash
+	
+++	lda #$90		; otherwise: stash to REU
 	jsr gd_reu
-	clc		; proceed
+
+	clc		; proceed to next frame
 	lda offlo
 	adc #<10001
 	sta offlo
@@ -278,7 +295,7 @@ stash	lda #$90		; Stash to REU
 	bcc sts0
 	inc bank
 sts0	rts
-;
+
 ; ------------------------------------------------ 
 
 ramcheck	lda ls_ramdrive
@@ -287,25 +304,47 @@ ramcheck	lda ls_ramdrive
 	bcc fail
 	cmp #9
 	bcs fail
+	ldx rm_reusize
+	bne +
+	tax
+	lda ifnotset,x
+	tax
++	lda sizes,x
+	sta maxbank	; .a: max bank
 	rts
-;
+
+; ----------------------------------------------------- Blink the Border
+
+graphon	lda rahmen	; save border color
+	pha
+	sty rahmen	; set new color (in .y, e.g. "2" for red)
+	ldx #$40
+	jsr gd_dl2	; delay
+	pla
+	sta rahmen	; reset old border color
+	stx sy_tbuffer	; clear key strokes
+stay	clc
+	rts
+
 ; ------------------------------------------------ 
 
-fail	pla
+fail	ldy #2
+	jsr graphon
+	pla
 	pla
 	sec
 	rts
-;
+
 ; ------------------------------------------------ 
 
 setundo	ldx #1		; set index to Undo 4Bit
 	stx rm_nextentry
-	lda rm_ramundo	; set Flag for for Undo 4Bit
+	lda rm_ramundo	; set Flag for Undo 4Bit
 	and #$fe
 	ora #1
 	sta rm_ramundo
 	rts
-;
+
 ; ------------------------------------------------ 
 
 setastart	jsr setundo	; set parameters
@@ -328,7 +367,7 @@ sts1	lda stst,x
 	pla
 	sta ls_flen
 	rts
-;
+
 ; ------------------------------------------------ 
 
 stst	jsr gd_swapd	; REU einblenden
@@ -352,7 +391,7 @@ stst	jsr gd_swapd	; REU einblenden
 	stx modul+17
 	stx sc_merk+2
 	jmp gd_swapd	; REU ausblenden
-;
+
 ; ------------------------------------------------ 
 
 getundo	jsr setundo	; set parameters
@@ -363,7 +402,7 @@ gu0	lda gtud,x
 	dex
 	bpl gu0
 	jmp sy_global	; and perform
-;
+
 ; ------------------------------------------------ 
 
 gtud	jsr gd_swapd	; switch REU on
@@ -376,7 +415,7 @@ gtud	jsr gd_swapd	; switch REU on
 	ldx #8		; load Undo 4Bit to C64
 	jsr rm_ramvec
 	jmp gd_swapd	; switch REU off
-;
+
 ; ------------------------------------------------ 
 
 setfcount	ldx #11
@@ -388,13 +427,16 @@ setfcount	ldx #11
 
 stfct	jsr gd_swapd
 	lda sy_framecount
-	sta modul+14
+	sta modul+14	; update REU frame counter
 	jmp gd_swapd
 
 ; ------------------------------------------------ 
 
-ramrec	!by 0,$40,0,0,2,$11,$27	; 10001 Bytes from 4bit to $xxxx in bank x
-;
+ifnotset	!by 0,0,0,0,4,5,0,0,3	; if reusize wasn't yet set
+sizes	!by 0,0,0,1,3,7,15,23,31,63	; number of max bank in current REU
+
+ramrec	!by 0,$40,0,0,2,<10001,>10001	; 10001 Bytes from 4bit to $xxxx in bank x
+
 ; ------------------------------------------------ 
 
 modend	!eof
