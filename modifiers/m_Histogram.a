@@ -18,11 +18,15 @@
 ;                           blinks red on try
 ;    1.04, 10.02.17, added: display "Counting" when counting, "Working" when applying data
 ;    1.05, 20.06.19, added: init keyboard for SuperCPU
+;    1.06, 19.09.19, added: show amount of colors in image
+;                    bugfix: avoid crash after executing it from REU and have a View at first time
 ;
 ; ------------------------------------------------------------ 
 
 
 ; --------------------------------------- Equates
+
+	pport		= $01
 
 	adcnt		= $30
 	hdone		= $31
@@ -67,22 +71,23 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "4BitHistogram   "
-	!pet "1.05"
-	!pet "20.06.19"
+	!pet "1.06"
+	!pet "19.09.19"
 	!pet "A. Dettke       "
 
 ; --------------------------------------- Main
 
-start	ldx sc_screenvek
+start	ldx sc_screenvek	; save vector to mainlist
 	stx list
 	ldx sc_screenvek+1
 	stx list+1
-	jsr chkmod
+	jsr chkmod	; check location of colors
 	jsr showrequester	; display requester and show first histogram
 	jsr gd_eloop	; wait for clicks
 
 ; --------------------------------------- Event: Exit
-evexit	sec
+
+evexit	sec		; leave module
 	rts
 
 ; --------------------------------------- Textout
@@ -111,13 +116,14 @@ tabigad	!by <(blk),>(blk)		; 0
 	!by <(white),>(white)	; 42
 	!by <(blnk),>(blnk)		; 44
 	!by <(blnk2),>(blnk2)	; 46
-;
-settab	lda #<(tabigad)
+	!wo numcgad		; 48
+
+settab	lda #<tabigad
 	sta sc_texttab
-	lda #>(tabigad)
+	lda #>tabigad
 	sta sc_texttab+1
 	rts
-;
+
 gettab	lda (sc_texttab),y
 	sta sc_screentab
 	iny
@@ -148,16 +154,17 @@ initwork	ldx #10		; this is for "Working"
 
 ; --------------------------------------- Finish Gauge
 
-done	jsr settab	; Offset to "Done."
-	ldx #20
+done	jsr settab
+	jsr gd_clrms
+	ldx #20		; Offset to "Done."
 	jsr tcopy
 	jmp messout
 
 ; --------------------------------------- Show Requester
 
 showrequester:
-	ldx #<(hstlst)	; display requester
-	ldy #>(hstlst)
+	ldx #<hstlst	; display requester
+	ldy #>hstlst
 	jsr gd_screen
 	ldy #32		; colorize inner box
 	jsr settab
@@ -196,6 +203,9 @@ ep3 	sty sc_merk
 	iny
 	cpy #44
 	bne ep3
+
+	lda #0		; reset number of colors
+	jsr shownum
        
 ; --------------------------------------- Event: Histogram
 
@@ -203,7 +213,7 @@ evhist 	jsr initcount
 	ldy #0		; set address of histogram table
 	sty sc_merk
 	sty hdone
-	lda #>(histlo)
+	lda #>histlo
 	sta sc_merk+1           
 	tya		; clear histogram table at $be00
 	ldx #$20
@@ -247,9 +257,13 @@ ht4 	dec ls_vekta8
 	lda ls_vekta8
 	ora ls_vekta8+1	; until 32000 bytes counted
 	bne hloop
+
 ; --------------------------------------- 
+
+	jsr numcols	; show number of colors in image
 	jsr done
-	stx sc_merk
+	stx sc_merk	; .x=0
+
 ht5 	lda histhi,x
 	tay
 	lda histlo,x
@@ -261,12 +275,12 @@ sr4 	sta sy_numbers,y
 	sta sc_movetab,y
 	dey
 	bpl sr4
-	inc 1
+	inc pport
 	ldx #$90
 	sec
 	jsr $bc49
 	jsr $bddf
-	dec 1
+	dec pport
 
 	ldy #6		; display digits (# of pixels/color)
 sr5 	dey
@@ -291,13 +305,36 @@ sr7	lda sc_merk
 	stx hdone
 	clc		; until finished
 	rts
+
+; --------------------------------------- 
+
+numcols	ldx #15		; count number of colors in image
+	ldy #0
+-	lda histlo,x
+	ora histhi,x
+	beq +
+	iny
++	dex
+	bpl -
+	tya
+shownum	jsr gd_xcnvdez	; make digits
+	cpx #$30
+	bne +
+	ldx #$20
++	stx numctx
+	sta numctx+1
+	ldy #48		; and output
+	jsr gettab
+	ldy #6
+	jmp gd_xtxout1
+
 ; --------------------------------------- Apply new palette
 
 applypal	jsr initwork	; init activity display
 	lda #125		; 125 pages (32000 bytes)
 	sta cnt
-	ldx #<($4000)	; from $4000 (4Bit)
-	lda #>($4000)
+	ldx #<$4000	; from $4000 (4Bit)
+	lda #>$4000
 	stx ls_vekta8
 	sta ls_vekta8+1
 	inx
@@ -376,8 +413,8 @@ ev_join	jsr joininit	; init variables
 	pha
 	lda sc_screenvek+1
 	pha
-	ldx #<(joinlst)	; display new reqester (within the old one)
-	ldy #>(joinlst)
+	ldx #<joinlst	; display new reqester (within the old one)
+	ldy #>joinlst
 sw0	jsr gd_screen
 	jsr gd_eloop	; wait for clicks
 	pla		; restore old screenlist
@@ -401,8 +438,8 @@ evswap	jsr joininit
 	pha
 	lda sc_screenvek+1
 	pha
-	ldx #<(swaplst)	; display new reqester (within the old one)
-	ldy #>(swaplst)
+	ldx #<swaplst	; display new reqester (within the old one)
+	ldy #>swaplst
 	bne sw0
 
 ; --------------------------------------- Subevent: Set Swap Colors
@@ -572,35 +609,48 @@ blankscr2	ldy #46		; blank message
 	jmp gd_fi0
 
 ; --------------------------------------- Standard C64 Palette
-;
+
 paldflt	!by 00,06,09,11,02,04,08,12,14,10,05,15,03,07,13,01
 newpal	!by 00,06,09,11,02,04,08,12,14,10,05,15,03,07,13,01
 c64pal	!by 00,15,04,12,05,10,01,13,06,02,09,03,07,14,08,11
 jointab	!by 00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00
 joins	!by 0
 list	!wo 0
-;
+
 arrows	!by 94,91
 
 ; --------------------------------------- Screenlist for Histogram
 
 hstlst	!by 0
-	!by 0,2,36,25,$91,0,0
+	!by 0,2,36,25,$91
+	!wo 0
 	!scr "Histogram@"
-box	!by 4,3,14,18,$20,0,0
-	!by 10,31,6,3,$c0,<(evview),>(evview)
+box	!by 4,3,14,18,$20
+	!wo 0
+numcgad	!by 4,31,6,3,$a0
+	!wo 0
+	!scr "  "
+numctx	!scr " 0@"
+	!by 10,31,6,3,$c0
+	!wo evview
 	!scr "View@"
-	!by 13,31,6,3,$c0,<(evswap),>(evswap)
+	!by 13,31,6,3,$c0
+	!wo evswap
 	!scr "Swap@"
-	!by 16,31,6,3,$c0,<(ev_join),>(ev_join)
+	!by 16,31,6,3,$c0
+	!wo ev_join
 	!scr "Join@"
-	!by 19,31,6,3,$c0,<(evexit),>(evexit)
+	!by 19,31,6,3,$c0
+	!wo evexit
 	!scr "Exit@"
-	!by 22,3,34,3,$0c,0,0
+	!by 22,3,34,3,$0c
+	!wo 0
 	!by $c0,2,3,6
 	!scr "Colors@"
 	!by $c0,2,11,3
 	!scr "Pix@"
+	!by $c0,6,31,4
+	!scr "Cols@"
 	!by $c0,04,3,7
 	!scr "  blk"
 	!by	 224,224,0
@@ -727,10 +777,10 @@ blnk2	!by 15,23,9,8
 
 ; --------------------------------------- Activity (Gauge)
 
-messout	ldx #<(message)
-	ldy #>(message)
+messout	ldx #<message
+	ldy #>message
 	jmp gd_xtxout2
-;
+
 tcopy	ldy #0
 tc0	lda txt,x
 	beq clrmess
@@ -738,13 +788,16 @@ tc0	lda txt,x
 	inx
 	iny
 	bne tc0
-;
+
 action	dec adcnt
 	bne ld4
 	lda cntwert
 	sta adcnt
 	ldy offy
-	ldx offx
+	cpy #20
+	bne act0
+	jsr clrmess
+act0	ldx offx
 	lda filltab,x
 	sta mess,y
 	jsr messout
@@ -754,7 +807,7 @@ action	dec adcnt
 	lda #7
 	sta offx
 ld4	rts
-;
+
 clrmess	ldx #20
 	lda #32
 cl0	sta mess,x
@@ -765,11 +818,11 @@ cl0	sta mess,x
 	sty offy
 	stx offx
 	rts
-;
+
 filltab	!by 160,93,103,127,126,124,105,109
-;
+
 cntwert	!by 200
-;
+
 txt	!scr " Counting@"		; 0
 	!scr " Working @"		; 10
 	!scr " Done.   @"		; 20
@@ -780,8 +833,12 @@ mess	!fill 21,32
 ; ------------------------------------------ Display graphics
 
 chkmod	sei
-	ldx #0
-	stx $01
+	ldx #4
+	lda #$fe		; preset values (in case of execute it from REU)
+-	sta where,x
+	dex
+	bne -
+	stx pport
 	ldy #3
 	sty where
 	lda #$f0		; check slot4 area $f000
@@ -797,18 +854,18 @@ chkmod	sei
 	sta where+1
 	jsr getwhere
 	lda #$36
-	sta $01
+	sta pport
 	cli
 	rts
 
 getwhere	lda (where,x)
-	tay		; check bit 6 (%01000000) of type
-	and #$40		; check bit 5 (%00100000)
+	tay		; check bit 6 (%01000000) of type (saver)
+	and #$40		; check bit 5 (%00100000)         (modifier)
 	beq chm0
 	jsr itis
 	sta therev1	; vram1
 	bne chm2
-chm0	tya
+chm0	tya		; check bit 7 (%10000000) of type (loader)
 	bpl chm1
 	jsr itis
 	sta therec	; cram
