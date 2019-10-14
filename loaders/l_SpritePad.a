@@ -1,0 +1,1453 @@
+
+	!src "godotlib.lib"	; Label-Library einbinden
+	*= $c000		; generelle Startadresse für alle Module
+	!ct pet		; Texte werden in PETSCII assembliert
+
+; ----------------------------------------- 
+;
+; ldr.SpritePad
+; loader for the SpritePad v2 spd-Spriteset files
+; converts them to standard multicolor and hires graphics resp.
+;
+;    1.00, 14.10.19, first release
+;
+; ----------------------------------------- 
+
+; ----------------------------------------- Equates
+
+	pport		= $01
+	status		= $90
+
+	temp		= $30
+	svpage		= $31
+	svchunks		= $32
+	src		= $33	; /$34
+	dst		= $35	; /$36
+	gbyte		= $37
+	byte		= $38
+	cnt		= $39
+	cntaction		= $3a
+	currspr		= $3b	; /$3c
+	btcnt		= $3d
+	lcnt		= $3e
+	mkbits		= $3f
+	svmaxnum		= $40
+	renderline	= $41	; /$42
+	sprback		= $48	; sprite background  (%00)
+	sprmul0		= $49	; multi color 0      (%01)
+	sprcol		= $4a	; sprites' own color (%10)
+	sprmul1		= $4b	; multi color 1      (%11)
+	mulconv		= $4c	; conversion buffer, up to $4f
+
+	offx		= $b2
+	offy		= offx+1
+
+	cols		= bkgrnd
+
+	sprite2		=$07fa
+	spr255		=$3fc0
+	spritex		=$d002
+	spritey		=$d003
+	sprpos2		=$d004
+	spritehi		=$d010
+	sprenable		=$d015
+	spryexpand	=$d017
+	sprmulti		=$d01c
+	sprxexpand	=$d01d
+	bordercol		=$d020
+	backcol		=$d021	; %00
+	sprcol0		=$d025	; %01
+	sprcol1		=$d026	; %11
+	sprcol2		=$d029	; %10
+
+; --------------------------------------- Header
+
+	jmp start
+	!by $80
+	!by $04		; has own requester
+	!by $00
+	!wo modend
+	!wo 0
+	!pet "SpritePad Loader"
+	!pet "1.00"
+	!pet "14.10.19"
+	!pet "A.Dettke        "
+
+; ----------------------------------------- Main
+
+start	lda used		; first start? (builds requester)
+	bmi +
+	jmp loader	; no, load file and display
+
++	lda gd_modswitch	; first start: save memory handler
+	sta ms_store
+	jsr makechr	; define 3 chars
+
+	lda sc_screenvek	; save main list
+	ldx sc_screenvek+1
+	sta list
+	stx list+1
+	lda allowns	; save params for first sprite (#0) on re-entry
+	pha
+	jsr setcurr	; set start address of current sprite (#0)
+	pla
+	ldx exited
+	beq +
+	sta allowns
++	jsr screen2	; show requester
+	jsr sk11		; init preview
+-	jsr gd_eloop	; wait for clicks
+	lda ls_flen	; cancel in filerequester?
+	bne +
+	jsr sk10		; yes, rebuild loader requester
+	bcc -		; and loop
+
++	jsr resetchr	; no: final cancel, un-define chars
+	lda ms_store	; restore memory handler
+	sta gd_modswitch
+
+; --------------------------------------- Event: Exit
+
+evexit	jsr gd_spron	; mouse on
+	sta exited	; set re-enter flag
+	lda flen
+	sta ls_flen
+	sec
+	rts
+
+; --------------------------------------- Screen
+
+screen	ldx list		; build main screen
+	ldy list+1
+	jsr gd_screen
+screen2	ldx #<spdlst	; build requester
+	ldy #>spdlst
+	jmp gd_screen
+
+; --------------------------------------- Service Routines 
+
+jerror	jmp error		; file error
+
+; ----------------------------------------- Load SPD file
+
+loader	jsr getname	; save file name for later use
+	lda const16+1
+	sbc ls_temp
+	lsr
+	sta indent
+	ldx ls_temp	; length of name is shorter than 16?
+const16	cpx #16
+	beq +
+	lda #$2a		; yes, attach a "*" to it
+	sta ls_nambuf,x	; (in case of trailing spaces)
+	inx
+	stx ls_temp	; so, increment length of name
++	stx flen
+
+	ldx #15		; reset title filename
+	lda #32
+-	sta spdname,x
+	dex
+	bpl -
+
+stt2	jsr gd_xopen	; open file
+	ldy #0
+stt1	jsr readbyte	; get header (9 bytes)
+	bne jerror
+	sta fheader,y
+	iny
+	cpy #9
+	bne stt1
+	jsr checkform	; richtiges Fileformat? ("SPD")
+	bne jerror
+
+stt3	jsr amount	; yes, # of sprites and # of bytes in total
+	ldx sprites
+	stx lastspr	; (save for later use)
+
+newpage	jsr gd_clrms	; clear message bar
+	jsr tcopy		; .x=0, "Sprites" ausgeben
+	iny		; .y=1
+	sty cntaction
+	lda #28		; activity counter to 28
+	sta cntwert
+
+	ldx #$20		; get file, destination $2000
+	stx sc_texttab+1
+	ldx #0
+	stx sc_texttab
+
+	lda bytes		; count width * height * 64 bytes (bitmap)
+	sta ls_vekta8
+	lda bytes+1
+	sta ls_vekta8+1
+
+loop	ldy #0		; retrieve file
+ 	jsr basin
+	sta (sc_texttab),y
+	jsr action
+	jsr cou5
+	bne loop
+	jsr gd_xclose	; then close file
+
+; --------------------------------------- Get Sprite Set
+
+	lda bkgrnd	; get background color from header
+	sta gr_fbkcol	; store it (for mod.SetBGColor)
+	lda allowns	; get first individual sprite data
+	tay
+	and #$80
+	sta gmode		; (multi: $80, hires: $00)
+	tya
+	and #15		; individual color
+	sta s2col
+
+	lda #<lcnts1	; prepare rendering
+	ldy #>lcnts1
+	sta renderline
+	sty renderline+1
+
+; --------------------------------------- Convert Sprite to 4bit
+
+convert	ldx #10		; "Convert"
+	jsr tcopy
+	lda #1
+	sta cntwert
+	sta cntaction
+	ldx #255
+	stx curnumber
+	
+es0	jsr next		; one by one
+	jsr cnvsprite	; convert all sprites to 4bit
+es1	ldx maxnumber
+	cpx curnumber
+	bne es0
+
+; --------------------------------------- Shutdown
+
+	ldx #0		; reset text to default ("Sprites")
+	jsr tcopy
+	lda gmode
+	bmi +
+	jsr setinfoh	; set filename and info
+	beq ++
++	jsr setinfom
+
+++	ldy #0		; reset counters
+	sty curnumber
+	sty page
+	ldx indent	; save filename
+-	cpy flen
+	beq +
+	lda nbuf,y
+	sta spdname,x
+	inx
+	iny
+	cpy #16
+	bne -
++	stx gr_redisp	; set re-render flag
+	jsr gettotal	; compute total amount of sprites in set
+	jsr onpage	; display current page # 
+	
+sk10	jsr gd_xmess	; error message from drive (in a blink)
+	jsr screen	; show requester
+	ldx #$ff		; reset start parameter
+	stx used
+sk11	jsr colspr1st	; show colors of 1st sprite
+	jsr evhome	; set sprite counter back to zero and display
+	jsr shsprwin	; prepare preview window
+stay	clc		; file loaded, don't leave loader
+	rts
+
+; --------------------------------------- Events:
+
+; ----------------------------------------- Event: Open File Requester from Loader
+
+evload	jsr gd_sproff	; .a=0
+	ldx #1		; (.x must be 1 for gd_xload)
+	stx used		; set start parameter to loaded (a bit early...)
+	jmp gd_xload	; leaves to main if CANCEL
+
+; --------------------------------------- Event: Load New Page
+
+evpage	ldx page		; no file?
+	beq stay		; yes, abort
+	cpx chunks	; last page?
+	bne +
+	ldx #0		; then start over with first
+
++	lda skips,x	; set hinib of skip amount:
+	sta bytes+1	; multiples of $1200 (72x64)
+	lda #0		; set lownib of full page skip amount
+	clc
+	adc #9		; add header length (9 bytes)
+	sta bytes
+
+	jsr gaugeout	; then show progression bar gadget
+	jsr gd_clrms
+	ldx #20
+	jsr tcopy		; skip unto current page
+	sty ls_vekta8
+	iny		; .y=0
+	sty cntaction
+	lda #38
+	sta cntwert
+	lda #>ls_nambuf
+	sta ls_vekta8+1
+	ldx flen
+
+	lda exited	; left loader in the meantime?
+	beq +
+	ldx #$ff		; yes, reset file parameters
+-	inx
+	lda oldname,x
+	sta ls_nambuf,x
+	cpx flen
+	bne -
+	lda #$2a
+	sta ls_nambuf-1,x
+	lda olddrive
+	sta ls_drive
+
++	stx ls_temp	; then load:
+	jsr gd_xopen	; open file
+	lda bytes		; set counter values
+	ldx bytes+1
+	sta ls_vekta8
+	stx ls_vekta8+1
+
+-	jsr basin		; skip pages
+	jsr action
+	jsr cou6
+	bne -
+
+	lda chunks
+	sta svchunks
+	lda lastspr	; # of sprites in set
+	ldx page		; address next page
+	stx svpage
+	inx
+	cpx chunks	; is it last page?
+	bne +
+
+	dex
+	lda lastspr	; yes, compute remainder on page
+	sbc sumspr,x
++	sta sprites
+	jsr amount	; compute # of bytes to read
+	jsr newpage
+	ldx maxnumber	; save max in file
+	stx svmaxnum
+
+	ldx svchunks
+	jsr shchunks
+	lda svpage
+	sta page
+	jsr incpage	; increment page counter
+	lda lastspr	; restore # of sprites in set
+	sta sprites
+	jsr amount	; (compute # on last page)
+	ldx svmaxnum	; restore max in file
+	stx maxnumber
+	clc
+	rts
+
+onpage	ldx chunks	; only if chunks>1 (after first load)
+	bne incpage
+	clc
+	rts
+
+incpage	ldx page		; count 1..4
+	cpx chunks	; max?
+	bne +
+	ldx #0		; yes, start over at 1
++	inx
+	stx page
+	txa
+	ora #$30
+	sta pagetx+1
+	ldy #20		; text out (page number)
+	jmp ed5		; .c=0
+
+; --------------------------------------- Event: Sprite Size
+
+evsize	ldx size		; 0: normal - 1: expanded
+	beq +
+	ldx #$ff
++	inx		; increment
+	stx size		; set new value
+	inx
+	txa
+	ora #$30
+	sta sizetx+1
+
+	lda sc_maincolor	; main color background
+	dex		; normal
+	beq +
+	ldy #4
+	!by $2c
++	ldy #6		; expanded
+	jsr setcols
+
+shsprwin	lda bkgrnd	; file color background
+	ldx size		; normal?
+	bne +
+	ldy #4
+	!by $2c
++	ldy #6		; expanded
+	jsr setcols
+
+	jsr display	; show preview sprite
+	ldy #16		; text out (size)
+ed5	jsr settab
+	ldy #6
+	jmp gd_xtxout1	; .c=0
+
+; --------------------------------------- Events: Home, Previous und Next
+
+evprev	ldx totnumber	; total # defined?
+	beq ep4		; no
+	ldx curnumber	; current sprite number = 0?
+	beq ep0		; yes, set to max
+	dex		; no, minus step
+	bpl ep1
+ep0	ldx maxnumber	; yes, get max number
+	jmp ep1		; display
+
+evnext	ldx totnumber	; total # defined?
+	beq ep4		; no
+	ldx curnumber	; add step
+	cpx maxnumber	; sprite number = max?
+	bcs evhome	; no, display
+	inx
+	!by $2c
+
+evhome	ldx #0		; return to first sprite on page
+
+ep1	txa
+ep2	sta curnumber
+	jsr gd_xcnvdez
+	sta snumtx+2
+	cpx #$30
+	bne ep3
+	ldx #$20
+ep3	stx snumtx+1
+	ldy #0
+	jsr ed5		; text out (current number)
+	jsr getsprite	; render sprite to preview
+	jsr display	; show sprite
+ep4	clc
+	rts
+
+; --------------------------------------- Advance to next Sprite (on Convert)
+
+next	ldx curnumber	; add 1
+	inx
+	cpx totnumber	; sprite number = max?
+	beq ep4		; yes, finished
+	txa
+	sta curnumber
+	clc
+	rts
+
+; --------------------------------------- Display Sprite
+
+display	jsr transfer	; .x=$ff
+	stx sprite2	; $07fa = Spritebereich 255 ($3fc0)
+	ldx size
+	beq +
+	inx		; .x=2
++	lda show,x	; position of preview
+	sta sprpos2
+	lda show+1,x
+	sta sprpos2+1
+
+	lda sprtcol2	; colorize: own color (%10)
+	sta sprcol2
+	ldy #14
+	jsr setcols
+	lda sprtcol0	; multi1 (%01)
+	sta sprcol0
+	lda sprtcol1	; multi2 (%11)
+	sta sprcol1
+	ldx gmode
+	beq +
+	ldx #4
++	stx sprmulti	; hires or multi
+	ldx size
+	beq +
+	ldx #4
++	stx spryexpand	; normal großes Sprite
+	stx sprxexpand
+	ldx #7		; Zeiger bleibt an, Preview dazu
+	stx sprenable
+	rts
+
+transfer	ldx #63		; now activate preview sprite
+sr2	lda showspr,x	; get data
+	sta spr255,x
+	dex
+	bpl sr2
+sr4	rts
+
+; --------------------------------------- Set current sprite address
+
+setcurr	lda #$40		; start at $4000
+	ldy #0
+	sty sc_pos+1
+	sty curry
+	sty currx
+	sty currspr
+	sta currspr+1
+	ldy curnumber
+	beq scp5
+
+	ldx width		; find DIV and MOD of curnumber
+	dex
+	stx sc_pos
+	jsr gd_mal10
+	ldx sc_pos
+	dex
+	tya		; .y = curnumber
+	ldy #$ff
+sc1	inx
+	iny
+	cmp multab,x	; DIV in .y
+	bcs sc1
+	sty curry		; Zeile des Sprites im 4Bit
+
+	dex
+	sec
+	sbc multab,x
+	bcs sc2
+	lda curnumber
+sc2	tax
+	stx currx		; Spalte des Sprites im 4Bit
+	
+stcl	lda curry
+	beq scp1
+	asl		; Zeile mal 2
+	tax		; als Index in Tabelle
+	lda adds1,x	; Adresse holen
+	tay
+	inx
+	lda adds1,x
+	tax
+sc4	tya		; und zur Basis addieren
+	adc currspr
+	sta currspr
+	txa
+	adc currspr+1
+	sta currspr+1
+
+scp1	lda currx		; plus column * 96 (3 bytes wide in 4bit)
+	beq scp5
+	sta temp
+scp6	clc
+	lda currspr
+	adc #$60
+	sta currspr
+	bcc scp7
+	inc currspr+1
+scp7	dec temp
+	bne scp6		; makes start address of sprite...
+
+scp5	lda currspr
+	ldy currspr+1
+	sta dst		; ...in 4bit
+	sty dst+1
+
+scp8	lda curnumber
+	tax
+	ldy #0
+	jsr amount64
+	sta src		; ...and in in sprite bitmap
+	tya
+	clc
+	adc #$20
+	sta src+1
+	ldy #63
+	lda (src),y
+	sta allowns,x
+	tay
+	and #$80
+	sta gmode
+	tya
+	and #15
+	sta sprtcol2
+	rts 
+
+; --------------------------------------- Convert one Sprite
+
+cnvsprite	jsr setcurr
+
+	lda bkgrnd	; result at sprback,x
+	jsr getdnib
+	sta sprback
+	lda sprtcol2
+	jsr getdnib
+	sta sprcol
+	lda sprtcol0
+	jsr getdnib
+	sta sprmul0
+	lda sprtcol1
+	jsr getdnib
+	sta sprmul1
+
+	ldx #0		; must be 0! (see mulindex/hnox)
+	ldy #3
+
+prloop	tya
+	pha
+	sta temp
+	ldy curry		; sprite raster line
+	lda offs,y
+	clc
+	adc temp
+	tay
+	lda (renderline),y	; now convert:
+	beq gs7
+	sta lcnt		; counts remaining lines per tile 
+
+zloop	ldy #0
+
+mk3	jsr rnox		; one byte to 4bit
+
+mk72	inc src		; next byte
+	bne mk73
+	inc src+1
+
+mk73	cpy #$60		; third byte is processed?
+	bne mk3		; no, loop
+
+	clc		; yes, next raster line
+	lda dst
+	adc #4
+	sta dst
+	bcc mk75
+	inc dst+1
+
+mk75	dec lcnt		; alle durch?
+	bne zloop
+
+	clc		; next block line
+	lda dst
+	adc #$e0
+	sta dst
+	lda dst+1
+	adc #$04
+	sta dst+1
+
+gs7	pla		; all block lines per sprite?
+	tay
+	dey
+	bpl prloop
+	jmp action	; then action
+
+; --------------------------------------- Render Sprite to 4Bit
+
+rnox	lda gmode
+	beq hnox
+
+	jsr mulindex	; .a=0, .x=0
+mnx1	pha
+	lda mulconv,x	; get bit pattern
+	and #3
+	tax
+	lda sprback,x	; übertragen nach 4bit
+	sta (dst),y
+mnx2	pla
+	tax
+	inx
+	txa
+	iny
+	cpx #4
+	bne mnx1
+	ldx #0		; .y=4
+	beq ++
+
+hnox	lda #$80
+	sta btcnt
+	lda (src,x)	; get sprite bitmap
+-	asl		; isolate 1 pixel
+	pha
+	bcs +
+	lda sprback	; colorize
+	!by $2c
++	lda sprcol
+	and #$f0		; left pixel
+	sta temp		; store it
+	lsr btcnt
+	pla		; isolate next pixel
+	asl
+	pha		; save remaining pixels
+	bcs +
+	lda sprback	; colorize right 4bit pixel
+	!by $2c
++	lda sprcol
+	and #15
+	ora temp
+	sta (dst),y	; and write 2 pixels to 4bit
+	iny
+	pla		; restore remaining pixels
+	lsr btcnt		; until 8 pixels (write 4 times, .y=4)
+	bcc -
+
+++	tya
+	clc
+	adc #28 		; y+32 = next tile in 4Bit
+	tay
+	rts
+
+; --------------------------------------- Isolate Multi color indexes
+
+mulindex	lda (src,x)	; get byte from sprite bitmap
+mex0	asl
+	rol mulconv,x	; get two bits
+	asl
+	rol mulconv,x
+	inx
+	cpx #4		; four times (1 byte)
+	bne mex0
+	tax		; .a=0
+	rts
+
+; --------------------------------------- Convert one Sprite
+
+getsprite	jsr setcurr
+	sta s2col
+	lda #>showspr	; address of preview sprite
+	ldy #<showspr
+	sty src
+	sta src+1
+	lda #<lcnts1
+	ldy #>lcnts1
+	sta renderline
+	sty renderline+1
+
+	ldx #0		; must be $00!
+	ldy #3		; counts sprite block lines in 4bit (3 or 4)
+
+gsloop	tya
+	pha
+	sta temp
+	ldy curry
+	lda offs,y
+	clc
+	adc temp
+	tay
+	lda (renderline),y
+	beq gs70
+	sta lcnt		; counts remaining lines per tile 
+
+zgsloop	ldy #0
+
+bl0	stx btcnt		; .x=0, count double pixels (4)
+
+	lda gmode		; render
+	beq +
+	jsr mbloop
+	beq ++
++	jsr hbloop
+
+++	ldx #0		; store result to sprite
+	lda mkbits
+	sta (src,x)
+s64	inc src		; next byte in sprite
+	bne gs5
+	inc src+1
+
+gs5	tya		; proceed to next tile
+	clc
+	adc #28
+	tay
+	cmp #96		; third byte finished?
+	bcc bl0		; no, loop
+
+	lda dst		; proceed to next line in tile, from left
+	clc
+	adc #4
+	sta dst
+	bcc gs6
+	inc dst+1
+gs6	dec lcnt		; lines left?
+	bne zgsloop	; yes
+
+	lda dst		; no, proceed to next blockline ($4e0 ahead)
+	clc
+	adc #$e0
+	sta dst
+	lda dst+1
+	adc #$04
+	sta dst+1
+
+gs70	pla		; start over three times
+	tay
+	dey
+	bpl gsloop
+	
+	lda s2col
+	sta sprtcol2
+	rts
+
+mbloop	lda (dst),y	; multi: get right pixel
+	and #15
+	tax
+	lda pal64,x
+gs2	ldx #3		; # of colors in a (multi) sprite
+gs20	cmp cols,x
+	beq gs21
+	dex
+	bpl gs20
+gs21	lda bits,x
+	rol
+	rol mkbits
+	rol
+	rol mkbits
+	iny		; next double pixel
+	inc btcnt
+	lda btcnt
+	cmp #4
+	bne mbloop
+	rts
+
+hbloop	lda (dst),y	; hires: get 4bit (2 pixels)
+	pha		; left one
+	lsr
+	lsr
+	lsr
+	lsr
+	tax
+	lda pal64,x
+	cmp bkgrnd	; is background?
+	bne +
+	lda #0		; yes
+	!by $2c
++	lda #$80		; no
+	rol
+	rol mkbits
+	inc btcnt
+	pla		; right one
+	and #15
+	tax
+	lda pal64,x
+	cmp bkgrnd	; is background
+	bne +
+	lda #0		; yes
+	!by $2c
++	lda $80		; no
+	rol
+	rol mkbits
+	iny		; next 2 pixels in 4bit
+	inc btcnt		; count pixels
+	lda btcnt
+	cmp #8		; until 8
+	bne hbloop
+	rts
+
+; --------------------------------------- Colorize all Gadgets
+
+colspr1st	lda s2col		; color of first individual sprite
+	jmp +
+colsprdis	lda sprtcol2	; sprite individual color
++	ldy #14
+	jsr setcols
+	lda bkgrnd	; background
+	ldy #8
+	jsr setcols
+	lda sprtcol0	; multi 1
+	ldy #10
+	jsr setcols
+	lda sprtcol1	; multi 2
+	ldy #12
+	jsr setcols
+cleardis	lda sc_maincolor	; sprite window 1
+	pha
+	ldy #6
+	jsr setcols
+	pla		; sprite window 2
+swin1col	ldy #4
+	
+setcols	sta sc_chgcol
+	jsr settab
+	ldx #4
+	jmp gd_fcol
+
+; --------------------------- 
+
+error	jsr gd_xclose
+	jsr sk10
+	clc
+	rts
+
+; --------------------------------------- Make Double Nibbles
+
+getdnib	and #$0f		; Farbe holen
+	tax
+	lda dnib,x
+	rts
+
+; --------------------------- 
+
+readbyte	jsr basin
+	ldx status
+	rts
+
+; --------------------------------------- Activity Display
+
+messout	ldx #<message
+	ldy #>message
+	jmp gd_xtxout2
+
+tcopy	ldy #0
+tc0	lda txt,x
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+
+action	dec cntaction
+	bne ld4
+	lda cntwert
+	sta cntaction
+	ldy offy
+	cpy #20
+	bne act0
+	jsr clrmess
+act0	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts
+
+clrmess	ldx #20
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0
+	ldx #7
+	sty offy
+	stx offx
+	rts
+
+filltab	!by 160,93,103,127,126,124,105,109
+
+cntwert	!by 32
+
+txt	!scr " Sprites @"	; 0
+	!scr " Convert @"	; 10
+	!scr " Skip    @"	; 20
+	
+message	!fill 11,32
+mess	!fill 21,32
+	!by 0
+
+; --------------------------------------- Correct File Format?
+
+checkform	ldx #$ff
+cf0	inx
+	cpx #3
+	beq cf1
+	lda fheader,x	; "SPD"?
+	cmp signature,x
+	beq cf0
+cf1	rts
+
+; --------------------------------------- Compute amount of sprites in set
+
+gettotal	lda #32		; clear output
+	sta alltx
+	sta alltx+1
+	ldx sprites	; # of sprites in set (minus 1)
+	inx
+	stx chunks
+	lda #0		; convert to digits
+	jsr cnvwa
+	ldy #6		; find tail of digit string
+-	dey
+	lda sy_numbers,y
+	bne -
+	dey		; transfer result rightbound...
+	ldx #2
+-	lda sy_numbers,y
+	sta alltx,x	; ...to output string
+	dex
+	dey
+	bpl -
+	ldy #18		; text out (total # of sprites in set)
+	jsr ed5
+
+	lda chunks	; get # of sprites
+	sec
+	ldx #0		; divide by 72 (72 is max on page)
+-	inx
+	sbc #72
+	bcs -
+shchunks	stx chunks	; and finally set as # of pages
+	txa
+	jsr gd_xcnvdez	; convert to digits
+	cpx #$30
+	bne +
+	ldx #32
++	stx totaltx+1
+	sta totaltx+2
+	ldy #2		; text out (# of pages)
+	jmp ed5
+
+; --------------------------------------- Word to Digits
+
+cnvwa	sta $62		; pass word over to kernel routines
+	stx $63
+	inc pport
+	ldx #$90
+	sec
+	jsr $bc49
+	jsr $bddf		; create result (leftbound at sy_numbers)
+	dec pport
+	rts
+
+; --------------------------------------- Compute amount of sprites on screen
+
+amount	ldy #0
+	sty sc_pos+1
+	ldx sprites
+	inx
+	cpx #72
+	bcc +
+	beq +
+	ldx #71
++	txa		; get height (# of sprites/8)
+	lsr
+	lsr
+	lsr
+	clc
+	adc #1
+	sta height
+	cpx #8		; get width (8 or lower if height=1)
+	bcc +
+	ldx #8
++	stx width		; (breite-1)*10 + (höhe-1) = Index in Tabelle
+	dex
+	stx sc_pos
+	jsr gd_mal10
+	clc
+	lda sc_pos
+	adc height
+	tax
+	dex
+	lda multab,x
+	sta totnumber	; amount of sprites
+	cmp sprites
+	bcc +
+	beq +
+	lda sprites
+	adc #0
++	tax
+	dex
+	stx maxnumber
+
+	jsr amount64	; amount of bytes (.y=0)
+	sta bytes		; store
+	sty bytes+1
+	rts
+
+amount64	sta sc_pos	; compute .a * 64
+	sty sc_pos+1	; set .y to 0!
+	asl sc_pos	; *2
+	rol sc_pos+1
+	asl sc_pos	; *4
+	rol sc_pos+1
+	asl sc_pos	; *8
+	rol sc_pos+1
+	asl sc_pos	; *16
+	rol sc_pos+1
+	asl sc_pos	; *32
+	rol sc_pos+1
+	asl sc_pos	; *64
+	rol sc_pos+1
+	lda sc_pos	; max is 72 * 64 = 4608 (per frame)
+	ldy sc_pos+1
+	rts
+
+; --------------------------------------- New Chars
+
+makechr	ldx #23		; create
+	lda sc_undochar,x
+	sta chrbuf,x
+-	lda chschr,x
+	sta sc_undochar,x
+	dex
+	bpl -
+	rts
+
+resetchr	ldx #23		; reset
+-	lda chrbuf,x
+	sta sc_undochar,x
+	dex
+	bpl -
+	rts
+
+; --------------------------------------- Counters
+
+cou5	inc sc_texttab
+	bne cou6
+	inc sc_texttab+1
+cou6	lda ls_vekta8
+	bne cou7
+	dec ls_vekta8+1
+cou7	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	rts
+
+; ----------------------------------------- Gauge on Next Page
+
+gaugeout	lda sc_screenvek	; show "requester"
+	pha
+	lda sc_screenvek+1
+	pha
+	ldx #<gaugelst
+	ldy #>gaugelst
+	jsr gd_screen
+	pla
+	sta sc_screenvek+1
+	pla
+	sta sc_screenvek
+	rts
+
+; --------------------------------------- Textout
+
+tabigad	!wo snumgad	; 0
+	!wo totalgad	; 2
+	!wo sprwin1	; 4
+	!wo sprwin2	; 6
+	!wo bggad		; 8
+	!wo m1gad		; 10
+	!wo m2gad		; 12
+	!wo owngad	; 14
+	!wo sizegad	; 16
+	!wo allgad	; 18
+	!wo pagegad	; 20
+
+settab	lda #<(tabigad)
+	sta sc_texttab
+	lda #>(tabigad)
+	sta sc_texttab+1
+;	rts
+
+gettab	lda (sc_texttab),y
+	sta sc_screentab
+	iny
+	lda (sc_texttab),y
+	sta sc_screentab+1
+	lda #0
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #4
+	bne gt0
+	jsr gd_trim
+	jmp gd_initmove
+
+; --------------------------------------- Screenlist
+
+spdlst	!by 0
+	!by 2,10,21,22,$81		; Requester
+	!wo 0
+	!scr "Load SpritePad",0
+sprwin1	!by 6,11,5,5,$a0		; Sprite normal
+	!wo 0
+	!by 160,160,160,0
+	!by 6,16,3,3,$c0		; next button
+	!wo evnext
+	!by 94,0
+bggad	!by 6,22,3,3,$a0		; Background
+	!wo 0
+	!by 160,0
+m1gad	!by 6,27,3,3,$a0		; multi1
+	!wo 0
+	!by 160,0
+	!by 8,16,3,3,$c0		; previous button
+	!wo evprev
+	!by 91,0
+owngad	!by 8,22,3,3,$a0		; individual color
+	!wo 0
+	!by 160,0
+m2gad	!by 8,27,3,3,$a0		; multi2
+	!wo 0
+	!by 160,0
+sprwin2	!by 11,11,8,8,$a0		; Sprite expanded
+	!wo 0
+	!by 160,160,160,160,160,160,0
+
+sizegad	!by 11,26,5,3,$cf		; toggle sprite size
+	!wo evsize
+	!by 223
+sizetx	!scr "x1",0
+allgad	!by 13,26,5,3,$8e		; total # of sprites
+	!wo 0
+alltx	!scr "  0",0
+totalgad	!by 15,26,5,3,$8e		; # of sprite pages
+	!wo 0
+totaltx	!scr "  0",0
+pagegad	!by 17,26,5,3,$ce		; current page
+	!wo evpage
+	!by 223
+pagetx	!scr " 0",0
+snumgad	!by 19,26,5,3,$8e		; # of sprite on page
+	!wo 0
+snumtx	!scr "  0",0
+	!by 21,11,8,3,$dc		; load spriteset
+	!wo evload
+	!scr " Load ",0
+	!by 21,19,6,3,$cc		; edit spriteset
+	!wo evhome
+	!scr "Home",0
+	!by 21,25,6,3,$ce		; exit loader
+	!wo evexit
+	!scr "Exit",0
+
+	!by $c0,4,11,16
+spdname	!fill 16,32
+	!by 0
+	!by $c0,7,11,3
+	!by 160,160,160,0
+	!by $c0,8,11,3
+	!by 224,224,224,0
+	!by $c0,6,19,2
+	!scr "BG",0
+	!by $c0,6,24,2
+	!scr "M1",0
+	!by $c0,8,18,3
+	!scr "Own",0
+	!by $c0,8,24,2
+	!scr "M2",0
+	!by $c0,12,11,6
+	!by 160,160,160,160,160,160,0
+	!by $c0,13,11,6
+	!by 160,160,160,160,160,160,0
+	!by $c0,14,11,6
+	!by 160,160,160,160,160,160,0
+	!by $c0,15,11,6
+	!by 160,160,160,160,160,160,0
+	!by $c0,16,11,6
+	!by 225,225,225,225,225,225,0
+	!by $c0,11,18,7
+	!scr "Zoom  :",0
+	!by $c0,13,18,7
+	!scr "Total :",0
+	!by $c0,15,18,7
+	!scr "Pages :",0
+	!by $c0,17,18,7
+	!scr "On Pg :",0
+	!by $c0,19,18,7
+	!scr "Sprite:",0
+	!by $80
+
+; ----------------------------------------- Screenlist for Gauge
+
+gaugelst	!by 0,22,3,34,3,$02
+	!wo 0
+	!by $80
+
+; --------------------------------------- File Header
+
+fheader	!pet "..."	; file signature
+version	!by 0		; should be "1"
+sprites	!by 0		; is amount-1
+anims	!by 0		; # of anims in file (-1), unused
+bkgrnd	!by 0		; screen background color
+sprtcol0	!by 11		; $d025 (pattern %01)
+sprtcol1	!by 12		; $d026 (pattern %11)
+
+; --------------------------------------- Variables
+
+s2col	!by 15		; $d027 (pattern %10)
+gmode	!by $80		; $00: hires, $80: multi
+lastspr	!by 0		; save # of sprites in set
+exited	!by 0		; module was exited already (if >0)
+width	!by 0		; width of gallery (max 8)
+height	!by 0		; height of gallery (max 9)
+chunks	!by 0		; total number of gallery pages
+page	!by 0		; current page
+
+ms_store	!by 0
+signature	!pet "spd"	; signature
+currx	!by 0
+curry	!by 0
+curnumber	!by 0
+totnumber	!by 72		; of sprite entries per page
+maxnumber	!by 71
+maxwidth	!by 8		; more than 8 isn't possible
+maxheight	!by 9		; 9 (=max 72 sprites)
+bytes	!wo 0		; amount of bytes to retrieve
+
+list	!wo 0		; pointer to mainlist
+used	!by $ff
+indent	!by 0		; indent when centering filename
+flen	!by $ff
+size	!by 0		; size of preview sprite
+show	!by 120,106,120,146	; position of preview sprites
+sumspr	!by 0,72,144,216	; remaining sprites in last page
+
+; --------------------------------------- Tables and records
+
+chschr	!by $00,$3a,$46,$4e,$40,$40,$3c,$00	; chars
+	!by $ff,$ff,$ff,$ff,$ff,$00,$00,$00
+	!by $ff,$ff,$00,$00,$00,$00,$00,$00
+chrbuf	!fill 24				; chars save buffer
+
+oldname	!fill 16
+olddrive	!by 0
+
+showspr	!by %11111111,%11111111,%11111111	; 1	preview sprite
+	!by %11101010,%10101010,%10101001	; 2
+	!by %11100000,%00000000,%00000001	; 3
+	!by %11100000,%00000000,%00000001	; 4
+	!by %11100000,%00000000,%00000001	; 5
+	!by %11100000,%00000000,%00000001	; 6
+	!by %11100000,%00000000,%00000001	; 7
+	!by %11100000,%00000000,%00000001	; 8
+	!by %11100000,%00000000,%00000001	; 9
+	!by %11100000,%00000000,%00000001	; 10
+	!by %11100000,%00000000,%00000001	; 11
+	!by %11100000,%00000000,%00000001	; 12
+	!by %11100000,%00000000,%00000001	; 13
+	!by %11100000,%00000000,%00000001	; 14
+	!by %11100000,%00000000,%00000001	; 15
+	!by %11100000,%00000000,%00000001	; 16
+	!by %11100000,%00000000,%00000001	; 17
+	!by %11100000,%00000000,%00000001	; 18
+	!by %11100000,%00000000,%00000001	; 19
+	!by %11010101,%01010101,%01010101	; 20
+	!by %11010101,%01010101,%01010101	; 21
+sprtcol2	!by 0				; $d027... (invidual Spritecolor, pattern %10)
+
+allowns	!fill 72				; table to provide all owns on re-entry
+					; unused except first value
+
+multab	!by 01,02,03,04,05,06,07,08,09,10	; Multiplikationstabelle y*x
+	!by 02,04,06,08,10,12,14,16,18,20	; Wert = multab+(y-1)*10,(x-1)
+	!by 03,06,09,12,15,18,21,24,27,30
+	!by 04,08,12,16,20,24,28,32,36,40
+	!by 05,10,15,20,25,30,35,40,45,50
+	!by 06,12,18,24,30,36,42,48,54,60
+	!by 07,14,21,28,35,42,49,56,63,70
+	!by 08,16,24,32,40,48,56,64,72,80
+	!by 09,18,27,36,45,54,63,72,81,90
+	!by 10,20,30,40,50,60,70,80,90,100
+
+offs	!by 00,04,08,12,16,20,24,28,32	; Offsets in lcnts
+
+skips	!by 0,>4608,>9216,>13824		; Offsets per screen in file
+
+pal64	!by $00,$06,$09,$0b,$02,$04,$08,$0c	; conversion table
+	!by $0e,$0a,$05,$0f,$03,$07,$0d,$01
+
+bits	!by %00000000			; Zuordungsbits: backgnd 
+	!by %01000000			; Spritecolor 0 ($d025) 
+	!by %11000000			; Spritecolor 1 ($d026) 
+	!by %10000000			; Spritecolor 2 ($d027..) 
+
+lcnts1	!by 0,5,8,8		; 0
+	!by 2,8,8,3		; 1
+	!by 0,7,8,6		; 2
+	!by 4,8,8,1		; 3
+	!by 1,8,8,4		; 4
+	!by 0,6,8,7		; 5
+	!by 3,8,8,2		; 6
+	!by 0,8,8,5		; 7
+	!by 0,5,8,8		; 8
+
+; --------------------------------------- Spritepositionen
+
+adds1	!wo $0000,$0a14,$1908,$231c,$3210,$4104,$4b18,$5a0c,$6900,$7314
+
+; --------------------------------------- Palette Table for MC double pixels
+
+dnib	!by $00,$ff,$44,$cc,$55,$aa,$11,$dd
+	!by $66,$22,$99,$33,$77,$ee,$88,$bb
+
+; --------------------------------------- Save Filename and Drive
+
+getname	lda ls_drive
+	sta olddrive
+	ldx #0
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	lda ls_nambuf,x
+	sta oldname,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+; --------------------------------------- Provide Image Information
+
+getdatag	ldx #9
+	!by $2c
+getdatac	ldx #4
+	ldy #4
+sinfo0	lda dtextc,x
+	sta datatype,y
+	dex
+	dey
+	bpl sinfo0
+	rts
+
+setinfoh	jsr getdatag
+	bmi +
+setinfom	jsr getdatac
++	jsr setname
+	jsr setloader
+	jsr setmode
+	jmp setdata
+
+setname	lda #0
+	ldx #<ls_picname
+	ldy #>ls_picname
+	bne si3
+setloader	lda #17
+	ldx #<ls_iloader
+	ldy #>ls_iloader
+	bne si3
+setmode	lda #25
+	ldx #<ls_imode
+	ldy #>ls_imode
+	bne si3
+setdata	lda #33
+	ldx #<ls_idrive
+	ldy #>ls_idrive
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!fill 16,32
+	!by 0
+	!scr "Sprites@"	; 17
+modetx	!scr "160x200@"	; 25
+datatype	!scr "Color@"	; 33
+
+htext	!scr "320x200"	; 46
+mtext	!scr "160x200"
+
+dtextc	!scr "Color"	; 4
+	!scr "Gray "	; 9
+
+modend	!eof
