@@ -10,6 +10,7 @@
 ; converts them to standard multicolor and hires graphics resp.
 ;
 ;    1.00, 14.10.19, first release
+;    1.01, 17.10.19, update: SPD file version 2 (containing tiles)
 ;
 ; ----------------------------------------- 
 
@@ -69,8 +70,8 @@
 	!wo modend
 	!wo 0
 	!pet "SpritePad Loader"
-	!pet "1.00"
-	!pet "14.10.19"
+	!pet "1.01"
+	!pet "17.10.19"
 	!pet "A.Dettke        "
 
 ; ----------------------------------------- Main
@@ -130,8 +131,7 @@ jerror	jmp error		; file error
 
 ; ----------------------------------------- Load SPD file
 
-loader	jsr getname	; save file name for later use
-	lda const16+1
+loader	lda const16+1
 	sbc ls_temp
 	lsr
 	sta indent
@@ -144,26 +144,33 @@ const16	cpx #16
 	stx ls_temp	; so, increment length of name
 +	stx flen
 
-	ldx #15		; reset title filename
+	ldx #15		; prepare title filename
 	lda #32
 -	sta spdname,x
 	dex
 	bpl -
 
-stt2	jsr gd_xopen	; open file
+	jsr gd_xopen	; open file
 	ldy #0
-stt1	jsr readbyte	; get header (9 bytes)
+stt1	jsr readbyte	; get header (16 bytes)
 	bne jerror
 	sta fheader,y
 	iny
-	cpy #9
+	cpy #16		; ### 1.01
 	bne stt1
+	jsr gd_xclose	; then close file
+
 	jsr checkform	; richtiges Fileformat? ("SPD")
 	bne jerror
+	jsr checkvers	; set parameters for version 1 and 2
+	jsr getname	; save file name for later use
 
-stt3	jsr amount	; yes, # of sprites and # of bytes in total
+	jsr amount	; compute # of sprites and bytes in total
 	ldx sprites
 	stx lastspr	; (save for later use)
+
+	jsr gd_xopen	; re-open file
+	jsr skiphead	; skip header
 
 newpage	jsr gd_clrms	; clear message bar
 	jsr tcopy		; .x=0, "Sprites" ausgeben
@@ -225,13 +232,15 @@ es1	ldx maxnumber
 
 ; --------------------------------------- Shutdown
 
-	ldx #0		; reset text to default ("Sprites")
+	ldx #0		; reset outtext to default ("Sprites")
 	jsr tcopy
-	lda gmode
+
+	lda gmode		; set filename and info
 	bmi +
-	jsr setinfoh	; set filename and info
-	beq ++
-+	jsr setinfom
+	jsr sethtext
+	bmi ++
++	jsr setmtext
+	jsr setinfo
 
 ++	ldy #0		; reset counters
 	sty curnumber
@@ -248,7 +257,7 @@ es1	ldx maxnumber
 +	stx gr_redisp	; set re-render flag
 	jsr gettotal	; compute total amount of sprites in set
 	jsr onpage	; display current page # 
-	
+
 sk10	jsr gd_xmess	; error message from drive (in a blink)
 	jsr screen	; show requester
 	ldx #$ff		; reset start parameter
@@ -266,7 +275,7 @@ stay	clc		; file loaded, don't leave loader
 evload	jsr gd_sproff	; .a=0
 	ldx #1		; (.x must be 1 for gd_xload)
 	stx used		; set start parameter to loaded (a bit early...)
-	jmp gd_xload	; leaves to main if CANCEL
+	jmp gd_xload
 
 ; --------------------------------------- Event: Load New Page
 
@@ -279,8 +288,6 @@ evpage	ldx page		; no file?
 +	lda skips,x	; set hinib of skip amount:
 	sta bytes+1	; multiples of $1200 (72x64)
 	lda #0		; set lownib of full page skip amount
-	clc
-	adc #9		; add header length (9 bytes)
 	sta bytes
 
 	jsr gaugeout	; then show progression bar gadget
@@ -296,7 +303,7 @@ evpage	ldx page		; no file?
 	sta ls_vekta8+1
 	ldx flen
 
-	lda exited	; left loader in the meantime?
+	lda exited	; had left loader in the meantime?
 	beq +
 	ldx #$ff		; yes, reset file parameters
 -	inx
@@ -311,17 +318,20 @@ evpage	ldx page		; no file?
 
 +	stx ls_temp	; then load:
 	jsr gd_xopen	; open file
+	jsr skiphead	; skip header
 	lda bytes		; set counter values
 	ldx bytes+1
 	sta ls_vekta8
 	stx ls_vekta8+1
+	jsr cou8
+	beq +
 
 -	jsr basin		; skip pages
 	jsr action
 	jsr cou6
 	bne -
 
-	lda chunks
++	lda chunks
 	sta svchunks
 	lda lastspr	; # of sprites in set
 	ldx page		; address next page
@@ -873,6 +883,13 @@ setcols	sta sc_chgcol
 	ldx #4
 	jmp gd_fcol
 
+; --------------------------------------- Make Double Nibbles
+
+getdnib	and #$0f		; Farbe holen
+	tax
+	lda dnib,x
+	rts
+
 ; --------------------------- 
 
 error	jsr gd_xclose
@@ -880,11 +897,12 @@ error	jsr gd_xclose
 	clc
 	rts
 
-; --------------------------------------- Make Double Nibbles
+; --------------------------- 
 
-getdnib	and #$0f		; Farbe holen
-	tax
-	lda dnib,x
+skiphead	ldy skipit
+-	jsr basin
+	dey
+	bne -
 	rts
 
 ; --------------------------- 
@@ -948,6 +966,39 @@ txt	!scr " Sprites @"	; 0
 message	!fill 11,32
 mess	!fill 21,32
 	!by 0
+
+; --------------------------------------- Build correct Header
+
+checkvers	ldy #2
+	lda fheader+3
+	sta version
+	and #1		; version 1?
+	beq +		; no
+
+	lda fheader+4	; yes, set values
+	sta sprites
+-	lda fheader+6,y
+	sta bkgrnd,y
+	dey
+	bpl -
+	lda #9
+	sta skipit
+	rts
+
++	lda fheader+6	; version 2, more than 255 sprites?
+	beq +		; no, skip
+	ldx #255		; yes, set to max 255
+	bne ++
++	ldx fheader+5	; otherwise set sprites minus 1
+++	dex
+	stx sprites
+-	lda fheader+13,y	; now set colors
+	sta bkgrnd,y
+	dey
+	bpl -
+	lda #16
+	sta skipit
+	rts
 
 ; --------------------------------------- Correct File Format?
 
@@ -1103,7 +1154,7 @@ cou6	lda ls_vekta8
 	bne cou7
 	dec ls_vekta8+1
 cou7	dec ls_vekta8
-	lda ls_vekta8
+cou8	lda ls_vekta8
 	ora ls_vekta8+1
 	rts
 
@@ -1259,16 +1310,15 @@ gaugelst	!by 0,22,3,34,3,$02
 
 ; --------------------------------------- File Header
 
-fheader	!pet "..."	; file signature
-version	!by 0		; should be "1"
-sprites	!by 0		; is amount-1
-anims	!by 0		; # of anims in file (-1), unused
-bkgrnd	!by 0		; screen background color
-sprtcol0	!by 11		; $d025 (pattern %01)
-sprtcol1	!by 12		; $d026 (pattern %11)
+fheader	!fill 16
 
 ; --------------------------------------- Variables
 
+version	!by 0		; 1 or 2, if 2 header gets re-ordered
+sprites	!by 0		; is amount-1
+bkgrnd	!by 0		; screen background color
+sprtcol0	!by 11		; $d025 (pattern %01)
+sprtcol1	!by 12		; $d026 (pattern %11)
 s2col	!by 15		; $d027 (pattern %10)
 gmode	!by $80		; $00: hires, $80: multi
 lastspr	!by 0		; save # of sprites in set
@@ -1277,6 +1327,7 @@ width	!by 0		; width of gallery (max 8)
 height	!by 0		; height of gallery (max 9)
 chunks	!by 0		; total number of gallery pages
 page	!by 0		; current page
+skipit	!by 16		; skip value on re-load
 
 ms_store	!by 0
 signature	!pet "spd"	; signature
@@ -1392,8 +1443,6 @@ si1	rts
 
 ; --------------------------------------- Provide Image Information
 
-getdatag	ldx #9
-	!by $2c
 getdatac	ldx #4
 	ldy #4
 sinfo0	lda dtextc,x
@@ -1403,10 +1452,19 @@ sinfo0	lda dtextc,x
 	bpl sinfo0
 	rts
 
-setinfoh	jsr getdatag
-	bmi +
-setinfom	jsr getdatac
-+	jsr setname
+sethtext	ldx #6		; choose mode "Hires"
+	!by $2c
+setmtext	ldx #13		; or "Multi"
+	ldy #6
+chi1	lda htext,x
+	sta modetx,y
+	dex
+	dey
+	bpl chi1
+	rts
+
+setinfo	jsr getdatac
+	jsr setname
 	jsr setloader
 	jsr setmode
 	jmp setdata
@@ -1444,10 +1502,9 @@ nbuf	!fill 16,32
 modetx	!scr "160x200@"	; 25
 datatype	!scr "Color@"	; 33
 
-htext	!scr "320x200"	; 46
-mtext	!scr "160x200"
+htext	!scr "320x200"	; 39
+mtext	!scr "160x200"	; 46
 
 dtextc	!scr "Color"	; 4
-	!scr "Gray "	; 9
 
 modend	!eof
