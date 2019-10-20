@@ -8,7 +8,7 @@
 ; svr.SpritePad
 ;     Saver for Subchrist's SpritePad v2
 ;
-; 1.00, 19.10.19, first release
+; 1.00, 20.10.19, first release
 ;
 ; -----------------------------------------
 
@@ -41,7 +41,7 @@
 	!wo 0
 	!tx "Save SpritePad 2"
 	!tx "1.00"
-	!tx "19.10.19"
+	!tx "20.10.19"
 	!tx "A.Dettke        "
 
 ; -----------------------------------------
@@ -58,15 +58,23 @@ saver	jsr defchar	; define listbox char
 	stx sprtcol0	; .x=$ff
 	inx
 	stx curnumber	; start value for sprites (0)
+	lda olap		; set tables for overlap
+	bne +
 	lda #<lcnts1
 	ldy #>lcnts1
-	sta renderline
+	bne ++
++	lda #<lcnts2
+	ldy #>lcnts2
+++	sta renderline
 	sty renderline+1
 	jsr setcurr	; set start address of sprite 0
 
  	ldx #<spdlst	; display requester
 	ldy #>spdlst
 	jsr gd_screen
+	ldx #7
+	jsr recolor2
+	jsr recolor
 	jmp gd_eloop
 
 ; ---------------------------
@@ -265,15 +273,58 @@ evexit	jsr gd_spron
 	sec
 	rts
 
-; -------------------------------------- Event: Change Width
+; --------------------------------------- Event: Overlap
+
+evolap	ldx olap		; 0: no/1: yes
+	beq ed0
+	ldx #$ff
+ed0	inx
+	stx olap
+	bne ed1
+	lda #<lcnts1	; set line offsets for "no"
+	sta renderline
+	lda #>lcnts1
+	sta renderline+1
+	lda height
+	cmp #10
+	bne +
+	ldx #8
+	jsr overhgt
++	lda #9		; maxheight
+	ldy #5
+	bne ed4
+ed1	lda #<lcnts2	; set line offsets for "yes"
+	sta renderline
+	lda #>lcnts2
+	sta renderline+1
+	lda #10
+	ldy #2
+ed4	sta maxhgt
+	ldx #2
+ed2	lda yesno,y	; toggle text
+	sta olaptx,x
+	dey
+	dex
+	bpl ed2
+	ldy #8
+	bne txout
+	
+; -------------------------------------- Event: Change Height
 
 evheight	ldx height
 	cpx maxhgt
-	bne +
+	bne overhgt
 	ldx #0
-+	inx
+overhgt	inx
 	stx height
-	txa
+	lda #32
+	sta hgttx
+	cpx #10
+	bne +
+	lda #"1"
+	sta hgttx
+	ldx #0
++	txa
 	ora #$30
 	sta hgttx+1
 	ldy #4
@@ -362,8 +413,7 @@ sc1	inx
 	bcs sc1
 	sty curry		; Zeile des Sprites im 4Bit
 
-	dex
-;	lda curnumber
+	dex		; .a=curnumber
 	sec
 	sbc multab,x
 	bcs sc2
@@ -375,10 +425,18 @@ stcl	lda curry
 	beq scp1
 	asl		; Zeile mal 2
 	tax		; als Index in Tabelle
+	lda olap		; Overlap?
+	bne sc3
 	lda adds1,x	; nein, Adresse holen
 	tay
 	inx
 	lda adds1,x
+	tax
+	bne sc4
+sc3	lda adds2,x	; Adresse bei Overlap
+	tay
+	inx
+	lda adds2,x
 	tax
 sc4	tya		; und zur Basis addieren
 	adc currspr
@@ -707,6 +765,18 @@ htimes10	sta sc_pos+1
 	sta multable+1
 	rts
 
+; ----------------------------------------- Re-Color Area
+
+recolor	ldx #3
+recolor2	ldy #3
+-	lda carea,x
+	sta sc_zl,y
+	dex
+	dey
+	bpl -
+	ldx #2		; offset to sc_normtext
+	jmp gd_fcol
+
 ; ----------------------------------------- Text Output Handler
 
 messout	ldx #<message	; Textausgabe
@@ -781,6 +851,7 @@ tabigad	!wo  modegad	; 0
 	!wo  widgad	; 2
 	!wo  hgtgad	; 4
 	!wo  versgad	; 6
+	!wo olapgad	; 8
 
 settab	lda #<tabigad
 	sta sc_texttab
@@ -805,7 +876,7 @@ gt0	jsr gd_setpos
 ; --------------------------------------- Screenlist
 
 spdlst	!by 0
-	!by 6,12,16,14,$91
+	!by 6,12,16,16,$91
 	!wo 0
 	!scr "Save SpritePad",0
 modegad	!by 9,20,8,3,$cf
@@ -821,10 +892,13 @@ widtx	!scr " 8",0
 hgtgad	!by 15,24,4,3,$ce
 	!wo evheight
 hgttx	!scr " 9",0
-	!by 17,12,8,3,$c7
+olapgad	!by 17,23,5,3,$ce
+	!wo evolap
+olaptx	!scr " no@"
+	!by 19,12,8,3,$c7
 	!wo evsave
 	!scr " Save ",0
-	!by 17,20,8,3,$ce
+	!by 19,20,8,3,$ce
 	!wo evexit
 	!scr "Cancel",0
 	!by $c0,9,12,5
@@ -837,7 +911,11 @@ hgttx	!scr " 9",0
 	!scr "Width",0
 	!by $c0,15,17,6
 	!scr "Height",0
+	!by $c0,17,12,8
+	!scr "Overlap:",0
 	!by $80
+
+carea	!by 14,18,6,3,12,13,11,1
 
 ; --------------------------------------- File Headers
 
@@ -865,8 +943,9 @@ colors2	!by 9,0,1		; default colors (bg,m1,m2)
 width	!by 8
 maxwid	!by 8
 height	!by 9
-maxhgt	!by 9
+maxhgt	!by 9		; 9 (normal sprites) or 10 (overlap)
 mode	!by 1		; 0: hires, 1: multi
+olap	!by 0		; 0: no, 1: yes
 version	!by 0
 headlen	!by 9
 curnumber	!by 0
@@ -879,6 +958,7 @@ backgnd	!by 0		; screen backgnd color
 sprtcol0	!by $ff		; $d025 (pattern %01)
 sprtcol1	!by 0		; $d026 (pattern %11)
 
+yesno	!scr "yes no"
 modes	!scr "HiresMulti"
 moffs	!by 4,9
 
