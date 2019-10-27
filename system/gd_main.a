@@ -13,7 +13,9 @@
 ; 1.31, 25.08.17, variable number of entries in directory window
 ; 1.32, 22.06.18, bugfix, "Cancel" in filerequester now returns
 ;                 correct value of 0 for ls_flen
-; 1.33, 14.11.18, bugfix, correct generation of quantization table
+; 1.33, 14.11.18, bugfix, now correct generation of quantization table
+; 1.34, 26.10.19, bugfix, now returns correct pointer values if other
+;                 sprites have x-positions >255
 ;
 ; -------------------------------------------------- 
 
@@ -24,7 +26,7 @@ gd_boxtab	!by 125,095,032,120,032,098,032,123,092	;  0
 	!by 097,117,116,111,032,119,099,115,107	;  2
 	!by 110,095,100,111,032,119,099,115,107	;  3
 	!by 125,095,100,120,032,119,113,115,107	;  4
-	!by 125,095,032,120,032,098,113,115,114	;  5
+	!by 125,095,032,120,032,098,113,115,114	;  5 : patchable!
 	!by 110,095,032,111,032,098,099,115,114	;  6
 	!by 104,117,116,120,032,119,032,123,108	;  7
 	!by 125,095,100,120,032,119,032,123,108	;  8
@@ -388,14 +390,14 @@ xy2spzl	sec		; subtract offset of hotspot
 
 position	ldx sy_soffy	; convert sprite position to screen position
 	stx sc_merk+1	; hotspot y (-50)
-	lda spritey-2	; v1.30: Referenz ist jetzt *weißer* Mauszeiger
+	lda spritey-2	; v1.30: Referenz ist jetzt *weiï¿½er* Mauszeiger
 	jsr xy2spzl
 	sta sc_merk
 	ldx sy_soffx	; hotspot x (-24)
 	stx sc_merk+1	; ab Spalte 29: x=hi
 	lda spritex
 	jsr xy2spzl
-	ldx spritehi
+	ldx xbeyond	; Sprites x >255?	### 1.34
 	beq po1
 	cmp #$18		; ab X-Pos. $0118 (256+24) 32 Spalten addieren
 	bcs po1
@@ -501,6 +503,8 @@ gd_irq	lda potx		; mouse driver
 y0	lda #$03
 	eor spritehi
 	sta spritehi
+	and #3		; ### 1.34: take care of mouse pointer
+	sta xbeyond
 
 	lda poty
 	ldy sy_oldposy
@@ -589,8 +593,7 @@ moved	sty sy_newposy
 	cmp #$40
 	bcs more
 	lsr
-	beq most
-	ldy sy_newposx
+	bne mo1		; ### 1.34
 	rts
 
 more	ora #$c0
@@ -598,17 +601,17 @@ more	ora #$c0
 	beq most
 	sec
 	ror
-	ldx #$ff
-	ldy sy_newposx
+	dex		; ### 1.34
+mo1	ldy sy_newposx
 	rts
 
-most	lda #0
+most	txa		; ### 1.34
 	rts
 
 ; -------------------------------------------------- Version Number
 
 gd_version
-	!by $01,$33	; version number, SED-mode
+	!by $01,$34	; version number, SED-mode
 
 ; -------------------------------------------------- 
 ; -------------------------------------------------- Entry to GoDot, Main Loop
@@ -1997,7 +2000,7 @@ sre0	lda rm_swapw,x
 	rts
 
 ; -------------------------------------------------- 
-magic2	!by $ad
+xbeyond	!by $ad		; ### 1.34
 ; -------------------------------------------------- 
 
 ; -------------------------------------------------- Screenlists
