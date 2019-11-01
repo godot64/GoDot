@@ -1,0 +1,1764 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; --------------------------------------
+;
+;     mod.BossEdit
+;       Modul zum Bearbeiten von Endgegner-Sprites (Bosses)
+;
+;     1.00, 01.11.19, first release
+;
+; --------------------------------------
+
+; -------------------------------------- Equates
+
+	pport		= $01
+	zeile		= sc_merk
+	spalte		= zeile+1
+	colors		= spalte+1
+
+	adcnt		= $30
+	multable		= $31	; /$32
+	src		= $33	; /$34
+	dst		= $35	; /$36
+	therev1		= $37
+	therev2		= $38
+	therec		= $39
+	temp		= $3a
+	currspr		= $3b	; /$3c
+	btcnt		= $3d
+	lcnt		= $3e
+	mkbits		= $3f
+	allpresent	= $40
+	renderline	= $41	; /$42
+	max		= $43
+	mcount		= $44
+	cindex		= $45
+	onshow		= $46
+	col		= $47
+
+	vram2		= $ce0b
+	vram1		= $de0b
+	cstart		= $ee0b
+
+	spritep		= $07fa
+	cols		= sy_global+16 	; ($3f50)
+	supercols		= cols+16		; ($3f60)
+	paltmp		= supercols+16	; ($3f70)
+	showspr		= paltmp+16	; ($3f80)
+	sprtcol2		= showspr+63	; ($3fbf)
+	spr255		= $3fc0
+
+	sprite1x		= $d002
+	sprite1y		= $d003
+	sprite2x		= $d004
+	sprite2y		= $d005
+	sprite3x		= $d006
+	sprite3y		= $d007
+	spritehi		= $d010
+	sprenable		= $d015
+	spryexpand	= $d017
+	sprmulti		= $d01c
+	sprxexpand	= $d01d
+	bordercol		= $d020
+	backcol		= $d021	; %00
+	sprcol0		= $d025	; %01
+	sprcol1		= $d026	; %11
+	sprcol2		= $d029	; %10
+
+; -------------------------------------- Header
+
+	jmp start
+
+	!by $20
+	!by 0
+	!by 0
+	!wo modend
+	!wo 0
+	!tx "Edit GoDotBosses"
+	!tx "1.00"
+	!tx "01.11.19"
+	!tx "A.Dettke        "
+
+; -------------------------------------- Main
+
+start 	ldx sc_screenvek
+	stx list
+	ldx sc_screenvek+1
+	stx list+1
+	ldx #4
+-	lda sprcol1,x	; save system sprite colors
+	sta s1col,x
+	dex
+	bpl -
+	lda gd_modswitch	; Memory Management
+	pha
+	jsr makechr
+
+	jsr chkmod	; prepare graphics output
+	lda olap
+	bne st0
+	lda #<lcnts1
+	ldy #>lcnts1
+	bne st1
+st0	lda #<lcnts2
+	ldy #>lcnts2
+st1	sta renderline
+	sty renderline+1
+
+	jsr reqout	; show requester
+	jsr gd_eloop	; wait for clicks
+
+	jsr resetchr
+	pla		; Memory Management
+	sta gd_modswitch
+
+	rts
+
+; -------------------------------------- Event: Exit
+
+evexit	jsr gd_spron
+	lda spritehi
+	and #3
+	sta spritehi
+	ldx #4
+-	lda s1col,x	; restore system sprite colors
+	sta sprcol1,x
+	dex
+	bpl -
+	inx
+	stx sprxexpand
+	stx spryexpand
+	stx curnumber
+	sec 
+	rts 
+
+; -------------------------------------- Event: Set Size
+
+evsetsize	jsr do_grafix	; show graphics
+	lda sc_stop	; STOP?
+	bne ed6
+	jsr totals	; no, recalculate values
+	ldx #$80
+	stx checking
+	jsr check		; check sprites
+	jsr setcol01	; set multi 0/1 colors
+reqout	jsr showreq	; redisplay requester
+	lda #0		; curnumber=0 (home)
+	jmp showcurr	; show in editor
+
+ed6	jmp sr3		; if stop don't recalculate
+
+; -------------------------------------- Event: Overlap
+
+evolap	ldx olap		; 0: no/1: yes
+	beq ed0
+	ldx #$ff
+ed0	inx
+	stx olap
+	bne ed1
+	lda #<lcnts1	; reset line offsets
+	sta renderline
+	lda #>lcnts1
+	sta renderline+1
+	lda #9		; reset maxheight
+	ldy #5
+	bne ed4
+ed1	lda #<lcnts2
+	sta renderline
+	lda #>lcnts2
+	sta renderline+1
+	lda #10
+	ldy #2
+ed4	sta maxheight
+
+chgfield	lda olap		; resize editor field
+	bne +
+	lda #$cb
+	ldx #23
+	bne ++
++	lda #$db
+	ldx #21	
+++	stx field+3
+	dex
+	dex
+	stx earea+3
+	sta olapgad+4
+	jsr showreq
+	lda curnumber
+
+	ldx olap		; overlap active?
+	bne +
+	cmp lastrow	; no, in lastrow?
+	bcc +
+	ldx lastrow	; yes, adjust curnumber...
+	dex
+	stx curnumber	; ...to maxnumber
+	txa
+
++	jmp showcurr	; show
+
+; --------------------------------------- Event: Show Graphics
+
+evshow	lda spritex	; save current 
+	pha
+	lda spritey
+	pha
+	lda width
+	pha
+	lda height
+	pha
+
+	ldy currx		; set selector position
+	ldx sprx,y
+	inx
+	stx spritex
+	ldy curry
+	lda olap
+	beq evs1
+	ldx spry1,y
+	bne evs2
+evs1	ldx spry0,y
+evs2	inx
+	stx spritey
+	jsr do_grafix	; show graphics
+
+	jsr gd_spron	; restore current
+	pla
+	sta height
+	pla
+	sta width
+	pla
+	sta spritey
+	pla
+	sta spritex
+	jsr sr3		; rebuild requester
+
+	ldy totnumber	; spritemap defined?
+	beq evs3		; not yet
+
+	lda #0		; otherwise compute new current sprite #
+	ldy defdw
+	jsr htimes10
+	ldy currh
+	dey
+	cpy defdh
+	bpl evs3
+	lda (multable),y
+	sec
+	sbc defdw
+	ldy defdw
+	cpy currw
+	bmi evs3
+	clc
+	adc currw
+	tay
+	dey
+	tya		; = new curnumber
+	jsr showcurr
+
+evs3	clc
+	rts
+
+; --------------------------------------- Events: Previous und Next
+
+evprev	ldx totnumber	; defined?
+	beq evs3		; no
+	ldx curnumber	; current sprite number = 0?
+	beq ep0		; yes, set to max
+	dex		; no, minus 1
+	bpl ep1
+ep0	ldx maxnumber	; yes, get max number
+	jmp ep1		; display
+
+evnext	ldx totnumber	; defined?
+	beq evs3		; no
+	ldx curnumber	; add step
+	inx
+	cpx totnumber	; sprite number = max?
+	bne ep1		; no, display
+	ldx #0		; yes, get zero
+
+ep1	txa
+showcurr	sta curnumber
+	jsr gd_xcnvdez
+	sta curnum+1
+	cpx #$30
+	bne ep3
+	ldx #$20
+ep3	stx curnum
+	ldx #15
+	stx sprites
+	bit checking
+	bmi +
+	ldy #0
+	jsr txtout
++	jsr histospr
+	jsr getsprite
+	lda #0
+	sta checking
+	jmp display
+
+; ------------------------------------------------ Event: Pick Color
+
+evgetcol	sec		; compute row where user clicked
+	lda sc_merk
+	sbc palzl
+	asl
+	asl
+	sta hold
+	sec		; compute column
+	lda sc_merk+1
+	sbc palsp
+	clc
+	adc hold
+	tax		; take as index into palette
+	lda gr_basepal,x
+	tax
+	ora #$80		; sign valid
+	sta gr_picked
+initpal	lda c64pal,x	; re-display palette
+	sta col		; save picked color for editor
+	jsr makepal
+	clc
+	rts
+
+; --------------------------------------- Event: Set BG Color
+
+evsetbg	lda plast
+	sta backgnd
+	jsr showreq
+	jmp currout
+	
+; --------------------------------------- Event: Edit one Pixel
+
+evpixed	jsr sprdivmod	; compute row and column of sprite
+
+	ldx curry		; now navigate to sprite:
+	lda olap		; Overlap?
+	bne +
+	lda edadd1,x
+	ldy #0		; no, get standard y-address of sprite in 4bit
+	beq ++
++	lda edadd2,x
+	ldy #0		; address when Overlap
+++	tax		; hibyte
+	tya		; lobyte, add to base address
+	clc
+	adc currspr
+	sta currspr
+	txa
+	adc currspr+1
+	sta currspr+1
++++	jsr scp1		; set x-address in 4bit
+
+	ldy spalte	; adjust to position in editor field
+	dey
+	tya
+	pha		; save column value to stack (x indent)
+	lsr		; / 8
+	lsr
+	lsr
+	sta horizont	; set column
+	ldy zeile
+	dey
+	dey
+	dey
+	sty vertical
+	ldy curry		; add tail
+	lda olap		; take care of overlap
+	beq ++
+	sec
+	lda #8
+	sbc curry
+	bcs +
+	lda #9
++	tay
+++	lda gaplines,y
+	clc
+	adc vertical
+	pha		; save row value to stack (y indent)
+	lsr		; / 8
+	lsr
+	lsr
+	sta vertical	; and row
+	jsr set4bit	; set y-address in 4bit
+
+	pla		; and now pixel row
+	and #7
+	asl		; * 4 = y-offset in tile
+	asl
+	sta temp
+	pla		; and pixel column
+	and #7
+	tax		; .x: bit 0 indicates which nibble
+	lsr		; / 2 = offset in tile line
+	clc
+	adc temp		; add, makes offset to byte
+	adc currspr	; and now pointing to correct byte
+	sta currspr
+	bcc +
+	inc currspr+1
+
++	ldy plast		; get chosen color
+	lda c64pal,y
+	tay
+	txa		; now decide which nibble (.x)
+	and #1
+	bne +
+	tya		; left nibble (or pixel)
+	and #$f0
+	sta temp
+	ldy #0
+	lda (currspr),y
+	and #$0f
+	jmp sl2
++	tya		; right nibble (or pixel)
+	and #$0f
+	sta temp
+	ldy #0
+	lda (currspr),y
+	and #$f0
+sl2:	ora temp		; set new color to 4Bit
+	sta (currspr),y
+	lda #1
+	sta gr_redisp 	; set re-render flag
+currout	lda curnumber	; and display
+	jmp showcurr
+
+; ------------------------------------------ 
+
+set4bit:	lda vertical 	; row (of tiles)
+	beq ss0
+	sta temp		; compute row address
+ss1:	clc
+	lda currspr+1
+	adc #5
+	sta currspr+1
+	dec temp
+	bne ss1
+ss0:	lda horizont	; column (of tiles)
+	beq ss2
+	sta temp
+ss4:	clc		; compute indent into row
+	lda currspr
+	adc #32
+	sta currspr
+	bcc ss3
+	inc currspr+1
+ss3:	dec temp
+	bne ss4
+
+ss2	rts
+
+; ------------------------------------------------ create palette chooser
+
+makepal	lda gr_picked	; get current color
+	and #15
+	sta plast		; and store
+
+	lda palsp		; create chooser, first column
+	sta sc_sp
+	pha
+	ldx #1		; width and height = 1
+	stx sc_br
+	stx sc_ho
+	dex
+	stx cnty		; counters = 0
+	stx hold
+
+mp1	stx cntx
+	ldy hold
+	jsr colorize	; colorize area (1x1)
+	sec		; is PICKED color?
+	lda sc_vekt20
+	sbc #40
+	sta sc_vekt20
+	lda sc_vekt20+1
+	sbc #$d4
+	sta sc_vekt20+1
+	ldy sc_chgcol
+	cpy plast
+	beq mp2
+	lda #160		; no, write shift space
+	bne mp3
+mp2	lda #171		; yes, write reverted "+"
+mp3	ldy #0
+	sta (sc_vekt20),y
+	inc sc_sp		; next column
+	inc hold
+	ldx cntx
+	inx
+	cpx #4
+	bne mp1
+
+	pla		; re-get start column
+	pha
+	sta sc_sp
+	ldx #0
+	inc sc_zl		; next row
+	inc cnty
+	lda cnty
+	cmp #4
+	bne mp1
+
+	pla		; clear stack
+	rts		; finished
+
+; --------------------------------------- 
+
+colorize	lda gr_basepal,y	; get color
+	sta sc_chgcol
+	ldx #4
+	jmp gd_fcol	; colorize area (1x1)
+
+; --------------------------------------- 
+
+txtout	jsr settab
+	ldy #6
+	jmp gd_xtxout1
+	
+; ----------------------------------------- Show Editor Field
+
+shwedfd	pha		; save current double pixel
+	sty temp
+
+	ldx olap
+	beq +
+	ldx farea
+	cpx #22
+	bcs skp2
+
++	lsr
+	lsr
+	lsr
+	lsr
+	tax
+	lda pal64,x
+	jsr recolor3	; set left pixel
+
+skp1	inc farea+1	; increment editor column
+	pla
+	pha
+	and #15
+	tax
+	lda pal64,x
+	jsr recolor3	; set right pixel
+
+skp0	inc farea+1	; proceed for next one
+skp2	ldy temp
+	pla		; tidy up stack
+	rts
+
+recolor3	sta sc_chgcol
+	ldx #43
+	stx sc_loop	; address color ram
+	jmp recolor2
+
+; ----------------------------------------- Requester
+
+showreq	lda height	; - sometimes (on start, after SETSIZE and OLAP)
+	sta defdh
+	ldx #32
+	stx hgttx+1
+	jsr gd_xcnvdez
+	cpx #$30
+	beq sr0
+	sta hgttx+1
+	txa
+sr0	sta hgttx
+	lda width
+	sta defdw
+	jsr gd_xcnvdez
+	sta widtx
+	jsr totals
+
+sr3	ldx #<bosslst	; - repeatedly (after SHOW)
+	ldy #>bosslst
+	jsr gd_screen	; build Requester
+	sta onshow	; .a=0
+	jsr recolor	; recolor some areas (paint=2)
+	ldx #7
+	jsr recolor2
+	ldx #27
+	jsr recolor2
+	lda backgnd
+	ldx #31
+	jsr bgo1
+	jsr bkgnds	; (paint=4)
+
+display	jsr transfer	; - always
+	stx spritep	; $07fa/b = Spritebereich 255 ($3fc0)
+	stx spritep+1
+	ldx #3
+-	lda show,x
+	sta sprite2x,x	; set preview sprite positions
+	dex
+	bpl -
+	stx onshow	; .x=$ff
+	lda spritehi	; sprite 3 is x>255
+	ora #8
+	sta spritehi
+	lda cols+2	; colorize (1st: mid gray (%10))
+	sta sprcol2
+	sta sprcol2+1
+	lda cols+1	; (1st: dark gray (%01))
+	sta sprcol0
+	lda cols+3	; (1st: light gray (%11))
+	sta sprcol1
+	ldx #12		; multi on for Sprite 2 and 3
+	stx sprmulti
+	ldx #15		; go activate sprites 0..3
+	stx sprites
+	jsr bkgnds	; show sprite colors in table
+	ldx #8		; expand on for sprite 3
+	bne sa1		; now activate
+
+transfer	ldx #63		; now set preview sprites' data
+sr2	lda showspr,x	; get data
+	sta spr255,x
+	dex
+	bpl sr2
+sr4	clc
+	rts
+
+; --------------------------------------- Activate Selector Sprite
+
+spract	ldx #63
+sa0	lda sprdata,x	; set selector sprite
+	sta spr255,x
+	dex
+	bpl sa0
+
+	stx spritep	; $07fa = Spritebereich 255 ($3fc0)
+	jsr selpos
+	ldx backgnd	; if BG white turn selector black
+	dex
+	beq sa2
+	ldx #1
+sa2	stx sprcol2	; in weiß (bzw. schwarz)
+	ldx #7
+	stx sprites
+	ldx #0
+	stx sprmulti	; multi aus
+sa1	stx spryexpand	; normal großes Sprite
+	stx sprxexpand
+	ldx sprites	; Zeiger bleibt an, Selector dazu
+	stx sprenable
+
+; ----------------------------------------- Prepare Color Chooser
+
+prepcch	lda $d018		; graphics mode on?
+	cmp #$13
+	bne sr4
+
+	lda #0		; no:
+	sta sc_loop	; take care for text mode
+	ldx palgad	; set palette gadget values
+	inx
+	stx palzl
+	stx sc_zl
+	ldx palgad+1
+	inx
+	stx palsp
+	stx sc_sp
+	ldx #4		; 4x4 area (color chooser)
+	stx sc_br
+	stx sc_ho
+	jsr gd_esm3	; compute address and invert
+
+	lda gr_picked	; get previously selected color to .x
+	and #15		; (will be marked by "+")
+	tax
+	jmp initpal	; and show colors
+
+; --------------------------------------- Selector Position
+
+selpos	lda spritehi	; not > 255 in x
+	and #3
+	sta spritehi
+	bne sl9
+	ldy #$ff		; ja
+sl0	iny
+	ldx sprx,y
+	cpx sprite1x
+	bcc sl0
+	tya		; Zeiger am linken Rand?
+	beq sl4		; ja
+	cmp maxwidth	; Zeiger am rechten Rand?
+	bcc sl6		; nein
+sl9	ldy maxwidth
+sl6	sty width
+	dey
+sl4	lda sprx,y	; feste x-Position setzen
+	sta sprite2x
+
+	ldy #$ff
+sl1	iny
+	lda olap
+	beq sl11
+	ldx spry1,y
+	bne sl12
+sl11	ldx spry0,y
+sl12	cpx sprite1y
+	bcc sl1
+	tya		; Zeiger am oberen Rand?
+	beq sl7		; ja
+	cmp maxheight	; Zeiger am unteren Rand? (9/10)
+	bcc sl8		; nein
+	ldy maxheight
+sl8	sty height
+	dey
+sl7	lda olap
+	beq sl71
+	lda spry1,y
+	bne sl72
+sl71	lda spry0,y	; feste y-Position setzen
+sl72	sta sprite2y
+	
+sl3	rts
+
+; ----------------------------------------- Show Color Table
+
+bkgnds	ldx #4
+	stx paint
+	jsr prvsprts	; recolor sprite fields
+
+	lda backgnd	; out: 
+	ldx #11		; BGr
+	jsr bgo1
+	lda cols+2	; M1
+	ldx #15
+	jsr bgo1
+	lda cols+3	; M2
+	ldx #19
+	jsr bgo1
+	lda cols+1	; Own
+	ldx #23
+	jsr bgo1
+	ldx #0
+	stx onshow
+	ldx #2		; offset to sc_normtext
+	stx paint
+	rts
+
+bgo1	sta sc_chgcol
+	bit onshow
+	bmi recolor2
+	jsr recolor2
+	stx sc_loop	; .x=0 (Text)
+	jmp gd_esm3	; revert area
+
+
+prvsprts	lda backgnd
+	sta sc_chgcol
+	ldx #35		; norm sprite
+	jsr recolor2
+	ldx #39		; double sprite
+	jmp recolor2
+
+; ----------------------------------------- Re-Color Area
+
+recolor	ldx #3
+recolor2	ldy #3
+-	lda carea,x
+	sta sc_zl,y
+	dex
+	dey
+	bpl -
+	ldx paint
+	jmp gd_fcol
+
+; ----------------------------------------- Counters
+
+count	inc sc_vekt20
+	bne cou5
+	inc sc_vekt20+1
+cou5	inc colors
+	bne cou6
+	inc colors+1
+cou6	lda ls_vekta8
+	bne cou7
+	dec ls_vekta8+1
+cou7	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	rts
+
+; --------------------------------------- New Chars
+
+makechr	ldx #23		; create
+	lda sc_undochar,x
+	sta chrbuf,x
+-	lda chschr,x
+	sta sc_undochar,x
+	dex
+	bpl -
+	rts
+
+resetchr	ldx #23		; reset
+-	lda chrbuf,x
+	sta sc_undochar,x
+	dex
+	bpl -
+	rts
+
+; --------------------------------------- Switch Graphics/Text
+
+do_grafix	lda gr_redisp
+	pha
+	ldx #1
+	stx gr_redisp
+	dex
+	stx sc_stop
+	stx sc_keyprs
+	jsr redis
+	cli
+	jsr rp1
+	pla
+	sta gr_redisp	; restore auto render
+	jmp gd_spron
+
+; ------------------------------------------ Display graphics
+
+chkmod	sei		; routine to determine where color data is
+	ldx #0
+	stx 1
+	stx allpresent
+	ldy #$03
+	sty dst
+	lda #$f0		; check upmem area
+	sta dst+1
+	jsr getwhere
+	lda #$c0		; check loader area
+	sta dst+1
+	jsr getwhere
+	lda #$d0		; check saver area
+	sta dst+1
+	jsr getwhere
+	lda #$e0		; check modifier area
+	sta dst+1
+	jsr getwhere
+	lda #$36
+	sta 1
+	cli
+	rts
+
+getwhere	lda (dst,x)
+	tay
+	and #$40		; $40 = saver (vram1)
+	beq chm0
+	jsr thereis
+	sta therev1
+	bne chm2
+chm0	tya
+	bpl chm1
+	jsr thereis	; $80 = loader (cram)
+	sta therec
+	bne chm2
+chm1	jsr thereis	; $20 = modifier (vram2)
+	sta therev2
+chm2	rts
+
+thereis	ora allpresent	; is one missing?
+	sta allpresent	; (No if result is $e0)
+	lda dst+1		; correct the address
+	ora #$0e
+	rts
+
+; ------------------------------------------ Redisplay routines
+
+redis	ldx gr_palette
+	stx bordercol
+	jsr setcolors	; save video ram
+	lda gr_cmode
+	beq rp4
+	lda #$18		; graphics on
+	sta $d016
+rp4	lda #$1b
+	sta $d018
+	lda #$3b
+	sta $d011
+	lda width
+	sta stwidth
+	lda height
+	sta stheight
+	jsr spract	; set selector position
+	lda gr_redisp 	; leave (if flag set)
+	bne rp3
+
+rp1	jsr selpos	; trace selector
+	lda joy		; wait for click, fire or STOP
+	eor #$ff
+	and #$10
+	ora sc_keyprs
+	ora sc_stop
+	beq rp1
+
+	lda width		; save position of selector
+	sta currw
+	lda height
+	sta currh
+	lda sc_stop	; if stop don't reset position
+	beq rp5
+	lda stwidth
+	sta width
+	lda stheight
+	sta height
+rp5	jsr getcolors	; restore video ram
+	jsr tmode		; text mode on
+	ldx list
+	ldy list+1
+	jsr gd_screen	; show main screen
+rp3	clc
+	rts
+
+tmode	ldx #$13
+	lda #$1b
+	stx $d018
+	sta $d011
+	lda #$08
+	sta $d016
+	lda sc_maincolor
+	sta bordercol
+	sta backcol
+	rts
+
+; ------------------------------------------ 
+
+setcveks	sei
+	lda #$35
+	sta 1
+	lda therec
+	ldx #$d8
+	bne scv0
+
+; ------------------------------------------ 
+
+setbveks	lda therev1
+	ldx #4
+	dec 1
+scv0	stx colors+1
+	ldy #0
+	sty sc_merk
+	sty colors
+	dey
+
+; ------------------------------------------ 
+
+setlast	sty gr_bkcol
+	ldy #<(cstart)
+	sty sc_vekt20
+	sta sc_vekt20+1
+	lda #<(500)
+	sta ls_vekta8
+	lda #>(500)
+	sta ls_vekta8+1
+	ldy #0
+	rts
+
+; ------------------------------------------ 
+
+getcolors	jsr setcveks
+stco	lda (colors),y
+	sta sc_merk
+	inc colors
+	bne stc0
+	inc colors+1
+stc0	lda (colors),y
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	lda sc_merk
+	sta (sc_vekt20),y
+	jsr count
+	bne stco
+	jsr setbveks
+stc1	lda (colors),y
+	sta (sc_vekt20),y
+	jsr count
+	bne stc1
+	ldy gr_bkcol
+	bpl scv1
+	ldy #0
+	lda therev2
+	jsr setlast
+	beq stc1
+scv1	lda #$36
+	sta 1
+	cli
+	lda backcol
+	and #15
+	sta gr_bkcol
+	rts
+
+; ------------------------------------------ 
+
+setcolors	lda gr_bkcol
+	sta backcol
+	pha
+	jsr setcveks
+stc2	sty sc_merk
+	lda (sc_vekt20),y
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	sta (colors),y
+	inc colors
+	bne stc3
+	inc colors+1
+stc3	lda sc_merk
+	sta (colors),y
+	jsr count
+	bne stc2
+	jsr setbveks
+stc4	lda (sc_vekt20),y
+	sta (colors),y
+	jsr count
+	bne stc4
+	ldy gr_bkcol
+	bpl scv1
+	pla
+	tay
+	lda therev2
+	jsr setlast
+	beq stc4
+
+; --------------------------------------- Set current sprite address
+
+setcurr	jsr sprdivmod	; compute position of sprite in list
+
+stcl	lda curry		; row
+	beq scp1
+	asl		; times 2 (clears .c!)
+	tax		; index into table of addresses
+	lda olap		; Overlap?
+	bne sc3
+	lda adds1,x	; no, get standard address of sprite in 4bit
+	tay
+	inx
+	lda adds1,x
+	tax
+	bne sc4
+sc3	lda adds2,x	; address when Overlap
+	tay
+	inx
+	lda adds2,x
+	tax
+sc4	tya		; add to base address
+	adc currspr
+	sta currspr
+	txa
+	adc currspr+1
+	sta currspr+1
+
+scp1	lda currx		; plus column * 96
+	beq scp5
+	sta temp
+scp6	clc
+	lda currspr
+	adc #$60
+	sta currspr
+	bcc scp7
+	inc currspr+1
+scp7	dec temp
+	bne scp6		; makes start address 
+
+scp5	lda currspr
+	ldy currspr+1
+	sta src
+	sty src+1
+	sta dst
+	sty dst+1
+
+	rts 
+
+; ------------------------------------------ 
+
+sprdivmod	lda #$40	
+	ldy #0
+	sty sc_pos+1
+	sty curry
+	sty currx
+	sty currspr
+	sta currspr+1
+	ldx curnumber
+	ldy curnumber
+	beq scp5
+
+	ldx width		; find DIV and MOD of curnumber
+	dex
+	stx sc_pos
+	jsr gd_mal10
+	ldx sc_pos
+	dex
+	tya		; .y = curnumber (save to .a)
+	ldy #$ff
+sc1	inx
+	iny
+	cmp multab,x	; DIV in .y
+	bcs sc1
+	sty curry		; row of sprite in sprite list
+
+	dex
+	sec
+	sbc multab,x	; .a=curnumber
+	bcs sc2
+	lda curnumber
+sc2	tax
+	stx currx		; column of sprite in sprite list
+	rts	
+
+; --------------------------------------- Sprite histogram
+
+histospr	jsr setcurr
+	ldy #6		; out: no alert
+	jsr txtout	; .x=0
+
+	txa
+	sta numcols
+	ldy #15
+hs0	sta paltmp,y	; clear histograms
+	sta cols,y
+	dey
+	bpl hs0
+	lda backgnd	; set defined bg color
+	sta cols
+
+	ldy #3		; counts sprite blocklines (3 or 4 times)
+	sty farea		; and sprite rasterlines
+
+hs01	tya
+	pha
+	sta temp
+	ldy curry
+	lda offs,y
+	clc
+	adc temp
+	tay
+	lda (renderline),y
+	beq hs02
+	sta lcnt		; counts remaining lines per tile
+
+hs5	lda #3		; sprite is 3 bytes wide
+	sta mkbits
+hs3	ldy #3
+hs1	lda (src),y	; get 4 double pixels per byte
+	pha
+	lsr		; left pixel
+	lsr
+	lsr
+	lsr
+	tax
+	lda pal64,x	; get color
+	cmp cols		; background?
+	beq hs14		; yes, skip
+	tax
+	inc paltmp,x	; no, count color
+hs14	pla
+	and #15		; right pixel
+	tax
+	lda pal64,x	; get color
+	cmp cols		; background?
+	beq hs10		; yes, skip
+	tax
+	inc paltmp,x	; no, count color
+hs10	dey
+	bpl hs1
+	lda src		; next byte of sprite
+	clc
+	adc #32
+	sta src
+	bcc hs2
+	inc src+1
+hs2	ror mkbits
+	bcs hs3
+
+	inc farea		; proceed to next row in editor field
+	ldx olap
+	beq +
+	ldx curnumber
+	cpx lastrow
+	bcs +
+	ldx farea
+	cpx #22
+	bcs hs03
++	lda dst		; next line in tile
+	clc
+	adc #4
+	sta dst
+	sta src
+	lda dst+1
+	adc #0
+	sta dst+1
+	sta src+1
+
+hs4	dec lcnt		; blockline finished?
+	bne hs5		; no
+
+hs6	lda dst		; yes, next one
+	clc
+	adc #$e0
+	sta dst
+	sta src
+	lda dst+1
+	adc #4
+	sta dst+1
+	sta src+1
+
+hs02	pla
+	tay
+	dey
+	bmi +
+	jmp hs01
+
+hs03	pla
+
++	ldy #1		; provide found colors
+	ldx #0
+hs11	lda paltmp,x
+	beq hs9
+	txa		; .x is color
+	sta cols,y	; .y is amount
+	iny
+hs9	inx
+	cpx #16
+	bne hs11
+
+hs13	tya
+	pha
+
+	tax		; show # of colors in sprite
+	jsr gd_xcnvdez
+	sta cnumtx1+1
+	sta cnumtx2+1
+	cpx #"0"
+	bne +
+	ldx #32
++	stx cnumtx1
+	stx cnumtx2
+	ldy #8
+	jsr txtout
+
+	pla
+	cmp #5
+	bcc hs12
+	ldy #4		; display alert if too many
+	jsr txtout
+hs12	ldy #3		; and set to 3
+	sty numcols
+	rts
+
+; --------------------------------------- Proceed to next Sprite
+
+next	ldx curnumber	; increment
+	inx
+	txa
+	sta curnumber
+	jsr histospr
+
+; --------------------------------------- Convert one Sprite
+
+getsprite	jsr setcurr	; start address in currspr and src
+	lda #>showspr	; set sprite buffer address
+	ldy #<showspr
+	sty dst
+	sta dst+1
+
+	ldx #1
+	stx farea+1	; reset column counter
+	dex		; .x must be $00!
+	ldy #4
+	sty paint		; set colorize offset
+	dey		; counts sprite blockrows (3)
+	sty farea		; .y=3, reset row counter
+
+prloop	tya		; .y: remaining blockrows
+	pha
+	sta temp
+	ldy curry		; .y: start-rasterline in 4bit
+	lda offs,y
+	clc
+	adc temp
+	tay
+	lda (renderline),y	; .a: remaining rasterlines in curr. block row
+	beq gs7
+	sta lcnt		; counts remaining lines per tile 
+
+zloop	ldy #0		; .x=0, .y counts bytes
+
+bl0	stx btcnt		; count double pixels (4)
+
+bloop	lda (src),y	; get double pixel, take right half for sprites
+	bit checking
+	bmi +
+	jsr shwedfd	; but show both pixels in editor field
++	and #15
+	tax
+	lda pal64,x
+gs2	ldx numcols
+gs20	cmp cols,x	; convert color...
+	beq gs21
+	dex
+	bpl gs20
+gs21	lda bits,x	; ...to sprite bit pattern
+	rol
+	rol mkbits
+	rol
+	rol mkbits
+	iny		; .y: proceed to next double pixel
+	inc btcnt
+	lda btcnt
+	cmp #4		; process 4 double pixels
+	bne bloop
+
+	ldx #0		; store result to sprite buffer
+	lda mkbits
+	sta (dst,x)
+s64	inc dst		; proceed to next byte in sprite buffer
+	bne gs5
+	inc dst+1
+
+gs5	tya		; proceed to next tile in 4bit
+	clc
+	adc #28
+	tay
+	cmp #96		; third finished?
+	bcc bl0		; no, loop
+
+	inc farea		; proceed to next row in editor field
+	lda #1
+	sta farea+1	; and reset column
+	lda src		; proceed to next line in 4bit tile, from left
+	clc
+	adc #4
+	sta src
+	bcc gs6
+	inc src+1
+gs6	dec lcnt		; lines left?
+	bne zloop		; yes
+
+	lda src		; no, proceed to next blockrow ($4e0 ahead)
+	clc
+	adc #$e0
+	sta src
+	lda src+1
+	adc #$04
+	sta src+1
+
+gs7	pla		; start over three times
+	tay		; .y counts blockrows
+	dey
+	bmi +
+	jmp prloop
+	
++	rts		; finished
+
+; --------------------------------------- Find Supercolors
+
+check	jsr checkout	; show gadget
+	jsr clrhisto
+	ldx #255
+	stx curnumber
+es0	jsr next		; generates cols (histospr)
+	jsr suprhisto
+	ldx maxnumber
+	cpx curnumber
+	bne es0
+	rts
+
+; --------------------------------------- superhistogram
+
+suprhisto	ldy #1		; omit index 0 (background)
+suh1	ldx cols,y
+	beq suh0
+	inc supercols,x
+suh0	iny
+	cpy #16
+	bne suh1
+	rts
+
+; --------------------------------------- Clear superhistogram
+
+clrhisto	ldx #0
+	txa
+ch0	sta supercols,x
+	inx
+	cpx #16
+	bne ch0
+	rts
+
+; --------------------------------------- Set fixed colors for all Sprites
+
+setcol01	ldx #0
+	stx max		; init max and passes
+	stx mcount
+fb2	ldy #15		; check supercols for max
+fb1	ldx supercols,y
+	cpx max
+	bcc fb0
+	stx max		; store max...
+	sty cindex	; and color index
+fb0	dey
+	bpl fb1
+	inc mcount	; count passes
+	lda cindex	; store max color
+	ldx mcount	; schreibt +1 und +3 
+	cpx #1
+	bne fb3
+	sta backgnd+1	; also to sprtcol0...
+	beq fb4
+fb3	sta backgnd+2	; ...and sprtcol1
+fb4	tay		; erase from histogram
+	lda #0
+	sta supercols,y
+	sta max
+	inc mcount	; skip +2
+	cpx #3		; find two colors
+	bne fb2
+	rts
+
+; --------------------------------------- Total number of Sprites
+
+totals	lda #$30		; Vorbesetzung: "00"
+	tax
+
+	ldy height	; Höhe = 0?
+	beq tt2		; dann Ergebnis auch 0
+	lda #0
+	sta totnumber	; ### 1.04
+	jsr htimes10	; ###
+	lda #$30		; Vorbesetzung: "00" ($30 auch in .x)
+	ldy width		; Breite = 0?
+	beq tt2		; dann Ergebnis auch 0
+	dey
+	lda (multable),y	; sonst Ergebis holen
+	sta totnumber	; merken
+	tax
+	sec
+	sbc width
+	sta lastrow	; mark lastrow for overlap
+	txa
+	dex
+	stx maxnumber
+tt3	jsr gd_xcnvdez	; umwandeln
+
+tt2	sta totnum+1	; Ziffern eintragen
+	cpx #$30
+	bne tt1
+	ldx #$20
+tt1	stx totnum
+	rts
+
+; ----------------------------------------- Height times 10
+
+htimes10	sta sc_pos+1
+	dey
+	sty sc_pos
+	jsr gd_mal10	; Höhe mal 10
+	lda sc_pos
+	clc
+	adc #<multab
+	sta multable
+	lda #0
+	adc #>multab
+	sta multable+1
+	rts
+
+; ----------------------------------------- Check-Requester
+
+checkout	lda sc_screenvek	; show "requester"
+	pha
+	lda sc_screenvek+1
+	pha
+	ldx #<checklst
+	ldy #>checklst
+	jsr gd_screen
+	pla
+	sta sc_screenvek+1
+	pla
+	sta sc_screenvek
+	rts
+
+; --------------------------------------- Textout Handler
+
+tabigad	!wo crnumgad	; 0
+	!wo totgad	; 2
+	!wo alertgad	; 4
+	!wo noalrtgad	; 6
+	!wo cnumgad	; 8
+
+settab	lda #<(tabigad)
+	sta sc_texttab
+	lda #>(tabigad)
+	sta sc_texttab+1
+;	rts
+
+gettab	lda (sc_texttab),y
+	sta sc_screentab
+	iny
+	lda (sc_texttab),y
+	sta sc_screentab+1
+	lda #0
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #4
+	bne gt0
+	jsr gd_trim
+	jmp gd_initmove
+
+; -------------------------------------- Data
+
+list	!wo 0		; vector to mainlist
+s1col	!by 0,0,0,0,0	; original colors of used sprites
+
+carea	!by 9,26,3,5, 1,15,10,1, 9,30,2,1, 10,30,2,1	; carea + : 3,7,11,15
+	!by 11,30,2,1, 12,30,2,1, 14,26,13,1		; 19,23,27
+earea	!by 3,1,24,21, 1,27,3,3, 1,32,6,6		; 31,35,39
+farea	!by 3,1,1,1				; 43
+checking	!by 0
+
+chschr	!by $00,$3a,$46,$4e,$40,$40,$3c,$00	; chars
+	!by $ff,$ff,$ff,$ff,$ff,$00,$00,$00
+	!by $ff,$ff,$00,$00,$00,$00,$00,$00
+chrbuf	!fill 24				; chars save buffer
+
+paint	!by 2		; offset in recolor
+backgnd	!by 0		; screen backgnd color
+sprtcol0	!by 11		; $d025 (pattern %01)
+sprtcol1	!by 12		; $d026 (pattern %11)
+numcols	!by 0
+
+palzl	!by 0		; row in palchooser
+palsp	!by 0		; column
+plast	!by 0		; chosen color
+hold	!by 0
+cntx	!by 0
+cnty	!by 0
+
+show	!by 240,58,24,58	; position of preview sprites
+olap	!by 0		; 0: no, 1: yes
+width	!by 1
+height	!by 1
+lastrow	!by 1
+maxwidth	!by 8		; more than 8 isn't possible
+maxheight	!by 9		; 9 (normal sprites) or 10 (overlap)
+stwidth	!by 0
+stheight	!by 0
+defdw	!by 0		; width when defined
+defdh	!by 0		; height when defined
+currw	!by 0		; current width on selector
+currh	!by 0		; current height on selector
+currx	!by 0
+curry	!by 0
+totnumber	!by 0
+maxnumber	!by 0
+curnumber	!by 0
+sprites	!by 3		; how many on: bits 3,7,15 (2,3,4 Spr.)
+
+vertical	!by 0		; position in 4bit
+horizont	!by 0
+
+; --------------------------------------- Tables and records
+
+sprx	!by 024,048,072,096,120,144,168,192         ; beyond: 216,240,008,032,056
+spry0	!by 050,071,092,113,134,155,176,197,218
+spry1	!by 050,069,088,107,126,145,164,183,202,221
+
+pal64	!by $00,$06,$09,$0b,$02,$04,$08,$0c	; conversion table
+	!by $0e,$0a,$05,$0f,$03,$07,$0d,$01
+
+c64pal	!by $00,$ff,$44,$cc,$55,$aa,$11,$dd
+	!by $66,$22,$99,$33,$77,$ee,$88,$bb
+
+bits	!by %00000000	; Zuordungsbits: backgnd 
+	!by %01000000	; Spritecolor 0 ($d025) 
+	!by %10000000	; Spritecolor 2 ($d027..) 
+	!by %11000000	; Spritecolor 1 ($d026) 
+
+; --------------------------------------- Selector Sprite
+
+sprdata	!by %00000000,%00000000,%00000001	; 1	selector sprite
+	!by %00000000,%00000000,%00000001	; 2
+	!by %00000000,%00000000,%00000001	; 3
+	!by %00000000,%00000000,%00000001	; 4
+	!by %00000000,%00000000,%00000001	; 5
+	!by %00000000,%00000000,%00000001	; 6
+	!by %00000000,%00000000,%00000001	; 7
+	!by %00000000,%00000000,%00000001	; 8
+	!by %00000000,%00000000,%00000001	; 9
+	!by %00000000,%00000000,%00000001	; 10
+	!by %00000000,%00000000,%00000001	; 11
+	!by %00000000,%00000000,%00000001	; 12
+	!by %00000000,%00000000,%00000001	; 13
+	!by %00000000,%00000000,%00000001	; 14
+	!by %00000000,%00000000,%00000001	; 15
+	!by %00000000,%00000000,%00000001	; 16
+	!by %00000000,%00000000,%00000001	; 17
+	!by %00000000,%00000000,%00000001	; 18
+	!by %00000000,%00000000,%00000001	; 19
+	!by %00000000,%00000000,%00000001	; 20
+	!by %00011111,%11111111,%11111111	; 21
+
+multab	!by 01,02,03,04,05,06,07,08,09,10	; Multiplikationstabelle y*x
+	!by 02,04,06,08,10,12,14,16,18,20	; Wert = multab+(y-1)*10,(x-1)
+	!by 03,06,09,12,15,18,21,24,27,30
+	!by 04,08,12,16,20,24,28,32,36,40
+	!by 05,10,15,20,25,30,35,40,45,50
+	!by 06,12,18,24,30,36,42,48,54,60
+	!by 07,14,21,28,35,42,49,56,63,70
+	!by 08,16,24,32,40,48,56,64,72,80
+	!by 09,18,27,36,45,54,63,72,81,90
+	!by 10,20,30,40,50,60,70,80,90,100
+
+offs	!by 00,04,08,12,16,20,24,28,32,36	; Offsets in lcnts
+
+lcnts1	!by 0,5,8,8		; 0
+	!by 2,8,8,3		; 1
+	!by 0,7,8,6		; 2
+	!by 4,8,8,1		; 3
+	!by 1,8,8,4		; 4
+	!by 0,6,8,7		; 5
+	!by 3,8,8,2		; 6
+	!by 0,8,8,5		; 7
+	!by 0,5,8,8		; 8
+
+lcnts2	!by 0,5,8,8		; 0
+	!by 0,8,8,5		; 1
+	!by 3,8,8,2		; 2
+	!by 0,6,8,7		; 3
+	!by 1,8,8,4		; 4
+	!by 4,8,8,1		; 5
+	!by 0,7,8,6		; 6
+	!by 2,8,8,3		; 7
+	!by 0,5,8,8		; 8
+	!by 0,8,8,5		; 9
+
+adds1	!wo $0000,$0a14,$1908,$231c,$3210,$4104,$4b18,$5a0c,$6900,$7314
+adds2	!wo $0000,$0a0c,$1418,$2304,$2d10,$371c,$4608,$5014,$5f00,$690c,$7318
+
+edadd1	!by $00,$0a,$19,$23,$32,$41,$4b,$5a,$69
+edadd2	!by $00,$0a,$14,$23,$2d,$37,$46,$50,$5f,$69
+
+gaplines	!by 0,5,2,7,4,1,6,3,0, 3
+
+; -------------------------------------- Screenlist
+
+bosslst	!by $93
+field	!by 2,0,26,23,$60	; editor field
+	!wo evpixed
+	!by 0,26,5,5,$80	; normal sized sprite
+	!wo 0
+	!fill 3,160
+	!by 0
+	!by 0,31,8,8,$80	; double sized sprite
+	!wo 0
+	!fill 6,160
+	!by 0
+	!by 5,26,3,3,$40	; move left
+	!wo evprev
+	!by 5,27,3,3,$40	; overview
+	!wo evshow
+	!by 5,28,3,3,$40	; move right
+	!wo evnext
+	!by 5,26,5,3,$81	; overlay
+	!wo 0
+	!by $5b,$4f,$5e,0	; "< O >"
+	!by 8,29,4,6,$20	; colors
+	!wo 0
+palgad	!by 8,33,6,6,$40	; color chooser
+	!wo evgetcol
+crnumgad	!by 17,27,4,3,$a0	; sprite #
+	!wo 0
+curnum	!scr " 0",0
+totgad	!by 21,27,4,3,$a0	; sprite totals
+	!wo 0
+totnum	!scr " 1",0
+
+	!by 16,31,9,3,$c3	; set background color
+	!wo evsetbg
+	!scr "Set BGr",0
+	!by 18,31,9,3,$cb	; define size
+	!wo evsetsize
+	!scr "SetSize",0
+olapgad	!by 20,31,9,3,$cb	; set overlap mode
+	!wo evolap
+	!scr "Overlap",0
+	!by 22,31,9,3,$cb	; exit
+	!wo evexit
+	!scr " Leave ",0
+
+	!by $c0,0,0,8
+	!scr "BossEdit",0
+	!by $c0,0,14,10
+	!scr "Size: "
+widtx	!scr "1x"
+hgttx	!scr "1 ",0
+	!by $c0,1,26,3
+	!fill 3,160
+	!by 0
+	!by $c0,2,26,3
+	!fill 3,224
+	!by 0
+	!by $c0,1,31,6
+	!fill  6,160
+	!by 0
+	!by $c0,2,31,6
+	!fill  6,160
+	!by 0
+	!by $c0,3,31,6
+	!fill  6,160
+	!by 0
+	!by $c0,4,31,6
+	!fill  6,160
+	!by 0
+	!by $c0,5,31,6
+	!fill  6,225
+	!by 0
+	!by $c0,8,25,3
+	!scr "BGr",0
+	!by $c0,9,26,2
+	!scr "C1",0
+	!by $c0,10,26,2
+	!scr "C2",0
+	!by $c0,11,26,2
+	!scr "C3",0
+	!by $c0,13,25,7
+	!scr "Cols:"
+cnumtx1	!scr " 3",0
+	!by $c0,13,33,5
+	!scr "(OK) ",0
+	!by $c0,17,25,1
+	!scr "#",0
+	!by $c0,19,27,2
+	!scr "of",0
+
+	!by $80
+
+checklst	!by 0,13,25,15,3,$01
+	!by 0,0,$80
+cnumgad	!by 13,25,9,3,0,0,0
+	!scr "Cols:"
+cnumtx2	!scr " 3",0
+alertgad	!by 13,33,7,3,0,0,0
+	!scr "Alert",0
+noalrtgad	!by 13,33,7,3,0,0,0
+	!scr "(OK) ",0
+
+; -------------------------------------- 
+
+modend	!eof
