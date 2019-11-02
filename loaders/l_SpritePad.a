@@ -11,6 +11,7 @@
 ;
 ;    1.00, 14.10.19, first release
 ;    1.01, 17.10.19, update: SPD file version 2 (containing tiles)
+;    1.02, 02.11.19, bugfix: now restores system sprite colors
 ;
 ; ----------------------------------------- 
 
@@ -70,8 +71,8 @@
 	!wo modend
 	!wo 0
 	!pet "SpritePad Loader"
-	!pet "1.01"
-	!pet "17.10.19"
+	!pet "1.02"
+	!pet "02.11.19"
 	!pet "A.Dettke        "
 
 ; ----------------------------------------- Main
@@ -83,6 +84,12 @@ start	lda used		; first start? (builds requester)
 +	lda gd_modswitch	; first start: save memory handler
 	sta ms_store
 	jsr makechr	; define 3 chars
+
+	ldx #4
+-	lda sprcol1,x	; save system sprite colors
+	sta s1col,x
+	dex
+	bpl -
 
 	lda sc_screenvek	; save main list
 	ldx sc_screenvek+1
@@ -111,6 +118,17 @@ start	lda used		; first start? (builds requester)
 
 evexit	jsr gd_spron	; mouse on
 	sta exited	; set re-enter flag
+	lda spritehi
+	and #3
+	sta spritehi
+	ldx #4
+-	lda s1col,x	; restore system sprite colors
+	sta sprcol1,x
+	dex
+	bpl -
+	inx
+	stx sprxexpand
+	stx spryexpand
 	lda flen
 	sta ls_flen
 	sec
@@ -1341,6 +1359,7 @@ maxheight	!by 9		; 9 (=max 72 sprites)
 bytes	!wo 0		; amount of bytes to retrieve
 
 list	!wo 0		; pointer to mainlist
+s1col	!by 0,0,0,0,0	; original colors of used sprites
 used	!by $ff
 indent	!by 0		; indent when centering filename
 flen	!by $ff
