@@ -1,0 +1,973 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+
+; ----------------------------------------- 
+;
+; svr.PNG8Bit
+;     PNG Saver for any GoDot images 
+;     CRC32 routines inspired by John Selck
+;     Adler32 routines inspired by cc65 (U. von Bassewitz)
+;
+; 1.00: 23.11.19 - first release
+;
+; ----------------------------------------- Header
+;
+ 	jmp start
+;
+	!by $40 			; $80=Lader, $40=Saver, $20=Modifier
+	!by 0			; Own Requester Flag (4 = present)
+	!by 1			; Dirty Flag (1 = dirty)
+	!wo modend		; Endadresse+1 des Moduls
+	!wo 0			; unused
+	!pet "PNG8bit 64colors"	; description
+cvers	!pet "1.00"		; Versionsnummer
+	!pet "23.11.19"		; Datum
+	!pet "A.Dettke        "	; author
+
+; ----------------------------------------- Definitionen
+
+	base	= 65521	; largest prime smaller than 65536
+
+	src	= $30	; /$31
+	asum2	= $32	; /$33
+	asum1	= $34	; /$35
+	crcbuf	= $36	; ..$39
+	pcount	= $3a
+	xcount	= $3b
+	amerk	= $3c
+
+	clpbr	= $48
+	clpho	= $49
+	lcnt	= $4a
+	lcnt8	= $4b
+	adcnt	= $4c
+	xmerk	= $4d
+	ymerk	= $4e
+	offy	= $4f
+	offx	= $50
+	clpzl	= $51
+	clpsp	= $52
+	tilecnt	= $53
+
+	buf0	= $2000
+	buf1	= buf0+256
+	buf2	= buf1+256
+	buf3	= buf2+256
+	inbuf	= buf3+256
+	crc32	= inbuf+256
+
+	rahmen	= $d020
+
+; ----------------------------------------- 
+
+start	ldx gr_nr		; Funktionsnummer testen
+	dex
+	bne saver		; Null, dann "Speichern"
+	jmp initinp	; eins, "Input"
+
+; ----------------------------------------- Saver
+
+sk12	jmp noreu
+
+; ----------------------------------------- 
+
+saver	lda ls_ramdrive	; REU angeschlossen?
+	and #15
+	cmp #9
+	beq sk12		; nein, gar kein Ram
+	cmp #7		; nur SuperRAM?
+	beq sk12		; ja, skip Rest
+	and #12
+	beq sk12		; kein REU, skip Rest
+
+st11	jsr gd_sproff	; Sprites aus
+	lda gd_modswitch	; Slot retten
+	pha
+	lda ls_flen	; Filename übergeben?
+	beq st1		; nein
+
+	sta wflen		; sonst: retten
+	jsr addpng	; Namen erweitern
+	lda #1		; Counter für Activity setzen
+	sta adcnt
+	sta cntwert
+	lda #9		; Undo-Kommando vorbereiten
+	sta getundo+1
+
+	ldx #3		; Versionsnummer eintragen
+-	lda cvers,x
+	sta version,x
+	dex
+	bpl -
+
+	jsr wopen		; Writefile öffnen
+	bne st2		; wenn Fehler: Ende
+
+	jsr adlerinit	; prepare zlib adler checksum
+	jsr prepbufs	; prepare buffers for crc32 checksum
+	sta pcount	; counter for outbytes (.a=0)
+	jsr getname	; Filenamen sichern
+	ldx #12		; OPEN #12, out
+	jsr ckout
+	jsr gd_clrms	; Anzeige initialisieren
+
+	jsr setparams
+	ldx #0		; Text eintragen
+	jsr tcopy
+	jsr write		; Bild speichern
+
+st2	jsr clrch		; Bus freigeben
+	lda #12
+	jsr close
+	jsr err9		; Floppystatus zeigen (kurz)
+	bne st1		; wenn fehlerfrei:
+	jsr setname	; Fileinfo aufbereiten
+
+st1	pla		; Modularea wieder setzen
+	sta gd_modswitch
+
+st12	jsr canc
+	jsr gd_spron	; Sprites wieder an
+	sec		; Leave-Flag
+	rts		; fertig
+
+; ----------------------------------------- 
+; -------------------------- Input Routines
+
+!src "input.inc"
+
+; ----------------------------------------- 
+; ----------------------------------------- 
+
+; ----------------------------------------- Disk Access
+
+pw	!pet "w,p,"
+pngtx	!pet "gnp."
+pngtxs	!scr "gnp."
+drinit	!pet "i0"
+wflen	!by 0
+used	!by $ff
+areaflag	!by $ff
+filepos	!wo $1000
+
+areatxts	!scr "Full" ; 0
+	!scr "Clip" ; 4
+
+; ----------------------------------------- Filehandling
+
+wopen	jsr inull		; Initialize
+	bne err8
+	ldy wflen		; ",p,w" anhängen
+	ldx #3
+wo1	lda pw,x
+	sta ls_nambuf,y
+	iny
+	dex
+	bpl wo1
+	sty wflen
+	lda #12		; OPEN 12,drive,12,"name,p,w"
+	tay
+	ldx ls_drive
+	jsr filpar
+	lda wflen
+	ldx #<ls_nambuf
+	ldy #>ls_nambuf
+	jsr filnam
+	jsr copen
+	jmp err9
+
+inull	ldx #<drinit
+	ldy #>drinit
+	lda #2
+	jsr gd_sendcom
+err9	jsr gd_xmess
+	lda ls_err2
+	and #15
+err8 	sec
+	rts
+
+; ----------------------------------------- Activity
+
+messout	ldx #<message	; Textausgabe
+	ldy #>message
+	jmp gd_xtxout2
+
+tcopy	ldy #0		; Text zur Ausgabe puffern
+tc0 	lda txt,x		; Offset in .x!
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+
+action	dec adcnt		; Activity, wenn 0
+	bne ld4
+	lda cntwert	; dann: Reload des Zählers
+	sta adcnt
+	ldy offy
+	cpy #25
+	bne act0
+	jsr clrmess
+act0	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout	; Balken ausgeben
+	dec offx		; Ende nächstes Mal dicker
+	bpl ld4		; bis gefüllt
+	inc offy		; dann Balken länger
+	lda #7		; Ende wieder dünn
+	sta offx
+ld4 	rts
+
+clrmess	ldx #25		; Puffer für Balken löschen
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0		; Balkenlänge 0 
+	ldx #7		; Dicke am Ende 0
+	sty offy
+	stx offx
+	rts
+
+filltab	!by 160,93,103,127,126,124,105,109
+cntwert	!by 1
+txt	!scr " PNG"
+	!by 0
+message	!fill 6,32
+mess	!fill 26,32
+	!by 0
+
+; ----------------------------------------- Image Info
+
+getname	ldx #0		; aktuellen Filenamen sichern
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+setname	lda #0		; Namen in Image Info eintragen
+	ldx #<ls_picname
+	ldy #>ls_picname
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!fill 16,32
+	!by 0
+
+; ----------------------------------------- Leave saver
+
+cn2 	lda #3
+	!by $2c
+canc 	lda #$ff
+	sta used
+	sec
+	rts
+
+; ----------------------------------------- Set Save PNG data parameters
+
+setparams	inc used
+	jsr setclip
+	jsr setvals
+	sec
+	rts
+
+; ----------------------------------------- Counter
+
+count 	inc src		; increment src by 1
+	bne cou6
+	inc src+1
+cou6 	lda ls_vekta8	; decrement ls_vekta8/9 by 1
+	bne cou7
+	dec ls_vekta8+1
+cou7 	dec ls_vekta8
+	lda ls_vekta8	; and check if 0 (sets .e)
+	ora ls_vekta8+1
+	rts
+
+; ----------------------------------------- Convert to Binary
+
+convert	sta sc_pos	; value times 8
+	sty sc_pos+1
+	clc
+	asl sc_pos
+	rol sc_pos+1
+	asl sc_pos
+	rol sc_pos+1
+	asl sc_pos
+	rol sc_pos+1
+	ldx sc_pos	; .x: lo
+	lda sc_pos+1	; .a: hi
+	rts
+
+; ----------------------------------------- Set file values for width and height
+; not used yet (future version may save clips)
+
+setvals	ldy #0		; width
+	lda clpbr
+	ldx gr_cmode
+	beq +
+	lsr
++	jsr convert	; convert to binary 
+	stx width4+1
+	sta width4
+	stx width8+1
+	sta width8
+
+	ldy #0		; height
+	lda clpho
+	jsr convert	; convert to binary
+	stx height4+1
+	sta height4
+	stx height8+1
+	sta height8
+
+	rts
+
+; ---------------------------------------- Compute Start address of Clip
+; not used yet (future version may save clips)
+
+setclip	lda #$10		; 4Bit starting from $1000 in REU
+	sta filepos+1
+	ldy #0
+	sty filepos
+	sty clpzl
+	sty clpsp
+	lda #40
+	sta clpbr
+	lda #25 
+	sta clpho
+	lda areaflag 
+	bmi scp8
+
+	lda sc_lastclpzl	; row
+	beq scp1		; is zero: skip
+	sta clpzl
+scp4	clc
+	lda filepos+1	; else add 1280, "row" times
+	adc #5
+	sta filepos+1
+	dec clpzl
+	bne scp4
+
+scp1	lda sc_lastclpsp	; column
+	beq scp5		; is zero: skip
+	sta clpsp
+scp6	clc
+	lda filepos	; else add 32, "column" times
+	adc #$20
+	sta filepos
+	bcc scp7
+	inc filepos+1
+scp7	dec clpsp
+	bne scp6
+scp5	lda sc_lastclpbr
+	sta clpbr
+	lda sc_lastclpho
+	sta clpho
+scp8	rts
+
+; ----------------------------------------- 
+; ------------------------------- Write PNG
+; ----------------------------------------- 
+
+write	lda gr_cmode	; Hires (0) oder Multi (>0)?
+	bne +
+	lda #<png4head	; Header für 4bit ausgeben
+	ldx #>png4head
+	sta src
+	stx src+1
+	ldx #>182
+	lda #<182		; Länge 182 Bytes (ab da: Grafikdaten)
+	bne ++
++	lda #<png8head	; Header für 8bit ausgeben
+	ldx #>png8head
+	sta src
+	stx src+1
+	lda #<902		; Länge 902 Bytes (ab da: Grafikdaten)
+	ldx #>902
+++	sta ls_vekta8
+	stx ls_vekta8+1
+	ldy #0
+wr0	lda (src),y
+	jsr bsout
+	jsr count
+	bne wr0
+
+	tay		; .a=0
+-	lda gr_cmode	; je nach Grafikmodus:
+	bne +
+	lda idat4,y	; crc32 für IDAT-Chunk berechnen
+	bne ++
++	lda idat8,y	; start crc32 bei Chunkname
+++	jsr collect
+	iny
+	cpy #11
+	bne -
+
+	lda #9		; Funktion "Undo ins Ram" setzen
+	sta getundo+1
+	jsr doundo	; automatisches Undo ausführen
+	jsr scanlines	; Checksummen generieren und Bilddaten wegschreiben
+	jsr writechks	; adler32/CRC32 abschließen/Checksummen schreiben
+	jsr setfooter	; PNG-Abschlussblock aufbereiten
+	jsr clrch		; File schließen
+	lda #8		; Funktion "Undo aus dem Ram" setzen
+	sta getundo+1
+	jsr doundo	; und ausführen
+	sec		; Leave-Flag
+	rts		; fertig
+
+; ----------------------------------------- 
+
+writechks	lda asum2+1	; get final Adler32
+	jsr crcit
+	lda asum2
+	jsr crcit
+	lda asum1+1
+	jsr crcit
+	lda asum1
+	jsr crcit
+
+	jsr mkcrc32	; CRC32 abschließen (.x=4)
+-	lda asum2,x	; und ausgeben
+	jsr bsout
+	inx
+	cpx #8
+	bne -
+	rts
+
+crcit	jsr collect	; Adler in CRC32 einfließen lassen
+	jmp bsout		; und ausgeben
+
+; ----------------------------------------- 
+
+encode	jsr bsout		; write to file
+	jsr collect
+	jmp adler32	; generate zlib checksum
+
+; ----------------------------------------- 
+
+setfooter	ldy #0
+-	lda pngfooter,y
+	jsr bsout
+	iny
+	cpy #12
+	bne -
+	rts
+
+; ----------------------------------------- Scanlines
+
+scanlines	ldx #6		; Ram-Record erst löschen
+	lda #0
+sl0	sta rm_werte,x
+	dex
+	bpl sl0
+	ldx #1		; dann Parameter neu setzen: 1 Byte Fetch
+	stx rm_werte+5
+	ldx #sc_merk	; Ziel $b0
+	stx rm_werte
+
+	lda filepos	; set startaddress (aus UNDO)
+	ldx filepos+1
+	sta src		; Hilfszeiger für die Blockzeilen
+	sta rm_werte+2
+	stx src+1
+	stx rm_werte+3
+
+	lda clpho		; Anzahl Blockzeilen (25 on full screen)
+	sta lcnt8
+
+lnloop8	lda #8		; zählt 1 Blockzeile (8 Linien)
+	sta lcnt
+
+tloop8	lda clpbr		; count x tiles (40 on full screen)
+	sta tilecnt
+	lda #0		; set png filter
+	sta sc_merk
+	jsr encode
+
+tloop	ldx #4		; 40 Kachellinien zu 4 Bytes (8 Pixel)
+
+lnloop	ldy #0
+btloop	stx xmerk		; (x und y retten)
+	sty ymerk
+
+	lda #$91		; Wert aus dem Undo holen
+	jsr gd_reu
+	lda sc_merk
+	jsr encode	; write color as is, compute checksums
+
+	ldx xmerk		; (x und y zurück)
+	ldy ymerk
+	inc rm_werte+2	; vorrücken im Undo
+	bne s4
+	inc rm_werte+3
+s4	dex		; 4 Bytes = 1 Kachellinie
+	bne lnloop
+
+	clc		; nächste Kachel
+	lda rm_werte+2
+	adc #28
+	sta rm_werte+2
+	bcc s3
+	inc rm_werte+3
+s3	dec tilecnt
+	bne tloop
+
+	lda src		; nächste Kachellinie
+	clc
+	adc #4
+	sta src
+	sta rm_werte+2
+	bcc s5
+	inc src+1
+s5	lda src+1
+	sta rm_werte+3
+	jsr action	; Laufbalken vorrücken
+	dec lcnt
+	bne tloop8
+
+s51	lda src		; nächste Blockzeile
+	clc
+	adc #<1248
+	sta src
+	sta rm_werte+2
+	lda src+1
+	adc #>1248
+	sta src+1
+	sta rm_werte+3
+	dec lcnt8		; bis alle durch
+	bne lnloop8
+ 	rts
+
+; ----------------------------------------- PNG Header Structures
+
+; ----------------------------------------- 4bit Header (182)
+
+png4head	!by $89,$50,$4e,$47,$0d,$0a,$1a,$0a 	; PNG signature (8 Bytes)
+
+	!by $00,$00,$00,$0d		; 13 Bytes (+12)
+	!raw "IHDR"
+	!by $00,$00
+width4	!by $01,$40		; 320
+	!by $00,$00
+height4	!by $00,$c8		; 200
+bitdpth4	!by $04			; 4 Bit/Pixel
+	!by $03			; Colors aus Palette
+	!by $00			; Compression (no)
+	!by $00			; Filter (no)
+	!by $00			; Interlace (no)
+crch4	!by $6b,$2a,$25,$98
+
+palette4	!by $00,$00,$00,$30		; 48 Bytes (+12)
+	!raw "PLTE"		; (Palette)
+plte4	!by $00,$00,$00,$00,$00,$aa,$66,$44,$00
+	!by $33,$33,$33,$88,$00,$00,$cc,$44,$cc
+	!by $dd,$88,$55,$77,$77,$77,$00,$88,$ff
+	!by $ff,$77,$77,$00,$cc,$55,$bb,$bb,$bb
+	!by $aa,$ff,$ee,$ee,$ee,$77,$aa,$ff,$66
+	!by $ff,$ff,$ff
+crcp4	!by $2b,$59,$d8,$22 
+
+	!by $00,$00,$00,$09		; aspect: 9 Bytes (+12)
+	!raw "pHYs"		; Aspekt 1:1
+aspect4	!by $00,$00,$0b,$12		; 2834 Pixel/m (72 dpi)
+	!by $00,$00,$0b,$12		; 2834 Pixel/m
+	!by $01			; Meter
+crca4	!by $d2,$dd,$7e,$fc		; crc32
+
+	!by $00,$00,$00,$29		; Comment: 41 Bytes (+12)
+	!raw "tEXt"
+	!raw "Comment",0
+	!raw "Saved by C64 GoDot PNG saver "
+	!tx "1.00"
+	!by $37,$ef,$1c,$e1 	; crc32
+
+imgdata4	!by $00,$00,$7d,$d3		; (32000) Bytes (+15)
+idat4	!raw "IDAT"		; Bilddaten
+	!by $78			; zlib: 32K slide/Deflated
+	!by $01			;       uncompressed
+	!by $01			;       last block (of 1)
+ilen4	!wo $7dc8			; Länge (16200=40*4*200+200)
+	!wo $8237			; 2er-Komplement von Länge
+
+; hier folgen die Pixeldaten (Indexe in RGB-Palette, die Adler32-Checksumme
+; und die CRC32-Checksumme), es geht los mit dem Filterbyte ($00)
+
+; ----------------------------------------- 8bit Header (902)
+
+png8head	!by $89,$50,$4e,$47,$0d,$0a,$1a,$0a 	; PNG signature (8 bytes)
+
+header	!by $00,$00,$00,$0d		; 13 Bytes (+12)
+	!raw "IHDR"
+	!by $00,$00
+width8	!by $00,$a0		; 160
+	!by $00,$00
+height8	!by $00,$c8		; 200
+bitdpth8	!by $08			; 8 Bit/Pixel
+ctype	!by $03			; Colors aus Palette
+	!by $00			; Compression (no)
+filter	!by $00			; Filter (no)
+	!by $00			; Interlace (no)
+crch8	!by $58,$b6,$1a,$28 	; CRC32
+
+palette8	!by $00,$00,$03,$00		; 768 Bytes (+12)
+	!raw "PLTE"		; (Palette)
+	!by $00,$00,$00,$00,$00,$55,$55,$33,$00,$22,$22,$22
+	!by $55,$00,$00,$66,$22,$66,$66,$44,$22,$33,$33,$33
+	!by $00,$44,$77,$88,$33,$33,$00,$44,$22,$55,$55,$55
+	!by $55,$88,$77,$77,$77,$33,$55,$88,$33,$88,$88,$88
+	!by $00,$00,$55,$00,$00,$aa,$33,$22,$55,$22,$22,$66
+	!by $44,$00,$55,$66,$22,$bb,$66,$44,$77,$33,$33,$99
+	!by $44,$44,$cc,$88,$33,$99,$00,$66,$77,$55,$55,$bb
+	!by $55,$88,$cc,$77,$77,$99,$55,$88,$88,$88,$88,$cc
+	!by $55,$33,$00,$33,$22,$55,$66,$44,$00,$44,$33,$22
+	!by $77,$22,$00,$99,$44,$66,$99,$66,$33,$66,$55,$33
+	!by $33,$66,$88,$bb,$55,$33,$33,$88,$22,$88,$77,$55
+	!by $88,$aa,$77,$99,$99,$33,$88,$aa,$33,$bb,$aa,$88
+	!by $22,$22,$22,$22,$22,$66,$44,$33,$22,$33,$33,$33
+	!by $55,$11,$11,$77,$33,$77,$88,$55,$44,$55,$55,$55
+	!by $11,$55,$99,$99,$55,$55,$11,$77,$44,$77,$77,$77
+	!by $66,$99,$88,$88,$88,$55,$66,$99,$55,$99,$99,$99
+	!by $55,$00,$00,$44,$00,$55,$77,$22,$00,$55,$11,$11
+	!by $88,$00,$00,$aa,$22,$66,$bb,$44,$22,$77,$33,$33
+	!by $44,$44,$88,$cc,$44,$44,$44,$66,$22,$99,$55,$55
+	!by $99,$88,$77,$bb,$77,$33,$99,$88,$33,$cc,$88,$88
+	!by $66,$22,$66,$66,$22,$bb,$99,$44,$66,$77,$33,$77
+	!by $aa,$22,$66,$cc,$44,$cc,$dd,$66,$88,$aa,$66,$aa
+	!by $66,$66,$ee,$ee,$66,$aa,$66,$88,$88,$bb,$77,$bb
+	!by $bb,$aa,$dd,$dd,$99,$99,$bb,$aa,$99,$ee,$aa,$ee
+	!by $66,$44,$22,$66,$44,$77,$99,$66,$33,$88,$55,$44
+	!by $bb,$44,$22,$dd,$66,$88,$dd,$88,$55,$aa,$88,$66
+	!by $66,$88,$aa,$ee,$88,$66,$77,$99,$55,$cc,$99,$88
+	!by $bb,$cc,$99,$dd,$bb,$66,$bb,$cc,$55,$ee,$cc,$aa
+	!by $33,$33,$33,$33,$33,$99,$66,$55,$33,$55,$55,$55
+	!by $77,$33,$33,$aa,$66,$aa,$aa,$88,$66,$77,$77,$77
+	!by $33,$77,$bb,$bb,$77,$77,$44,$aa,$66,$99,$99,$99
+	!by $88,$cc,$aa,$aa,$aa,$77,$88,$bb,$66,$bb,$bb,$bb
+	!by $00,$44,$77,$44,$44,$cc,$33,$66,$88,$11,$55,$99
+	!by $44,$44,$88,$66,$66,$ee,$66,$88,$aa,$33,$77,$bb
+	!by $00,$88,$ff,$88,$77,$bb,$44,$aa,$aa,$55,$99,$dd
+	!by $55,$cc,$ee,$77,$bb,$bb,$99,$cc,$bb,$88,$cc,$ff
+	!by $88,$33,$33,$88,$33,$99,$bb,$55,$33,$99,$55,$55
+	!by $cc,$44,$44,$ee,$66,$aa,$ee,$88,$66,$bb,$77,$77
+	!by $88,$77,$bb,$ff,$77,$77,$88,$aa,$66,$dd,$99,$99
+	!by $dd,$bb,$aa,$ff,$bb,$77,$88,$bb,$77,$ff,$bb,$bb
+	!by $00,$44,$22,$00,$66,$77,$33,$88,$22,$11,$77,$44
+	!by $44,$66,$22,$66,$88,$88,$77,$99,$55,$44,$aa,$66
+	!by $44,$aa,$aa,$88,$aa,$66,$00,$cc,$55,$66,$cc,$88
+	!by $55,$ee,$aa,$77,$dd,$66,$55,$cc,$44,$88,$ee,$aa
+	!by $55,$55,$55,$55,$55,$bb,$88,$77,$55,$77,$77,$77
+	!by $99,$55,$55,$bb,$77,$bb,$cc,$99,$88,$99,$99,$99
+	!by $55,$99,$dd,$dd,$99,$99,$66,$cc,$88,$bb,$bb,$bb
+	!by $aa,$dd,$cc,$cc,$cc,$99,$aa,$dd,$88,$dd,$dd,$dd
+	!by $55,$88,$77,$55,$88,$cc,$88,$aa,$77,$66,$99,$88
+	!by $99,$88,$77,$bb,$aa,$dd,$bb,$cc,$99,$88,$cc,$aa
+	!by $55,$cc,$ee,$dd,$bb,$aa,$55,$ee,$aa,$aa,$dd,$cc
+	!by $aa,$ff,$ee,$cc,$ee,$aa,$aa,$ff,$aa,$dd,$ff,$ee
+	!by $77,$77,$33,$77,$77,$99,$99,$99,$33,$88,$88,$55
+	!by $bb,$77,$33,$dd,$99,$99,$dd,$bb,$66,$aa,$aa,$77
+	!by $77,$bb,$bb,$ff,$bb,$77,$77,$dd,$66,$cc,$cc,$99
+	!by $cc,$ee,$cc,$ee,$ee,$77,$cc,$dd,$66,$ee,$ee,$bb
+	!by $55,$88,$33,$55,$88,$88,$88,$aa,$33,$66,$99,$55
+	!by $99,$88,$33,$bb,$aa,$99,$bb,$cc,$55,$88,$bb,$66
+	!by $99,$cc,$bb,$88,$bb,$77,$55,$cc,$44,$aa,$dd,$88
+	!by $aa,$ff,$aa,$cc,$dd,$66,$aa,$ff,$66,$dd,$ff,$bb
+	!by $88,$88,$88,$88,$88,$cc,$bb,$aa,$88,$99,$99,$99
+	!by $cc,$88,$88,$ee,$aa,$ee,$ee,$cc,$aa,$bb,$bb,$bb
+	!by $88,$cc,$ff,$ff,$bb,$bb,$88,$ee,$aa,$dd,$dd,$dd
+	!by $dd,$ff,$ee,$ee,$ee,$bb,$dd,$ff,$bb,$ff,$ff,$ff
+crcp8	!by $97,$8F,$73,$58		; crc32
+
+aspect	!by $00,$00,$00,$09		; 9 Bytes (+12)
+	!raw "pHYs"		; Aspekt 2:1
+aspect8	!by $00,$00,$05,$89		; 1417 Pixel/m
+	!by $00,$00,$0b,$12		; 2834 Pixel/m
+	!by $01			; Meter
+crca8	!by $f5,$43,$e3,$21 	; CRC32
+
+comment	!by $00,$00,$00,$29		; 41 Bytes (+12)
+	!raw "tEXt"
+	!raw "Comment",0 		; Comment
+	!raw "Saved by C64 GoDot PNG saver "
+version	!tx "1.00"
+	!by $37,$ef,$1c,$e1 	; crc32
+
+imgdata	!by $00,$00,$7d,$d3		; (32000) Bytes (+15 (+8))
+idat8	!raw "IDAT"		; Bilddaten
+	!by $78			; zlib: 32K slide/Deflated
+	!by $01			;       uncompressed
+	!by $01			;       last block (of 1)
+ilen8	!wo $7dc8			; Länge (32200=20*8*200+200)
+	!wo $8237			; 2er-Komplement von Länge
+
+; hier folgen die Pixeldaten (Indexe in RGB-Palette, die Adler32-Checksumme
+; und die CRC32-Checksumme), es geht los mit dem Filterbyte ($00)
+
+pngfooter	!by $00,$00,$00,$00		; 0 Bytes (+12)
+	!raw "IEND"
+	!by $ae,$42,$60,$82		; crc32
+
+; ----------------------------------------- 
+; ---------------------------------- DoUndo
+; ----------------------------------------- 
+
+doundo	lda #<undo	; eigentliche Routine verschieben
+	ldx #>undo	; (weil das Modul ausgeblendet wird)
+	sta ls_vekta8
+	stx ls_vekta8+1
+	ldy #mkcrc32-undo
+sloop	lda (ls_vekta8),y
+	sta sy_global,y	; nach GLOBAL
+	dey
+	bpl sloop
+	jmp sy_global	; und dann ausführen
+
+undo 	jsr gd_swapd	; Ram einblenden
+	ldx #10		; FirstInit
+	jsr rm_ramvec
+
+	ldx #6		; Parameter setzen
+	lda #0
+md0	sta rm_werte,x
+	dex
+	bpl md0
+	lda #>sy_4bit	; 4Bit-Bereich im C64
+	sta rm_werte+1
+	lda #$10		; nach Undo4Bit im Ram
+	sta rm_werte+3
+	lda #$7d		; 32000 Bytes
+	sta rm_werte+6
+	lda #1		; Flag für 4Bit-Undo setzen
+	sta rm_nextentry
+
+getundo	ldx #9		; und DoUndo
+	jsr rm_ramvec
+	ldx #1		; danach ForceOff (Ram ausblenden)
+	jsr rm_ramvec	
+	jmp gd_sproff	; und Sprite wieder aus, zurück
+
+; ----------------------------------------- Compute CRC32
+
+mkcrc32	jsr process	; process buffer
+	ldx #0		; ergebnis invertieren
+	ldy #3
+-	lda crc32,x
+	eor #$ff
+	sta crcbuf,y
+	inx
+	dey
+	bpl -
+	rts		; result an crcbuf
+
+; ----------------------------------------- 
+
+collect	ldx xcount
+	sta inbuf,x	; .a: gelesenes Byte
+	inx
+	stx xcount
+	cpx #64
+	beq process
+	rts
+
+; ----------------------------------------- 
+
+process	ldy #0
+	beq +
+-	lda inbuf,y	; buffer aktualisieren
+	eor crc32
+	tax
+	lda crc32+1
+	eor buf0,x
+	sta crc32
+	lda crc32+2
+	eor buf1,x
+	sta crc32+1
+	lda crc32+3
+	eor buf2,x
+	sta crc32+2
+	lda buf3,x
+	sta crc32+3
+	iny
++	cpy xcount
+	bne -
+
+	lda #0		; reset counter (after 64 bytes)
+	sta xcount
+	rts
+
+; ----------------------------------------- 
+
+prepbufs	ldy #0		; start value: 0 (end: 255)
+--	sty crcbuf
+	lda #0
+	sta crcbuf+1
+	sta crcbuf+2
+	sta crcbuf+3
+	ldx #8		; shift 8 times right
+-	lsr crcbuf+3
+	ror crcbuf+2
+	ror crcbuf+1
+	ror crcbuf
+	bcc +
+	lda crcbuf	; if .c set: 
+	eor #$20		; apply reverted polynomial: $edb88320
+	sta crcbuf
+	lda crcbuf+1
+	eor #$83
+	sta crcbuf+1
+	lda crcbuf+2
+	eor #$b8
+	sta crcbuf+2
+	lda crcbuf+3
+	eor #$ed
+	sta crcbuf+3
++	dex
+	bne -
+	lda crcbuf	; then fill the buffers with result
+	sta buf0,y
+	lda crcbuf+1
+	sta buf1,y
+	lda crcbuf+2
+	sta buf2,y
+	lda crcbuf+3
+	sta buf3,y
+	iny
+	bne --		; 256 times
+
+	ldx #3
+	lda #$ff		; preset $ffffffff
+-	sta crc32,x
+	dex
+	bpl -
+	lda #0
+	sta xcount	; .x counter to 0
+	rts
+
+; ----------------------------------------- 
+
+adler32	lda asum1		; get current asum1
+	ldx asum1+1
+	clc
+	adc sc_merk	; add stream to asum1
+	bcc adl4
+	inx
+	beq adl5		; (.c=1)
+adl4	cpx #>base	; if asum1 >= base: asum1 = asum1 - base
+	bcc adl6
+	cmp #<base
+	bcc adl6
+	inx		; .x=0
+adl5	sbc #<base	; (.c=1)
+	clc
+
+adl6	sta asum1
+	stx asum1+1
+	adc asum2		; (.c=0)
+	sta asum2		; add current asum1 to asum2
+	txa
+	adc asum2+1
+	sta asum2+1
+	bcs adl7
+	cmp #>base
+	bcc adl8
+	lda asum2
+	cmp #<base
+	bcc adl8
+
+adl7	lda asum2		; if asum2 >= base: asum2 = asum2 - base
+	sbc #<base	; (.c=1)
+	sta asum2
+	lda asum2+1
+	sbc #>base
+	sta asum2+1
+
+adl8	rts		; am Ende:
+			; asum2.asum1 als 32Bit-Wert (hi/lo verdreht)
+
+; ----------------------------------------- 
+
+adlerinit	ldx #0		; asum1=1
+	stx asum1+1
+	stx asum2		; asum2=0
+	stx asum2+1
+	inx
+	stx asum1
+	rts
+
+; ----------------------------------------- Namen verlängern
+
+addpng	pha		; Länge merken
+	tay
+	dey
+	ldx #0
+ag4	lda ls_nambuf,y	; endet auf ".PNG"?
+	cmp pngtx,x
+	bne ag2		; nein
+	dey
+	inx
+	cpx #4
+	bcc ag4
+	pla		; ja, fertig
+	rts
+	
+ag2	pla
+	tay		; Name länger als 12 Zeichen?
+	cpy #13
+	bcs ag0		; ja, behandeln
+
+ag5	ldx #3		; nein, ".png" anhängen
+ag1	lda pngtx,x
+ag3	sta ls_nambuf,y
+	lda pngtxs,x	; auch für Image Info
+	sta ls_lastname,y
+	iny
+	dex
+	bpl ag1
+	sty wflen		; neue Länge merken, fertig
+	sty ls_flen
+	rts
+
+ag0	dey		; auf 12 verkürzen
+	cpy #12
+	bne ag0
+	beq ag5		; unbed. Sprung
+
+; ------------------------------------------------ Keine REU vorhanden
+
+noreu	ldy #2		; rot
+	jsr graphon	; blink
+	sec
+	rts
+
+; ------------------------------------------------ Blink the Border
+
+graphon	lda rahmen	; save border color
+	pha
+	sty rahmen	; set new color (in .y, e.g. "2" for red)
+	ldx #$40
+	jsr gd_dl2	; delay
+	pla
+	sta rahmen	; reset old border color
+	stx sy_tbuffer	; clear key strokes
+stay	clc
+	rts
+
+; ----------------------------------------------------- 
+
+modend 	!eof
