@@ -18,9 +18,12 @@ ls_lines		= $26	; amount of files currently in filerequester
 rm_reusize	= $27	; encoded size of attached REU (none if 0, see section "values" below))
 ls_found		= $28	; flag: files of current type existing
 ls_dlines		= $29	; max. entries in directory window
+gr_colorbase	= $2a	; number of RGB palette currently in use (0=GoDot)
 
-;	      $2a to $2f: reserved
-;	      $30 up to $55: free for programmer
+; ----------------------------------------- 
+;	      $2b to $2f: reserved
+;	      $30 up to $55: free for programmers
+; ----------------------------------------- 
 
 sy_soffx		= $7a	; x-offset of mouse pointer to its hotspot
 sy_soffy		= $7b	; y-offset dito
@@ -42,7 +45,9 @@ sc_flags		= $b4	; text appearance flag
 
 sc_keyprs		= $c6	; key currently pressed
 
-;	      $f7 up to $fc: unused ($fd/$fe in Input, $ff in mod..FileCopy)
+;	      $f7 up to $fc: rarely used ($fd/$fe in Input, $ff in mod..FileCopy)
+
+; ----------------------------------------- 
 
 sy_numbers	= $0100	; space for converting bytes to digits (16 bytes)
 ls_nambuf		= $0200	; buffer for filenames (16 bytes)
@@ -89,6 +94,8 @@ rm_werte		= $03f3	; buffer for REU register values (ram device, 7 bytes)
 ls_sysdrive	= $03fa	; current system drive (bootdrive or unit ram)
 rm_ramvec		= $03fd	; vector to ram device (contains "JMP $cab0" if active)
 sy_versioninit	= $03fb	; /$03fc: version of GoDot Launcher (in decimal mode)
+
+; ----------------------------------------- 
 
 gr_qtab		= $0ee0	; table of quantization, 16 bytes
 sc_undochar	= $0ef8	; definition of multipurpose char 223, 8 bytes
@@ -269,10 +276,14 @@ ls_iloader	= ls_picname+$16	; loader name
 ls_imode		= ls_picname+$22	; graphics mode
 ls_idrive		= ls_picname+$2e	; GoDot mode
 
+; ----------------------------------------- 
+
 sy_global		= $3f40	; buffer for various purposes (192 bytes)
 sy_4bit		= $4000	; start of 4bit image data
 sy_bigbuffer	= $bd00	; buffer for various purposes (768 bytes)
 modul		= $c000	; start address of all modules
+
+; ----------------------------------------- 
 
 intout		= $bdcd	; convert word value to digits
 
@@ -290,6 +301,8 @@ reucom		= $df01	; command register of REU
 irqend		= $ea7e	; standard finish of IRQ
 reset		= $fce2	; reset vector
 
+; ----------------------------------------- 
+
 checkkeyb		= $ff9f	; vector: check keyboard 
 filpar		= $ffba	; set file parameters
 filnam		= $ffbd	; set filename parameters
@@ -300,23 +313,4 @@ ckout		= $ffc9	; set output device
 clrch		= $ffcc	; clear channel
 basin		= $ffcf	; retrieve one byte
 bsout		= $ffd2	; send one byte
-
-
-; ---------------------------
-; ---------- values
-; --------------------------- 
-
-; dm_graphics	= 0	; dirmask: graphics data (destination $4000)
-; dm_ldr		= 1	; loader data (dest. $c000)
-; dm_svr		= 2	; saver data (dest. $d000)
-; dm_mod		= 4	; module data (dest. $e000)
-; dm_misc		= 8	; miscellaneous data (dest. in LS_ADRMISC)
-
-; rs_128k		= 3	; Size of REU is 128KB
-; rs_256k		= 4	; ... is 256KB
-; rs_512k		= 5	; ... is 512KB
-; rs_1m		= 6	; ... is 1 Meg
-; rs_15m		= 7	; ... is 1.5 Meg
-; rs_2m		= 8	; ... is 2 Meg
-; rs_4m		= 9	; ... is 4 Meg
 
