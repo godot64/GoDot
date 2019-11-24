@@ -1,3 +1,4 @@
+
 	!src "godotlib.lib"
 	*= $c000
 	!ct pet
@@ -16,6 +17,7 @@
 ;
 ;   1.00, 14.03.18, first release
 ;   1.01, 25.08.18, added palette of c64pixels.com previews
+;   1.02, 24.11.19, propagating chosen palette to system
 ;
 ; ------------------------------------------------ 
 
@@ -33,8 +35,8 @@
 	!wo modend 
 	!wo 0
 	!pet "Set new RGB vals"
-	!pet "1.01"
-	!pet "25.08.18"
+	!pet "1.02"
+	!pet "24.11.19"
 	!pet "A.Dettke        "
 
 ; ------------------------------------------------ Main
@@ -57,6 +59,7 @@ evsetpal	lda palnr
 	sta palnr
 +	inc palnr
 	ldy palnr
+	sty gr_colorbase	; Palette dem System bekannt machen
 	jsr chngepal	; Namen eintragen und anzeigen
 	jsr movepal	; neue RGB-Werte aktivieren
 	ldy #0		; .y=0, Offset auf gettext-Vektor
