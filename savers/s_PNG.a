@@ -5,12 +5,13 @@
 
 ; ----------------------------------------- 
 ;
-; svr.PNG8Bit
+; svr.PNG
 ;     PNG Saver for any GoDot images 
 ;     CRC32 routines inspired by John Selck
 ;     Adler32 routines inspired by cc65 (U. von Bassewitz)
 ;
 ; 1.00: 23.11.19 - first release
+; 1.01: 25.11.19, added more palettes to save in
 ;
 ; ----------------------------------------- Header
 ;
@@ -22,8 +23,8 @@
 	!wo modend		; Endadresse+1 des Moduls
 	!wo 0			; unused
 	!pet "PNG8bit 64colors"	; description
-cvers	!pet "1.00"		; Versionsnummer
-	!pet "23.11.19"		; Datum
+cvers	!pet "1.01"		; Versionsnummer
+	!pet "25.11.19"		; Datum
 	!pet "A.Dettke        "	; author
 
 ; ----------------------------------------- Definitionen
@@ -96,12 +97,6 @@ st11	jsr gd_sproff	; Sprites aus
 	lda #9		; Undo-Kommando vorbereiten
 	sta getundo+1
 
-	ldx #3		; Versionsnummer eintragen
--	lda cvers,x
-	sta version,x
-	dex
-	bpl -
-
 	jsr wopen		; Writefile öffnen
 	bne st2		; wenn Fehler: Ende
 
@@ -113,8 +108,8 @@ st11	jsr gd_sproff	; Sprites aus
 	jsr ckout
 	jsr gd_clrms	; Anzeige initialisieren
 
-	jsr setparams
-	ldx #0		; Text eintragen
+	jsr setparams	; Full or Clip?
+	ldx #0		; Text "PNG" eintragen
 	jsr tcopy
 	jsr write		; Bild speichern
 
@@ -128,8 +123,7 @@ st2	jsr clrch		; Bus freigeben
 st1	pla		; Modularea wieder setzen
 	sta gd_modswitch
 
-st12	jsr canc
-	jsr gd_spron	; Sprites wieder an
+st12	jsr gd_spron	; Sprites wieder an
 	sec		; Leave-Flag
 	rts		; fertig
 
@@ -138,7 +132,7 @@ st12	jsr canc
 
 !src "input.inc"
 
-; ----------------------------------------- 
+; --------------------------/Input Routines
 ; ----------------------------------------- 
 
 ; ----------------------------------------- Disk Access
@@ -148,12 +142,8 @@ pngtx	!pet "gnp."
 pngtxs	!scr "gnp."
 drinit	!pet "i0"
 wflen	!by 0
-used	!by $ff
-areaflag	!by $ff
-filepos	!wo $1000
 
-areatxts	!scr "Full" ; 0
-	!scr "Clip" ; 4
+filepos	!wo $1000
 
 ; ----------------------------------------- Filehandling
 
@@ -269,23 +259,6 @@ si5	rts
 nbuf	!fill 16,32
 	!by 0
 
-; ----------------------------------------- Leave saver
-
-cn2 	lda #3
-	!by $2c
-canc 	lda #$ff
-	sta used
-	sec
-	rts
-
-; ----------------------------------------- Set Save PNG data parameters
-
-setparams	inc used
-	jsr setclip
-	jsr setvals
-	sec
-	rts
-
 ; ----------------------------------------- Counter
 
 count 	inc src		; increment src by 1
@@ -313,6 +286,27 @@ convert	sta sc_pos	; value times 8
 	ldx sc_pos	; .x: lo
 	lda sc_pos+1	; .a: hi
 	rts
+
+; ----------------------------------------- Set Save PNG data parameters
+
+setparams	lda gr_colorbase	; Which palette?
+	cmp #7		; 0..6 (where 0 is GoDot)
+	bcc +
+	lda #0		; definitely
++	asl
+	tay
+	lda paloffs,y	; set address
+	sta src
+	iny
+	lda paloffs,y
+	sta src+1
+	ldy #51		; activate palette
+-	lda (src),y
+	sta plte4,y
+	dey
+	bpl -
+
+	jsr setclip	; (for future addition)
 
 ; ----------------------------------------- Set file values for width and height
 ; not used yet (future version may save clips)
@@ -351,8 +345,8 @@ setclip	lda #$10		; 4Bit starting from $1000 in REU
 	sta clpbr
 	lda #25 
 	sta clpho
-	lda areaflag 
-	bmi scp8
+	lda #0		; later: sc_clipped!
+	beq scp8
 
 	lda sc_lastclpzl	; row
 	beq scp1		; is zero: skip
@@ -432,7 +426,7 @@ wr0	lda (src),y
 	sec		; Leave-Flag
 	rts		; fertig
 
-; ----------------------------------------- 
+; ----------------------------------------- Write Checksums to File
 
 writechks	lda asum2+1	; get final Adler32
 	jsr crcit
@@ -582,7 +576,7 @@ plte4	!by $00,$00,$00,$00,$00,$aa,$66,$44,$00
 	!by $ff,$77,$77,$00,$cc,$55,$bb,$bb,$bb
 	!by $aa,$ff,$ee,$ee,$ee,$77,$aa,$ff,$66
 	!by $ff,$ff,$ff
-crcp4	!by $2b,$59,$d8,$22 
+crcpl4	!by $2b,$59,$d8,$22 
 
 	!by $00,$00,$00,$09		; aspect: 9 Bytes (+12)
 	!raw "pHYs"		; Aspekt 1:1
@@ -595,15 +589,15 @@ crca4	!by $d2,$dd,$7e,$fc		; crc32
 	!raw "tEXt"
 	!raw "Comment",0
 	!raw "Saved by C64 GoDot PNG saver "
-	!tx "1.00"
-	!by $37,$ef,$1c,$e1 	; crc32
+	!tx "1.01"
+	!by $40,$e8,$2c,$77 	; crc32
 
-imgdata4	!by $00,$00,$7d,$d3		; (32000) Bytes (+15)
+imgdata4	!by $00,$00,$7d,$d3		; (32200) Bytes (+15)
 idat4	!raw "IDAT"		; Bilddaten
 	!by $78			; zlib: 32K slide/Deflated
 	!by $01			;       uncompressed
 	!by $01			;       last block (of 1)
-ilen4	!wo $7dc8			; Länge (16200=40*4*200+200)
+ilen4	!wo $7dc8			; Länge (32200=40*4*200+200)
 	!wo $8237			; 2er-Komplement von Länge
 
 ; hier folgen die Pixeldaten (Indexe in RGB-Palette, die Adler32-Checksumme
@@ -692,7 +686,7 @@ palette8	!by $00,$00,$03,$00		; 768 Bytes (+12)
 	!by $cc,$88,$88,$ee,$aa,$ee,$ee,$cc,$aa,$bb,$bb,$bb
 	!by $88,$cc,$ff,$ff,$bb,$bb,$88,$ee,$aa,$dd,$dd,$dd
 	!by $dd,$ff,$ee,$ee,$ee,$bb,$dd,$ff,$bb,$ff,$ff,$ff
-crcp8	!by $97,$8F,$73,$58		; crc32
+crcpl8	!by $97,$8F,$73,$58		; crc32
 
 aspect	!by $00,$00,$00,$09		; 9 Bytes (+12)
 	!raw "pHYs"		; Aspekt 2:1
@@ -705,10 +699,10 @@ comment	!by $00,$00,$00,$29		; 41 Bytes (+12)
 	!raw "tEXt"
 	!raw "Comment",0 		; Comment
 	!raw "Saved by C64 GoDot PNG saver "
-version	!tx "1.00"
-	!by $37,$ef,$1c,$e1 	; crc32
+version	!tx "1.01"
+	!by $40,$e8,$2c,$77 	; crc32
 
-imgdata	!by $00,$00,$7d,$d3		; (32000) Bytes (+15 (+8))
+imgdata	!by $00,$00,$7d,$d3		; (32200) Bytes (+15 (+8))
 idat8	!raw "IDAT"		; Bilddaten
 	!by $78			; zlib: 32K slide/Deflated
 	!by $01			;       uncompressed
@@ -722,6 +716,53 @@ ilen8	!wo $7dc8			; Länge (32200=20*8*200+200)
 pngfooter	!by $00,$00,$00,$00		; 0 Bytes (+12)
 	!raw "IEND"
 	!by $ae,$42,$60,$82		; crc32
+
+; ----------------------------------------- Alternative 4Bit Paletten (je 52)
+; depends on mod.SetColorbase
+
+paloffs	!wo palgodot,palpepto,paldeekay,palvice,palcolod,palcoco,palc64pix
+
+palgodot	!by $00,$00,$00, $00,$00,$aa, $66,$44,$00, $33,$33,$33
+	!by $88,$00,$00, $cc,$44,$cc, $dd,$88,$55, $77,$77,$77
+	!by $00,$88,$ff, $ff,$77,$77, $00,$cc,$55, $bb,$bb,$bb
+	!by $aa,$ff,$ee, $ee,$ee,$77, $aa,$ff,$66, $ff,$ff,$ff
+crcp0	!by $2b,$59,$d8,$22
+
+palpepto	!by $00,$00,$00, $35,$28,$79, $43,$39,$00, $44,$44,$44
+	!by $68,$37,$2b, $6f,$3d,$86, $6f,$4f,$25, $6c,$6c,$6c
+	!by $6c,$5e,$b5, $9a,$67,$59, $58,$8d,$43, $95,$95,$95
+	!by $70,$a4,$b2, $b8,$c7,$6f, $9a,$d2,$84, $ff,$ff,$ff
+crcp1	!by $9a,$a9,$c1,$c8
+
+paldeekay	!by $00,$00,$00, $1a,$0c,$92, $44,$1e,$00, $46,$46,$46
+	!by $68,$37,$2b, $a7,$3b,$9f, $a9,$4b,$02, $8b,$8b,$8b
+	!by $4d,$91,$d1, $d2,$80,$74, $4d,$ab,$19, $ba,$ba,$ba
+	!by $65,$cd,$a8, $eb,$e3,$53, $8e,$f6,$8e, $ff,$ff,$ff
+crcp2	!by $b4,$d1,$5c,$9c
+
+palvice	!by $00,$00,$00, $21,$1b,$ae, $6a,$33,$04, $42,$45,$40
+	!by $be,$1a,$24, $b4,$1a,$e2, $b8,$41,$04, $70,$74,$6f
+	!by $5f,$53,$fe, $fe,$4a,$57, $1f,$d2,$1e, $a4,$a7,$a2
+	!by $30,$e6,$c6, $df,$d6,$0a, $59,$fe,$59, $fd,$fe,$fc
+crcp3	!by $ef,$d0,$da,$94
+
+palcolod	!by $00,$00,$00, $2d,$2b,$9a, $54,$37,$00, $49,$49,$49
+	!by $81,$33,$37, $8d,$3b,$97, $8d,$50,$29, $7b,$7b,$7b
+	!by $6f,$6d,$eb, $c3,$6c,$71, $55,$aa,$4c, $b1,$b1,$b1
+	!by $75,$ce,$c8, $ed,$f0,$71, $a9,$fe,$9f, $ff,$ff,$ff
+crcp4	!by $60,$40,$f8,$13
+
+palcoco	!by $00,$00,$00, $37,$39,$c4, $68,$38,$08, $4d,$4d,$4d
+	!by $af,$2a,$29, $b0,$3f,$b6, $b6,$59,$1c, $84,$84,$84
+	!by $70,$7c,$e6, $ea,$74,$6c, $4a,$c6,$4a, $b6,$b6,$b5
+	!by $62,$d8,$cc, $e4,$ed,$4e, $a6,$fa,$9e, $ff,$ff,$ff
+crcp5	!by $9a,$69,$83,$3e
+
+palc64pix	!by $00,$00,$00, $39,$28,$a8, $5c,$44,$00, $53,$53,$53
+	!by $8b,$39,$2d, $8b,$3f,$b1, $91,$5b,$13, $7e,$7e,$7e
+	!by $79,$6c,$db, $bb,$72,$68, $62,$a8,$34, $a8,$a8,$a8
+	!by $73,$bb,$c4, $cb,$d6,$66, $a5,$e4,$7e, $f5,$f5,$f5
+crcp6	!by $e1,$50,$87,$f5
 
 ; ----------------------------------------- 
 ; ---------------------------------- DoUndo
