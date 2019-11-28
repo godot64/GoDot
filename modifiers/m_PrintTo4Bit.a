@@ -26,6 +26,8 @@
 ;    1.12: 17.08.19, bugfix: avoid empty screen on ERRORs
 ;    1.13: 23.08.19, bugfix: REM wasn't parsed decently
 ;    1.14: 24.08.19, bugfix: REM colors couldn't be changed
+;    1.15: 28.11.19, bugfix: default for PRINT colors not set
+;                            TAB didn't indent not correctly
 ;
 ; --------------------------- 
 
@@ -33,6 +35,10 @@
 
 	prozport	= $01
 	int	= $14
+	status	= $90
+	spalte	= $d3
+	chrcolor	= $286
+	plot	= $fff0
 
 	color	= $30
 	back	= $31
@@ -56,8 +62,6 @@
 	locol	= $4a
 	chrbyte	= $4b
 
-	status	= $90
-	
 	display	= $2000
 	txmodes	= $cb00
 	txbuf	= $cc00
@@ -89,8 +93,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "basic text rem/?"
-	!pet "1.14"
-	!pet "24.08.19"
+	!pet "1.15"
+	!pet "28.11.19"
 	!pet "W.Kling/A.Dettke"
 
 ; --------------------------- 
@@ -381,7 +385,7 @@ cf4	lda #<nofntgad	; Fontnamen ansteuern
 
 ok	lda #1
 	sta gr_redisp	; Flag: Bild neu rendern
-	rts
+	jmp txmini	; reset values ### 1.15
 
 ; --------------------------- BASIC einlesen
 
@@ -435,7 +439,7 @@ ll2	cmp #$a3		; ### 1.10, ab hier: TAB?
 	bne ll0
 +	cmp #","		; Komma?
 	bne +
-	lda $d3		; get column
+	lda spalte	; get column
 	sec
 -	sbc #10
 	bcs -
@@ -739,9 +743,9 @@ txloop1	ldy #0
 	clc 
 	adc #>(display)	; Startadresse Zeichensatz ($2000)
 	sta chrset+1
-	lda #14
+	lda color		; Fortschritt: weißen... ### 1.15
 	sta (chrcol),y
-	lda #46
+	lda #46		; ...Punkt setzen
 	sta (char),y
 txl0	ldx #0
 	lda (chrset,x)
@@ -1195,31 +1199,40 @@ txmini	ldy #0		; linksbündig
 	sta ccol
 	iny
 	sty color
+	sty chrcolor	; für System
 	ldy #2
 	lda #$ff		; bcol: transparent
 	sta back
 til	sta txmodes,y	; Rest löschen
 	iny 
 	bne til
+	sty rvsflag	; init RVS	### 1.15 ab hier
 	rts
 
 ; -------------------------------------- TAB / SPC / Comma
 
-spcs	lda #32
+tabs	jsr gword		; get TAB value (to .a and INT)
+	sbc spalte
+	sta int
+	bcc ++		; if 0, leave
+	bcs tabset
+
+spcs	jsr gword
+	lda #32
 	ldx rvsflag
 	beq +
-	lda #$a0
+	lda #$a0		; reverted Space
 	!by $2c
-tabs	lda #$1d		; CRSR right
+tabset	lda #$1d		; CRSR right
 +	sta space
-	jsr gword
-	beq +
+	lda int
+	beq ++		; 		### bis hier
 tab10	tax
 	lda space		; Einrückungszeichen
 -	jsr bsout
 	dex
 	bne -
-+	ldx #$99		; remember BASIC command
+++	ldx #$99		; remember PRINT
 	rts
 
 ; -------------------------------------- Convert Digits to Word (or just Byte in INT)
