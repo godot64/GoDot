@@ -12,6 +12,7 @@
 ;
 ; 1.00: 23.11.19 - first release
 ; 1.01: 25.11.19, added more palettes to save in
+; 1.02: 27.11.19, now correct Colodore palette
 ;
 ; ----------------------------------------- Header
 ;
@@ -22,9 +23,9 @@
 	!by 1			; Dirty Flag (1 = dirty)
 	!wo modend		; Endadresse+1 des Moduls
 	!wo 0			; unused
-	!pet "PNG8bit 64colors"	; description
-cvers	!pet "1.01"		; Versionsnummer
-	!pet "25.11.19"		; Datum
+	!pet "PNG max 136 cols"	; description
+cvers	!pet "1.02"		; Versionsnummer
+	!pet "27.11.19"		; Datum
 	!pet "A.Dettke        "	; author
 
 ; ----------------------------------------- Definitionen
@@ -32,7 +33,7 @@ cvers	!pet "1.01"		; Versionsnummer
 	base	= 65521	; largest prime smaller than 65536
 
 	src	= $30	; /$31
-	asum2	= $32	; /$33
+	asum2	= $32	; /$33	; Adler32
 	asum1	= $34	; /$35
 	crcbuf	= $36	; ..$39
 	pcount	= $3a
@@ -52,7 +53,7 @@ cvers	!pet "1.01"		; Versionsnummer
 	clpsp	= $52
 	tilecnt	= $53
 
-	buf0	= $2000
+	buf0	= $2000		; crc32
 	buf1	= buf0+256
 	buf2	= buf1+256
 	buf3	= buf2+256
@@ -108,7 +109,7 @@ st11	jsr gd_sproff	; Sprites aus
 	jsr ckout
 	jsr gd_clrms	; Anzeige initialisieren
 
-	jsr setparams	; Full or Clip?
+	jsr setparams	; set RGB table (and Full values)
 	ldx #0		; Text "PNG" eintragen
 	jsr tcopy
 	jsr write		; Bild speichern
@@ -143,7 +144,7 @@ pngtxs	!scr "gnp."
 drinit	!pet "i0"
 wflen	!by 0
 
-filepos	!wo $1000
+filepos	!wo $1000		; Start of 4Bit data in REU
 
 ; ----------------------------------------- Filehandling
 
@@ -292,7 +293,7 @@ convert	sta sc_pos	; value times 8
 setparams	lda gr_colorbase	; Which palette?
 	cmp #7		; 0..6 (where 0 is GoDot)
 	bcc +
-	lda #0		; definitely
+	lda #0		; definitely (if gr_colorbase is corrupt)
 +	asl
 	tay
 	lda paloffs,y	; set address
@@ -306,7 +307,7 @@ setparams	lda gr_colorbase	; Which palette?
 	dey
 	bpl -
 
-	jsr setclip	; (for future addition)
+	jsr setclip	; change palette, set Full
 
 ; ----------------------------------------- Set file values for width and height
 ; not used yet (future version may save clips)
@@ -348,7 +349,7 @@ setclip	lda #$10		; 4Bit starting from $1000 in REU
 	lda #0		; later: sc_clipped!
 	beq scp8
 
-	lda sc_lastclpzl	; row
+	lda sc_lastclpzl	; row		(gets skipped)
 	beq scp1		; is zero: skip
 	sta clpzl
 scp4	clc
@@ -396,7 +397,8 @@ write	lda gr_cmode	; Hires (0) oder Multi (>0)?
 	ldx #>902
 ++	sta ls_vekta8
 	stx ls_vekta8+1
-	ldy #0
+
+	ldy #0		; write to disk
 wr0	lda (src),y
 	jsr bsout
 	jsr count
@@ -416,9 +418,11 @@ wr0	lda (src),y
 	lda #9		; Funktion "Undo ins Ram" setzen
 	sta getundo+1
 	jsr doundo	; automatisches Undo ausführen
+
 	jsr scanlines	; Checksummen generieren und Bilddaten wegschreiben
 	jsr writechks	; adler32/CRC32 abschließen/Checksummen schreiben
 	jsr setfooter	; PNG-Abschlussblock aufbereiten
+
 	jsr clrch		; File schließen
 	lda #8		; Funktion "Undo aus dem Ram" setzen
 	sta getundo+1
@@ -451,8 +455,8 @@ crcit	jsr collect	; Adler in CRC32 einfließen lassen
 ; ----------------------------------------- 
 
 encode	jsr bsout		; write to file
-	jsr collect
-	jmp adler32	; generate zlib checksum
+	jsr collect	; generate crc32 checksum
+	jmp adler32	; generate zlib adler checksum
 
 ; ----------------------------------------- 
 
@@ -532,7 +536,7 @@ s3	dec tilecnt
 	inc src+1
 s5	lda src+1
 	sta rm_werte+3
-	jsr action	; Laufbalken vorrücken
+	jsr action	; Laufbalken vorrücken (200 mal)
 	dec lcnt
 	bne tloop8
 
@@ -570,7 +574,7 @@ crch4	!by $6b,$2a,$25,$98
 
 palette4	!by $00,$00,$00,$30		; 48 Bytes (+12)
 	!raw "PLTE"		; (Palette)
-plte4	!by $00,$00,$00,$00,$00,$aa,$66,$44,$00
+plte4	!by $00,$00,$00,$00,$00,$aa,$66,$44,$00	; gets changed
 	!by $33,$33,$33,$88,$00,$00,$cc,$44,$cc
 	!by $dd,$88,$55,$77,$77,$77,$00,$88,$ff
 	!by $ff,$77,$77,$00,$cc,$55,$bb,$bb,$bb
@@ -589,8 +593,8 @@ crca4	!by $d2,$dd,$7e,$fc		; crc32
 	!raw "tEXt"
 	!raw "Comment",0
 	!raw "Saved by C64 GoDot PNG saver "
-	!tx "1.01"
-	!by $40,$e8,$2c,$77 	; crc32
+	!tx "1.02"
+	!by $d9,$e1,$7d,$cd 	; crc32
 
 imgdata4	!by $00,$00,$7d,$d3		; (32200) Bytes (+15)
 idat4	!raw "IDAT"		; Bilddaten
@@ -622,7 +626,7 @@ crch8	!by $58,$b6,$1a,$28 	; CRC32
 
 palette8	!by $00,$00,$03,$00		; 768 Bytes (+12)
 	!raw "PLTE"		; (Palette)
-	!by $00,$00,$00,$00,$00,$55,$55,$33,$00,$22,$22,$22
+	!by $00,$00,$00,$00,$00,$55,$55,$33,$00,$22,$22,$22	; IFLI-Palette
 	!by $55,$00,$00,$66,$22,$66,$66,$44,$22,$33,$33,$33
 	!by $00,$44,$77,$88,$33,$33,$00,$44,$22,$55,$55,$55
 	!by $55,$88,$77,$77,$77,$33,$55,$88,$33,$88,$88,$88
@@ -699,8 +703,8 @@ comment	!by $00,$00,$00,$29		; 41 Bytes (+12)
 	!raw "tEXt"
 	!raw "Comment",0 		; Comment
 	!raw "Saved by C64 GoDot PNG saver "
-version	!tx "1.01"
-	!by $40,$e8,$2c,$77 	; crc32
+version	!tx "1.02"
+	!by $d9,$e1,$7d,$cd 	; crc32
 
 imgdata	!by $00,$00,$7d,$d3		; (32200) Bytes (+15 (+8))
 idat8	!raw "IDAT"		; Bilddaten
@@ -718,7 +722,7 @@ pngfooter	!by $00,$00,$00,$00		; 0 Bytes (+12)
 	!by $ae,$42,$60,$82		; crc32
 
 ; ----------------------------------------- Alternative 4Bit Paletten (je 52)
-; depends on mod.SetColorbase
+; depends on mod.SetColorbase, gets changed in setparams
 
 paloffs	!wo palgodot,palpepto,paldeekay,palvice,palcolod,palcoco,palc64pix
 
@@ -746,11 +750,11 @@ palvice	!by $00,$00,$00, $21,$1b,$ae, $6a,$33,$04, $42,$45,$40
 	!by $30,$e6,$c6, $df,$d6,$0a, $59,$fe,$59, $fd,$fe,$fc
 crcp3	!by $ef,$d0,$da,$94
 
-palcolod	!by $00,$00,$00, $2d,$2b,$9a, $54,$37,$00, $49,$49,$49
-	!by $81,$33,$37, $8d,$3b,$97, $8d,$50,$29, $7b,$7b,$7b
-	!by $6f,$6d,$eb, $c3,$6c,$71, $55,$aa,$4c, $b1,$b1,$b1
-	!by $75,$ce,$c8, $ed,$f0,$71, $a9,$fe,$9f, $ff,$ff,$ff
-crcp4	!by $60,$40,$f8,$13
+palcolod	!by $00,$00,$00, $2e,$2c,$9b, $55,$38,$00, $4a,$4a,$4a	; ###
+	!by $81,$33,$38, $8e,$3c,$97, $8e,$50,$29, $7b,$7b,$7b
+	!by $6f,$6d,$eb, $c4,$6c,$71, $56,$ac,$4d, $b2,$b2,$b2
+	!by $75,$ce,$c8, $ed,$f1,$71, $a9,$ff,$9f, $ff,$ff,$ff
+crcp4	!by $7f,$08,$d2,$e3
 
 palcoco	!by $00,$00,$00, $37,$39,$c4, $68,$38,$08, $4d,$4d,$4d
 	!by $af,$2a,$29, $b0,$3f,$b6, $b6,$59,$1c, $84,$84,$84
@@ -803,7 +807,7 @@ getundo	ldx #9		; und DoUndo
 	jsr rm_ramvec	
 	jmp gd_sproff	; und Sprite wieder aus, zurück
 
-; ----------------------------------------- Compute CRC32
+; ----------------------------------------- CRC32 Result
 
 mkcrc32	jsr process	; process buffer
 	ldx #0		; ergebnis invertieren
@@ -816,21 +820,21 @@ mkcrc32	jsr process	; process buffer
 	bpl -
 	rts		; result an crcbuf
 
-; ----------------------------------------- 
+; ----------------------------------------- Gather CRC32
 
 collect	ldx xcount
 	sta inbuf,x	; .a: gelesenes Byte
 	inx
 	stx xcount
-	cpx #64
+	cpx #64		; 64 Bytes sammeln...
 	beq process
 	rts
 
-; ----------------------------------------- 
+; ----------------------------------------- Process CRC32
 
-process	ldy #0
+process	ldy #0		; ...dann den ganzen Puffer kodieren
 	beq +
--	lda inbuf,y	; buffer aktualisieren
+-	lda inbuf,y
 	eor crc32
 	tax
 	lda crc32+1
@@ -852,7 +856,7 @@ process	ldy #0
 	sta xcount
 	rts
 
-; ----------------------------------------- 
+; ----------------------------------------- Initilize CRC32 Tables
 
 prepbufs	ldy #0		; start value: 0 (end: 255)
 --	sty crcbuf
@@ -892,7 +896,7 @@ prepbufs	ldy #0		; start value: 0 (end: 255)
 	bne --		; 256 times
 
 	ldx #3
-	lda #$ff		; preset $ffffffff
+	lda #$ff		; start value: $ffffffff
 -	sta crc32,x
 	dex
 	bpl -
@@ -900,7 +904,7 @@ prepbufs	ldy #0		; start value: 0 (end: 255)
 	sta xcount	; .x counter to 0
 	rts
 
-; ----------------------------------------- 
+; ----------------------------------------- Compute Adler32 Checksum
 
 adler32	lda asum1		; get current asum1
 	ldx asum1+1
@@ -941,7 +945,7 @@ adl7	lda asum2		; if asum2 >= base: asum2 = asum2 - base
 adl8	rts		; am Ende:
 			; asum2.asum1 als 32Bit-Wert (hi/lo verdreht)
 
-; ----------------------------------------- 
+; ----------------------------------------- Initialize Adler32 Checksum
 
 adlerinit	ldx #0		; asum1=1
 	stx asum1+1
@@ -951,7 +955,7 @@ adlerinit	ldx #0		; asum1=1
 	stx asum1
 	rts
 
-; ----------------------------------------- Namen verlängern
+; ----------------------------------------- Filenamen verlängern
 
 addpng	pha		; Länge merken
 	tay
@@ -989,11 +993,11 @@ ag0	dey		; auf 12 verkürzen
 	bne ag0
 	beq ag5		; unbed. Sprung
 
-; ------------------------------------------------ Keine REU vorhanden
+; ------------------------------------------------ Wenn keine REU vorhanden
 
 noreu	ldy #2		; rot
-	jsr graphon	; blink
-	sec
+	jsr graphon	; blinken
+	sec		; Saver verlassen
 	rts
 
 ; ------------------------------------------------ Blink the Border
