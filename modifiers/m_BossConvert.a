@@ -16,7 +16,8 @@
 ;    1.04, 12.09.16, bugfix, sprite only one color? fixed
 ;    1.05, 14.09.16, added: select sprite on graphics screen
 ;    1.06, 22.05.17, added: save sprite pointer chunk (as $ad-bytes)
-;    1.07, 20.06.19, added init keyboard for SuperCPU
+;    1.07, 20.06.19, added: init keyboard for SuperCPU
+;    1.08, 01.12.19, added: 2 more flags in file data
 ;
 ; ------------------------------------------------------------ 
 
@@ -71,8 +72,8 @@ header 	jmp start
 	!wo  modend
 	!wo  0
 	!pet "Boss Converter  "
-	!pet "1.07"
-	!pet "20.06.19"
+	!pet "1.08"
+	!pet "01.12.19"
 	!pet "A. Dettke       "
 
 ; --------------------------------------- Main
@@ -81,6 +82,8 @@ start 	ldx sc_screenvek
 	stx list
 	ldx sc_screenvek+1
 	stx list+1
+	tsx
+	stx stack
 	lda sprcol1	; save sprite color 1
 	sta s1col
 	jsr defchar
@@ -181,7 +184,6 @@ esn1	jsr clrch		; close file
 	jsr close
 	jsr err9
 	jsr gd_spron
-
 	clc
 	rts
 
@@ -1015,8 +1017,8 @@ htimes10	sta sc_pos+1	; ### 1.04, von hier ---
 
 ; ----------------------------------------- Gauge for Save
 
-gaugeout	ldx #<(gaugelst)
-	ldy #>(gaugelst)
+gaugeout	ldx #<gaugelst
+	ldy #>gaugelst
 	jmp gd_screen
 
 ; ---------------------------------------- Diskaccess
@@ -1052,21 +1054,34 @@ err9 	jsr gd_xmess
 err8 	sec
 	rts
 
+err5	ldx stack
+	txs
+	jsr clrch		; close file
+	lda #12
+	jsr close
+	jsr rp6		; rebuild main screen
+	jsr gd_spron
+	jsr gaugeout
+	jsr err9		; show floppy message
+	jsr gd_eloop	; wait for click
+	sec
+	rts
+
 ; ---------------------------------------- Write Loop on Save
 
 write	ldx #0
 wr0	lda fheader,x
 	jsr onebyte	; ### 1.05: catch floppy err
-err7	bne err9		; ###
+err7	bne err5		; ### 1.08: avoid crash
 	inx
-	cpx #14
+	cpx #16		; ### 1.08: 2 more flags in file
 	bne wr0
 	stx writing
 
 	ldx totnumber	; ### 1.06: write sprite pointer chunk
 	lda #$ad		; (max. 80 bytes)
 -	jsr onebyte
-	bne err9
+	bne err7		; ### 1.08: avoid crash
 	dex
 	bne -
 
@@ -1154,6 +1169,8 @@ sprtcol1	!by 0		; $d026 (pattern %11)
 order	!by 0		; 0: sideways, 1: downways
 comprs	!by 0		; 0: no, 1: yes
 frames	!by 0		; # of animframes (0: no anim)
+infile	!by 1		; # of frames (or sprites if frames=0) in *this* file
+followups	!by 0 		; # of following files to this file (0: last file)
 
 ; --------------------------------------- Variables
 
@@ -1182,7 +1199,8 @@ cclash	!by 0
 yesno	!scr "yes no"
 dirtext	!by 94,31		; Rechtspfeil, Abwärtspfeil
 s1col	!by 0
-list	!wo  0
+list	!wo 0
+stack	!by 0
 show	!by 112,122	; position of preview sprite
 
 ; --------------------------------------- Tables and records
@@ -1503,7 +1521,7 @@ rp1	jsr selpos
 	sta height
 rp5	jsr getcolors
 	jsr tmode
-	ldx list
+rp6	ldx list
 	ldy list+1
 	jsr gd_screen
 rp3	clc
