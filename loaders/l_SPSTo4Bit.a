@@ -1,6 +1,8 @@
 
-!src "godotlib.lib"
-*= $c000
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
 
 ; ----------------------------------------- 
 ;
@@ -8,11 +10,12 @@
 ; loader for the BossConvert sps-Spriteset files
 ; retrieves game bosses (spritesets) up to 8x10 sprites each 
 ; and converts them to standard multicolor/hires graphics.
-; Further versions will support multiple files in a set.
 ;
 ;    1.00, 12.08.08, first release
 ;    1.01, 22.08.08, file filtering added
 ;    1.02, 21.05.17, added reading sprite pointers from file
+;    1.03, 30.11.19, added flags to manage multiple sprites per file
+;                    or multiple single sprites
 ;
 ; ----------------------------------------- 
 
@@ -126,11 +129,15 @@ stt1	jsr readbyte	; get header (14 bytes)
 	bne jerror
 
 stt3	jsr amount	; # of sprites and # of bytes in total
-	
-	jsr spointers	; retrieve sprite pointers (just skip them)
-	bcs jerror
+	jsr basin		; # of sprites in this file
+	sta infile
+	jsr basin		; # of followup files (if 0: last file in line)
+	sta followups
+	jsr spointers	; retrieve sprite pointers (for now: just skip them)
+	bcc +
+	jmp error
 
-	jsr gd_clrms	; clear message bar
++	jsr gd_clrms	; clear message bar
 	lda #32		; activity counter to 32
 	sta cntwert
 	sta cntaction
@@ -614,6 +621,8 @@ order	!by 0		; 0: sideways, 1: downways
 compressed
 	!by 0		; 0: no, 1: yes
 frames	!by 0		; # of animframes (0: no anim)
+infile	!by 0		; ### 1.03
+followups	!by 0
 
 spritecol2
 	!by 0		; $d027... (pattern %10)
