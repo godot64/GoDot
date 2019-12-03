@@ -18,6 +18,7 @@
 ;    1.06, 22.05.17, added: save sprite pointer chunk (as $ad-bytes)
 ;    1.07, 20.06.19, added: init keyboard for SuperCPU
 ;    1.08, 01.12.19, added: 2 more flags in file data
+;    1.09, 02.12.19, added: correct value for INFILE
 ;
 ; ------------------------------------------------------------ 
 
@@ -72,8 +73,8 @@ header 	jmp start
 	!wo  modend
 	!wo  0
 	!pet "Boss Converter  "
-	!pet "1.08"
-	!pet "01.12.19"
+	!pet "1.09"
+	!pet "03.12.19"
 	!pet "A. Dettke       "
 
 ; --------------------------------------- Main
@@ -988,7 +989,10 @@ totals	lda #$30		; Vorbesetzung: "00"
 	dey
 	lda (multable),y	; sonst Ergebis holen
 	sta totnumber	; merken
-	tax
+	ldx frames	; ### 1.09
+	bne +
+	sta infile	; # of sprites (in header if no frames)
++	tax
 	dex
 	stx maxnumber
 	jsr gd_xcnvdez	; umwandeln
