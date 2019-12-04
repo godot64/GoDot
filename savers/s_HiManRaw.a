@@ -11,6 +11,7 @@
 ;   1.00, 03.05.93, first release
 ;   1.01, 19.09.18, added forgotten image information
 ;                   code slightly optimized
+;   1.02, 04.12.19, now correct GoDot tag in result file
 ;
 ; ------------------------------------------------ 
 
@@ -43,8 +44,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "HiresManager raw"
-	!tx "1.01"
-	!tx "19.09.18"
+	!tx "1.02"
+	!tx "04.12.19"
 	!tx "A.Dettke/W.Kling"
 addtxt	!tx "GoDotCouldMakeAB"
 	!tx "etterFLI!!!!!!!!"
@@ -234,24 +235,25 @@ dohmfli	jsr gd_clrms
 
 ; ------------------------------------------------ 
 
-dogod	jsr makec64
+dogod	jsr makec64	; generate palette (returns .y=0)
 
 	lda #<sy_4bit
 	jsr bsout
 	lda #>sy_4bit
 	jsr bsout
 
-	lda #$ff		; first row: indent
-	jsr gl0
+	lda #$ff		; first row: indent (9 Kacheln)
+	ldx #72		; ### 1.02
+	jsr gl2
 
 	ldx #0		; signature ("GoDot!...")
 gl1	lda hmgod,x
 	jsr write
 	inx 
-	cpx #160
+	cpx #168		; 21 Kacheln ### 1.02
 	bne gl1
 
-gl0	ldx #80		; outdent
+gl0	ldx #80		; outdent (10 Kacheln)
 gl2	jsr write
 	dex 
 	bne gl2
@@ -266,7 +268,7 @@ vrloop	lda #0		; write FLI bug bytes
 	ldx #3
 	jsr gl2
 
-	lda #$6f		; white on blue
+	lda #$cb		; darkgray on midgray  ### 1.02
 	ldx #37
 	jsr gl2		; write first row colors
 
@@ -569,29 +571,29 @@ vrcnt	!by 0
 zlcnt	!by 0
 
 ; ------------------------------------------------ Signature
-; first blockrow: GoDot! C64 iMAGE PROCESSiNG
+; first blockrow: "GoDot! C64 imAGE PROCESSinG"
 
-hmgod	!by $ff,$ff,$ff,$83,$3f,$32,$03,$ff	; 21 tiles
-	!by $ff,$ff,$ff,$fc,$0f,$64,$0c,$ff
-	!by $ff,$ff,$ff,$1f,$cc,$c9,$0c,$ff
-	!by $ff,$ff,$ff,$f9,$30,$99,$39,$ff
-	!by $ff,$ff,$ff,$e7,$67,$ff,$e7,$ff
-	!by $ff,$ff,$ff,$ff,$ff,$fe,$ff,$ff
-	!by $ff,$ff,$ff,$0c,$ff,$78,$0c,$ff
-	!by $ff,$ff,$ff,$27,$fc,$20,$7c,$ff
-	!by $ff,$ff,$ff,$fe,$ff,$fe,$fe,$ff
-	!by $ff,$ff,$ff,$40,$cf,$49,$49,$ff
-	!by $ff,$ff,$ff,$71,$3f,$20,$24,$ff
-	!by $ff,$ff,$ff,$c2,$9f,$92,$82,$ff
-	!by $ff,$ff,$ff,$0f,$ff,$3f,$0f,$ff
-	!by $ff,$ff,$ff,$86,$f3,$86,$9e,$ff
-	!by $ff,$ff,$ff,$1c,$c9,$19,$4c,$ff
-	!by $ff,$ff,$ff,$70,$3f,$27,$70,$ff
-	!by $ff,$ff,$ff,$82,$ff,$8f,$82,$ff
-	!by $ff,$ff,$ff,$79,$1c,$cf,$18,$ff
-	!by $ff,$ff,$ff,$e4,$7f,$24,$64,$ff
-	!by $ff,$ff,$ff,$38,$93,$92,$90,$ff
-	!by $ff,$ff,$ff,$7f,$ff,$7f,$7f,$ff
+hmgod	!by $ff,$ff,$83,$3f,$32,$03,$ff,$ff	; 21 Kacheln (168 Bytes)
+	!by $ff,$ff,$fc,$0f,$64,$0c,$ff,$ff	; (### 1.02)
+	!by $ff,$ff,$1f,$cc,$c9,$0c,$ff,$ff
+	!by $ff,$ff,$f9,$30,$99,$39,$ff,$ff
+	!by $ff,$ff,$e7,$67,$ff,$e7,$ff,$ff
+	!by $ff,$ff,$ff,$ff,$fe,$ff,$ff,$ff
+	!by $ff,$ff,$0c,$ff,$78,$0c,$ff,$ff
+	!by $ff,$ff,$27,$fc,$20,$7c,$ff,$ff
+	!by $ff,$ff,$fe,$ff,$fe,$fe,$ff,$ff
+	!by $ff,$ff,$40,$cf,$49,$49,$ff,$ff
+	!by $ff,$ff,$71,$3f,$20,$24,$ff,$ff
+	!by $ff,$ff,$c2,$9f,$92,$82,$ff,$ff
+	!by $ff,$ff,$0f,$ff,$3f,$0f,$ff,$ff
+	!by $ff,$ff,$86,$f3,$86,$9e,$ff,$ff
+	!by $ff,$ff,$1c,$c9,$19,$4c,$ff,$ff
+	!by $ff,$ff,$70,$3f,$27,$70,$ff,$ff
+	!by $ff,$ff,$82,$ff,$8f,$82,$ff,$ff
+	!by $ff,$ff,$79,$1c,$cf,$18,$ff,$ff
+	!by $ff,$ff,$e4,$7f,$24,$64,$ff,$ff
+	!by $ff,$ff,$38,$93,$92,$90,$ff,$ff
+	!by $ff,$ff,$7f,$ff,$7f,$7f,$ff,$ff
 
 ; ------------------------------------------------ 
 
