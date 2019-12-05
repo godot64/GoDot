@@ -1,6 +1,8 @@
 
-!src "godotlib.lib"
-*	= $c000
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
 
 ; ----------------------------------------- 
 ;
@@ -10,6 +12,7 @@
 ; 1.01, 01.03.92:
 ; 1.02, 24.11.16: better recognition of Hires files
 ; 1.03, 09.01.17: saves original bg color
+; 1.04, 05.12.19: Error reading some Hires images
 ;
 ; ----------------------------------------- 
 
@@ -40,8 +43,8 @@
 	!wo modend
 	!wo 0 
 	!pet "OCP Art Studio  "
-	!pet "1.03"
-	!pet "09.01.17"
+	!pet "1.04"
+	!pet "05.12.19"
 	!pet "W.Kling/A.Dettke"
 
 ; ----------------------------------------- Main
@@ -79,12 +82,12 @@ read	lda #<10016	; Read 10016 Bytes (das ist die Dateilänge bei Multi)
 rloop	jsr onebyte	; Byte einlesen
 	sta (sc_texttab),y
 	txa 		; Status abchecken
-	and #$bf
+	and #$bf		; EOF ausblenden
 rl01	bne jerror
-	cpx #$40
+	cpx #$40		; Status war EOF?
 	bne rl02
 
-	ldx ls_vekta8	; schon fertig? (vorzeitig!)
+	ldx ls_vekta8	; ja, schon fertig? (vorzeitig!)
 	dex 
 	txa 
 	ora ls_vekta8+1	; ja, Hiresbild?
@@ -113,12 +116,10 @@ testhi	jsr gd_xclose	; File schlie0en
 	cmp #>1017	; Hi-Byte passt schon nicht, also: kein OCP-Bild
 	bne jerror
 	lda ls_vekta8
-	cmp #<1010	; Lo-Byte, Rest kleiner als 1010?
-	beq rl00
-	cmp #<1017	; Lo-Byte, Rest kleiner als 1016?
-	beq rl00
-	bne jerror	; ja, Fehler
-	
+	cmp #<1017	; Lo-Byte, Rest genau 1016? (Zähler steht noch eins mehr)
+	beq rl00		; ok
+	cmp #<1000	; Lo-Byte, Rest kleiner als 1000?
+	bcc jerror	; ja, Fehler
 
 rl00	inc flag		; sonst: OCP-Hires-Bild, Flag setzen (1) und verarbeiten
 
