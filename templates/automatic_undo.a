@@ -1,0 +1,146 @@
+; ----------------------------------------------------- 
+; ------------------------------------------ Write File
+; ----------------------------------------------------- 
+
+; ----------------------------------------------------- data
+
+	border		= $d020		; used in GRAPHON
+bank	!by 0				; used by CHECK4REU
+
+; ----------------------------------------------------- 
+
+write	; ...
+
+	lda #9		; Funktion "Undo in die REU" setzen
+	sta getundo+1
+	jsr doundo	; automatisches Undo ausführen
+
+;	jsr ...		; initwrite	; Vektoren initialisieren
+;	jsr ...		; writelines	; Datei packen und wegschreiben
+;	jsr ...		; closefile	; Codierung abschließen
+
+	lda #8		; Funktion "Undo aus der REU" setzen
+	sta getundo+1
+	jsr doundo	; und ausführen
+	sec		; Leave-Flag
+	rts		; fertig
+
+; ----------------------------------------------------- 
+; ---------------------------------------------- DoUndo
+; ----------------------------------------------------- 
+
+doundo	lda #<undo	; eigentliche Routine verschieben
+	ldx #>undo	; (weil das Modul ausgeblendet wird)
+	sta ls_vekta8
+	stx ls_vekta8+1
+	ldy #noreu-undo
+sloop	lda (ls_vekta8),y
+	sta sy_global,y	; nach GLOBAL
+	dey
+	bpl sloop
+	jmp sy_global	; und dann ausführen
+
+undo 	jsr gd_swapd	; Ram einblenden
+	ldx #10		; FirstInit
+	jsr rm_ramvec
+
+	ldx #6		; Parameter setzen
+	lda #0
+md0	sta rm_werte,x	; zuerst löschen
+	dex
+	bpl md0
+	lda #>sy_4bit	; 4Bit-Bereich im C64
+	sta rm_werte+1
+	lda #$10		; nach Undo4Bit im Ram
+	sta rm_werte+3	; ($8d für Undo Rendered)
+	lda #$7d		; 32000 Bytes
+	sta rm_werte+6
+
+	lda #1		; Flag für 4Bit-Undo setzen
+	sta rm_nextentry	; (#2 für Undo Rendered!)
+
+getundo	ldx #9		; und DoUndo
+	jsr rm_ramvec
+	ldx #1		; danach ForceOff (Ram ausblenden)
+	jsr rm_ramvec	
+	jmp gd_sproff	; und Sprite wieder aus, zurück
+
+; ---------------------------------------- Init rm_werte
+
+initreu	ldx #6
+	lda #0		; RM_WERTE (am Ende): 
+sl0	sta rm_werte,x	; $00, $c0, $00, $00, 0, 0, 0
+	dex		; - C64 - | -  REU   - | Anzahl 
+	bpl sl0
+	lda #$c0
+	sta rm_werte+1
+	rts
+
+; -------------------------------------- Check for REU
+
+check4reu	lda ls_ramdrive	; welcher Ramdrive? (detected by system)
+	and #15
+	ldx #6
+	cmp #8		; 1700
+	beq graphon	; too small
+	cmp #4		; 1764
+	bne st2
+	cpy #2		; MODs in bank 2?
+	bcs graphon	; too small
+	ldx #2
+	bne st7
+st2	cmp #5		; 1750
+	bne graphon
+	cpy #6		; MODs in bank 6?
+	bcs graphon	; too small
+st7	stx bank
+
+	lda rm_ramvec	; Device eingebunden?
+	cmp #$4c		; equal, wenn ja
+	rts
+
+; ----------------------------------------------------- Blink the Border
+
+graphon	ldy #2		; red
+	lda border	; save border color
+	pha
+	sty border	; set new color (in .y, here: 2 for red)
+	ldx #$40
+	jsr gd_dl2	; delay (.x=0)
+	pla
+	sta border	; reset old border color
+	stx sy_tbuffer	; clear key strokes
+stay	clc
+	rts
+
+; ----------------------------------------------------- End of File
+
+	!eof
+
+;         the rest of the file gets skipped if !eof stays active
+
+; ----------------------------------------------------- 
+
+
+; ----------------------------------------------------- Screenlist für NO REU
+
+noreu	ldx #<warnlst
+	ldy #>warnlst
+	jmp gd_xmloop
+
+; ----------------------------------------------------- 
+
+warnlst	!by 0
+	!by 8,9,21,9,$81
+	!wo 0
+	!scr "MESSAGE@"
+	!by 14,23,7,3,$cd
+	!wo canc
+	!scr "Leave@"
+	!by $c0,10,10,16
+	!scr "No REU detected.@"
+	!by $c0,12,11,15
+	!scr "You can't save.@"
+	!by $80
+
+
