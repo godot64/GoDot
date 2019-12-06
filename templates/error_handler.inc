@@ -25,19 +25,21 @@ failf	ldx #160
 
 	ldy #0
 fl0	lda err1,x
-	sta message,y
+	sta message,y	; - see activity_gauge.inc
 	inx 
 	iny 
 	cpy #32
 	bne fl0
-	jsr errnf
+
+; ...	jsr errnf		; rebuild requesters if necessary
+
 	jsr gd_clrms
-	jsr messout
+	jsr messout	; - see activity_gauge.inc
 
 	pla 		; abandon last routine
-	pla 		; (fill with PHA if neccessary)
+	pla 		; (fill with PHA before if neccessary)
 
-	clc 		; stay in requester
+	clc 		; flag: stay in requester
 	rts
 
 
