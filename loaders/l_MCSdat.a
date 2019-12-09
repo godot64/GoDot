@@ -11,12 +11,14 @@
 ;
 ;    0.99: 28.10.93, first release
 ;    1.00: 08.12.19, shorter now
+;    1.01: 09.12.19, get the colors
 ;
 ; ---------------------------
 
 ; --------------------------- Equates
 
 	adcnt		= $30
+	ymrk		= $31
 	dst0		= $35
 	dst		= $37
 	lcnt		= $39
@@ -29,6 +31,10 @@
 	offx		= ls_adrmisc
 	offy		= offx+1
 
+	parbuf		= $c600		; gets abandoned
+	colortab		= parbuf
+	palette		= colortab+256
+
 ; ------------------------------------------------ 
 
 	jmp start
@@ -37,8 +43,8 @@
 	!wo modend
 	!wo 0
 	!tx "M.C.S. FracGen  "
-	!tx "1.00"
-	!tx "08.12.19"
+	!tx "1.01"
+	!tx "09.12.19"
 	!tx "W.Kling/A.Dettke"
 
 ; ------------------------------------------------ 
@@ -47,9 +53,8 @@ jerror	jmp error
 
 ; ------------------------------------------------ 
 
-start	lda #63
+start	lda #50
 	sta cntwert
-
 	jsr getname	; Namen sichern
 	jsr gd_clrms
 
@@ -67,8 +72,12 @@ start	lda #63
 	iny
 	sty adcnt
 
-	ldy #0		; Parameter-Page überlesen
-	jsr dumy
+	ldy #0		; get Parameter-Pages
+-	jsr pload
+	sta parbuf,y
+	iny
+	bne -
+
 	jsr setdst0
 
 	lda #25		; 25 Kachelzeilen
@@ -86,9 +95,6 @@ vloop1	jsr action
 
 	ldy #0
 bloop1	jsr pload		; Byte aus Datei holen
-	and #$0f
-	tax 
-	lda dnib,x	; otherwise: redefine to GoDot
 	sta (dst),y
 	iny 
 	cpy #4
@@ -120,6 +126,48 @@ vskip0	dec bcnt		; 40 Stück
 	dec lcnt		; 25 Stück
 	bne vloop0	; Datei eingelesen
 
+	ldy #0		; get Parameter-Pages (color table)
+-	jsr pload
+	sta colortab,y
+	iny
+	bne -
+-	lda status	; get Parameter-Pages (palette)
+	and #$40		; EOF?
+	bne +		; yes, recolor
+	jsr pload		; no, load palette
+	sta palette,y
+	iny
+	bne -
+
++	jsr gd_clrms
+	ldx #9		; Message: "Recolor"
+	jsr tcopy
+	iny
+	sty adcnt
+
+	lda #125		; recolor data
+	sta bcnt
+	asl
+	sta cntwert
+	jsr setdst0
+	ldy #0
+-	lda (dst0),y
+	tax
+	lda colortab,x
+	tax
+	lda palette,x
+	tax
+	lda c64pal,x
+	sta (dst0),y
+	sty ymrk
+	jsr action
+	ldy ymrk
+	iny
+	bne -
+	inc dst0+1
++	dec bcnt
+	bne -
+	
 ; ------------------------------------------------ Abschluss
 
 	jsr setinfo	; Image Information
@@ -224,14 +272,15 @@ cl0	sta mess,x
 filltab   !by 160,93,103,127,126,124,105,109
 cntwert   !by 50
 
-txt	!scr " Data @"	, 0
+txt	!scr " Data   @"	; 0
+	!scr " Recolor@"	; 9
 
 message   !fill 11,32
 mess	!fill 21,32
 	!by 0
 
-dnib	!by $00,$11,$22,$33,$44,$55,$66,$77
-	!by $88,$99,$aa,$bb,$cc,$dd,$ee,$ff
+c64pal	!by $00,$ff,$44,$cc,$55,$aa,$11,$dd	; convert GoDot
+	!by $66,$22,$99,$33,$77,$ee,$88,$bb
 
 ; ----------------------------------------- Image Information Handler
 
