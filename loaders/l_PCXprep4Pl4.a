@@ -13,6 +13,7 @@
 ;
 ;    1.00: 06.08.94, first release
 ;    1.01: 26.08.18, optimized Plus4 RGB values
+;    1.02: 18.12.19, changed bright RGB values
 ;
 ; ---------------------------
 
@@ -77,10 +78,10 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "PCX VGA->TED7bit"
-	!tx "1.01"
-	!tx "26.08.18"
+	!tx "1.02"
+	!tx "18.12.19"
 	!tx "W.Kling/A.Dettke"
-addtext	!pet "160/320 Breite  "
+addtext	!pet "160 or 320 wide "
 	!pet "8 Bit/1 Plane   "
 	!by 0
 
@@ -129,19 +130,18 @@ cl01	jsr getdatag
 
 cl02	jsr cancel	; abschließende Initialisierungen
 err	jsr gd_xclose	; Datei schließen
-	lda #$03		; Zeiger-Sprite wieder an
-	sta $d015
+	jsr gd_spron	; Zeiger-Sprite wieder an
 	jsr gd_xmess	; Floppy-Meldung zum Abschluss
 	bcc cn2		; zurück zum Hauptbildschirm
 
-; --------------------------- Exit Loader
+; --------------------------- Event: Exit Loader
 
-cancel	lda #$ff		; SE: Leave Loader
+cancel	lda #$ff
 	sta used
+
 	lda shift		; Shift (-Lock) gedrückt?
 	and #1
 	bne cn2		; ja, Sprung
-
 	ldy #16		; sonst: Balancing-Tabelle initialisieren
 	sty gr_ctr
 	sty gr_brt
@@ -153,7 +153,7 @@ lll	dey
 cn2	sec 		; Leave Loader to Main Screen
 	rts 
 
-; --------------------------- Service Routines
+; --------------------------- Requester
 
 requ	inc used		; User Interface ausgeben (used=0)
 	ldx #<pcxlst
@@ -161,9 +161,12 @@ requ	inc used		; User Interface ausgeben (used=0)
 	jsr gd_xmloop
 	jmp stt1
 
-; --------------------------- Auswahl des Zielformats
+; --------------------------- Event: Laden in Farbe
 
 sevcol	inc used		; Farbe (used=2)
+
+; --------------------------- Event: Laden in Graustufen
+
 sevgray	inc used		; Grauwerte (used=1)
 	ldx used
 	dex 
@@ -175,7 +178,7 @@ sevgray	inc used		; Grauwerte (used=1)
 	sec 
 	rts 
 
-; --------------------------- Action
+; --------------------------- Activity
 
 adinc	ldy offy		; während Body-Load
 	dec adcnt
@@ -203,6 +206,8 @@ pcx	!scr " PCX   "
 message	!fill 7,32
 mess	!fill 25,32
 	!by 0
+
+; --------------------------- Error Messages
 
 err1	!scr "ERROR: Width must be 320 or 160."
 err2	!scr "    ERROR: Not a PCX file.      "
@@ -234,7 +239,7 @@ set1	ror sflg
 
 noe	ldx used
 	beq il3
-	lda #<assigncol
+	lda #<assigncol	; assign according routines
 	ldy #>assigncol
 	bne il4
 il3	lda #<makegray
@@ -317,24 +322,24 @@ hd0	sta bytes
 
 ; --------------------------- Read Base Palette
 
-getpal	ldx type		; Graustufenpalette? (Wert=2) Farbe bzw. S/W? (Wert=1)
+getpal	ldx type		; Graustufenpalette? (Wert=2) oder Farbe bzw. S/W? (Wert=1)
 	dex 
 	bmi getp		; 0?
 	beq getp		; war 1, dann Palette einlesen
 	dex 
 	bne getp		; war >2, dann Palette einlesen
 
-	ldx which		; Grau (2), sollen denn Graustufen ausdrücklich erzeugt werden?
+	ldx which		; dann Grau (war 2), sollen denn Graustufen ausdrücklich erzeugt werden?
 	bne col1		; ja, Sprung
 
-gr1	ldx #15		; sonst: die ersten 16 Farben in der Palette = original C64-Farben
-gr0	lda dnib,x	; (was bei Type=2 den 16 4Bit-Graustufen entspricht)
+gr1	ldx #15		; sonst: die ersten 16 Farben in der Palette = 16 Graustufen
+gr0	lda dnib,x
 	sta pal,x
 	dex 
 	bpl gr0
 	rts 
 
-col1	ldx #15		; bzw.: Grauwerte (5) für die Farben
+col1	ldx #15		; bzw.: Grauwerte (5) für die Farben (noch unfertig!)
 col0	lda grayold,x
 	tay 
 	lda dnib,y
@@ -343,7 +348,7 @@ col0	lda grayold,x
 	bpl col0
 	rts 		; fertig, Basis-Palette (pal) erzeugt
 
-grayold	!by $00,$00,$00,$00,$00,$00,$00,$00 
+grayold	!by $00,$00,$00,$00,$00,$00,$00,$00 	; noch unfertig!
 	!by $00,$00,$00,$00,$00,$00,$00,$00 
 
 ; --------------------------- Read Palette and Convert
@@ -390,7 +395,7 @@ gpl4	sty gpy
 	sta blu
 
 	jsr convcol	; in Plus4-Farbe verwandeln
-	ldy gpy		; und in die (IFLI-) Palette schreiben
+	ldy gpy		; und in die (Plus4-) Palette schreiben
 	sta pal,y
 
 	iny 		; 256 Werte
@@ -405,7 +410,7 @@ assigncol	lda red		; zuerst Grautest: Rotwert gleich Grünwert?
 	cmp blu		; gleich Blauwert? (Dann wäre es ein Grauwert)
 	bne cl51		; nein, konvertieren
 
-	tax 		; Grau, also: Grau-Combi holen (9 Graus)
+	tax 		; Grau, also: Grauwert holen (9 Graus)
 	lda gray,x
 	rts
 
@@ -473,10 +478,10 @@ nopf	lda #0
 	inc dbuf1,x
 
 bsk	inx
-	cpx #numicols	; 128
+	cpx #numicols	; 128 Farben
 	bne cl6
 
-	stx min+1
+	stx min+1		; nächstliegende Farbe ermitteln
 
 	ldy level
 	ldx lvlval,y
@@ -496,14 +501,14 @@ ms4	sty min+1
 	sta min
 	stx minx
 ms2	inx 
-	cpx #numicols	; 128
+	cpx #numicols	; 128 Farben checken
 	bne ml1
 
-	lda minx
+	lda minx		; das ist sie!
 
 	cmp #8
 	bcs +
-	lda #0
+	lda #0		; alle unter 8 sind schwarz
 +	rts 
 
 ; --------------------------- Farbwerte usw.
@@ -514,57 +519,59 @@ gray	!by $00,$08,$09,$0a,$0a,$0b,$0b,$0b
 	!by $0c,$0c,$0d,$0d,$0e,$0e,$0e,$0f
 
 p4red	!by $00,$00,$00,$00,$00,$00,$00,$00 
-	!by $16,$26,$37,$49,$7b,$9b,$e0,$fe
-	!by $45,$58,$6c,$81,$b8,$db,$fe,$fe 
-	!by $00,$01,$0c,$19,$44,$60,$9f,$ce
-	!by $3d,$50,$64,$78,$ae,$d1,$fe,$fe 
-	!by $03,$05,$11,$20,$4b,$69,$a9,$fe 
-	!by $0f,$1d,$2d,$3f,$6f,$8f,$d2,$ce
-	!by $1f,$2f,$41,$54,$86,$a7,$ed,$fe 
-	!by $3d,$50,$64,$78,$ae,$d1,$fe,$fe 
-	!by $30,$41,$54,$68,$9d,$be,$fe,$fe 
-	!by $0f,$1d,$2d,$3f,$6f,$8f,$d2,$ce 
-	!by $45,$58,$6c,$81,$b8,$db,$ed,$fe  
-	!by $00,$01,$0c,$19,$44,$60,$9f,$de 
-	!by $03,$0e,$1d,$2d,$5b,$79,$bb,$de
-	!by $1f,$2f,$41,$54,$86,$a7,$fe,$ee 
-	!by $05,$0e,$1d,$2d,$5b,$79,$bb,$fe 
+	!by $16,$26,$37,$49,$7b,$9b,$e0,$ff	; 7: $fe
+	!by $45,$58,$6c,$81,$b8,$db,$fe,$ff 	; 7: $fe
+	!by $00,$01,$0c,$19,$44,$60,$9f,$c0	; 7: $ce
+	!by $3d,$50,$64,$78,$ae,$d1,$fe,$ff 	; 7: $fe
+	!by $00,$05,$11,$20,$4b,$70,$a8,$d0 	; 0: $03, 7: $fe
+	!by $0f,$1d,$2d,$3f,$6f,$8f,$b4,$d0	; 7: $ce, 6: $c2
+	!by $1f,$2f,$40,$54,$86,$a7,$d4,$ff 	; 7: $fe
+	!by $3d,$50,$64,$78,$ae,$d1,$fe,$ff 	; 7: $fe
+	!by $30,$41,$54,$68,$9d,$be,$fe,$ff 	; 7: $fe
+	!by $0f,$1d,$2d,$3f,$6f,$8f,$d2,$e8	; 7: $ce 
+	!by $45,$58,$6c,$81,$b8,$db,$ff,$ff 	; 6: $ed, 7: $fe
+	!by $00,$01,$0c,$19,$44,$60,$9f,$c0 	; 7: $de
+	!by $03,$0e,$1d,$2d,$5b,$79,$bb,$d0	; 7: $de
+	!by $1f,$2f,$41,$54,$86,$a7,$ed,$f8 	; 6: $fe, 7: $ee
+	!by $03,$0e,$1d,$2d,$5b,$79,$bb,$d0 	; 0: $05, 7: $fe
 
 p4grn	!by $00,$00,$00,$00,$00,$00,$00,$00 
-	!by $16,$26,$37,$49,$7b,$9b,$e0,$fe 
-	!by $06,$13,$22,$33,$62,$80,$c3,$ce
-	!by $2a,$3b,$4d,$61,$95,$b6,$fd,$fe
-	!by $01,$0c,$1a,$2a,$57,$75,$b7,$ee 
-	!by $30,$45,$58,$6b,$a1,$c3,$fe,$fe 
-	!by $0d,$1b,$2b,$3c,$6d,$8c,$cf,$ee
-	!by $21,$31,$43,$56,$89,$aa,$f0,$fe 
-	!by $0d,$1c,$2c,$3d,$6d,$8d,$d0,$fe 
-	!by $17,$26,$37,$49,$7b,$9b,$e0,$ee 
-	!by $2a,$3b,$4e,$61,$96,$b7,$fe,$fe 
-	!by $02,$0e,$1c,$12,$5a,$78,$c2,$ee 
-	!by $30,$42,$55,$69,$9d,$bf,$fe,$fe 
-	!by $16,$26,$37,$49,$7a,$9b,$df,$ee 
-	!by $06,$13,$22,$32,$61,$80,$ba,$ee 
-	!by $33,$42,$55,$69,$9e,$c0,$fe,$fe 
+	!by $16,$26,$37,$49,$7b,$9b,$e0,$ff 	; 0: $fe
+	!by $06,$13,$22,$33,$62,$80,$c3,$e0 	; 7: $ce
+	!by $2a,$3b,$4d,$61,$95,$b6,$fd,$ff 	; 7: $fe
+	!by $01,$0c,$1a,$2a,$57,$75,$b7,$d0 	; 7: $ee 
+	!by $33,$45,$58,$6b,$a1,$c0,$fe,$f8	; 0: $30, 7: $fe
+	!by $0d,$1b,$2b,$3c,$6d,$8c,$b4,$d0 	; 7: $ee, 6: $c2
+	!by $21,$31,$40,$56,$89,$aa,$d4,$ff 	; 7: $fe 
+	!by $0d,$1c,$2c,$3d,$6d,$8d,$d0,$e0 	; 7: $fe 
+	!by $17,$26,$37,$49,$7b,$9b,$e0,$f8 	; 7: $ee 
+	!by $2a,$3b,$4e,$61,$96,$b7,$fe,$ff 	; 7: $fe 
+	!by $02,$0e,$1c,$2c,$5a,$78,$b4,$d8 	; 3: $12, 6: $c2, 7: $ee
+	!by $30,$42,$55,$69,$9d,$bf,$fe,$ff 	; 7: $fe 
+	!by $16,$26,$37,$49,$7a,$9b,$df,$e8 	; 7: $ee 
+	!by $06,$13,$22,$32,$61,$80,$c2,$d8 	; 6: $ba, 7: $ee
+	!by $30,$42,$55,$69,$9e,$c0,$fe,$f8 	; 0: $33, 7: $fe
 
 p4blu	!by $00,$00,$00,$00,$00,$00,$00,$00 
-	!by $16,$26,$37,$49,$7b,$9b,$e0,$fe 
-	!by $09,$17,$26,$37,$66,$85,$c8,$ee
-	!by $26,$37,$49,$5c,$90,$b1,$f7,$fe 
-	!by $46,$59,$6d,$81,$b8,$db,$fe,$fe 
-	!by $00,$01,$0b,$19,$43,$60,$9f,$ce  
-	!by $70,$75,$9a,$b1,$eb,$fe,$fe,$fe 
-	!by $00,$00,$00,$00,$1e,$37,$71,$de 
-	!by $00,$01,$0b,$19,$43,$60,$9f,$fc 
-	!by $00,$00,$00,$06,$2b,$45,$81,$de 
-	!by $00,$00,$00,$00,$1e,$37,$71,$ce 
-	!by $19,$2b,$41,$5b,$78,$97,$fe,$f0
-	!by $09,$17,$26,$37,$66,$85,$c8,$ee 
-	!by $61,$75,$8a,$a0,$d9,$fd,$fe,$fe  
-	!by $70,$85,$9a,$b1,$eb,$fe,$f7,$fe 
-	!by $00,$00,$00,$06,$2b,$45,$81,$de 
+	!by $16,$26,$37,$49,$7b,$9b,$e0,$ff	; 7: $fe
+	!by $09,$17,$26,$37,$66,$85,$c8,$e3	; 7: $ee
+	!by $26,$37,$49,$5c,$90,$b1,$f7,$f8	; 7: $fe 
+	!by $46,$59,$6d,$81,$b8,$db,$fe,$ff	; 7: $fe 
+	!by $00,$01,$0b,$19,$43,$60,$98,$c8	; 7: $ce  
+	!by $70,$85,$9a,$b1,$eb,$fe,$e4,$f8	; 1: $75, 6: $fe, 7: $fe
+	!by $00,$00,$00,$00,$1e,$37,$60,$a0	; 7: $de 
+	!by $00,$01,$0b,$19,$43,$60,$9f,$b0	; 7: $fc 
+	!by $00,$00,$00,$06,$2b,$45,$81,$a0	; 7: $de 
+	!by $00,$00,$00,$00,$1e,$37,$71,$90	; 7: $ce 
+	!by $26,$37,$49,$5c,$90,$b1,$e8,$f0	; siehe unten
+	!by $09,$17,$26,$37,$66,$85,$c8,$d8 	; 7: $ee
+	!by $61,$75,$8a,$a0,$d9,$fd,$fe,$ff	; 7: $fe  
+	!by $70,$85,$9a,$b1,$eb,$fe,$fe,$f8  	; 7: $fe
+	!by $03,$00,$00,$06,$2b,$45,$81,$98  	; 0: $00, 7: $de
 
-; --------------------------- Read Palette and Convert
+; hier:  0: $19, 1: $2b, 2: $41, 3: $5b, 4: $78, 5: $97, 6:$fe, 7: $fe
+
+; --------------------------- Prepare Reference Palette
 
 downshift	ldy #127		; shift all palette entries to lower nibble:
 -	lda p4red,y	; red
@@ -609,11 +616,11 @@ next	jsr readpcx	; dekodieren (linkes Pixel)
 	bmi rls0
 	sta p0,y		; nein, auch puffern
 	iny 
-rls0	cpy bytes		; bis Breite erreicht
+rls0	cpy bytes		; bis Zeilenende
 	bcc next
 	rts 
 
-; --------------------------- Dekodieren
+; --------------------------- Datei dekodieren
 
 readpcx	lda comp		; komprimiert?
 	beq getit0	; nein
@@ -640,6 +647,8 @@ getit1	txa 		; Byte merken
 getit2	dec counter	; Zähler minus 1
 	lda gbyte		; Byte holen
 	rts 		; zurück
+
+; --------------------------- Fehler
 
 fail4	pha 
 	txa 		; Grund des Fehlers?
@@ -672,7 +681,7 @@ fail3	pla
 
 pltab	!by 0,1,3,7,15
 
-; --------------------------- Gray
+; --------------------------- Gray (Work in Progress)
 
 makegray	lda red		; Rot=Grün=Blau?
 	cmp grn
@@ -720,8 +729,8 @@ grok0	tay
 	lda igray,y
 	rts 
 
-igray	!by $00,$03,$03,$33,$33,$37,$37,$77
-	!by $77,$7b,$7b,$bb,$bb,$bf,$bf,$ff
+igray	!by $00,$03,$03,$33,$33,$37,$37,$77	; diese Werte sind noch IFLI-Combis
+	!by $77,$7b,$7b,$bb,$bb,$bf,$bf,$ff	; (und daher unbrauchbar für Plus4)
 
 ; --------------------------- Read Image Data
 
@@ -731,15 +740,19 @@ getbody	lda #<sy_4bit	; Ziel: 4Bit
 	sta dst
 	stx dst0+1
 	stx dst+1
+
 	lda #25		; 25 Blockzeilen
 	sta lcnt8
+
 lnloop8	lda #8		; 8 Zeilen pro Kachel
 	sta lcnt
+
 lnloop	jsr adinc
 	jsr readline
 lcs	ldy #0
-	lda #4		; vier Doppelpixel (Nibbles) pro Kachelzeile
+	lda #4		; vier Doppelpixel (8 Nibbles) pro Kachelzeile
 	sta bcnt
+
 	ldx #0
 byloop	cpy bytes
 	bcs s6
@@ -750,7 +763,8 @@ s6	inc dst
 	inc dst+1
 s3	dec bcnt
 	bne s4
-	lda #4 		; nächste Kachel
+
+	lda #4 		; dann nächste Kachel
 	sta bcnt
 	lda dst
 	clc 
@@ -758,9 +772,11 @@ s3	dec bcnt
 	sta dst
 	bcc s4
 	inc dst+1
+
 s4	iny		; 160 Bytes durch (halbe Auflösung)
 	cpy #160
 	bne byloop
+
 	lda dst0		; nächste Kachelzeile
 	clc 
 	adc #4
@@ -768,13 +784,14 @@ s4	iny		; 160 Bytes durch (halbe Auflösung)
 	sta dst
 	bcc s5
 	inc dst0+1
+
 s5	lda dst0+1
 	sta dst+1
 	dec lcnt
-	beq rdy		; nächste Blockzeile
+	beq rdy
 	jmp lnloop
 
-rdy	lda dst0
+rdy	lda dst0		; dann nächste Blockzeile
 	clc 
 	adc #<1248
 	sta dst0
@@ -787,7 +804,7 @@ rdy	lda dst0
 	beq rdy1
 	jmp lnloop8
 
-rdy1	jsr basin		; $0c (PCX-Trennflag zwischen Body und Palette, Teil 2)
+rdy1	jsr basin		; $0c (PCX-Trennflag zwischen Body und hinterer Palette)
 
 	ldx #6		; Message
 rdx0	lda colors,x
@@ -822,7 +839,7 @@ hloop	lda (dst),y
 	lda dst+1
 	cmp #>sy_bigbuffer
 	bne hloop
-	rts 		; fertig, Bild geladen und konvertiert nach IFLI
+	rts 		; fertig, Bild geladen und konvertiert nach Plus4
 
 ; --------------------------- 
 ; --------------------------- RGB Table for Gray Conversion
@@ -855,7 +872,7 @@ sflg	!wo 0
 pcxlst	!by 0
 	!by 4,11,18,16,$81,0,0
 	!scr "Load MsDos PCX@"
-	!by 9,11,18,3,$ca
+	!by 9,11,18,3,$8a		; eigentlich: $ca (stillgelegt)
 	!wo sevgray
 	!scr "Grey Scale@"
 	!by 12,11,11,3,$c8
@@ -872,7 +889,7 @@ lvltx	!by $30,0
 	!scr "Prepare f. Plus4@"
 	!by $80
 
-; --------------------------- SE: Set Level
+; --------------------------- Event: Set Level
 
 sevlvl	lda spalte
 	cmp #25
@@ -1010,7 +1027,7 @@ dummy	!by 0,0,0,0,0,0,0,0
 	!by 0,0,0,0,0,0,0,0
 	!by 0,0
 
-; ---------------------------
+; --------------------------- Activity
 
 adinc2	dec adcnt		; während Paletten-Konvertierung
 	bne ld4
