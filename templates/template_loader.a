@@ -1,0 +1,212 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ----------------------------------------- 
+;
+;  ldr.Template
+;   Module to provide a skeleton for loaders
+;
+;  0.99, 99.99.99: first release
+;
+; ----------------------------------------- 
+
+; ----------------------------------------- Equates
+
+;	pport		= $01
+	dst		= $30
+
+; ----------------------------------------- Header
+
+header	jmp start
+	!by $80		; $80: loader
+	!by 0		; 4: ldr has own requester
+	!by 0		; 1: dirty
+	!wo modend
+	!wo 0
+	!tx "Loader Template "
+	!tx "0.99"
+	!tx "99.99.99"
+	!tx "A.Dettke        "
+
+; ----------------------------------------- 
+; ----------------------------------------- Alternate 1
+; ----------------------------------------- 
+; (_without_ requester, so it must have value _0_ at header+4!)
+
+
+; ----------------------------------------- Main
+
+;	ldx sc_vekt20	; sc_vekt20 contains load target on start
+;	ldy sc_vekt20+1	; (normally sy_4bit = $4000,
+;	stx dst		; not necessary if you use a different load target)
+;	sty dst+1
+
+start	jsr getname	; save filename for image info
+
+	jsr gd_sproff	; mouse pointer off
+
+	lda gd_modswitch	; if you save this address, the
+	pha		; loader is _not_ dirty (only
+			; necessary if you use INPUT or
+			; open a second file requester)
+
+; 	...		; read and process file data
+
+	pla		; restore after LOAD
+	sta gd_modswitch
+	sta gr_redisp	; set render flag
+			; (only if really LOADed something)
+
+	jsr setinfo	; set image information
+			; (only if really LOADed something)
+
+	jsr gd_spron	; mouse pointer on
+	sec		; leave loader
+	rts
+
+; ----------------------------------------- 
+; ----------------------------------------- Alternate 2
+; ----------------------------------------- 
+; (_with_ requester, so it must have value _4_ at header+4!)
+
+; ----------------------------------------- Main
+
+;start 			  (same label here as in alternate 1)
+;      			  (also, all preactions of alternate 1
+; 			   can be added here)
+
+	ldx #<screenlst	; then, instead of "read and process": requester
+	ldy #>screenlst
+	jsr gd_screen
+;	...		; if you have to recolor something
+; 			  in your requester or preset any values
+	jmp gd_eloop	; now wait...
+
+; ----------------------------------------- Event: Leave Module
+
+evcancel			; add management actions here
+	sec		; then leave loader
+	rts
+
+; ----------------------------------------- Any Screenlist
+
+screenlst	!by 0
+	!by 2,2,36,21,$91	; values for requester
+	!wo 0
+title	!scr "Template@"	; caption: whatever title you like
+
+gadget	!by 4,3,34,16,$20	; this is: no caption, type: Window
+	!wo 0		; Event-Routine
+
+	!by 20,31,7,3,$cd	; this is: Exit-Gadget
+	!wo evcancel	; Event-Routine
+	!scr "Leave@"	; gadget caption
+
+	!by $c0,20,4,5	; this is: Extra-Text
+	!scr "GoDot@"
+
+	!by $80
+
+; ----------------------------------------- Loader Data
+; loader variables and constants follow here
+
+;	...
+
+; ----------------------------------------- 
+; ----------------------------------------- Text Output Handler
+; ----------------------------------------- 
+; (necessary, if there are changes in screenlists)
+
+
+tabigad	!wo gadget	; .y:0, one entry for every gadget
+;	!wo ...		; .y:2, ...
+
+settxt	lda #<tabigad	; point to gadget list
+	sta sc_texttab
+	lda #>tabigad
+	sta sc_texttab+1
+
+gettab	lda (sc_texttab),y	; then set gadget parameters
+	sta sc_screentab	; (where to output the text)
+	iny
+	lda (sc_texttab),y
+	sta sc_screentab+1
+
+	lda #0
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #4
+	bne gt0
+	jsr gd_trim
+	jmp gd_initmove	; compute address
+
+; ----------------------------------------- Output Text
+
+textout	ldy #0		; .y: index in tabigad
+	jsr settxt
+	ldy #6		; .y: offset to gadget text in screenlist
+	jmp gd_xtxout1	; show text
+
+; ----------------------------------------- 
+; ----------------------------------------- Image Information Handler
+; ----------------------------------------- 
+
+getname	ldx #0
+si0	lda ls_lastname,x	; retrieve name of loaded picture
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+; ----------------------------------------- Publish Infomation
+
+setinfo	jsr setname	; propagate image name to system
+	jsr setloader	; set image information
+	jsr setmode
+	jmp setdata
+
+; ----------------------------------------- Subroutines
+
+setname	lda #0
+	ldx #<ls_picname
+	ldy #>ls_picname
+	bne si3
+setloader	lda #17
+	ldx #<ls_iloader
+	ldy #>ls_iloader
+	bne si3
+setmode	lda #25
+	ldx #<ls_imode
+	ldy #>ls_imode
+	bne si3
+setdata	lda #33
+	ldx #<ls_idrive
+	ldy #>ls_idrive
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4 	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!fill 16,32	; 16 Bytes Puffer für "Filename"
+	!by 0
+
+modname	!scr "LoaderX@"	; any 7-letter loader signature
+modetx	!scr "160x200@"	; resolution: Multi, "320x200" if Hires
+datatype	!scr "Color@"	; datatype: "Color" (or "Gray ")
+
+; ----------------------------------------- 
+
+modend	!eof
