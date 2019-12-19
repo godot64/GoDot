@@ -1,0 +1,465 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ----------------------------------------- 
+;
+;  ldr.Botticelli
+;   Loader for Plus4 121 colors images
+;
+;  1.00, 19.12.19: pre release
+;
+; ----------------------------------------- 
+
+; ----------------------------------------- Equates
+
+	status		= $90
+	offx		= ls_adrmisc
+	offy		= offx+1
+
+	dst		= $30	; /$31
+	src		= $32	; /$33
+	src2		= $34	; /$35
+	src3		= dst
+	data		= dst
+	bbuf		= $36
+	col0		= $37
+	col1		= $38
+	col2		= $39
+	col3		= $3a
+	adcnt		= $3b
+	cnt8		= $3c
+	ymrk		= $3d
+
+	luma		= $2000
+	chroma		= luma+$400
+	commons		= luma+$3fe
+
+; ----------------------------------------- Header
+
+header	jmp start
+	!by $80
+	!by 0
+	!by 0
+	!wo modend
+	!wo 0
+	!tx "Plus4 Botticelli"
+	!tx "1.00"
+	!tx "19.12.19"
+	!tx "A.Dettke/W.Kling"
+
+; ----------------------------------------- Main
+
+start	lda gd_modswitch
+	pha
+
+	jsr getname	; save filename for image info
+	jsr gd_xopen	; file open (switches mouse off)
+	jsr setluma	; set target address
+	jsr setcount1
+	jsr gd_clrms
+	jsr clrms
+
+	jsr onebyte	; skip start address $1800 (RAM dump) or $7800 (Botticelli)
+	bne error
+	jsr onebyte
+	bne error
+
+	ldx #19		; first: get colors
+	stx cntwert
+	ldx #0
+	jsr tcopy
+	iny
+	sty adcnt
+ 	jsr readvideo
+
+	ldx #50		; then: get bitmap
+	stx cntwert
+	ldx #8
+	jsr tcopy
+	iny
+	sty adcnt
+ 	jsr readbmap
+
+	ldx #200		; then: deflicker
+	stx cntwert
+	ldx #16
+	jsr tcopy
+	iny
+	sty adcnt
+ 	jsr deflicker
+
+	lda #1
+	sta gr_redisp	; set render flag
+	jsr setinfo	; set image information
+
+error	jsr gd_xclose
+	pla		; restore after LOAD
+	sta gd_modswitch
+	jsr gd_spron	; mouse pointer on
+	sec		; leave loader
+	rts
+
+; ----------------------------------------- Read Video Data
+
+readvideo	ldy #0		; get luma and chroma
+	jsr basin
+	sta (dst),y
+	jsr action
+	jsr cou5
+	bne readvideo
+
+	lda commons	; set col3
+	tax
+	asl
+	asl
+	asl
+	asl
+	and #$70
+	sta col3
+	txa
+	lsr
+	lsr
+	lsr
+	lsr
+	ora col3
+	tax
+	lda asgntab,x
+	sta col3
+	lda commons+1	; set col0
+	tax
+	asl
+	asl
+	asl
+	asl
+	and #$70
+	sta col0
+	txa
+	lsr
+	lsr
+	lsr
+	lsr
+	ora col0
+	tax
+	lda asgntab,x
+	sta col0
+
+	jsr setcols	; reset addresses
+	jsr setcount2
+-	ldy #0
+	lda (src),y	; color1: color...
+	tax		; (merken)
+	lsr
+	lsr
+	lsr
+	lsr
+	sta bbuf
+	lda (src3),y	; ...and luminance
+	pha		; (merken)
+	asl
+	asl
+	asl
+	asl
+	and #$70
+	ora bbuf		; combine and store
+	sta (dst),y
+
+	pla		; color2: luminance...
+	and #$70
+	sta bbuf
+	txa		; ... and color
+	and #15
+	ora bbuf		; combine and store
+	sta (src),y
+	jsr action
+	jsr count
+	bne -
+	rts
+
+; ----------------------------------------- Read Bitmap
+
+readbmap	jsr setcount3	; set counter for 8000 bytes
+	ldx #<luma	; set target for video data
+	ldy #>luma
+	stx src
+	sty src+1
+	ldx #<chroma
+	ldy #>chroma
+	stx src2
+	sty src2+1
+	jsr set4bit
+	ldy #0
+
+bmloop	lda #8
+	sta cnt8
+	lda (src),y	; set col1
+	tax
+	lda asgntab,x
+	sta col1
+	lda (src2),y	; set col2
+	tax
+	lda asgntab,x
+	sta col2
+
+--	jsr basin		; get bitmap
+	sta bbuf		; isolate 2 bits (4 times):
+-	asl bbuf
+	rol
+	asl bbuf
+	rol
+	and #3
+	tax
+	lda col0,x	; convert this to IFLI
+	sta (dst),y	; and store to 4bit
+	iny
+	cpy #4
+	bne -
+	tya
+	clc
+	adc dst
+	sta dst
+	bcc +
+	inc dst+1
++	jsr action
+	ldy #0
+	dec cnt8		; next tile line (of 8)
+	bne --
+
+	inc src		; next tile
+	bne +
+	inc src+1
++	inc src2
+	bne +
+	inc src2+1
++	lda dst+1
+	cmp #>sy_bigbuffer
+	bne bmloop
+	rts
+	
+; ----------------------------------------- Deflicker
+
+deflicker	lda #<sy_4bit
+	ldy #>sy_4bit
+	sta data
+	sty data+1
+
+	ldy #0
+-	tya 
+	and #4		; choose every other raster line..
+	beq +
+
+	lda (data),y	; ...and exchange nibbles there
+	lsr
+	lsr
+	lsr
+	lsr
+	sta bbuf
+	lda (data),y
+	asl
+	asl
+	asl
+	asl
+	ora bbuf
+	sta (data),y
+
++	sty ymrk
+	jsr action	; activity
+	ldy ymrk
+	iny 
+	bne -
+
+	inc data+1	; next page
+	lda data+1
+	cmp #>sy_bigbuffer	; until end of 4bit
+	bne -
+	rts 
+
+; ----------------------------------------- Set Addresses
+
+setcols	ldx #<chroma	; set source for chroma
+	ldy #>chroma
+	stx src
+	sty src+1
+setluma	ldx #<luma	; set target for video data
+	ldy #>luma
+	bne +
+set4bit	ldx #<sy_4bit	; set destination for 4bit
+	ldy #>sy_4bit
++	stx dst
+	sty dst+1
+	rts
+
+; ----------------------------------------- Set Counters
+
+setcount3	ldx #<8000	; set counter to 8000
+	ldy #>8000
+	bne +
+setcount2	ldx #<1000	; set counter to 1000
+	ldy #>1000
+	bne +
+setcount1	ldx #<2048	; set counter to 2048
+	ldy #>2048
++	stx ls_vekta8
+	sty ls_vekta8+1
+	rts
+
+; ----------------------------------------- Read
+
+onebyte	jsr basin
+	ldx status
+	rts 
+
+; ----------------------------------------- Counters
+
+count 	inc src
+	bne cou5
+	inc src+1
+cou5 	inc dst
+	bne cou6
+	inc dst+1
+cou6 	lda ls_vekta8
+	bne cou7
+	dec ls_vekta8+1
+cou7 	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	rts
+
+; ----------------------------------------- Clear Message
+
+clrms	ldx #31
+	lda #32
+-	sta message,x
+	dex
+	bpl -
+	rts
+
+; --------------------------- Message Display Handler
+
+tcopy	ldy #0		; Select message
+tc0	lda txt,x		; in .x: offset to message
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+
+clrmess   ldx #20		; clear gauge bar
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0		; (re-) init counters
+	ldx #7	
+	sty offy
+	stx offx
+	rts
+
+messout   ldx #<message	; display message and gauge
+	ldy #>message
+	jmp gd_xtxout2
+
+filltab   !by 160,93,103,127,126,124,105,109
+
+cntwert   !by 50		; activity counter
+
+txt	!scr " Colors@"	; 0 (to: .x)
+	!scr " Bitmap@"	; 8
+	!scr " DeFlicker@"	; 16
+
+message   !fill 11,32	; gauge bar: 32 bytes screencode
+mess	!fill 21,32	; value at MESS must be one more than at CLRMESS
+	!by 0
+
+; --------------------------- Activity Gauge
+
+action	dec adcnt
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	cpy clrmess+1
+	bne act0
+	jsr clrmess
+act0	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts
+
+; ----------------------------------------- Loader Data
+
+; this table assigns plus4 palette values to GoDot IFLI
+asgntab	!by $00,$00,$04,$07,$14,$0a,$01,$07,$40,$02,$0a,$05,$0a,$13,$13,$0a
+	!by $00,$03,$44,$0a,$05,$0a,$11,$0a,$42,$23,$0a,$05,$0a,$08,$12,$0a
+	!by $00,$33,$24,$1a,$05,$2a,$17,$0d,$24,$02,$4a,$05,$3a,$17,$14,$3a
+	!by $00,$37,$47,$1a,$35,$2a,$18,$0d,$06,$22,$4a,$45,$3a,$38,$15,$0e
+	!by $00,$77,$79,$1e,$55,$3e,$58,$0d,$26,$4e,$2e,$57,$aa,$88,$1f,$0e
+	!by $00,$bb,$99,$8d,$5b,$2c,$1f,$2d,$66,$6d,$2e,$59,$3c,$8f,$5b,$2e
+	!by $00,$bf,$9f,$cc,$5f,$6c,$5c,$dd,$9c,$9d,$de,$5f,$8e,$8f,$9f,$ee
+	!by $00,$ff,$bf,$cf,$bf,$ef,$cf,$df,$df,$df,$df,$bf,$cf,$cf,$bf,$ef
+
+; ----------------------------------------- Image Information Handler
+
+getname	ldx #0
+si0	lda ls_lastname,x	; retrieve name of loaded picture
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+; ----------------------------------------- Publish Infomation
+
+setinfo	jsr setname	; propagate image name to system
+	jsr setloader	; set image information
+	jsr setmode
+	jmp setdata
+
+; ----------------------------------------- Subroutines
+
+setname	lda #0
+	ldx #<ls_picname
+	ldy #>ls_picname
+	bne si3
+setloader	lda #17
+	ldx #<ls_iloader
+	ldy #>ls_iloader
+	bne si3
+setmode	lda #25
+	ldx #<ls_imode
+	ldy #>ls_imode
+	bne si3
+setdata	lda #33
+	ldx #<ls_idrive
+	ldy #>ls_idrive
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4 	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!fill 16,32
+	!by 0
+
+modname	!scr "B.celli@"
+modetx	!scr "160x200@"
+datatype	!scr "Color@"
+
+; ----------------------------------------- 
+
+modend	!eof
