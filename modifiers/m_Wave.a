@@ -1,0 +1,610 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ------------------------------------------------ 
+;
+; Modifier Wave
+;  Modifier to distort the image to look like "wobbled"
+;
+; 0.99, 19.06.92, first release of VerticalWave
+; 1.00, 21.04.18, reorganized VerticalWave
+; 1.01, 18.01.20, now Wave, also horizontally, with requester
+;
+; ------------------------------------------------ 
+
+; ------------------------------------------------ Equates
+
+	adcnt		= $30
+	dst0		= $31	; /$32
+	colnr		= $33	; /$34
+	src		= $35	; /$36
+	dst		= $37	; /$38
+	xoff		= $3a	; /$3b
+	linenr		= $3c
+	blcnt		= $3d
+	lftrgt		= $3e
+	rgtlft		= $3f
+	temp		= $40
+	vcount		= $41
+	cntwert		= $42
+	color		= $43
+
+	sprptr		= $07f8
+	spr255		= $3fc0
+
+	lbuf		= $c700
+
+; ------------------------------------------------ Header
+
+	jmp start
+	!by $20
+	!by $00,$00
+	!wo modend
+	!by $00,$00
+	!tx "sinus line shift"
+	!tx "1.01"
+	!tx "18.01.20"
+	!tx "W.Kling/A.Dettke"
+
+; ------------------------------------------------ Main
+
+start	lda gd_modswitch
+	pha
+	lda #$f0		; init column discriminator
+	sta lftrgt
+
+	ldx #<wavelst	; show screenlist
+	ldy #>wavelst
+	jsr gd_screen	; returns .a=0
+	sta sc_loop	; care for text mode
+	jsr recolor	; recolor caption text
+
+	ldx palgad	; palette gadget values
+	inx
+	stx palzl
+	stx sc_zl
+	ldx palgad+1
+	inx
+	stx palsp
+	stx sc_sp
+	ldx #4		; 4x4 area (color chooser)
+	stx sc_br
+	stx sc_ho
+	jsr gd_esm3	; compute address and revert
+
+	lda gr_picked	; get previously selected color to .x
+	and #15		; (will be marked by "+")
+	tax
+	jsr initpal	; and show colors
+
+	jsr gd_eloop	; wait for clicks
+	pla
+	sta gd_modswitch
+
+; ------------------------------------------------ Event: Leave Modifier
+
+evleave	sec
+	rts
+
+; ------------------------------------------------ Event: Pick Color
+
+evgetcol	sec		; compute row where user clicked
+	lda sc_merk
+	sbc palzl
+	asl
+	asl
+	sta hold
+	sec		; compute column
+	lda sc_merk+1
+	sbc palsp
+	clc
+	adc hold
+	tax		; take as index into palette
+	lda gr_basepal,x
+	tax
+	ora #$80		; sign valid
+	sta gr_picked
+initpal	lda c64pal,x	; re-display palette
+	sta color
+	jsr makepal
+	jsr clrbuf	; prepare indent buffer
+	clc
+	rts
+
+; ------------------------------------------------ create palette chooser
+
+makepal	lda gr_picked	; get current color
+	and #15
+	sta plast		; and store
+
+	lda palsp		; create chooser, first column
+	sta sc_sp
+	pha
+	ldx #1		; width and height = 1
+	stx sc_br
+	stx sc_ho
+	dex
+	stx cnty		; counters = 0
+	stx hold
+
+mp1	stx cntx
+	ldy hold
+	jsr colorize	; colorize area (1x1)
+	sec		; is PICKED color?
+	lda sc_vekt20
+	sbc #40
+	sta sc_vekt20
+	lda sc_vekt20+1
+	sbc #$d4
+	sta sc_vekt20+1
+	ldy sc_chgcol
+	cpy plast
+	beq mp2
+	lda #160		; no, write shift space
+	bne mp3
+mp2	lda #171		; yes, write "+"
+mp3	ldy #0
+	sta (sc_vekt20),y
+	inc sc_sp		; next column
+	inc hold
+	ldx cntx
+	inx
+	cpx #4
+	bne mp1
+
+	pla		; re-get start column
+	pha
+	sta sc_sp
+	ldx #0
+	inc sc_zl		; next row
+	inc cnty
+	lda cnty
+	cmp #4
+	bne mp1
+
+	pla		; clear stack
+	rts		; finished
+
+colorize	lda gr_basepal,y	; get color
+	sta sc_chgcol
+	ldx #4
+	jmp gd_fcol	; colorize area (1x1)
+
+; ------------------------------------------------ Event: Apply Vertical Wave
+
+evvertcl	lda #5
+	sta cntwert
+	jsr initad	; prepare activity
+
+	lda #0		; start from rasterline 0 (of 200)
+	sta linenr
+
+loop00	jsr compline
+	lda #<lbuf	; transfer line straight to buffer
+	ldx #>lbuf
+	sta src
+	stx src+1
+	ldx #0
+	lda #40		; 40 tiles
+	sta blcnt
+loop0	ldy #0
+loop1	lda (dst),y	; separate pixels
+	pha 
+	lsr 
+	lsr 
+	lsr 
+	lsr 
+	sta (src,x)	; store to buffer
+	inc src
+	bne skip0
+	inc src+1
+skip0	pla 
+	and #$0f
+	sta (src,x)
+	inc src
+	bne skip1
+	inc src+1
+skip1	iny 
+	cpy #4
+	bne loop1
+	lda dst		; next tile
+	clc 
+	adc #32
+	sta dst
+	bcc skip2
+	inc dst+1
+skip2	dec blcnt		; 40 times
+	bne loop0
+
+	lda linenr	; recompute 4bit address of current line
+	jsr compline
+
+	ldx linenr	; index into table of sinus indents
+	lda #<lbuf
+	sec 
+	sbc sinvals,x	; subtract from buffer address
+	sta src
+	lda #>lbuf
+	sbc #0
+	sta src+1		; set as source address for retransfer (thus indented!)
+	ldx #0
+	lda #40		; 40 tiles
+	sta blcnt
+loop2	ldy #0
+loop3	lda (src,x)	; re-gather pixels
+	asl 
+	asl 
+	asl 
+	asl 
+	inc src
+	bne skip3
+	inc src+1
+skip3	ora (src,x)
+	inc src
+	bne skip4
+	inc src+1
+skip4	sta (dst),y	; store to 4bit
+	iny 
+	cpy #4
+	bne loop3
+	lda dst		; next tile
+	clc 
+	adc #32
+	sta dst
+	bcc skip5
+	inc dst+1
+skip5	dec blcnt		; 40 times
+	bne loop2
+
+	inc linenr	; next rasterline
+	jsr adinc		; activity
+
+	lda linenr	; all rasterlines?
+	cmp #200
+	beq endv
+	jmp loop00	; no, loop
+
+endv	jmp exit
+
+; ------------------------------------------------ Event: Apply Horizontal Wave
+
+evhorizl	lda #8
+	sta cntwert
+	jsr initad	; prepare activity
+
+	lda #0		; start from column 0 (up to 319)
+	sta colnr
+	sta colnr+1
+	lda #$80		; from 1st rasterline in tile
+	sta vcount
+
+vloop00	lda #<lbuf	; transfer column straight to buffer
+	ldx #>lbuf
+	sta src		; target buffer
+	stx src+1
+vloop0	lda #25		; set row counter
+	sta blcnt
+	jsr compclmn	; compute 4bit address (in dst)
+	ldy #0
+	ldx #0
+vloop1	lda (dst),y	; separate pixels, get one
+	and lftrgt	; left/right
+	sta (src,x)	; store to buffer
+	inc src		; advance in buffer
+	bne +
+	inc src+1
++	clc		; advance in 4bit
+	lda dst
+	adc #4
+	sta dst
+	bcc vskip0
+	inc dst+1
+vskip0	lsr vcount 	; count rasterlines per tile
+	bcc vloop1
+
+	ror vcount	; reset rasterline counter
+	lda #$e0
+	adc dst
+	sta dst
+	lda #4		; advance to next block row in 4bit
+	adc dst+1
+	sta dst+1
+	dec blcnt		; until bottom
+	bne vloop1
+
+wrtback	lda #<lbuf	; write back:
+	ldx colnr+1	; compute start address in buffer
+	bne +
+	sec
+	ldx colnr
+	sbc sinvals,x	; indent 0..255
+	jmp wbk0
++	sec
+	ldx colnr
+	sbc beyond255,x	; indent 256..319
+wbk0	sta src
+	lda #>lbuf
+	sbc #0
+	sta src+1
+
+	lda #25		; reset row counter
+	sta blcnt
+	lda lftrgt	; set masks
+	sta rgtlft
+	eor #$ff
+	sta lftrgt
+	jsr compclmn	; reset 4bit address
+
+	ldx #0
+	ldy #0
+wbk1	lda (dst),y	; write back
+	and lftrgt
+	sta temp
+	lda (src,x)
+	and rgtlft
+	ora temp
+	sta (dst),y
+	inc src		; advance in buffer
+	bne +
+	inc src+1
++	clc		; advance in 4bit
+	lda dst
+	adc #4
+	sta dst
+	bcc wbk2
+	inc dst+1
+wbk2	lsr vcount 	; count rasterlines per tile
+	bcc wbk1
+
+	ror vcount	; reset rasterline counter
+	lda #$e0		; advance to next block row in 4bit
+	adc dst
+	sta dst
+	lda #4
+	adc dst+1
+	sta dst+1
+	dec blcnt		; until bottom
+	bne wbk1
+
+	inc colnr		; then advance horizontally
+	bne +
+	inc colnr+1
++	jsr adinc		; activity
+
++	lda colnr+1
+	beq wbk4
+	lda colnr		; 320 columns?
+	cmp #$40
+	beq endh		; yes, finished
+wbk4	jmp vloop00
+
+endh	jmp exit
+
+; ------------------------------------------------ Add Pixel Column
+
+compclmn	lda colnr+1	; compute (double) pixel column:
+	sta xoff+1	; xoff=(colnr/8*32)+(colnr and 7)/2
+	lda colnr
+	sta xoff		; /8
+	lsr xoff+1
+	ror xoff
+	lsr xoff+1
+	ror xoff
+	lsr xoff+1
+	ror xoff
+	and #7		; (and 7)/2
+	lsr
+	tay
+	lda xoff		; *32
+	asl 
+	rol xoff+1
+	asl
+	rol xoff+1
+	asl 
+	rol xoff+1
+	asl
+	rol xoff+1
+	asl
+	rol xoff+1
+	sta xoff
+	clc		; add
+	tya
+	adc xoff
+	sta dst
+	lda xoff+1
+	adc #>sy_4bit	; in 4bit
+	sta dst+1
+	rts
+
+; ------------------------------------------------ Compute 4Bit Address
+
+compline	pha 		; compute 4bit address
+	lsr 		; linenr / 8
+	lsr 
+	lsr 
+	tax 		; to .x
+	pla 
+	and #$07		; (linenr and 7) * 4
+	asl 
+	asl 
+	sta dst		; is lo
+	lda line8,x	; get hi
+	sta dst+1
+	rts
+
+; ------------------------------------------------ Clear Line Buffer (Indent Part)
+
+clrbuf	ldy #0
+	lda color
+clrloop	sta lbuf-$100,y	; clear the area "left" of the buffer to $00 (black)
+	iny 
+	bne clrloop
+	rts 
+
+; ----------------------------------------- Re-Color Area
+
+recolor	ldx #3		; get area to be recolored
+recolor2	ldy #3
+-	lda carea,x
+	sta sc_zl,y
+	dex
+	dey
+	bpl -
+ 	ldx #2		; set sc_normtext
+	jmp gd_fcol
+
+; ------------------------------------------------ Activity
+
+adinc	dec adcnt
+	bne +
+	inc $d005
+	inc $d007
+	lda cntwert
+	sta adcnt
++	rts 
+
+; ------------------------------------------------ Abschluss Activity
+
+exit	lda $d015		; Wanderbalken aus
+	and #$f3
+	sta $d015
+	lda $d010
+	and #$f3
+	sta $d010
+	lda #$ff		; Grafik verändert
+	sta gr_redisp
+stay	clc 		; fertig
+	rts 
+
+; ------------------------------------------------ Init Activity
+
+initad	sta adcnt
+	ldy #60
+	lda #0
+-	sta $3fc3,y	; Spriteblock 255 vorbereiten
+	dey 
+	bpl -
+	lda #$ff
+	sta $3fc0		; dünner Strich
+	sta $3fc1
+	sta $3fc2
+	lda #$0f		; Farbe hellgrau
+	sta $d029
+	sta $d02a
+	lda $d01d		; doppelt breit
+	ora #$0c
+	sta $d01d
+	lda $d010
+	ora #$0c
+	sta $d010
+	lda #$08		; im Image Information Fenster
+	sta $d004
+	lda #$20
+	sta $d006
+	lda #$92
+	sta $d005
+	sta $d007
+	sty $07fa		; Sprite 255
+	sty $07fb
+	lda $d015
+	ora #$0c
+	sta $d015
+	rts
+
+; ------------------------------------------------ Screenlist
+
+wavelst	!by 0
+	!by 10,17,12,10,$91
+	!wo 0
+	!scr "Apply Wave",0
+palgad	!by 14,17,6,6,$47
+	!wo evgetcol
+	!by 13,23,6,3,$cf
+	!wo evvertcl
+	!scr "Vert",0
+	!by 15,23,6,3,$ce
+	!wo evhorizl
+	!scr "Hori",0
+	!by 17,23,6,3,$ce
+	!wo evleave
+	!scr "Exit",0
+	!by 11,29,11,7,$4d	; Preview
+	!wo ev_prviu
+	!by $c0,12,17,4
+	!scr "Fill",0
+	!by $80
+
+carea	!by 13,18,4,1
+
+; ------------------------------------------------ Tables
+
+line8	!by $40,$45,$4a,$4f,$54
+	!by $59,$5e,$63,$68,$6d
+	!by $72,$77,$7c,$81,$86
+	!by $8b,$90,$95,$9a,$9f
+	!by $a4,$a9,$ae,$b3,$b8
+
+	; Vorschrift: n=int(sin(1/20*m)*10+0.5)+10
+	; n.min=0, n.max=20
+sinvals	!by 10,10,11,11,12,12,13,13,14,14,15,15,16,16,16,17,17,18,18,18	; Periode  : 100
+	!by 18,19,19,19,19,19,20,20,20,20,20,20,20,20,20,20,20,20,19,19	; Amplitude:  20
+	!by 19,19,19,18,18,18,17,17,17,16,16,16,15,15,14,14,13,13,12,12	; 200 Einrückwerte
+	!by 11,11,10,10,9,9,8,8,7,7,6,6,6,5,5,4,4,3,3,3
+	!by 2,2,2,2,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0
+	!by 0,1,1,1,1,1,2,2,2,3,3,3,4,4,4,5,5,6,6,7
+	!by 7,8,8,9,9,10,10,11,11,12,12,13,13,14,14,15,15,15,16,16
+	!by 17,17,17,18,18,18,19,19,19,19,20,20,20,20,20,20,20,20,20,20
+	!by 20,20,20,20,19,19,19,19,19,18,18,18,17,17,17,16,16,15,15,15
+	!by 14,14,13,13,12,12,11,11,10,10,9,9,8,8,7,7,6,6,5,5
+	!by 5,4,4,3,3,3,2,2,2,1,1,1,1,1,0,0,0,0,0,0			; Werte für 200 bis 319
+
+	!by 0,0,0,0,0,0,0,1,1,1,1,1,2,2,2,3,3,3,4,4
+	!by 5,5,6,6,6,7,7,8,8,9,9,10,10,11,11,12
+beyond255	!by 12,13,13,14
+	!by 14,15,15,16,16,16,17,17,17,18,18,18,19,19,19,19,19,20,20,20
+	!by 20,20,20,20,20,20,20,20,20,20,19,19,19,19,18,18,18,18,17,17
+	!by 17,16,16,15,15,14,14,14,13,13,12,12,11,11,10,10,9,9,8,8
+
+; ------------------------------------------------ Data
+
+palzl	!by 0
+palsp	!by 0
+plast	!by 0
+hold	!by 0
+cntx	!by 0
+cnty	!by 0
+
+c64pal	!by $00,$ff,$44,$cc,$55,$aa,$11,$dd
+	!by $66,$22,$99,$33,$77,$ee,$88,$bb
+
+; ------------------------------------------------ 
+
+modend	!eof
+
+; ------------------------------------------------ 
+; Alternative
+
+	; Vorschrift: n=int(sin(1/16*m)*8+0.5)+8
+	; n.min=0, n.max=16
+sinvals	!by  8, 8, 9, 9,10,10,11,11,12,12,13,13,13,14,14,14,15,15,15,15
+	!by 16,16,16,16,16,16,16,16,16,16,16,15,15,15,15,15,14,14,14,13
+	!by 13,12,12,12,11,11,10,10, 9, 9, 8, 8, 7, 7, 6, 6, 5, 5, 4, 4
+	!by  3, 3, 3, 2, 2, 2, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	!by  0, 0, 1, 1, 1, 1, 2, 2, 2, 3, 3, 4, 4, 4, 5, 5, 6, 6, 7, 7
+	!by  8, 8, 9, 9,10,10,11,11,12,12,12,13,13,14,14,14,15,15,15,15
+	!by 16,16,16,16,16,16,16,16,16,16,16,16,15,15,15,15,14,14,14,13
+	!by 13,13,12,12,11,11,10,10, 9, 9, 8, 8, 7, 7, 6, 6, 5, 5, 5, 4
+	!by  4, 3, 3, 2, 2, 2, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	!by  0, 0, 1, 1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 5, 5, 6, 6, 6, 7
+	!by  7, 8, 8, 9, 9,10,10,11,11,12,12,13,13,13,14,14,14,15,15,15
+	!by 15,16,16,16,16,16,16,16,16,16,16,16,15,15,15,15,15,14,14,14
+	!by 13,13,12,12,12,11,11,10,10, 9, 9, 8, 8, 7, 7, 6
+beyond255	!by  6, 5, 5, 4
+	!by  4, 3, 3, 3, 2, 2, 2, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	!by  0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 5, 5, 6, 6, 7
+	!by  7, 8, 8, 9, 9,10,10,11,11,12,12,12,13,13,14,14,14,15,15,15
+
+
