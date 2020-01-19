@@ -32,6 +32,7 @@
 ;   1.39, 24.07.18: solved problem /w writing to right border of canvas when clicking to far left
 ;   1.40, 27.07.18: finally take account of mouse hotspot offsets
 ;   1.41, 20.06.19: added init keyboard for SuperCPU
+;   1.42, 19.01.20: bugfix due to v1.34 of gd_main (sprite msb x)
 ;
 ; ------------------------------------------------------------ 
 
@@ -94,8 +95,8 @@
 	!wo (modend)
 	!wo 0
 	!pet "Edit 4bit pixels"
-	!pet "1.41"
-	!pet "20.06.19"
+	!pet "1.42"
+	!pet "19.01.20"
 	!pet "AD/ H.McMenamin "
 
 ; ------------------------------------------ Main
@@ -1458,10 +1459,14 @@ redisplay:
 
 evwipe	lda #50
 	sta vpos
+	lda gd_xbeyond	; ### 1.42
+	pha
 	lda #0
 	sta spritehi
-	ldy #3		; 3 rows
-ew1	ldx #0		; 4 columns
+	sta gd_xbeyond	; ### bis hier
+
+	ldy #3		; count 3 rows
+ew1	ldx #0		; and 4 columns
 ew0	lda tabspr,x	; get x-position
 	sta spritex
 	lda vpos		; get vpos
@@ -1480,8 +1485,11 @@ ew0	lda tabspr,x	; get x-position
 	sta vpos
 	dey
 	bne ew1
+
 	iny
 	sty gr_redisp
+	pla		; ### 1.42
+	sta gd_xbeyond	; ###
 	jmp dp00
 
 ; ----------------------------------------- Hold current Position
@@ -1538,7 +1546,7 @@ f7	sty gr_redisp
 ; ------------------------------------------ 
 
 hv1:	lda screenpnt+1	; lda msb
-	inc rahmen		; flash border
+	inc rahmen	; flash border
 	pha		; store msb
 	jsr gd_position
 	lda zeile		; lda how many rows down
