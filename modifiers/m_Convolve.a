@@ -10,6 +10,7 @@
 ;    1.00, 02.09.93, first release
 ;    1.01, 06.09.16, Threshold set to 0 by default
 ;    1.02, 09.02.17, wrong matrix on re-run
+;    1.03, 21.01.20, Shift, Threshold and Mix now step fore/back
 ;
 ; ------------------------------------------------------------ 
 
@@ -30,6 +31,8 @@
 	bbuf		= $3f
 
 	status		= $90
+	zeile		= sc_merk
+	spalte		= zeile+1
 
 	sprptr		= $07f8
 	ibuff		= $3f40
@@ -55,8 +58,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "Convolve 4Bit   "
-	!pet "1.02"
-	!pet "09.02.17"
+	!pet "1.03"
+	!pet "21.01.20"
 	!pet "W.Kling/A.Dettke"
 addtext	!pet "3x3 Matrix      "
 	!by 0
@@ -469,8 +472,13 @@ sz0	sta matrix,x
 ;
 ; ------------------------------------------------------------ Event: MAT-Threshold
 
-sevthold	ldx thold		; aktueller Wert plus 1
-	inx 
+sevthold	ldx thold		; aktueller Wert
+	lda spalte
+	cmp #17
+	bcc +
+	inx		; vorwärts
+	!by $24		; .x beibehalten
++	dex 		; zurück
 	txa 
 	and #15
 	sta thold
@@ -505,8 +513,13 @@ rl2	lda mat0,y
 ;
 ; ------------------------------------------------------------ Event: MAT-Shift
 
-sevshift	ldx shift		; aktueller Wert plus 1
-	inx 
+sevshift	ldx shift		; aktueller Wert
+	lda spalte
+	cmp #10
+	bcc +
+	inx		; vorwärts
+	!by $24		; .x beibehalten
++	dex 		; zurück
 	txa 
 	and #15
 	sta shift
@@ -522,8 +535,13 @@ sh1	ldy #22
 ;
 ; ------------------------------------------------------------ Event: MAT-Mix
 
-sevmix	ldx mix		; aktuellen Wert erhöhen (25/50/75/100)
-	inx 
+sevmix	ldx mix		; aktuellen Wert verändern (25/50/75/100)
+	lda spalte
+	cmp #26
+	bcc +
+	inx		; vorwärts
+	!by $24		; .x beibehalten
++	dex 		; zurück
 	txa 
 	and #3
 	sta mix
@@ -756,45 +774,66 @@ mat9	!by 0
 ; ------------------------------------------------------------ Screenlist
 
 cvlst	!by 0
-	!by 3,6,23,18,$01,0,0
-p0	!by 5,7,6,3,$e0,<(sevin0),>(sevin0)
+	!by 3,6,23,18,$01
+	!wo 0
+p0	!by 5,7,6,3,$e0
+	!wo sevin0
 	!scr "   0@"
-p1	!by 5,12,6,3,$e0,<(sevin1),>(sevin1)
+p1	!by 5,12,6,3,$e0
+	!wo sevin1
 	!scr "   0@"
-p2	!by 5,17,6,3,$e0,<(sevin2),>(sevin2)
+p2	!by 5,17,6,3,$e0
+	!wo sevin2
 	!scr "   0@"
-p3	!by 7,7,6,3,$e0,<(sevin3),>(sevin3)
+p3	!by 7,7,6,3,$e0
+	!wo sevin3
 	!scr "   0@"
-p4	!by 7,12,6,3,$e0,<(sevin4),>(sevin4)
+p4	!by 7,12,6,3,$e0
+	!wo sevin4
 	!scr "   0@"
-p5	!by 7,17,6,3,$e0,<(sevin5),>(sevin5)
+p5	!by 7,17,6,3,$e0
+	!wo sevin5
 	!scr "   0@"
-p6	!by 9,7,6,3,$e0,<(sevin6),>(sevin6)
+p6	!by 9,7,6,3,$e0
+	!wo sevin6
 	!scr "   0@"
-p7	!by 9,12,6,3,$e0,<(sevin7),>(sevin7)
+p7	!by 9,12,6,3,$e0
+	!wo sevin7
 	!scr "   0@"
-p8	!by 9,17,6,3,$e0,<(sevin8),>(sevin8)
+p8	!by 9,17,6,3,$e0
+	!wo sevin8
 	!scr "   0@"
-scalegad	!by 11,16,6,3,$80,0,0
+scalegad	!by 11,16,6,3,$80
+	!wo 0
 scaletx	!scr "   0@"
-	!by 5,7,16,9,$20,0,0
-	!by 18,7,7,3,$cc,<(sevzero),>(sevzero)
+	!by 5,7,16,9,$20
+	!wo 0
+	!by 18,7,7,3,$cc
+	!wo sevzero
 	!scr "Reset@"
-	!by 5,23,6,3,$cf,<(sevload),>(sevload)
+	!by 5,23,6,3,$cf
+	!wo sevload
 	!scr "Load@"
-	!by 8,23,6,3,$cf,<(sevsave),>(sevsave)
+	!by 8,23,6,3,$cf
+	!wo sevsave
 	!scr "Save@"
-	!by 11,23,6,3,$cf,<(sevrot),>(sevrot)
+	!by 11,23,6,3,$cf
+	!wo sevrot
 	!scr "RotR@"
-mixgad	!by 15,23,6,3,$cf,<(sevmix),>(sevmix)
+mixgad	!by 15,23,6,3,$cf
+	!wo sevmix
 mixtx	!scr "100%@"
-tholdgad	!by 15,15,4,3,$c0,<(sevthold),>(sevthold)
+tholdgad	!by 15,15,4,3,$c0
+	!wo sevthold
 tholdtx	!scr " 0@"					; *** 6.9.16, set to "0"
-shiftgad	!by 15,8,4,3,$c0,<(sevshift),>(sevshift)
+shiftgad	!by 15,8,4,3,$c0
+	!wo sevshift
 shifttx	!scr " 0@"
-	!by 18,14,7,3,$cc,<(sevapp),>(sevapp)
+	!by 18,14,7,3,$cc
+	!wo sevapp
 	!scr "Apply@"
-	!by 18,21,8,3,$cd,<(sevcan),>(sevcan)
+	!by 18,21,8,3,$cd
+	!wo sevcan
 	!scr "Cancel@"
 	!by $c0,5,7,14,32,32,32,32,98,32,32,32,32,98,32,32,32,32,0
 	!by $c0,6,7,14,123,123,123,123,223,123,123,123,123,223,123,123,123,123,0
