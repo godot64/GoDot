@@ -33,6 +33,7 @@
 ;   1.40, 27.07.18: finally take account of mouse hotspot offsets
 ;   1.41, 20.06.19: added init keyboard for SuperCPU
 ;   1.42, 19.01.20: bugfix due to v1.34 of gd_main (sprite msb x)
+;   1.43, 24.01.20: reposition mouse after "w"
 ;
 ; ------------------------------------------------------------ 
 
@@ -95,8 +96,8 @@
 	!wo (modend)
 	!wo 0
 	!pet "Edit 4bit pixels"
-	!pet "1.42"
-	!pet "19.01.20"
+	!pet "1.43"
+	!pet "24.01.20"
 	!pet "AD/ H.McMenamin "
 
 ; ------------------------------------------ Main
@@ -955,7 +956,7 @@ eg31	cpx #37		; "B" (for Bottom Right)
 	beq evbotrght
 eg3	cpx #34		; "W" (for Wipe)		
 	bne em3
-	jsr evwipe
+	jsr mwipe
 em3:	clc
 	rts
 
@@ -1491,6 +1492,18 @@ ew0	lda tabspr,x	; get x-position
 	pla		; ### 1.42
 	sta gd_xbeyond	; ###
 	jmp dp00
+
+mwipe	jsr evwipe	; ### 1.43; process wipe from mover
+	lda #3		; set mouse back to mover
+	sta spritehi
+	lda #94
+	sta spritey
+	sta spritey-2
+	lda #51
+	sta spritex
+	lda #49
+	sta spritex-2
+	rts
 
 ; ----------------------------------------- Hold current Position
 
