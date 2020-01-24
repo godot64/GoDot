@@ -29,6 +29,7 @@
 ; 1.11, 27.05.19: added key commands *f*lip, *m*irror & *u*psidedown canvas
 ; 1.12, 20.06.19: added init keyboard for SuperCPU
 ; 1.13, 19.01.20: bugfix due to v1.34 of gd_main (sprite msb x)
+; 1.14, 24.01.20: reposition mouse after "w"
 ;
 ; ----------------------------------------- 
 
@@ -93,8 +94,8 @@
 	!word (modend)
 	!byte 0,0
 	!pet "Edit Mask pixels"
-	!pet "1.13"
-	!pet "19.01.20"
+	!pet "1.14"
+	!pet "24.01.20"
 	!pet "A.Dettke/Mac    "
 
 ; ----------------------------------------- Main
@@ -815,7 +816,7 @@ eg31	cpx #37		; "B" (for Bottom Right)
 	beq evbotrght
 eg3	cpx #34		; "W" (for Wipe)		
 	bne em3
-	jsr evwipe
+	jsr mwipe		; ### 1.14
 em3:	clc
 	rts
 
@@ -1363,6 +1364,18 @@ ew0 	lda tabspr,x	; get x-position
 	pla		; ### 1.13
 	sta gd_xbeyond	; ###
 	jmp dp00
+
+mwipe	jsr evwipe	; ### 1.14; process wipe from mover
+	lda #3		; set mouse back to mover
+	sta spritehi
+	lda #94
+	sta spritey
+	sta spritey-2
+	lda #51
+	sta spritex
+	lda #49
+	sta spritex-2
+	rts
 
 ; ----------------------------------------- Hold current Position
 
