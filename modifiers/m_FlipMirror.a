@@ -9,7 +9,8 @@
 ; 1.00: 13.04.01 - first release
 ; 1.01: 15.04.01 - added automatical clip shifting
 ; 1.02: 23.08.04 - made clip shifting selectable
-; 1.03: 24.08.04 - added preview 
+; 1.03: 24.08.04 - added preview
+; 1.04: 25.01.20 - made preview from REU a bit safer
 ; ----------------------------------- 
 
 
@@ -35,7 +36,7 @@
 	spriteptr		= $07f8
 	sprite255		= $3fc0
 
-	swaptable		= $c500
+	swaptable		= $c600
 	mirrorbuf		= swaptable+256
 
 	sprite2x		= $d004
@@ -53,9 +54,9 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "4Bit Flip&Mirror"
-	!tx "1.03"
-	!tx "24.08.04"
-	!tx "A.Dettke	  "
+	!tx "1.04"
+	!tx "25.01.20"
+	!tx "A.Dettke        "
 
 ; ----------------------------------- Main
 ;
@@ -422,12 +423,12 @@ s9	jsr cou6
 
 	lda src00		; and proceed to next tile row
 	clc
-	adc #<(1280)
+	adc #<1280
 	sta src
 	sta src0
 	sta src00
 	lda src00+1
-	adc #>(1280)
+	adc #>1280
 	sta src+1
 	sta src0+1
 	sta src00+1
@@ -572,6 +573,15 @@ finish	lda clipfl	; any clip?
 	sta nclipzl
 hf1	jmp clearad	; finish
 
+; --------------------------------------- Event: Preview
+
+evpreview	jsr ev_prviu
+	ldx #<fliplst	; ### 1.04: re-activate requester
+	ldy #>fliplst
+	jsr gd_screen
+	clc
+	rts
+
 ; ----------------------------------- Event: UpsideDown
 
 evboth	jsr evmirror
@@ -602,8 +612,8 @@ mx1	lda cliptxt,x
 mx3	sta shiftfl
 	jsr setyes	; yes, set default
 	
-mx4	ldx #<(clip)
-	ldy #>(clip)
+mx4	ldx #<clip
+	ldy #>clip
 	bne settext
 
 ; ----------------------------------- Event: Select Shift
@@ -629,8 +639,8 @@ mx2	lda shifttxt,x
 	dex
 	dey
 	bpl mx2
-	ldx #<(shift)
-	ldy #>(shift)
+	ldx #<shift
+	ldy #>shift
 
 ; --------------------------------------- Text Output Handler
 
@@ -684,7 +694,7 @@ cliptx	!scr "Clip@"
 	!scr "Leave@"
 	
 	!by 11,29,11,7,$4d
-	!wo ev_prviu
+	!wo evpreview
 
 	!by $c0,6,10,12
 	!scr "Select Area:@"
