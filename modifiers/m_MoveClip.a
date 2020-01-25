@@ -2,14 +2,14 @@
 	!src "godotlib.lib"
 	*= $c000
 	!ct pet
-;	!sl "moveclp.txt"
+;	!sl "labels.txt"
 
 ; --------------------------------------
 ;
 ;     mod.MoveClip
 ;       Modifier zum Kopieren, Verschieben oder Tauschen von Clips
 ;       innerhalb des 4Bit-Bildes
-;     von Martin Burggraf (1.01: $AD)
+;     von Martin Burggraf (ab 1.01: $AD)
 ;
 ;     1.00, 04.10.95, first release (still buggy)
 ;     1.01, 08.01.18, re-coded for convenience, bugfixes
@@ -28,6 +28,7 @@
 ;                     removed: dirty flag (now executable from REU)
 ;     1.09, 03.03.18, bugfix: set correct target position on SetClip
 ;     1.10, 28.05.18, bugfix: garbage when moved right on same row, fixed
+;     1.11, 25.01.20, better matching translation, changed prio
 ;
 ; --------------------------------------
 ;
@@ -36,7 +37,7 @@
 ;      any C64 functionality (to $30++); coded a new positioning
 ;      routine which would deliver correct results; added visual
 ;      selection; added selector sprites for choosing destination
-;      area; added moving with choosable transparency color
+;      area; added moving with chooseable transparency color
 ;
 ; -------------------------------------- 
 
@@ -108,8 +109,8 @@
 	!wo modend
 	!wo 0
 	!tx "Move the Clip ! "
-	!tx "1.10"
-	!tx "28.05.18"
+	!tx "1.11"
+	!tx "25.01.20"
 	!tx "M.Burggraf/$AD  "
 
 ; -------------------------------------- Main
@@ -565,7 +566,7 @@ colrize	ldy #8		; output color gadget
 
 ; -------------------------------------- Event: Set Flag for TakeOver
 
-sevtkover	ldx transfl	; Hold or Give
+sevtkover	ldx transfl	; Hold or Pass
 	beq +
 	ldx #$ff
 +	inx
@@ -1346,8 +1347,8 @@ curcol	!by 0		; default: blk
 chkcoll	!by 0		; colors for transparency check
 chkcolr	!by 0
 list	!wo 0
-transfl	!by 0
-transtx	!scr "dloH eviG "
+transfl	!by 1
+transtx	!scr "dloH ssaP "
 trnspfl	!by 0
 trnsps	!scr "eqapOsnarT"
 
@@ -1389,7 +1390,7 @@ curcoltx	!scr "blk"
 togclp	!by 18,13,8,3,$c8
 	!wo sevtkover
 	!by 223
-togtx	!scr " Hold@"	; or " Give@"
+togtx	!scr " Pass@"	; or " Hold@"
 
 	!by 19,21,8,3,$ce
 	!wo cancel
