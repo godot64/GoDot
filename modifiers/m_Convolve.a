@@ -11,6 +11,7 @@
 ;    1.01, 06.09.16, Threshold set to 0 by default
 ;    1.02, 09.02.17, wrong matrix on re-run
 ;    1.03, 21.01.20, Shift, Threshold and Mix now step fore/back
+;    1.04, 26.01.20, bugfix, buffers did overwrite longer (1.03) code
 ;
 ; ------------------------------------------------------------ 
 
@@ -45,7 +46,7 @@
 	sprcol2		= $d029
 ;
 	buf3		= $bd00
-	buf0		= $ca30
+	buf0		= $cb30
 	buf1		= buf0+322
 	buf2		= buf1+322
 
