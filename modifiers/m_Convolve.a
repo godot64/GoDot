@@ -59,8 +59,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "Convolve 4Bit   "
-	!pet "1.03"
-	!pet "21.01.20"
+	!pet "1.04"
+	!pet "26.01.20"
 	!pet "W.Kling/A.Dettke"
 addtext	!pet "3x3 Matrix      "
 	!by 0
