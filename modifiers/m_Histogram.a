@@ -20,6 +20,7 @@
 ;    1.05, 20.06.19, added: init keyboard for SuperCPU
 ;    1.06, 19.09.19, added: show amount of colors in image
 ;                    bugfix: avoid crash after executing it from REU and have a View at first time
+;    1.07, 06.02.20, added: hilite gadget on Join or Swap
 ;
 ; ------------------------------------------------------------ 
 
@@ -71,8 +72,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "4BitHistogram   "
-	!pet "1.06"
-	!pet "19.09.19"
+	!pet "1.07"
+	!pet "06.02.20"
 	!pet "A. Dettke       "
 
 ; --------------------------------------- Main
@@ -303,8 +304,12 @@ sr7	lda sc_merk
 	cpx #16
 	bne ht5
 	stx hdone
-	clc		; until finished
-	rts
+	ldy #3
+	jsr unhilite
+	ldy #7
+unhilite	jsr sethilite
+	ldx #2
+	jmp gd_fcol	; .c=0
 
 ; --------------------------------------- 
 
@@ -415,7 +420,11 @@ ev_join	jsr joininit	; init variables
 	pha
 	ldx #<joinlst	; display new reqester (within the old one)
 	ldy #>joinlst
-sw0	jsr gd_screen
+	jsr gd_screen
+	ldy #3
+sw0	jsr sethilite
+	ldx #3
+	jsr gd_fcol
 	jsr gd_eloop	; wait for clicks
 	pla		; restore old screenlist
 	sta sc_screenvek+1
@@ -440,6 +449,8 @@ evswap	jsr joininit
 	pha
 	ldx #<swaplst	; display new reqester (within the old one)
 	ldy #>swaplst
+	jsr gd_screen
+	ldy #7		; hilite gadget
 	bne sw0
 
 ; --------------------------------------- Subevent: Set Swap Colors
@@ -701,15 +712,22 @@ numctx	!scr " 0@"
 	!by	 239,239,0
 	!by $80
 
+joingad	!by 17,32,4,1
+swapgad	!by 14,32,4,1
+
 ; --------------------------------------- Screenlist for Join
 
 joinlst	!by 0
-	!by 4,18,5,18,$70,<(se_setj),>(se_setj)
-	!by 07,23,8,3,$c0,<(se_targetj),>(se_targetj)
+	!by 4,18,5,18,$70
+	!wo se_setj
+	!by 07,23,8,3,$c0
+	!wo se_targetj
 	!scr "Target@"
-	!by 10,23,8,3,$c0,<(se_deslctj),>(se_deslctj)
+	!by 10,23,8,3,$c0
+	!wo se_deslctj
 	!scr "DeSlct@"
-	!by 13,23,8,3,$c0,<(se_cancelj),>(se_cancelj)
+	!by 13,23,8,3,$c0
+	!wo se_cancelj
 	!scr "Cancel@"
 	!by $c0,2,18,3,31,31,31,0
 	!by $c0,3,23,5
@@ -733,8 +751,10 @@ joinlst	!by 0
 ; --------------------------------------- 
 
 swaplst	!by 0
-	!by 4,18,5,18,$70,<(se_setsw),>(se_setsw)
-	!by 13,23,8,3,$c0,<(se_cancelj),>(se_cancelj)
+	!by 4,18,5,18,$70
+	!wo se_setsw
+	!by 13,23,8,3,$c0
+	!wo se_cancelj
 	!scr "Cancel@"
 	!by $c0,2,18,3,31,31,31,0
 	!by $c0,3,23,5
@@ -932,14 +952,18 @@ tmode	ldx #$13
 	sta border
 	sta bkgrnd
 	rts
+
 ; ------------------------------------------ 
+
 setcveks	sei
 	lda #$35
 	sta 1
 	lda therec
 	ldx #$d8
 	bne scv0
+
 ; ------------------------------------------ 
+
 setbveks	lda therev1
 	ldx #4
 	dec 1
@@ -948,7 +972,9 @@ scv0	stx ls_adrmisc+1
 	sty sc_merk
 	sty ls_adrmisc
 	dey
+
 ; ------------------------------------------ 
+
 setlast	sty gr_bkcol
 	ldy #<(cstart)
 	sty sc_vekt20
@@ -959,7 +985,9 @@ setlast	sty gr_bkcol
 	sta ls_vekta8+1
 	ldy #0
 	rts
+
 ; ------------------------------------------ 
+
 getcolors	jsr setcveks
 stco	lda (ls_adrmisc),y
 	sta sc_merk
@@ -997,7 +1025,9 @@ scv1	lda #$36
 	and #15
 	sta gr_bkcol
 	rts
+
 ; ------------------------------------------ 
+
 setcolors	lda gr_bkcol
 	sta bkgrnd
 	pha
@@ -1032,6 +1062,16 @@ stc4	lda (sc_vekt20),y
 	lda therev2
 	jsr setlast
 	beq stc4
+
+; ------------------------------------------ 
+
+sethilite	ldx #3		; set data to (un)hilite gadgets
+-	lda joingad,y
+	sta sc_zl,x
+	dey
+	dex
+	bpl -
+	rts
 
 ; ------------------------------------------ Switch Graphics/Text
 
