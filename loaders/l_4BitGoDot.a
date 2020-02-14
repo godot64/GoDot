@@ -77,7 +77,7 @@ cn2	sec
 jrequ	jmp requ
 jerror	jmp error
 ; ----------------------------------------- Main
-start	lda which
+start	lda which		; ### 1.19
 	bne +
 	jsr setrplc	; ### 1.18, init distributor
 +	jsr mchar		; define listbox char
