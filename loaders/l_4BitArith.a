@@ -18,6 +18,7 @@
 ;    1.06: 13.12.17, bugfix: missing mouse pointer/open files
 ;                    when accessing bad files
 ;    1.07, 24.04.18, bugfix: couldn't change Source after Preview anymore
+;    1.08, 14.02.20, bugfix: displaced distributor
 ;
 ; ---------------------------
 
@@ -58,8 +59,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "4Bit&sub/mul/dif"
-	!pet "1.07"
-	!pet "24.04.18"
+	!pet "1.08"
+	!pet "14.02.20"
 	!pet "A.Dettke/W.Kling"
 ;
 ; ----------------------------------------- Main
@@ -72,8 +73,7 @@ cn2	sec
 jrequ	jmp requ
 jerror	jmp error
 ;
-start	jsr setrplc	; ### 1.07, init distributor
-	ldx used
+start	ldx used
 	bmi jrequ
 	beq cancel
 	cpx #3
@@ -300,7 +300,8 @@ mess	!fill 22,32
 ;
 ; ----------------------------------------- Requester
 
-requ	lda list+1
+requ	jsr setrplc	; ### 1.08, init distributor
+	lda list+1
 	bne rq1
 	ldx sc_screenvek
 	ldy sc_screenvek+1
