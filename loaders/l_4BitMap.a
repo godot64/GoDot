@@ -18,6 +18,7 @@
 ; 1.06, 13.12.17, bugfix: missing mouse pointer/open files
 ;                 when accessing bad files
 ; 1.07, 23.04.18, bugfix: couldn't change sources after Preview anymore
+; 1.08, 14.02.20, bugfix: displaced distributor
 ;
 ; ----------------------------------------- 
 
@@ -59,8 +60,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "4Bit&Alpha&Add  "
-	!pet "1.07"
-	!pet "23.04.18"
+	!pet "1.08"
+	!pet "14.02.20"
 	!pet "A.Dettke/W.Kling"
 ; ----------------------------------------- Leave
 cancel	lda #$ff
@@ -71,8 +72,7 @@ cn2	sec
 jrequ	jmp requ
 jerror	jmp error
 ; ----------------------------------------- Main
-start	jsr setrplc	; ### 1.07, init distributor
-	ldx used
+start	ldx used
 	bmi jrequ
 	beq cancel
 	cpx #3
@@ -298,7 +298,8 @@ message	!scr " Reading  "
 mess	!fill 22,32
 	!by 0
 ; ----------------------------------------- 
-requ	lda list+1
+requ	jsr setrplc	; ### 1.08, init distributor
+	lda list+1
 	bne rq1
 	ldx sc_screenvek
 	ldy sc_screenvek+1
@@ -892,9 +893,9 @@ srt1	jsr srt4
 text4	stx textoff	; ### 1.07, ab hier --
 	ldx #0		; check for being in Modify Mode 
 	lda (doit,x)
-	cmp #$60		; ### $60 is code for RTS ; bis hier --
+	cmp #$60		; $60 is code for RTS ; bis hier --
 	bne ok		; if .a=$60: we are in Replace Mode, leave 
-	ldx textoff
+	ldx textoff	; ### bis hier --
 	ldy #3
 srt6	lda fromwhich,x
 	sta fromtx4,y
