@@ -211,7 +211,7 @@ ld3	lda flag4		; RAM-Erweiterung?
 
 	lda (doit,x)	; check for Load or Bevel
 	cmp #$60		; is Load? (Code for RTS)
-	bne ld5		; no, don't create Image Info 	# -- bis hier
+	bne ld5		; no, don't create Image Info
 	jsr setinfo
 
 ld5	jsr gd_xclose	; File schlieﬂen
@@ -223,7 +223,6 @@ ld7	jsr gd_spron	; Mauszeiger an
 ; ----------------------------------------- 
 
 ld6	jsr srt4		; REU initialisieren
-	jsr vw2		; Main-Screen aufbauen
 	jmp ld7		; weiter wie oben
 
 ; ----------------------------------------- 
@@ -330,7 +329,7 @@ rq1	inc used		; set to 0
 	ldx #<bevlst
 	ldy #>bevlst
 	jsr gd_xmloop	; returns used=$ff
-	jsr vw2		; build mainscreen
+	jsr vw2		; re-build mainscreen
 	
 	lda which
 	beq rq3
@@ -628,7 +627,7 @@ ob31	lda ramtype
 	ldy #>readpfox
 	bne ob4
 ob30	cmp #7		; SuperCPU?
-	beq ob3		; noch nicht implementiert: Disk
+	beq ob3		; noch nicht implementiert: dann Disk
 	ldx #<readreu
 	ldy #>readreu
 	bne ob4
