@@ -11,6 +11,7 @@
 ; (derived from ldr.4Bit&Map)
 ;
 ; 1.00, 17.02.20: first release
+; 1.01, 18.02.20: added brightening
 ;
 ; ----------------------------------------- 
 
@@ -34,6 +35,7 @@
 	doit	= $42
 	byte	= $44
 	fbyte	= $45
+	mode	= $46
 
 	status	= $90
 
@@ -326,6 +328,7 @@ requ	jsr setrplc
 rq1	inc used		; set to 0
 	ldx #0
 	stx status
+	stx mode		; set mode to darken
 	ldx #<bevlst
 	ldy #>bevlst
 	jsr gd_xmloop	; returns used=$ff
@@ -357,9 +360,17 @@ rq4	lda fromwhich,x
 	sec		; leave loader
 	rts
 
-; --------------------------------------- Event: Bevel
+; --------------------------------------- Event: Brighten
 
-evbevel	ldx #<bevel	; point distributor to bevel
+evbrghten ldx #1
+	!by $2c
+
+; --------------------------------------- Event: Darken
+
+evdarken	ldx #0
+	stx mode
+
+	ldx #<bevel	; point distributor to bevel
 	ldy #>bevel
 	jsr setdoit
 
@@ -415,17 +426,25 @@ setdoit	stx doit
 ; ----------------------------------------- Palettes
 
 	; Gray  (1):
-pgray	!by $00,$03,$03,$03,$03,$07,$07,$07
+pdgray	!by $00,$03,$03,$03,$03,$07,$07,$07
 	!by $07,$07,$0b,$0b,$0b,$0b,$0b,$0f
+pbgray	!by $0f,$0b,$0b,$0b,$0b,$07,$07,$07
+	!by $07,$07,$03,$03,$03,$03,$03,$00
 	; Red   (2):
-pred	!by $00,$02,$02,$02,$03,$03,$04,$04
+pdred	!by $00,$02,$02,$02,$03,$03,$04,$04
 	!by $06,$06,$09,$09,$0d,$0d,$0d,$0f
+pbred	!by $0f,$0d,$0d,$0d,$09,$09,$06,$06
+	!by $04,$04,$03,$03,$02,$02,$02,$00
 	; Green (3):
-pgreen	!by $00,$03,$03,$07,$07,$07,$0a,$0a
+pdgreen	!by $00,$03,$03,$07,$07,$07,$0a,$0a
 	!by $0a,$0c,$0c,$0c,$0e,$0e,$0e,$0f
+pbgreen	!by $0f,$0e,$0e,$0c,$0c,$0c,$0a,$0a
+	!by $0a,$07,$07,$07,$03,$03,$03,$00
 	; Blue  (4):
-pblue	!by $00,$01,$01,$01,$03,$03,$07,$07
+pdblue	!by $00,$01,$01,$01,$03,$03,$07,$07
 	!by $08,$08,$0b,$0b,$0c,$0c,$0c,$0f
+pbblue	!by $0f,$0c,$0c,$0c,$0b,$0b,$08,$08
+	!by $07,$07,$03,$03,$01,$01,$01,$00
 
 	; Associations:
 passoc	!by 1,4,2,1,2,2,2,1,4,2,3,1,4,2,3,1
@@ -465,18 +484,21 @@ pureraw	rts
 
 ; ----------------------------------------- 
 
-quantize	lda fbyte
-	cmp #15		; (white is transparent)
+quantize	ldx fbyte
+	cpx #15		; (white is transparent)
 	bne +
 	lda byte
 	rts
 
-+	sta gr_howmany	; process bevel value:
++	stx gr_howmany	; process bevel value:
 	jsr gd_makeqtab
 	ldx byte		; get byte from 4bit
 	lda passoc,x	; get according palette number
 	sta fbyte
-	lda gr_qtab,x	; change pixel according to bevel:
+	lda mode
+	bne brighten
+
+darken	lda gr_qtab,x	; change pixel according to bevel:
 	tax
 
 	dec fbyte
@@ -486,16 +508,36 @@ quantize	lda fbyte
 	dec fbyte
 	beq qz2
 
-qz3	lda pblue,x
+	lda pdblue,x
+	rts
+qz2	lda pdgreen,x
+	rts
+qz1	lda pdred,x
+	rts
+qz0	lda pdgray,x
 	rts
 
-qz2	lda pgreen,x
-	rts
+brighten	clc
+	lda #16
+	sbc byte
+	tax
+	lda gr_qtab,x	; change pixel according to bevel:
+	tax
 
-qz1	lda pred,x
-	rts
+	dec fbyte
+	beq qz3
+	dec fbyte
+	beq qz4
+	dec fbyte
+	beq qz5
 
-qz0	lda pgray,x
+	lda pbblue,x
+	rts
+qz5	lda pbgreen,x
+	rts
+qz4	lda pbred,x
+	rts
+qz3	lda pbgray,x
 	rts
 
 ; ----------------------------------------- 
@@ -518,24 +560,28 @@ gaugelst	!by 0,22,3,34,3,$02,0,0,$80	; REU
 ; ----------------------------------------- Main Requester
 
 bevlst	!by 0
-	!by 6,13,13,11,$81,0,0
-	!scr "Bevel@"
+	!by 6,13,13,13,$81
+	!wo 0
+	!scr "Bevel",0
 from4	!by 8,20,6,3,$cd
 	!wo sev4from
-fromtx4	!scr "Disk@"
+fromtx4	!scr "Disk",0
 	!by 10,13,13,3,$cb
 	!wo sevrepl
-	!scr "Load Image@"
+	!scr "Load Image",0
 	!by 12,13,13,3,$cb
-	!wo evbevel
-	!scr "Apply Bevel@"
+	!wo evdarken
+	!scr "Darken",0
 	!by 14,13,13,3,$cb
+	!wo evbrghten
+	!scr "Brighten",0
+	!by 16,13,13,3,$cb
 	!wo evcancel
-	!scr "Leave@"
+	!scr "Leave",0
 	!by 11,29,11,7,$4d
 	!wo evpreview
 	!by $c0,8,13,6
-	!scr "Source@"
+	!scr "Source",0
 	!by $80
 
 ; ----------------------------------------- Image Information Handler
