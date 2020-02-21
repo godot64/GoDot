@@ -12,6 +12,7 @@
 ;
 ; 1.00, 17.02.20: first release
 ; 1.01, 18.02.20: added brightening
+; 1.02, 20.02.20: changed gui
 ;
 ; ----------------------------------------- 
 
@@ -35,7 +36,6 @@
 	doit	= $42
 	byte	= $44
 	fbyte	= $45
-	mode	= $46
 
 	status	= $90
 
@@ -55,32 +55,77 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "4Bit&Bevel      "
-	!pet "1.00"
-	!pet "17.02.20"
+	!pet "1.02"
+	!pet "20.02.20"
 	!pet "A.Dettke        "
 
-; ----------------------------------------- Leave
+; ----------------------------------------- Main
 
-evcancel	lda #$ff
-	sta which
+rq3	sta used		; if called: 0
+process	jsr vw2		; re-build main screen
+
+start	ldx used
+	bmi requ
+	beq rq1
+	jmp st0
+
+; ----------------------------------------- 
+
+requ	jsr makechr	; define toggle char
+	jsr setrplc	; set "just load" flag
+	ldx sc_screenvek	; save pointer to main screen
+	ldy sc_screenvek+1
+	stx list
+	sty list+1
+	ldx gr_howmany	; save quantize value
+	stx howmany
+
+rq1	ldx #0
+	stx status
+	ldx #<bevlst
+	ldy #>bevlst
+	jsr gd_xmloop	; requester, wait for clicks
+	
+	lda howmany	; then: reset quantize table
+	sta gr_howmany
+	lda which		; just loaded?
+	beq rq3		; yes, re-run for bevel
+
+rq0	lda ls_flen	; left file requester w/o file?
+	beq rq3		; then go again
+
+	sta gr_redisp	; after bevel: set re-render flag
+	jsr gd_makeqtab	; reset quantization table
+	ldx #0		; reset source flag
+	stx flag4
+	jsr srt4		; reset reu table
+	ldx #7		; reset text in requester
+	ldy #3
+rq4	lda fromwhich,x
+	sta fromtx4,y
+	dex
+	dey
+	bpl rq4
+	jsr setsource	; set load from disk 
+
+; ----------------------------------------- 
 
 cancel	lda #$ff
 	sta used
-cn2	sec
+	sec		; leave loader
+	rts
+
+; ----------------------------------------- Leave
+
+evcancel	lda #$ff		; set fake process flag
+	sta which
+	sta ls_flen	; set fake file len
+	sec		; leave 
 	rts
 
 ; ----------------------------------------- Subs
 
-jrequ	jmp requ
 jerror	jmp error
-
-; ----------------------------------------- Main
-
-start	ldx used
-	bmi jrequ
-	beq cancel
-	cpx #3
-	bcs cancel
 
 ; ----------------------------------------- Einlesen vorbereiten
 
@@ -140,7 +185,6 @@ ld61	asl filetype	; "lesbarer" machen (aus $30 wird $60, aus $31 wird $62)
 
 ob5	ldx which		; Modus:
 	bne ld62		; Replace? (which=0)
-	jsr setrplc	; Distributor auf Replace setzen
 	jsr getname	; dann: Filenamen merken
 
 ld62	jsr gd_clrms	; Messages und Activity initialisieren
@@ -218,9 +262,11 @@ ld3	lda flag4		; RAM-Erweiterung?
 
 ld5	jsr gd_xclose	; File schlieﬂen
 	jsr gd_xmess	; Floppy-Meldung
+	jsr cancel
 
 ld7	jsr gd_spron	; Mauszeiger an
-	jmp cancel	; Abschluss
+	sec		; Abschluss
+	rts
 
 ; ----------------------------------------- 
 
@@ -234,7 +280,7 @@ readbytes	jmp (doit)	; distributor
 ; ----------------------------------------- 
 
 error	jsr ld5		; close file
-	clc		; stay
+stay	clc
 	rts
 
 onebyte	jsr basin
@@ -243,13 +289,13 @@ onebyte	jsr basin
 
 ; ----------------------------------------- Variablen
 
-flag4	!by 0
+chschr	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
+
 banks	!by $ff,$ff,0,0,3,7,$ff,$ff,1,0
 bank	!by 7
 ramtype	!by 0
 howmany	!by 0
 bbuf	!by 0
-textoff	!by 0
 list	!wo 0
 clpzl	!by 0
 clpsp	!by 0
@@ -261,8 +307,12 @@ breite	!wo 0
 hoehe	!by 25
 ymerk	!by 0
 used	!by $ff
+flag4	!by 0
+fromwhich	!scr "ClipDiskTempUndoVDC2PFox"
 which	!by 0
-fromwhich	!scr "ClipDiskTempUndoVDC2"
+mode	!by 0
+gadoffs	!by 7,15
+modes	!scr " Darken Brighten"
 
 reuinit	!by <gbyte,>gbyte,0,$83,7,1,0
 	!by 0,$c0,0,0,0,0,$10
@@ -312,94 +362,58 @@ message	!scr " Reading  "
 mess	!fill 22,32
 	!by 0
 
-; ----------------------------------------- Requester
+; --------------------------------------- Event: Set Mode
 
-rq3	ldx #$ff
-	stx used		; set to $ff after file req
-requ	jsr setrplc
-	lda list+1
-	bne rq1
-	ldx sc_screenvek
-	ldy sc_screenvek+1
-	stx list
-	sty list+1
-	ldx gr_howmany
-	stx howmany
-rq1	inc used		; set to 0
-	ldx #0
-	stx status
-	stx mode		; set mode to darken
-	ldx #<bevlst
-	ldy #>bevlst
-	jsr gd_xmloop	; returns used=$ff
-	jsr vw2		; re-build mainscreen
-	
-	lda which
-	beq rq3
-			; leave after bevel:
-rq0	sta gr_redisp	; set re-render flag
-	lda howmany	; reset quantize table
-	sta gr_howmany
-	jsr gd_makeqtab
-	lda ls_flen	; left file requester w/o file?
-	beq rq3		; then go again
-
-	ldx #$ff		; set rebuild flag
-	stx used
-	inx		; set replace flag
-	stx flag4
-	jsr srt4		; reset reu table
-	ldx #7		; reset text in requester
-	ldy #3
-rq4	lda fromwhich,x
-	sta fromtx4,y
+evsetmode ldx mode		; 0=Darken, 1=Brighten
+	beq +
+	ldx #$ff
++	inx
+	stx mode		; set mode
+	lda gadoffs,x
+	tax		; set according texts
+	ldy #7
+dpi1	lda modes,x
+	sta modestx,y
 	dex
 	dey
-	bpl rq4
-	jsr setsource	; set load from disk 
-	sec		; leave loader
+	bpl dpi1
+	lda #<modesgad
+	sta sc_screentab
+	lda #>modesgad
+	jsr srt9
+
+	clc
 	rts
-
-; --------------------------------------- Event: Brighten
-
-evbrghten ldx #1
-	!by $2c
-
-; --------------------------------------- Event: Darken
-
-evdarken	ldx #0
-	stx mode
-
-	ldx #<bevel	; point distributor to bevel
-	ldy #>bevel
-	jsr setdoit
 
 ; --------------------------------------- 
 
-sevmod	inc used		; set to 2
-sevrepl	inc used		; set to 1
-	ldx used
+sevmod	ldx #<bevel	; point distributor to bevel
+	ldy #>bevel
+	jsr setdoit
+	ldx #2		; process image
+	bne +
+sevrepl	jsr srp1		; point distributor to RTS
+	ldx #1		; load image
++	stx used		; set re-run flag (.x=1 or 2)
 	dex
-	stx which
-	bne modify
-	lda flag4
-	bne rq2
-
-; ----------------------------------------- Open File Requester
-
-filereq	ldx #1
-	jsr gd_xload
-cn3	lda #3
-	sta used
-	sec
+	stx which		; set process flag
+	jsr setsrc	; set source device
+	lda ls_flen	; if flen=0: cancelled
+	bne +
+	jmp cancel
++	sec		; go
 	rts
 
 ; ----------------------------------------- 
 
-modify	lda flag4
-	beq filereq
-rq2	sta ls_flen	; set fake file len when ram
-	jmp gaugeout
+setsrc	lda flag4		; from which source?
+	bne rq2
+	ldx #1		; from disk
+	jmp gd_xload
+
+rq2	sta ls_flen	; from RAM: set fake file len when ram
+	jsr gaugeout
+	jmp st0
 
 ; --------------------------------------- Event: Preview
 
@@ -414,8 +428,8 @@ evpreview	lda gd_modswitch
 ; ----------------------------------------- 
 
 setrplc	ldx #0		; point distributor to Load
-	stx which
-	ldx #<pureraw
+	stx used		; set re-run flag
+srp1	ldx #<pureraw
 	ldy #>pureraw
 
 setdoit	stx doit
@@ -540,6 +554,15 @@ qz4	lda pbred,x
 qz3	lda pbgray,x
 	rts
 
+; --------------------------- Kringel definieren
+
+makechr	ldx #7
+-	lda chschr,x
+	sta sc_undochar,x
+	dex
+	bpl -
+	rts
+
 ; ----------------------------------------- 
 
 gettab2	sta sc_screentab+1
@@ -569,12 +592,13 @@ fromtx4	!scr "Disk",0
 	!by 10,13,13,3,$cb
 	!wo sevrepl
 	!scr "Load Image",0
-	!by 12,13,13,3,$cb
-	!wo evdarken
-	!scr "Darken",0
+modesgad	!by 12,13,13,3,$cb
+	!wo evsetmode
+	!by 223,32
+modestx	!scr " Darken ",0
 	!by 14,13,13,3,$cb
-	!wo evbrghten
-	!scr "Brighten",0
+	!wo sevmod
+	!scr "Apply",0
 	!by 16,13,13,3,$cb
 	!wo evcancel
 	!scr "Leave",0
@@ -698,7 +722,7 @@ gaugeout	lda sc_screenvek
 	sta gr_redisp
 	pla
 	sta sc_screenvek
-	jmp st0
+	rts
 
 ; ----------------------------------------- Read...
 
@@ -842,21 +866,23 @@ ok	clc
 srt2	lda rm_tmpsaved
 	and #1
 next1	beq next
-	ldx #$83
+
+	lda ramtype
+	cmp #3		; PFox?
+	bne +		; nein
+
+	ldx #23		; ja, show text
+	bne text4
+
++	ldx #$83		; Undo in REU
 	lda bank
 	jsr srt3
-	ldx #11
+	ldx #11		; show text
 	bne text4
 
 srt1	jsr srt4
 	ldx #7
-text4	stx textoff
-	ldx #0		; check for being in Modify Mode 
-	lda (doit,x)
-	cmp #$60		; $60 is code for RTS
-	bne ok		; if .a=$60: we are in Replace Mode, leave 
-	ldx textoff
-	ldy #3
+text4	ldy #3
 srt6	lda fromwhich,x
 	sta fromtx4,y
 	dex
@@ -870,9 +896,9 @@ srt9	jsr gettab2
 	jmp gd_xtxout1
 
 srt8	lda rm_tmpsaved
-	and #2
-	beq next1
-	ldx #19
+	and #2		; VDC?
+	beq next1		; ja
+	ldx #19		; ja
 	bne text4
 
 ; ----------------------------------------- Clipdaten einlesen
