@@ -1,5 +1,8 @@
-	!src "godotlib.lib"	; library nicht erforderlich
-	*=$c000
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
 
 ; ------------------------------------------------ 
 ;
@@ -12,6 +15,7 @@
 ; 1.04: 08.08.03, bugfix: crash on preview after input when executed from REU
 ; 1.05: 07.10.05, bugfix: crash after input (memory managament garbaged)
 ; 1.06: 31.01.18, bugfix: activity bar could run all down the screen
+; 1.07: 27.02.20, changed: now advance in gadget goes up OR down
 ; 
 ; ------------------------------------------------ 
 
@@ -19,6 +23,7 @@
 
 	wordlo		= $07
 	int		= $14
+	spalte		= sc_merk+1
 
 	vbuf0		= $30
 	vbuf1		= $32
@@ -58,8 +63,8 @@
 	!wo modend
 	!by $00,$00
 	!pet "scroll 4Bit     "
-	!pet "1.06"
-	!pet "31.01.18"
+	!pet "1.07"
+	!pet "27.02.20"
 	!pet "A.Dettke        "
 
 ; ------------------------------------ Hauptschleife 
@@ -535,12 +540,24 @@ ss5	txa
 ; ------------------------------------ Richtung eingeben
 
 evsdirctn	lda direction	; Flag holen..
+	ldx spalte	; ### 1.07 wo geklickt?
+	cpx #25
+	bcc sdi3		; rechts im Gadget
+
 	cmp #3
 	bne sdi0
 	lda #$ff
 	sta direction
 sdi0	inc direction	; erhöhen (nächste Richtung)
-	ldx direction
+	jmp sdi4
+
+sdi3	tax
+	bne sdi5
+	lda #4
+	sta direction
+sdi5	dec direction	; herunterzählen (vorige Richtung)
+	
+sdi4	ldx direction
 	lda dirchars,x	; Zeichen eintragen
 	sta dirctn
 	ldy #0
