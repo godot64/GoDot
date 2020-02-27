@@ -586,7 +586,7 @@ gaugelst	!by 0,22,3,34,3,$02,0,0,$80	; REU
 bevlst	!by 0
 	!by 6,13,13,13,$81
 	!wo 0
-	!scr "Bevel",0
+	!scr "Fade",0
 from4	!by 8,20,6,3,$cd
 	!wo sev4from
 fromtx4	!scr "Disk",0
