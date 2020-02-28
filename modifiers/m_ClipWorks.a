@@ -17,6 +17,7 @@
 ; 1.08, 18.07.17: added Preview
 ; 1.09, 26.05.18: made Preview safer (avoiding color trash on Show after Execute from RAM)
 ; 1.10, 20.06.19: added debounce on key presses when displaying graphics
+; 1.11, 28.02.20: added leave subrequester after work
 ;
 ; ------------------------------------------------ 
 
@@ -85,8 +86,8 @@
 	!wo modend
 	!wo 0
 	!pet "ClipWorks       "
-	!pet "1.10"
-	!pet "20.06.19"
+	!pet "1.11"
+	!pet "28.02.20"
 	!pet "A. Dettke       "
 
 ; ------------------------------------------------ Main
@@ -1783,7 +1784,8 @@ ml6	clc		; compute width
 ml9	jsr zero2
 	dex
 	stx dispmk
-ml8	jmp clearad2	; activity off, finished
+ml8	jsr clearad2	; activity off, finished
+	jmp cancelclr	; ### 1.11 leave subrequester
 
 ; ------------------------------------------------ Event: Inside
 
