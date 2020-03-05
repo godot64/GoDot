@@ -19,6 +19,7 @@
 ;    1.07, 20.06.19, added: init keyboard for SuperCPU
 ;    1.08, 01.12.19, added: 2 more flags in file data
 ;    1.09, 02.12.19, added: correct value for INFILE
+;    1.10, 05.03.20, changed: file format (added timer)
 ;
 ; ------------------------------------------------------------ 
 
@@ -73,8 +74,8 @@ header 	jmp start
 	!wo  modend
 	!wo  0
 	!pet "Boss Converter  "
-	!pet "1.09"
-	!pet "03.12.19"
+	!pet "1.10"
+	!pet "05.03.20"
 	!pet "A. Dettke       "
 
 ; --------------------------------------- Main
@@ -1078,7 +1079,7 @@ wr0	lda fheader,x
 	jsr onebyte	; ### 1.05: catch floppy err
 err7	bne err5		; ### 1.08: avoid crash
 	inx
-	cpx #16		; ### 1.08: 2 more flags in file
+	cpx #17		; ### 1.08: 2 more flags in file ### 1.10: added timer
 	bne wr0
 	stx writing
 
@@ -1162,19 +1163,20 @@ onebyte  jsr bsout
 
 ; --------------------------------------- File Header Variables
 
-fheader	!pet "god7"	; file signature
-width	!by 0
-height	!by 0
-mode	!by 1		; 0: hires, 1: multi
-olap	!by 0		; 0: no, 1: yes
-backgnd	!by 0		; screen backgnd color
-sprtcol0	!by $ff		; $d025 (pattern %01)
-sprtcol1	!by 0		; $d026 (pattern %11)
-order	!by 0		; 0: sideways, 1: downways
-comprs	!by 0		; 0: no, 1: yes
-frames	!by 0		; # of animframes (0: no anim)
-infile	!by 1		; # of frames (or sprites if frames=0) in *this* file
-followups	!by 0 		; # of following files to this file (0: last file)
+fheader	!pet "god7"	; 0000: file signature
+width	!by 0		; 0004
+height	!by 0		; 0005
+mode	!by 1		; 0006: 0: hires, 1: multi
+olap	!by 0		; 0007: Overlap - 0: no, 1: yes
+backgnd	!by 0		; 0008: screen backgnd color
+sprtcol0	!by $ff		; 0009: $d025 (pattern %01)
+sprtcol1	!by 0		; 0010: $d026 (pattern %11)
+order	!by 0		; 0011: 0: sideways, 1: downways
+comprs	!by 0		; 0012: compressed - 0: no, 1: yes
+frames	!by 0		; 0013: # of animframes (0: no anim)
+infile	!by 1		; 0014: # of frames (or sprites if frames=0) in *this* file
+followups	!by 0 		; 0015: # of following files to this file (0: last file)
+timer	!by 0		; 0016: timer - 0: hold, 1..255: fast..slow
 
 ; --------------------------------------- Variables
 
