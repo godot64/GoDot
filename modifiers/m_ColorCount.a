@@ -1,12 +1,14 @@
 
 	!src "godotlib.lib"
 	*= $c000
+	!ct pet
+;	!sl "labels.txt"
 
 ; ------------------------------------------------ 
 ;
 ; mod.ColorCount
 ;
-; System module to count colors depending on graphics mode
+; Module to count colors depending on graphics mode
 ; (True Hires, Multicolor, and IFLI)
 ;
 ; 1.00, 06.08.94, first release
@@ -17,10 +19,13 @@
 ;                 changed: "found" to "IFLI" and "C64" to "Multi"
 ; 1.04, 17.10.05, bugfix: flickering output
 ; 1.05, 18.07.17: added Preview
+; 1.06, 09.03.20: made Preview more stable, added Multi rendered
 ;
 ; ------------------------------------------------ 
 
 ; ------------------------------------------------ Equations
+
+	pport		= $01
 
 	adcnt		= $30
 	iflic		= $31
@@ -29,11 +34,14 @@
 	gads		= $34
 	src		= $35
 	colmk		= $37
+	mulr		= $38
+	xmrk		= $39
 	
 	sprptr		= $07f8
 	spr255		= $3fc0
 	hist		= $ca00
 	hist1		= hist+256
+	histr		= hist1+256
 
 	x2		= $d004
 	y2		= x2+1
@@ -46,12 +54,12 @@
 
 	jmp start
 	!by $20
-	!by $00,$00
-	!wo (modend)
-	!by $00,$00
+	!wo 0
+	!wo modend
+	!wo 0
 	!pet "How Many Colors?"
-	!pet "1.05"
-	!pet "18.07.17"
+	!pet "1.06"
+	!pet "09.03.20"
 	!pet "W.Kling/A.Dettke"
 
 ; ------------------------------------------------ Main
@@ -63,8 +71,8 @@ start	lda gd_modswitch
 	lda sc_screenvek+1
 	pha 
 	jsr clrnums
-	ldx #<(cntlst)	; display requester
-	ldy #>(cntlst)
+	ldx #<cntlst	; display requester
+	ldy #>cntlst
 	jsr gd_screen
 	jsr histo		; histograms
 	jsr histo2
@@ -96,6 +104,8 @@ histo2	jsr histhead
 	tax
 hl3	sta hist,x	; clear
 	sta hist1,x
+	sta histr,x
+	sta histr+16,x
 	inx
 	cpx #16
 	bne hl3
@@ -105,7 +115,10 @@ hl4	lda (src),y
 	pha
 	and #15
 	tax
-	inc hist,x	; count true hires colors
+	inc histr,x	; count right pixels (multr)
+	bne hl9
+	inc histr+16,x
+hl9	inc hist,x	; count true hires colors
 	bne hl7
 	inc hist1,x
 hl7	pla
@@ -136,6 +149,18 @@ hl5	inx
 	cpx #16
 	bne hl6
 	sty godc
+
+	ldx #0
+	ldy #0
+ml0	lda histr,x	; how many different rendered colors? (in .y=mulr)
+	ora histr+16,x
+	beq ml1
+	iny
+ml1	inx
+	cpx #16
+	bne ml0
+	sty mulr
+
 	jmp clearad
 
 ; ------------------------------------------------ IFLI
@@ -170,14 +195,15 @@ sk1	iny
 	ldx #0
 	ldy #0
 	sty cntnat	; counts native colors
+	sty mulr		; counts rendered colors
 
 hl2	lda hist,y
 	ora hist1,y
 	beq sk2
 	inx 		; count all colors
 	tya 
-	and #15		; upper nibble equal to lower?
-	sta colmk
+	and #15
+	sta colmk		; prepare: upper nibble equal to lower?
 	tya 
 	lsr 
 	lsr 
@@ -190,6 +216,7 @@ hl2	lda hist,y
 sk2	iny 
 	bne hl2
 	stx iflic		; .x is IFLI colors	
+
 	jmp clearad
 
 ; ------------------------------------------------ 
@@ -227,6 +254,16 @@ adl0	sta spr255+3,y
 	sta spren
 	rts 
 
+; --------------------------------------- Event: Preview
+
+evpreview	lda gd_modswitch
+	pha
+	jsr ev_prviu
+	pla
+	sta gd_modswitch
+	clc
+	rts
+
 ; ------------------------------------------------ 
 
 adinc	dec adcnt
@@ -261,7 +298,11 @@ displcols	ldx iflic
 
 	ldx cntnat
 	lsr gads
-	jmp makenums	; create Multi
+	jsr makenums	; create Multi
+
+	ldx mulr
+	lsr gads
+	jmp makenums	; create Rendr
 
 ; ------------------------------------------------ 
 
@@ -270,6 +311,7 @@ clrnums	ldy #2
 gt7	sta nums,y
 	sta iflicols,y
 	sta godcols,y
+	sta mulnums,y
 	dey 
 	bpl gt7
 	rts 
@@ -284,26 +326,34 @@ gt9	sta sy_numbers,y
 	lda #0
 	sta $62
 	stx $63
-	inc 1
+	inc pport
 	ldx #$90
 	sec 
 	jsr $bc49
 	jsr $bddf
-	dec 1
+	dec pport
 
 setnums	ldx #$ff
 gt2	inx 
 	lda sy_numbers,x
 	bne gt2
+	stx xmrk
 	ldy #3
-gt3	dey 
+gt3	ldx xmrk
+	dey 
 	dex 
 	bmi settext
 	lda sy_numbers,x
+	stx xmrk
+	ldx gads
 	bit gads
 	bmi gt4
 	bvs gt5
-	sta nums,y
+	cpx #$20
+	beq gd1
+	sta mulnums,y
+	jmp gt3
+gd1	sta nums,y
 	bpl gt3
 gt5	sta godcols,y
 	bvs gt3
@@ -312,14 +362,19 @@ gt4	sta iflicols,y
 
 ; ------------------------------------------------ 
 
-settext	bit gads
+settext	lda gads
+	bit gads
 	bmi gt6
 	bvs gt8
-	ldy #2
+	cmp #$20
+	beq gd0
+	ldy #6		; mulgad
 	!by $2c
-gt8	ldy #0
+gd0	ldy #2		; newgad
 	!by $2c
-gt6	ldy #4
+gt8	ldy #0		; allgad (GoDot)
+	!by $2c
+gt6	ldy #4		; gad (IFLI)
 	lda #<tabigad
 	sta sc_texttab
 	lda #>tabigad
@@ -342,7 +397,7 @@ gt0	jsr gd_setpos
 
 ; ------------------------------------------------ 
 
-tabigad	!wo allgad,newgad,gad
+tabigad	!wo allgad,newgad,gad,mulgad
 
 inctable	!by $00,$01,$02,$03,$04,$05,$06,$07,$08,$09,$0a,$0b,$0c,$0d,$0e,$0f 
 	!by $01,$11,$12,$13,$14,$15,$16,$17,$18,$19,$1a,$1b,$1c,$1d,$1e,$1f 
@@ -364,23 +419,28 @@ inctable	!by $00,$01,$02,$03,$04,$05,$06,$07,$08,$09,$0a,$0b,$0c,$0d,$0e,$0f
 ; ------------------------------------------------ 
 
 cntlst	!by 0
-	!by 11,16,11,11,$91,0,0
+	!by 6,16,11,13,$91,0,0
 	!scr "Col Count@"
-allgad	!by 13,22,5,3,$8f,0,0
+allgad	!by 8,22,5,3,$8f,0,0
 godcols	!scr "   @"
-newgad	!by 15,22,5,3,$8e,0,0
+mulgad	!by 10,22,5,3,$8e,0,0
+mulnums	!scr "   @"
+newgad	!by 12,22,5,3,$8e,0,0
 nums	!scr "   @"
-gad	!by 17,22,5,3,$8e,0,0
+gad	!by 14,22,5,3,$8e,0,0
 iflicols	!scr "   @"
-	!by 19,16,11,3,$cb,<(canc),>(canc)
+	!by 16,16,11,3,$cb
+	!wo canc
 	!scr "  Leave  @"
 	!by 11,29,11,7,$4d		; 4Bit-Preview		 ### 1.05
-	!wo ev_prviu
-	!by $c0,13,16,5
+	!wo evpreview
+	!by $c0,8,16,5
 	!scr "GoDot@"
-	!by $c0,15,16,5
-	!scr "Multi@"
-	!by $c0,17,16,4
+	!by $c0,10,16,5
+	!scr "RendM@"
+	!by $c0,12,16,5
+	!scr "TrueM@"
+	!by $c0,14,16,4
 	!scr "IFLI@"
 	!by $80
 
