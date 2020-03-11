@@ -1,0 +1,683 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ----------------------------------------- 
+;
+;  mod.ColorDither
+;   Module to dither neighboring colors in any image
+;
+;  1.00, 11.03.20: first release
+;
+; ----------------------------------------- 
+
+; ----------------------------------------- Equates
+
+	adcnt		= $30 	; activity counter
+	ybuf		= $31
+	zp1		= $32
+	pos		= $33	; /$34
+	bitcnt		= $35
+	bbuf		= $36
+	lmask		= $37
+	rmask		= $38
+	fbmask		= $39
+	dcolor		= $3a
+	col1		= $3b
+	col2		= $3c
+	src		= $3d	; /$3e
+	src0		= $3f	; /$40
+	dst		= $41	; /$42
+	lines		= $43
+	tiles		= $44
+
+	spalte		= sc_merk+1
+	sprptr		= $07f8
+	spr255		= $3fc0
+
+	dith1		= $ca00
+	dith2		= dith1+8
+	left		= dith2+8
+	right		= left+4
+	histogram		= right+4
+
+	spr2x		= $d004
+	spr2y		= $d005
+	msbx		= $d010
+	spren		= $d015
+	sprxe		= $d01d
+	border		= $d020
+	sprcol2		= $d029
+
+; ----------------------------------------- Header
+
+header	jmp start
+	!by $20
+	!by 0
+	!by 0
+	!wo modend
+	!wo 0
+	!tx "dither 16 colors"
+	!tx "1.00"
+	!tx "11.03.20"
+	!tx "A.Dettke        "
+
+; ----------------------------------------- Main
+
+start	ldx #<cdlst	; build requester
+	ldy #>cdlst
+	jsr gd_screen
+	jsr frommain	; get settings from main
+	jmp gd_eloop	; now wait for clicks...
+
+; ----------------------------------------- Event: Apply Dither
+
+evapply	jsr initad	; Init Activity
+	lda #<sy_4bit	; set graphics address
+	ldx #>sy_4bit
+	sta src0
+	sta src
+	stx src0+1
+	stx src+1
+
+	ldx mode		; direction?
+	beq dithhori
+	dex
+	beq dithvert
+	dex
+	bne +
+
+dithboth	jsr hori
+	bne dithvert
+dithhori	jsr hori
+	bne +
+dithvert	jsr vert
+
++	jsr clearad
+	sec
+	rts
+
+; ----------------------------------------- Event: Leave Module
+
+evcancel	sec
+	rts
+
+; -------------------------------------- Set Dither
+
+evdith	lda #<dithtx	; neues Dithering
+	sta sc_texttab
+	lda #>dithtx
+	sta sc_texttab+1
+
+	ldx dither	; aktuelles Dithering (1..2)
+	inx
+	cpx #3
+	bcc +
+	ldx #1
++	stx dither
+	dex
+	txa
+	asl
+	tay
+	lda dtaddr,y
+	tax
+	lda dtaddr+1,y
+	tay
+	jmp setpat	; anzeigen, base pattern erzeugen
+
+; -------------------------------------- Set Graphics Mode
+
+evmode	lda #<modetx	; Textausgabe vorbereiten
+	sta sc_texttab
+	lda #>modetx
+	sta sc_texttab+1
+
+	lda mode		; Modus ändern
+	bne scc0
+	lda #2
+	ldx #<multi
+	ldy #>multi
+	bne scc1
+scc0	lda #0
+	ldx #<hires
+	ldy #>hires
+scc1	sta mode
+
+setpat	jsr gd_xtxtggl	; anzeigen
+	jsr rsetpat	; auf hires pattern stellen
+	jmp baspat	; base pattern erzeugen
+
+; -------------------------------------- Set Graphics Mode
+
+evdir	lda #<dirtx	; Textausgabe vorbereiten
+	sta sc_texttab
+	lda #>dirtx
+	sta sc_texttab+1
+
+	lda direct	; Richtung ändern
+	cmp #2
+	bcs scd0
+	cmp #1
+	bcc scd2
+	lda #2
+	ldx #<dirboth
+	ldy #>dirboth
+	bne scd1
+scd2	lda #1
+	ldx #<dirvert
+	ldy #>dirvert
+	bne scd1
+scd0	lda #0
+	ldx #<dirhori
+	ldy #>dirhori
+scd1	sta direct
+	jmp gd_xtxtggl	; anzeigen
+
+; -------------------------------------- Event: Set Intensity
+
+evintense	ldy intens	; aktuelle Intensität (minus 1)
+	lda spalte
+	cmp #26
+	bcs ++
+	tya		; links geklickt: abwärts
+	beq +
+	dey
+	jmp co2
++	ldy #6
+
+++	cpy #7		; rechts geklickt: aufwärts
+	bcc +
+	ldy #$ff
++	iny
+co2	sty intens
+	iny
+
+	tya		; Farbe publizieren
+	jsr gd_xcnvdez	; in Ziffern wandeln
+	ldy #1
+	sta intenstx,y	; in Screenlist eintragen
+	cpx #$31
+	bcs co1
+	ldx #32
+co1	txa
+	dey
+	sta intenstx,y
+
+	ldy #6		; und anzeigen
+	jsr gd_xtxout1
+	jsr rsetpat	; hires sicherstellen
+
+; ----------------------------------------- Create Base Pattern
+
+baspat	lda mode
+	beq rsetpat
+	jmp mulpat
+
+rsetpat	ldx dither
+	dex
+	beq +
+
+	ldx intens	; dith: pattern
+	inx
+	txa
+	asl
+	asl
+	asl
+	tax
+	dex
+	ldy #7
+-	lda gr_pattern,x
+	sta dith1,y
+	lda gr_pattern+8,x
+	sta dith2,y
+	dex
+	dey
+	bpl -
+	clc
+	rts
+
++	ldx intens	; dith: ordered
+	stx pos
+	ldy #7
+-	lda pos
+	ora offs,y
+	tax
+	lda gr_orderedpat,x
+	sta dith1,y
+	inx
+	lda gr_orderedpat,x
+	sta dith2,y
+	dey
+	bpl -
+	lda #$80
+	sta bitcnt
+	clc
+	rts
+
+; ----------------------------------------- 
+
+mulpat	ldx #7		; multi base pattern erzeugen
+-	lda dith1,x
+	jsr shift
+	sta dith1,x
+	dex
+	bpl -
+	ldx #7
+-	lda dith2,x
+	jsr shift
+	sta dith2,x
+	dex
+	bpl -
+	clc
+	rts
+
+shift	ldy #0
+	sty bbuf
+	ldy #$80
+	sty bitcnt
+-	lsr
+	bcc +
+	ror bbuf
+	sec
+	bcs ++
++	ror bbuf
+++	ror bbuf
+	lsr bitcnt
+	lsr bitcnt
+	bcc -
+	lda bbuf
+	rts
+
+; ----------------------------------------- Take over from System
+
+frommain	ldy gr_dither	; (Dither)
+	beq +
+	dey
++	sty dither
+	jsr setdithad	; ...(Dither)
+	jsr evdith
+
+	lda gr_cmode	; (Modus)
+	bne svm0
+	lda #2
+	!by $2c
+svm0	lda #0
+	sta mode
+	jsr setmodead	; ...(Modus)
+	jmp evmode
+
+; -------------------------------------- Process Data
+
+hori	stx tiles		; .x=0
+	stx lines
+lloop	ldx #0
+--	ldy #0
+-	lda (src),y	; retrieve tile
+	sta left,x
+	inx
+	iny
+	cpy #4
+	bcc -
+	cpx #4
+	bne +
+	jsr nextsrc	; retrieve neighbour
++	cpx #8
+	bcc --
+	jsr dohist	; find colors
+
+	lda lines		; now dither:
+	and #7
+	tax
+	lda dith2,x	; 1st, where allowed?
+	and #$0f
+	sta lmask
+	lda dith1,x
+	and #$f0
+	sta rmask
+
+	jsr ditherlft	; then dither
+	jsr ditherrgt
+
+	ldx #0
+--	ldy #0
+-	lda left,x	; and store dithered tile
+	sta (src0),y
+	inx
+	iny
+	cpy #4
+	bcc -
+	cpx #4
+	bne +
+	jsr nextsrc0	; store neighbour
++	cpx #8
+	bcc --
+
+	ldx tiles		; process one line
+	inx
+	stx tiles		; counts to 39
+	cpx #39
+	bcc lloop
+
+	lda src		; process one blockline
+	sbc #$dc		; subtract 1244
+	sta src
+	sta src0
+	lda src+1
+	sbc #4
+	sta src+1
+	sta src0+1
+	jsr adinc
+	ldx #0
+	stx tiles
+
+	ldx lines
+	inx
+	stx lines		; counts to 200
+	txa
+	and #7
+	bne +
+	clc		; every 8th line: next blockline
+	lda src
+	adc #$e0
+	sta src
+	sta src0
+	lda src+1
+	adc #4
+	sta src+1
+	sta src0+1
++	cpx #200
+	bcs vert
+	jmp lloop
+
+vert
+	lda #$ff
+	clc
+	rts
+
+; ----------------------------------------- 
+
+ditherlft	lda lmask		; no dither anyway?
+	beq ++		; yes, skip
+	ldx #0
+-	asl lmask		; process left tile
+	bcc +
+	lda left,x	; dither
+	and #$0f
+	sta bbuf
+	lda col2
+	and #$f0
+	ora bbuf
+	sta left,x
++	asl lmask
+	bcc +
+	lda left,x
+	and #$f0
+	sta bbuf
+	lda col2
+	and #$0f
+	ora bbuf
+	sta left,x
++	inx		; count bytes to process
+	cpx #4
+	bcc -
+++	rts
+
+; ----------------------------------------- 
+
+ditherrgt	lda rmask		; no dither anyway?
+	beq ++		; yes, skip
+	ldx #0
+-	asl rmask		; process right tile
+	bcc +
+	lda right,x	; dither
+	and #$0f
+	sta bbuf
+	lda col1
+	and #$f0
+	ora bbuf
+	sta right,x
++	asl rmask
+	bcc +
+	lda right,x
+	and #$f0
+	sta bbuf
+	lda col1
+	and #$0f
+	ora bbuf
+	sta right,x
++	inx
+	cpx #4
+	bcc -
+++	rts
+
+; ----------------------------------------- Text Output Handler
+
+setmodead	ldx #<smode
+	ldy #>smode
+	bne set0
+setdithad	ldx #<sdith
+	ldy #>sdith
+set0	stx sc_screentab
+	sty sc_screentab+1
+
+	lda #0
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #3
+	bne gt0
+	jsr gd_trim
+	jmp gd_initmove
+
+; -------------------------------------- Histogram Works
+
+clrhisto	ldx #15
+	lda #0
+	sta dcolor	; preset to blk
+-	sta histogram,x
+	dex
+	bpl -
+	rts
+
+colhist	ldx #15
+-	lda histogram,x	; find most frequent color
+	cmp dcolor
+	bcc +
+	sta dcolor
+	stx ybuf
++	dex
+	bpl -
+	rts
+
+; ----------------------------------------- 
+
+dohist	jsr clrhisto	; histogram of left
+	ldy #0
+-	lda left,y
+	pha
+	and #15
+	tax
+	inc histogram,x
+	pla
+	lsr
+	lsr
+	lsr
+	lsr
+	tax
+	inc histogram,x
+	iny
+	cpy #4
+	bcc -
+	jsr colhist
+	ldx ybuf
+	lda dnib,x
+	sta col1		; save color (as double nibble)
+	jsr clrhisto	; histogram of right
+	dey
+-	lda right,y
+	pha
+	and #15
+	tax
+	inc histogram,x
+	pla
+	lsr
+	lsr
+	lsr
+	lsr
+	tax
+	inc histogram,x
+	dey
+	bpl -
+	jsr colhist
+	ldx ybuf
+	lda dnib,x
+	sta col2		; save color (as double nibble)
+	rts
+
+; ----------------------------------------- 
+
+dodither
+
+; ----------------------------------------- Screenlist
+
+cdlst	!by 0
+	!by 4,13,16,18,$81
+	!wo 0
+	!scr "Color Dither@"
+sdith	!by 7,19,9,3,$c0
+	!wo evdith
+dithtx	!scr "Ordered",0
+smode	!by 10,21,7,3,$c0
+	!wo evmode
+modetx	!scr "Hires",0
+sintens	!by 13,24,4,3,$e0
+	!wo evintense
+intenstx	!scr " 3",0
+sdir	!by 16,24,4,3,$e0
+	!wo evdir
+dirtx	!by $5b,$5e,0
+	!by 19,13,9,3,$c7
+	!wo evapply
+	!scr " Apply",0
+	!by 19,22,7,3,$cd
+	!wo evcancel
+	!scr "Leave",0
+	!by $c0,7,13,5
+	!scr "Dith:",0
+	!by $c0,10,13,5
+	!scr "Mode:",0
+	!by $c0,13,13,10
+	!scr "Intensity:",0
+	!by $c0,16,13,10
+	!scr "Direction:",0
+	!by $80
+
+; -------------------------------------- Data
+
+dither	!by 1
+mode	!by 0
+intens	!by 2
+direct	!by 0
+dtaddr	!wo dthord,dthpat
+dthord	!scr "Ordered",0
+dthpat	!scr "Pattern",0
+hires	!scr "Hires",0
+multi	!scr "Multi",0
+dirhori	!by $5b,$5e,0
+dirvert	!by $1e,$1f,0
+dirboth	!by $1f,$5e,0
+
+; --------------------------------------
+
+dnib	!by $00,$11,$22,$33,$44,$55,$66,$77
+	!by $88,$99,$aa,$bb,$cc,$dd,$ee,$ff
+
+; -------------------------------------- 
+
+offs	!by $00,$10,$20,$30
+	!by $00,$10,$20,$30
+
+; ----------------------------------------- 
+
+nextsrc	clc
+	lda src
+	adc #32
+	sta src
+	bcc +
+	inc src+1
++	rts
+
+nextsrc0	clc
+	lda src0
+	adc #32
+	sta src0
+	bcc +
+	inc src0+1
++	rts
+
+; ------------------------------------------------ Activity
+
+adinc	dec adcnt		; advance after adcnt passes
+	bne +
+	inc spr2y
+	inc spr2y+2
+	jmp setadcnt	; reset adcnt
+
+; ------------------------------------------------ Abschluss Activity
+
+clearad	lda spren		; Wanderbalken aus
+	and #$f3
+	sta spren
+	lda msbx
+	and #$f3
+	sta msbx
+	lda #$ff		; Grafik verändert,
+	sta gr_redisp	; also Flag für System setzen
+stay	clc 		; fertig
++	rts 
+
+; ------------------------------------------------ Init Activity
+
+initad	ldy #60		; Spriteblock 255 vorbereiten
+	lda #0
+-	sta spr255+3,y
+	dey 
+	bpl -
+	sty spr255	; dünner Strich
+	sty spr255+1
+	sty spr255+2
+	lda #15		; Farbe hellgrau
+	sta sprcol2
+	sta sprcol2+1
+	lda sprxe		; doppelt breit
+	ora #$0c
+	sta sprxe
+
+	lda msbx		; x über 255
+	ora #$0c
+	sta msbx
+	lda #8		; x-Ordinate: 8 (plus 256)
+	sta spr2x
+	lda #$20
+	sta spr2x+2
+	lda #$92		; y-Ordinate: 146
+	sta spr2y		; (im Image Information Fenster)
+	sta spr2y+2
+
+	sty sprptr+2	; Sprite 255
+	sty sprptr+3
+	lda spren
+	ora #$0c		; Activity-Balken aktivieren
+	sta spren
+
+setadcnt	lda #5		; Startzähler (hier: 5 mal 40 = 200)
+	!by $2c
+setvval	lda #8		; Zähler für senkrecht (8 mal 40 = 320)
+	sta adcnt
+	rts
+
+; ----------------------------------------- 
+
+modend	!eof
