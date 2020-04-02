@@ -1,0 +1,1129 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ----------------------------------------- 
+; svr.GeoPaintColr
+;     Saver for GEOS Colored Images 320x200 (on 640x208)
+;     (based on svr.GeoPaint 1.04)
+;
+;  1.00, 01.04.20, first release
+;
+; ----------------------------------------- 
+
+; ----------------------------------------- Equates
+
+	pport		= $01
+	status		= $90
+
+	blcnt		= $32
+	bycnt		= $33
+	cvektor		= $34	; /$35
+	bmerk		= $36
+	rwflg		= $37
+	pindex		= $38
+	ybuf		= $3b
+	data		= $3c	; /$3d
+	adcnt		= $3e
+	dbflg		= $3f
+	pixadd		= $40	; /$41
+	packed		= $42
+	byte		= $43
+	blockend		= $44
+
+	mult		= sc_pos
+	offx		= ls_adrmisc
+	offy		= offx+1
+
+	mal40		= $10c1
+
+	buf16		= $3f40
+	byte1buf		= $3f80
+	byte2buf		= $3f81
+
+	stringout		= $ab1e
+
+	vid0		= $ce0b
+	vid1		= $bb20
+	blockbuf		= $cc00
+	blockbuf2		= blockbuf+256
+
+; ----------------------------------------- 
+
+header	jmp start
+	!by $40
+	!by 0
+	!by 1		; dirty
+	!wo modend
+	!wo 0
+	!pet "GeoPaint Color  "
+svversion	!pet "1.00"
+	!pet "31.03.20"
+	!pet "A.Dettke        "
+
+; ----------------------------------------- Main Routine
+
+start	ldx gr_nr		; Input or Save?
+	dex
+	bne st0
+	jmp initinp	; it's "input"
+
+; ----------------------------------------- 
+
+st0	jsr gd_sproff	; save: mouse pointer off
+	jsr inull		; init disk
+	lda gd_modswitch
+	pha
+	lda ls_flen	; kein Filename?
+	beq st1		; dann Ende
+	sta wflen
+
+	jsr setversion	; Infoblock beschicken
+	jsr getname	; Namen für Image Info holen
+	jsr setcolors	; Farben umlagern
+	jsr gd_clrms	; Gauge vorbereiten
+	ldx #0
+	jsr tcopy
+	sty blcnt		; init variables
+	sty updown
+	sty pindex
+	iny
+	sty adcnt
+	jsr action
+	ldy #8
+	sty bycnt
+
+	jsr write		; save image to disk
+
+	jsr setname	; Image Info 
+
+st1	pla
+	sta gd_modswitch 
+	jsr gd_spron	; mouse pointer on
+
+cn2	sec		; leave saver
+	rts
+
+; --------------------------- 
+; --------------------------- Input Routines
+
+!src "input.inc"
+
+; --------------------------- 
+; --------------------------- 
+
+; ----------------------------------------- 
+; ----------------------------------------- Disk Access Routines
+; ----------------------------------------- 
+
+drinit	!pet "i0"
+wflen	!by 0
+
+inull	ldx #<drinit
+	ldy #>drinit
+	lda #2
+	jsr gd_sendcom
+st2	jsr clrch
+	lda #12
+	jsr close
+
+; ----------------------------------------- Disk Error
+
+dfehler	jsr clrch
+	lda #1
+	jsr close
+	lda #2
+	jsr close
+	sec
+	rts
+
+; ----------------------------------------- Request Block
+
+sendmess	pha
+	txa
+	pha
+	ldx #1
+	jsr ckout
+	ldy #0
+sm1	lda message3,y	; U1 2 0 TT SS
+	beq sm2
+	jsr out
+	iny
+	jmp sm1
+
+sm2	lda #$20
+	jsr out
+	inc pport		; BASIC on
+	pla
+	tax
+	lda #$00
+	jsr intout
+	lda #$20
+	jsr out
+	pla
+	tax
+	lda #$00
+	jsr intout
+	lda #$0d
+	jsr out
+	dec pport		; BASIC off
+	jmp clrch
+
+; ----------------------------------------- Set Pointer Position in Buffer
+
+sendmess2	ldx #1
+	jsr ckout
+	inc pport		; BASIC on
+	ldy #>message4	; B-P 2 0
+	lda #<message4
+	jsr stringout
+	dec pport		; BASIC off
+	jmp clrch
+
+; ----------------------------------------- Read Disk Block to 1st buffer
+
+getblock	jsr sendmess
+	jsr sendmess2
+	ldx #2
+	jsr chkin
+	ldy #0
+gbl1	jsr in
+	sta blockbuf,y
+	iny
+	bne gbl1
+	jmp clrch
+
+; ----------------------------------------- Read Disk Block to 2nd buffer
+
+getblock2	jsr sendmess
+	jsr sendmess2
+	ldx #$02
+	jsr chkin
+	ldy #$00
+gbl2	jsr in
+	sta blockbuf2,y
+	iny
+	bne gbl2
+	jmp clrch
+
+; ----------------------------------------- Set GoDot version in Info Block
+
+setversion
+	lda sy_versioninit	; e.g. "1.30" (stored as $01,$30)
+	and #15
+	tax
+	lda decimal,x
+	sta version1
+	sta version2+2
+	lda sy_versioninit+1
+	pha
+	lsr
+	lsr
+	lsr
+	lsr
+	tax
+	lda decimal,x
+	sta version1+2
+	sta version2+4
+	pla
+	and #15
+	tax
+	lda decimal,x
+	sta version1+3
+	sta version2+5
+	ldx #3		; and now the individual saver version
+-	lda svversion,x
+	sta version3+4,x
+	dex
+	bpl -
+	rts
+
+; ----------------------------------------- Read Byte from Disk
+
+in	jsr basin
+	pha
+	lda status
+	and #$83
+	beq svg10
+	lda #0
+	sta status
+	pla
+	jsr dfehler
+	jmp gd_xmess
+svg10	pla
+	rts
+
+; ----------------------------------------- Write Byte to Disk
+
+out	jsr bsout
+	pha
+	lda status
+	and #$83
+	beq o1
+	lda #0
+	sta status
+	pla
+	jsr dfehler
+	jmp gd_xmess
+o1	pla
+	rts
+
+; ----------------------------------------- Get Byte from Buffer2
+
+getbyte2	inc blindex
+	beq gby1
+	ldy blindex
+	lda blockbuf2,y
+	rts
+
+gby1	ldx blockbuf2
+	lda blockbuf2+1
+	jsr getblock2
+	ldy #1
+	sty blindex
+	jmp getbyte2
+
+; ----------------------------------------- Write Block to Disk
+
+sendmess3	pha
+	txa
+	pha
+	ldx #1
+	jsr ckout
+	inc pport		; BASIC on
+	ldy #>message6	; U2 2 0 TT SS
+	lda #<message6
+	jsr stringout
+	dec pport		; BASIC off
+	jmp sm2
+
+; ----------------------------------------- Retrieve 1st writeable Block on Disk
+
+getfirst	lda #0
+	sta kommas
+gfloop	ldx #1
+	jsr ckout
+	inc pport		; BASIC on
+	ldy #>message8	; B-A 0 TT SS
+	lda #<message8
+	jsr stringout
+	lda #0
+	ldx track
+	jsr intout
+	lda #$20
+	jsr out
+	lda #0
+	ldx sector
+	jsr intout
+	dec pport		; BASIC off
+	lda #13
+	jsr out
+	jsr clrch
+
+	ldx #1
+	jsr chkin
+	jsr in
+	cmp #$30		; ok?
+	bne gf1
+	jmp clrch		; yes, return
+
+gf1	inc kommas	; no, search next
+	lda kommas
+	cmp #3
+	bne gf2
+	jsr dfehler
+	jmp gd_xmess
+gf2	jsr in		; skip error number
+	cmp #$2c
+	bne gf2
+gf3	jsr in		; skip message
+	cmp #$2c
+	bne gf3
+gf4	jsr in		; retrieve next TT
+	cmp #$20
+	beq gf4
+	sec
+	sbc #$30
+	pha
+	asl
+	asl
+	sta track
+	pla
+	clc
+	adc track
+	asl
+	sta track
+	jsr in
+	sec
+	sbc #$30
+	clc
+	adc track
+	sta track
+gf5	jsr in
+	cmp #$2c
+	bne gf5
+gf6	jsr in		; retrieve next SS
+	cmp #$20
+	beq gf6
+	sec
+	sbc #$30
+	pha
+	asl
+	asl
+	sta sector
+	pla
+	clc
+	adc sector
+	asl
+	sta sector
+	jsr in
+	sec
+	sbc #$30
+	clc
+	adc sector
+	sta sector
+	jsr clrch
+	lda track
+	cmp ls_track	; skip directory track
+	beq gf7
+	jmp gfloop	; check found one
+
+gf7	inc track
+	lda #0
+	sta sector
+	jmp gfloop
+
+; ----------------------------------------- Activity Display Routines
+
+messout	ldx #<message
+	ldy #>message
+	jmp gd_xtxout2
+
+tcopy	ldy #0
+tc0	lda txt,x
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+
+action	dec adcnt
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	cpy #22
+	bne act0
+	jsr clrmess
+act0	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr gd_setmess
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts
+
+clrmess	ldx #21
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0
+	ldx #7
+	sty offy
+	stx offx
+	rts
+
+filltab	!by 160,93,103,127,126,124,105,109
+
+cntwert	!by 104
+
+txt	!scr " GeoPaint @"
+
+message	!fill 10,32
+mess	!fill 22,32
+	!by 0
+
+; ----------------------------------------- Filename Routines
+
+getname	ldx #0
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+setname	lda #0
+	ldx #<ls_picname
+	ldy #>ls_picname
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!fill 16,32
+	!by 0
+
+; ----------------------------------------- Floppy Messages
+
+message3	!pet "u1 2 0"
+	!by 0
+message4	!pet "b-p 2 0"
+	!by 13,0
+message6	!pet "u2 2 0"
+	!by 0
+message8	!pet "b-a 0 "
+	!by 0
+
+; ----------------------------------------- Variables
+
+blindex	!by $00
+picindex	!by $00
+dirchan	!by $23		; "#"
+updown	!by $00
+track	!by $00
+strack	!by $00
+sector	!by $00
+ssector	!by $00
+tlink1	!by $00
+slink1	!by $00
+count2	!by $00,$00
+kommas	!by $00
+wtrack	!by $00
+wsector	!by $00
+dirindex	!by $00
+
+; ----------------------------------------- GEOS Info Record Block
+
+info	!by $00,$ff,$03,$15,$bf,$ff,$ff,$ff; "....¿..." Icon Data
+	!by $c0,$00,$03,$a0,$00,$05,$9f,$ff; "À.. ...."
+	!by $f9,$95,$55,$59,$9a,$aa,$a9,$95; "..uy.ª©."
+	!by $55,$59,$9a,$aa,$a9,$95,$55,$59; "uy.ª©.uy"
+	!by $9a,$aa,$a9,$95,$55,$59,$9a,$aa; ".ª©.uy.ª"
+	!by $a9,$9f,$ff,$f9,$a0,$00,$05,$c0; "©... ..À"
+	!by $00,$03,$ff,$ff,$ff,$00,$00,$00; "........"
+	!by $00,$00,$03,$7f,$ff,$b6,$80,$00; ".....¶.."
+	!by $fe,$7f,$ff,$bc,$83,$07,$01,$00; "...¼...." USR, AppData, VLIR
+	!by $00,$ff,$ff,$00,$00,$50,$61,$69; ".....p.." Class: Paint Image
+	!by $6e,$74,$20,$49,$6d,$61,$67,$65; ".. i...."
+	!by $20,$56,$31,$2e,$31,$00,$00,$00; " v1.1..."
+	!by $00,$47,$6f,$44,$6f,$74,$20,$56; ".GoDot v" Author: GoDot
+version1	!by $31,$2e,$32,$32,$20,$28,$57,$4b; "1.22 (WK"
+	!by $26,$41,$44,$29,$00,$47,$65,$6f; "&AD).geo" Application: GeoPaint 2.0
+	!by $50,$61,$69,$6e,$74,$20,$20,$20; "paint   "
+	!by $20,$56,$32,$2e,$30,$00,$00,$00; " v2.0..."
+	!by $00,$20,$31,$41,$c9,$06,$d0,$02; ". 1A...."
+	!by $a9,$12,$8d,$26,$40,$a9,$00,$8d; "........"
+	!by $2b,$40,$20,$01,$40,$90,$05,$a9; "........"
+	!by $43,$72,$65,$61,$74,$65,$64,$20; "Created " Application Data
+	!by $62,$79,$20,$47,$6f,$44,$6f,$74; "by GoDot"
+version2	!by $20,$56,$31,$2e,$32,$32,$20,$41; " V1.22 A"
+	!by $2e,$44,$65,$74,$74,$6b,$65,$20; ".Dettke "
+	!by $43,$6f,$6c,$6f,$72,$20,$53,$61; "Color Sa"
+version3	!by $76,$65,$72,$20,$31,$2e,$30,$30; "ver 1.00"
+	!by $00
+
+; -----------------------------------------
+
+decimal	!pet "0123456789"
+
+; ----------------------------------------- 4Bit addresses
+
+line8	!by $20,$21,$22,$23,$25	; Blocklines 0..24, hi
+	!by $26,$27,$28,$2a,$2b
+	!by $2c,$2d,$2f,$30,$31
+	!by $32,$34,$35,$36,$37
+	!by $39,$3a,$3b,$3c,$3e
+
+blklo	!by $00,$40,$80,$c0		; (blocklines and 3) = lo
+
+; ----------------------------------------- 
+; ----------------------------------------- Disk Write Routines
+; ----------------------------------------- 
+
+writerle	inc blindex	; inc pointer in data buffer
+	bne wr1		; zero?
+	pha		; yes, save block:
+	lda track		; set TT and SS
+	sta tlink1
+	lda sector
+	sta slink1
+	jsr getfirst	; search 1st available block on disk
+	ldx track
+	lda sector
+	stx blockbuf2
+	sta blockbuf2+1
+	jsr sendmess2	; set pointer in disk buffer
+	ldx #$02
+	jsr ckout
+	ldy #$00
+wr2	lda blockbuf2,y	; write block to disk buffer
+	jsr out
+	iny
+	bne wr2
+	jsr clrch
+	ldx tlink1
+	lda slink1
+	jsr sendmess3	; write buffer to disk
+	inc count2
+	bne wr3
+	inc count2+1
+wr3	ldx #$00		; re-init buffer
+	lda #$ff
+	stx blockbuf2
+	sta blockbuf2+1
+	ldy #$02
+	sty blindex
+	pla		; write current byte to new buffer
+wr1	ldy blindex
+	sta blockbuf2,y
+	rts
+
+; ----------------------------------------- Save GeoPaint VLIR image to Disk
+
+write	ldy ls_flen	; fill filename w/ $a0 (Shift Space)
+	lda #$a0
+np1	cpy #16
+	beq np2
+	sta ls_nambuf,y
+	iny
+	bne np1
+
+np2	lda #1		; OPEN 1,drive,15
+	ldx ls_drive
+	ldy #15
+	jsr filpar
+	lda #0
+	jsr filnam
+	jsr copen
+	lda #2		; OPEN 2,drive,2,"#"
+	ldx ls_drive
+	ldy #2
+	jsr filpar
+	lda #1
+	ldx #<dirchan
+	ldy #>dirchan
+	jsr filnam
+	jsr copen
+	ldx ls_track	; retrieve BAM block
+	lda #0
+	jsr getblock
+np3	ldx blockbuf
+	lda blockbuf+1
+	stx wtrack
+	sta wsector
+	cpx #0
+	bne np4
+	jsr dfehler
+	jmp gd_xmess
+np4	jsr getblock
+	ldy #0
+np5	lda blockbuf+2,y
+	beq np6
+	tya
+	clc
+	adc #32
+	beq np3
+	tay
+	bne np5
+np6	sty dirindex
+	ldx #$01		; search disk for 1st available empty block
+	lda #$00
+	stx track
+	sta sector
+	jsr getfirst
+	ldx track		; set its T/S number
+	lda sector
+	stx strack
+	sta ssector
+	ldy #0
+np7	lda #$00		; fill buffer w/ $00 $ff
+	sta blockbuf,y
+	lda #$ff
+	sta blockbuf+1,y
+	iny
+	iny
+	cpy #92
+	bne np7
+	lda #$00
+np8	sta blockbuf,y
+	iny
+	bne np8
+	lda #2		; set counter to 2 (filelength)
+	sta count2
+	lda #0
+	sta count2+1
+	lda #0		; set blockline counter to 0 (counts to 25)
+	sta picindex
+
+np11	jsr getfirst	; search for next available block
+	lda updown	; get flag for upper or lower half 
+	asl
+	tay
+	iny
+	iny
+	lda track		; store block address to buffer
+	sta blockbuf,y
+	lda sector
+	sta blockbuf+1,y
+	ldx #$00
+	lda #$ff
+	stx blockbuf2
+	sta blockbuf2+1
+	lda #1
+	sta blindex
+
+	lda #$00		; set chunk bytes counter to 0
+	clc		; (counts 1280)
+	adc picindex	; (picindex beim 1. Mal 0)
+	adc picindex
+	adc picindex
+	adc picindex
+	adc picindex
+	sta pixadd+1
+	adc #$05		; data end at $4ff (1280 bytes)
+	sta blockend
+	lda #$00
+	sta pixadd
+	sta dbflg
+	lda #$81		; init RLE byte
+	sta packed
+	jsr getbyte	; retrieve one rendered byte
+	sta byte
+np12	jsr getbyte	; retrieve next rendered byte
+	cmp byte
+	bne notequal
+	inc packed	; equal: compress byte
+	jmp equal
+
+notequal	pha		; not equal: save last byte
+	lda packed
+	cmp #$81
+	bne pk1
+	lda byte		; get first byte
+	sta byte1buf
+	pla		; get second byte
+	sta byte2buf
+	lda #2		; compress 2 bytes
+	jmp pk2
+
+pk1	pla
+	sta byte1buf	; store byte
+	lda packed	; end compress sequence
+	jsr writerle
+	lda byte
+	jsr writerle
+	lda #1		; restart w/ 1 byte
+
+pk2	sta packed
+pk3	lda pixadd+1	; end of blockline?
+	cmp blockend
+	bne pk7		; no
+pk4	lda packed	; yes, break compressing
+	jsr writerle
+	dec packed
+	lda #0
+pk5	pha
+	tay
+	lda byte1buf,y	; ...and write buffer
+	jsr writerle
+	pla
+	cmp packed
+	beq pk6
+	clc
+	adc #1
+	jmp pk5
+
+pk6	lda pixadd+1
+	cmp blockend	; end of blockline?
+	beq pk14		; yes, add color information
+	jmp pk12		; no, start over
+
+pk7	lda packed	; 63 bytes compressed?
+	cmp #63
+	beq pk4		; yes, break
+	jsr getbyte	; no, get next byte
+	ldy packed
+	cmp byte1buf-1,y
+	bne pk10
+	sta byte
+	dec packed
+	beq pk9
+	lda packed
+	jsr writerle
+	dec packed
+	lda #0
+pk8	pha
+	tay
+	lda byte1buf,y	; ...and write pattern
+	jsr writerle
+	pla
+	cmp packed
+	beq pk9
+	clc
+	adc #1
+	jmp pk8
+
+pk9	lda #$82
+	sta packed
+	jmp equal
+
+pk10	sta byte1buf,y
+	inc packed
+	jmp pk3
+
+equal	lda pixadd+1	; end of blockline?
+	cmp blockend
+	bcs pk13		; yes, break and add color information
+	lda packed	; max number of compressed bytes?
+	cmp #$ff
+	beq pk11		; yes, write and loop over
+	jmp np12
+
+pk11	jsr writerle
+	lda byte
+	jsr writerle
+pk12	lda #$81
+	sta packed
+	jsr getbyte
+	sta byte
+	jmp equal
+
+pk13	lda packed
+	jsr writerle
+	lda byte
+	jsr writerle
+pk14	lda #$88		; add 8 bytes $00
+	jsr writerle
+	lda #$00
+	jsr writerle
+
+	jsr writecols	; write 160 bytes colors
+
+	lda #$00		; end w/ $00
+	jsr writerle
+	lda blindex	; write block
+	sta blockbuf2+1
+	jsr sendmess2
+	ldx #2
+	jsr ckout
+	ldy #0
+pk15	lda blockbuf2,y
+	jsr out
+	iny
+	bne pk15
+	jsr clrch
+	ldx track
+	lda sector
+	jsr sendmess3
+	inc count2
+	bne pk16
+	inc count2+1
+pk16	inc picindex
+	inc updown
+	lda picindex
+self3	cmp #25		; all blocklines? (25)
+	bcs pk17		; yes, write file info block
+	jmp np11		; start over
+
+pk17	jsr sendmess2	; write file info block
+	ldx #2
+	jsr ckout
+	ldy #0
+pk18	lda blockbuf,y
+	jsr out
+	iny
+	bne pk18
+	jsr clrch
+	ldx strack
+	lda ssector
+	jsr sendmess3
+	jsr getfirst
+	ldx #2
+	jsr ckout
+	ldy #0
+pk19	lda info,y
+	jsr out
+	iny
+	cpy #209
+	bne pk19
+	jsr clrch
+	ldx track
+	lda sector
+	jsr sendmess3
+	ldx wtrack
+	lda wsector
+	jsr getblock
+	ldy dirindex
+	lda #$83
+	sta blockbuf+2,y
+	lda strack
+	sta blockbuf+3,y
+	lda ssector
+	sta blockbuf+4,y
+	lda track
+	sta blockbuf+21,y
+	lda sector
+	sta blockbuf+22,y
+	lda #$01
+	sta blockbuf+23,y
+	lda #$07
+	sta blockbuf+24,y
+
+	lda #20		; Date and Time: 20-04-01, 6pm
+	sta blockbuf+25,y
+	lda #4
+	sta blockbuf+26,y
+	lda #1
+	sta blockbuf+27,y
+	lda #18
+	sta blockbuf+28,y
+	lda #0
+	sta blockbuf+29,y
+
+	lda count2
+	sta blockbuf+30,y
+	lda count2+1
+	sta blockbuf+31,y
+	tya
+	clc
+	adc #$05
+	sta pixadd
+	lda #>blockbuf
+	sta pixadd+1
+	ldy #15
+pk20	lda ls_nambuf,y
+	sta (pixadd),y
+	dey
+	bpl pk20
+	jsr sendmess2
+	ldx #2
+	jsr ckout
+	ldy #0
+pk21	lda blockbuf,y
+	jsr out
+	iny
+	bne pk21
+	jsr clrch
+	ldx wtrack
+	lda wsector
+	jsr sendmess3
+	jmp dfehler	; finished
+
+; ----------------------------------------- Get Data Byte
+
+getbyte	ldx bycnt		; counts bytes of a tile (8)
+	cpx #8
+	bcc skip0
+	jsr make8
+	ldx #0
+	stx bycnt
+skip0	lda buf16,x
+	sta bmerk
+	inc bycnt		; inc tile counter
+	inc pixadd	; inc chunk bytes counter
+	bne gb1
+	inc pixadd+1
+gb1	jsr action
+	lda bmerk
+	rts
+
+; ----------------------------------------- Colors
+
+writecols	ldx #0
+	stx rwflg		; reset double row counter
+gcs4	ldy pindex	; current row
+	cpy #12
+	bcc gcs3
+	jsr initc2	; get address
+	bne gcs1
+gcs3	jsr initcols
+
+gcs1	ldx rwflg
+	cpx #2
+	bcc gcs0
+	rts
+
+gcs0	lda #$28		; 40 Bytes Bildfarben...
+	jsr writerle
+	ldy #0
+gcs2	ldx #0
+	lda (cvektor,x)
+	sty ybuf
+	jsr writerle	; ...schreiben
+	inc cvektor
+	bne +
+	inc cvektor+1
++	ldy ybuf
+	iny
+	cpy #40
+	bcc gcs2
+
++	lda #$a8		; 40 mal $fb anhängen
+	jsr writerle
+	lda #$fb
+	jsr writerle
+	inc pindex
+	inc rwflg		; zweimal (=160 Bytes Farben)
+	bne gcs4
+
+; ----------------------------------------- 
+
+initc2	lda #<vid1	; 2nd half of colorrows (12..24)
+	ldx #>vid1
+	bne +
+initcols	lda #<vid0	; 1st half of colorrows (0..11)
+	ldx #>vid0
++	sta cvektor
+	stx cvektor+1
+	ldx #0
+	stx mult+1
+
+	lda pindex	; current screenrow
+	beq +
+	sta mult
+	jsr mal40		; multiply by 40
+	clc
+	lda cvektor	; plus base vector
+	adc mult
+	sta cvektor
+	lda cvektor+1
+	adc mult+1
+	sta cvektor+1	; is location of colors
++	rts
+
+; ----------------------------------------- Retrieve Hires Bitmap (320x200)
+
+make8	ldx picindex	; Blockline counter (0..24)
+	lda line8,x	; compute bitmap data address hi
+	sta data+1
+	txa
+	and #3		; (0..3 index for lo)
+	tax
+	lda blklo,x
+	sta data
+	lda #0		; add column (every 8th):
+	sta mult+1
+	ldx blcnt		; times 8
+	stx mult
+	asl mult
+	rol mult+1
+	asl mult
+	rol mult+1
+	asl mult
+	rol mult+1
+	clc
+	lda data		; plus start
+	adc mult
+	sta data
+	lda data+1
+	adc mult+1
+	sta data+1
+	inx		; scanned one blockline (all 40)?
+	cpx #40
+	bne skip83
+	
+	ldx #0
+skip83	stx blcnt		; beim 1. Mal 1 (beim letzten Mal 0)
+	ldx #7
+	lda #0		; clear buffer
+skip86	sta buf16,x
+	dex
+	bpl skip86
+
+	lda dbflg		; in lefthand half of 640 pixels?
+	and #1
+	bne skip87
+	ldx picindex	; yes, last row?
+	cpx #25
+	beq skip87
+
+	ldx #0		; .x = pointer into BUF16
+	ldy #0
+lp80	lda (data),y	; get 4bit data byte
+	sta buf16,x
+	iny
+	inx		; next byte
+skip84	cpx #8
+	bne lp80
+
+skip87	ldx blcnt
+	bne skip85
+	inc dbflg		; don't fill righthand 320 pixels
+	lda dbflg
+	cmp #2
+	bne skip85
+	inc picindex
+skip85	rts
+
+; ----------------------------------------- 
+
+setcolors	lda #$eb
+	sta sc_texttab
+	lda #<sy_bigbuffer
+	ldx #>sy_bigbuffer
+	ldy #$cf		; 1st: $cfeb nach vid1 (20 B)
+	jsr move
+	lda #$0b
+	sta sc_texttab
+	lda #<sy_bigbuffer+20
+	ldx #>sy_bigbuffer+20
+	ldy #$ee		; 2nd: $ee0b nach vid1+20 (500 B)
+
+; ----------------------------------------- 
+
+move	sty sc_texttab+1
+	sta sc_vekt20
+	stx sc_vekt20+1
+	lda #<500
+	ldx #>500
+	sta ls_vekta8
+	stx ls_vekta8+1
+
+	sei
+	lda #$30
+	sta pport
+	ldy #0
+mv0	lda (sc_texttab),y
+	sta (sc_vekt20),y
+	jsr count
+	bne mv0
+	lda #$36
+	sta pport
+	cli
+	rts
+
+; ----------------------------------------- 
+
+count	inc sc_vekt20
+	bne cou5
+	inc sc_vekt20+1
+cou5	inc sc_texttab
+	bne cou6
+	inc sc_texttab+1
+cou6	lda ls_vekta8
+	bne cou7
+	dec ls_vekta8+1
+cou7	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	rts
+
+; ----------------------------------------- 
+
+modend	!eof
