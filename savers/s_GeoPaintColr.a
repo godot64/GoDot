@@ -1,4 +1,3 @@
-
 	!src "godotlib.lib"
 	*= $c000
 	!ct pet
@@ -10,6 +9,7 @@
 ;     (based on svr.GeoPaint 1.04)
 ;
 ;  1.00, 01.04.20, first release
+;  1.01, 04.04.20, bugfix: bugs in info block
 ;
 ; ----------------------------------------- 
 
@@ -59,8 +59,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "GeoPaint Color  "
-svversion	!pet "1.00"
-	!pet "31.03.20"
+svversion	!pet "1.01"
+	!pet "04.04.20"
 	!pet "A.Dettke        "
 
 ; ----------------------------------------- Main Routine
@@ -81,7 +81,7 @@ st0	jsr gd_sproff	; save: mouse pointer off
 	sta wflen
 
 	jsr setversion	; Infoblock beschicken
-	jsr getname	; Namen für Image Info holen
+	jsr getname	; Namen f?r Image Info holen
 	jsr setcolors	; Farben umlagern
 	jsr gd_clrms	; Gauge vorbereiten
 	ldx #0
@@ -510,23 +510,23 @@ dirindex	!by $00
 
 ; ----------------------------------------- GEOS Info Record Block
 
-info	!by $00,$ff,$03,$15,$bf,$ff,$ff,$ff; "....¿..." Icon Data
-	!by $c0,$00,$03,$a0,$00,$05,$9f,$ff; "À.. ...."
-	!by $f9,$95,$55,$59,$9a,$aa,$a9,$95; "..uy.ª©."
-	!by $55,$59,$9a,$aa,$a9,$95,$55,$59; "uy.ª©.uy"
-	!by $9a,$aa,$a9,$95,$55,$59,$9a,$aa; ".ª©.uy.ª"
-	!by $a9,$9f,$ff,$f9,$a0,$00,$05,$c0; "©... ..À"
+info	!by $00,$ff,$03,$15,$bf,$ff,$ff,$ff; "....?..." Icon Data
+	!by $c0,$00,$03,$a0,$00,$05,$9f,$ff; "?..?...."
+	!by $f9,$95,$55,$59,$9a,$aa,$a9,$95; "..uy.??."
+	!by $55,$59,$9a,$aa,$a9,$95,$55,$59; "uy.??.uy"
+	!by $9a,$aa,$a9,$95,$55,$59,$9a,$aa; ".??.uy.?"
+	!by $a9,$9f,$ff,$f9,$a0,$00,$05,$c0; "?...?..?"
 	!by $00,$03,$ff,$ff,$ff,$00,$00,$00; "........"
-	!by $00,$00,$03,$7f,$ff,$b6,$80,$00; ".....¶.."
-	!by $fe,$7f,$ff,$bc,$83,$07,$01,$00; "...¼...." USR, AppData, VLIR
+	!by $00,$00,$03,$7f,$ff,$b6,$80,$00; ".....?.."
+	!by $fe,$7f,$ff,$bc,$83,$07,$01,$00; "...?...." USR, AppData, VLIR
 	!by $00,$ff,$ff,$00,$00,$50,$61,$69; ".....p.." Class: Paint Image
 	!by $6e,$74,$20,$49,$6d,$61,$67,$65; ".. i...."
 	!by $20,$56,$31,$2e,$31,$00,$00,$00; " v1.1..."
 	!by $00,$47,$6f,$44,$6f,$74,$20,$56; ".GoDot v" Author: GoDot
 version1	!by $31,$2e,$32,$32,$20,$28,$57,$4b; "1.22 (WK"
-	!by $26,$41,$44,$29,$00,$47,$65,$6f; "&AD).geo" Application: GeoPaint 2.0
+	!by $26,$41,$44,$29,$00,$67,$65,$6f; "&AD).geo" Application: GeoPaint 2.0
 	!by $50,$61,$69,$6e,$74,$20,$20,$20; "paint   "
-	!by $20,$56,$32,$2e,$30,$00,$00,$00; " v2.0..."
+	!by $20,$56,$32,$2e,$30,$00,$01,$00; " v2.0..."
 	!by $00,$20,$31,$41,$c9,$06,$d0,$02; ". 1A...."
 	!by $a9,$12,$8d,$26,$40,$a9,$00,$8d; "........"
 	!by $2b,$40,$20,$01,$40,$90,$05,$a9; "........"
@@ -974,7 +974,7 @@ gcs2	ldx #0
 	cpy #40
 	bcc gcs2
 
-+	lda #$a8		; 40 mal $fb anhängen
++	lda #$a8		; 40 mal $fb anh?ngen
 	jsr writerle
 	lda #$fb
 	jsr writerle
