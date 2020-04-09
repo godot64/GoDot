@@ -1,6 +1,8 @@
 
 	!src "godotlib.lib"
 	*= $c000
+	!ct pet
+;	!sl "labels.txt"
 
 ; ----------------------------------------- 
 ; svr.GeoPaint
@@ -13,12 +15,15 @@
 ; 1.03: 17.04.06: added ability to save 320x200
 ;                 (to activate: set "Clip" area in Screen Controls)
 ; 1.04: 08.06.17: bugfix: catch possible gauge overflow
+; 1.05: 09.04.20, bugfix: init disk before work begins
+;                 changed: contents of info block
 ;
 ; ----------------------------------------- 
 
 ; ----------------------------------------- Equates
 
 	pport		= $01
+	status		= $90
 
 	ycnt		= $37
 	maxcnt		= $38
@@ -71,8 +76,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "GeoPaint        "
-	!pet "1.04"
-	!pet "08.06.17"
+svversion	!pet "1.05"
+	!pet "09.04.20"
 	!pet "A.Dettke/W.Kling"
 
 ; ----------------------------------------- Main Routine
@@ -84,22 +89,24 @@ start	ldx gr_nr		; Input or Save?
 
 ; ----------------------------------------- 
 
-st0	lda #0		; save: mouse pointer off
-	sta $d015
+st0	jsr gd_sproff	; save: mouse pointer off
 	sta updown	; init variables
+	jsr inull		; init disk
 	lda gd_modswitch
 	pha
 	lda ls_flen	; kein Filename?
 	beq st1		; dann Ende
 	sta wflen
-	lda #1
-	sta adcnt
+
 	inc pport		; BASIC on
 	jsr setversion	; Infoblock beschicken
 	jsr getname	; Namen für Image Info holen
 	jsr gd_clrms	; Gauge vorbereiten
 	ldx #0
 	jsr tcopy
+	sty updown	; .y=0, init variables
+	iny
+	sty adcnt
 	jsr cnvinit	; init dithering
 
 	jsr write		; save image to disk
@@ -112,8 +119,7 @@ st2	jsr clrch
 	jsr setname	; Image Info nur bei Erfolg
 st1	pla
 	sta gd_modswitch 
-	lda #$03		; mouse pointer on (better: jsr spron)
-	sta $d015
+	jsr gd_spron	; mouse pointer on
 	dec pport		; BASIC off
 
 cn2	sec		; leave saver
@@ -131,33 +137,11 @@ cn2	sec		; leave saver
 ; ----------------------------------------- Disk Access Routines
 ; ----------------------------------------- 
 
-pw	!pet "w,p,"
 drinit	!pet "i0"
 wflen	!by 0
 
-wopen	jsr inull
-	bne err8
-	ldy wflen
-	ldx #3
-wo1	lda pw,x
-	sta buffer,y
-	iny
-	dex
-	bpl wo1
-	sty wflen
-	lda #12
-	tay
-	ldx ls_drive
-	jsr filpar
-	lda wflen
-	ldx #<(buffer)
-	ldy #>(buffer)
-	jsr filnam
-	jsr copen
-	jmp err9
-
-inull	ldx #<(drinit)
-	ldy #>(drinit)
+inull	ldx #<drinit
+	ldy #>drinit
 	lda #2
 	jsr gd_sendcom
 err9	jsr gd_xmess
@@ -266,6 +250,11 @@ setversion
 	lda decimal,x
 	sta version1+3
 	sta version2+5
+	ldx #3		; and now the individual saver version
+-	lda svversion,x
+	sta version3+4,x
+	dex
+	bpl -
 	rts
 
 ; ----------------------------------------- Read Byte from Disk
@@ -320,8 +309,8 @@ sendmess3	pha
 	pha
 	ldx #$01
 	jsr ckout
-	ldy #>(message6)	; U2 2 0 TT SS
-	lda #<(message6)
+	ldy #>message6	; U2 2 0 TT SS
+	lda #<message6
 	jsr stringout
 	jmp sm2
 
@@ -331,8 +320,8 @@ getfirst	lda #0
 	sta kommas
 gfloop	ldx #1
 	jsr ckout
-	ldy #>(message8)	; B-A 0 TT SS
-	lda #<(message8)
+	ldy #>message8	; B-A 0 TT SS
+	lda #<message8
 	jsr stringout
 	lda #$00
 	ldx track
@@ -421,8 +410,8 @@ gf7	inc track
 
 ; ----------------------------------------- Activity Display Routines
 
-messout	ldx #<(message)
-	ldy #>(message)
+messout	ldx #<message
+	ldy #>message
 	jmp gd_xtxout2
 
 tcopy	ldy #0
@@ -486,8 +475,8 @@ si0	lda ls_lastname,x
 si1	rts
 
 setname	lda #0
-	ldx #<(ls_picname)
-	ldy #>(ls_picname)
+	ldx #<ls_picname
+	ldy #>ls_picname
 si3	stx sc_texttab
 	sty sc_texttab+1
 	tax
@@ -534,32 +523,32 @@ dirindex	!by $00
 
 ; ----------------------------------------- GEOS Info Record Block
 
-info	!by $00,$ff,$03,$15,$bf,$ff,$ff,$ff; "....¿..." Icon Data
-	!by $c0,$00,$03,$a0,$00,$05,$9f,$ff; "À.. ...."
-	!by $f9,$95,$55,$59,$9a,$aa,$a9,$95; "..uy.ª©."
-	!by $55,$59,$9a,$aa,$a9,$95,$55,$59; "uy.ª©.uy"
-	!by $9a,$aa,$a9,$95,$55,$59,$9a,$aa; ".ª©.uy.ª"
-	!by $a9,$9f,$ff,$f9,$a0,$00,$05,$c0; "©... ..À"
-	!by $00,$03,$ff,$ff,$ff,$00,$00,$00; "........"
-	!by $00,$00,$03,$7f,$ff,$b6,$80,$00; ".....¶.."
-	!by $fe,$7f,$ff,$bc,$83,$07,$01,$00; "...¼...." USR, AppData, VLIR
-	!by $00,$ff,$ff,$00,$00,$50,$61,$69; ".....p.." Class: GeoPaint 1.1
-	!by $6e,$74,$20,$49,$6d,$61,$67,$65; ".. i...."
-	!by $20,$56,$31,$2e,$31,$00,$00,$00; " v1.1..."
-	!by $00,$47,$6f,$44,$6f,$74,$20,$56; ".GoDot v" Author: GoDot
-version1	!by $31,$2e,$32,$32,$20,$28,$57,$4b; "1.22 (WK"
-	!by $26,$41,$44,$29,$00,$67,$65,$6f; "&AD).geo" Application: GeoPaint 2.0
-	!by $50,$61,$69,$6e,$74,$20,$20,$20; "paint   "
-	!by $20,$56,$32,$2e,$30,$00,$00,$00; " v2.0..."
-	!by $00,$20,$31,$41,$c9,$06,$d0,$02; ". 1A...."
-	!by $a9,$12,$8d,$26,$40,$a9,$00,$8d; "........"
-	!by $2b,$40,$20,$01,$40,$90,$05,$a9; "........"
-	!by $43,$72,$65,$61,$74,$65,$64,$20; "Created " Application Data
-	!by $62,$79,$20,$47,$6f,$44,$6f,$74; "by GoDot"
-version2	!by $20,$56,$31,$2e,$32,$32,$20,$28; " V1.22 ("
-	!by $57,$4b,$26,$41,$44,$29,$20,$2d; "WK&AD) -"
-	!by $20,$56,$49,$56,$41,$20,$46,$2e; " VIVA F."
-	!by $44,$69,$74,$72,$69,$63,$68,$21; "Ditrich!"
+info	!by $00,$ff,$03,$15,$bf,$ff,$ff,$ff	; Icon Data
+	!by $c0,$00,$03,$a0,$00,$05,$9f,$ff
+	!by $f9,$95,$55,$59,$9a,$aa,$a9,$95
+	!by $55,$59,$9a,$aa,$a9,$95,$55,$59
+	!by $9a,$aa,$a9,$95,$55,$59,$9a,$aa
+	!by $a9,$9f,$ff,$f9,$a0,$00,$05,$c0
+	!by $00,$03,$ff,$ff,$ff,$00,$00,$00
+	!by $00,$00,$03,$7f,$ff,$b6,$80,$00
+	!by $fe,$7f,$ff,$bc,$83,$07,$01,$00	; USR ($83), AppData ($07), VLIR ($01)
+	!by $00,$ff,$ff,$00,$00,$50,$61,$69	; Class: Paint Image V1.1
+	!by $6e,$74,$20,$49,$6d,$61,$67,$65
+	!by $20,$56,$31,$2e,$31,$00,$00,$00
+	!by $00,$47,$6f,$44,$6f,$74,$20,$56	; Author: GoDot V1.xx (AD&WK)
+version1	!by $31,$2e,$32,$32,$20,$28,$57,$4b
+	!by $26,$41,$44,$29,$00,$67,$65,$6f	; Application: geoPaint 2.0
+	!by $50,$61,$69,$6e,$74,$20,$20,$20
+	!by $20,$56,$32,$2e,$30,$00,$00,$00	; B/W mode
+	!by $00,$20,$31,$41,$c9,$06,$d0,$02
+	!by $a9,$12,$8d,$26,$40,$a9,$00,$8d
+	!by $2b,$40,$20,$01,$40,$90,$05,$a9
+	!by $43,$72,$65,$61,$74,$65,$64,$20	; "Created by GoDot V1.xx"
+	!by $62,$79,$20,$47,$6f,$44,$6f,$74
+version2	!by $20,$56,$31,$2e,$32,$32,$20,$47
+	!by $65,$6f,$50,$61,$69,$6e,$74,$20
+	!by $42,$6c,$2f,$57,$68,$20,$53,$61
+version3	!by $76,$65,$72,$20,$31,$2e,$30,$30	; "GeoPaint Bl/Wh Saver 1.xx"
 	!by $00
 
 ; -----------------------------------------
@@ -667,8 +656,8 @@ np2	lda #1		; OPEN 1,drive,15
 	ldy #2
 	jsr filpar
 	lda #1
-	ldx #<(dirchan)
-	ldy #>(dirchan)
+	ldx #<dirchan
+	ldy #>dirchan
 	jsr filnam
 	jsr copen
 	ldx ls_track	; retrieve BAM block
@@ -680,8 +669,10 @@ np3	ldx blockbuf
 	sta wsector
 	cpx #0
 	bne np4
+
 	jsr dfehler
 	jmp gd_xmess
+
 np4	jsr getblock
 	ldy #0
 np5	lda blockbuf+2,y
@@ -692,6 +683,7 @@ np5	lda blockbuf+2,y
 	beq np3
 	tay
 	bne np5
+
 np6	sty dirindex
 	ldx #$01		; search disk for 1st available empty block
 	lda #$00
@@ -703,8 +695,8 @@ np6	sty dirindex
 	stx strack
 	sta ssector
 	ldy #0
-np7	lda #$00		; fill buffer w/ $00 $ff
-	sta blockbuf,y
+np7	lda #$00		; fill buffer 46 times w/ $00 $ff
+	sta blockbuf,y	; (image record list)
 	lda #$ff
 	sta blockbuf+1,y
 	iny
@@ -712,14 +704,14 @@ np7	lda #$00		; fill buffer w/ $00 $ff
 	cpy #92
 	bne np7
 	lda #$00
-np8	sta blockbuf,y
+np8	sta blockbuf,y	; and pad w/ $00
 	iny
 	bne np8
 	lda #2		; set counter to 2 (filelength)
 	sta count2
 	lda #0
 	sta count2+1
-	lda #0		; set blockline counter to 0
+	lda #0		; set record counter to 0 (counts to 25)
 	sta picindex
 np11	jsr getfirst	; search for next available block
 	lda updown	; get flag for upper or lower half 
@@ -731,7 +723,7 @@ np11	jsr getfirst	; search for next available block
 	sta blockbuf,y
 	lda sector
 	sta blockbuf+1,y
-	ldx #$00
+	ldx #$00		; init w/ $00/$ff
 	lda #$ff
 	stx blockbuf2
 	sta blockbuf2+1
@@ -842,23 +834,23 @@ equal	lda pixadd+1	; end of blockline?
 	beq pk13		; yes, break and add color information
 	lda packed	; max number of compressed bytes?
 	cmp #$ff
-	beq pk11		; yes, write and loop over
-	jmp np12
+	beq pk11		; yes, write
+	jmp np12		; no, loop over
 
-pk11	jsr writerle
+pk11	jsr writerle	; write compressed byte
 	lda byte
 	jsr writerle
-pk12	lda #$81
+pk12	lda #$81		; init next compression counter
 	sta packed
 	jsr getbyte
 	sta byte
-	jmp equal
+	jmp equal		; and loop
 
-pk13	lda packed
+pk13	lda packed	; flush data
 	jsr writerle
 	lda byte
 	jsr writerle
-pk14	lda #$88		; add 8 bytes $00
+pk14	lda #$88		; pad 8 bytes $00
 	jsr writerle
 	lda #$00
 	jsr writerle
@@ -872,31 +864,31 @@ pk14	lda #$88		; add 8 bytes $00
 	jsr writerle
 	lda #$00		; end w/ $00
 	jsr writerle
-	lda blindex	; write block
+	lda blindex	; write block...
 	sta blockbuf2+1
 	jsr sendmess2
 	ldx #2
 	jsr ckout
 	ldy #0
-pk15	lda blockbuf2,y
+pk15	lda blockbuf2,y	; ...to buffer...
 	jsr out
 	iny
 	bne pk15
 	jsr clrch
 	ldx track
 	lda sector
-	jsr sendmess3
+	jsr sendmess3	; ...from buffer to disk
 	inc count2
 	bne pk16
-	inc count2+1
+	inc count2+1	; inc filelength
 pk16	inc picindex
-	inc updown
+	inc updown	; update index in record list
 	lda picindex
-self3	cmp #25		; all blocklines? (25)
-	bcs pk17		; yes, write file info block
+self3	cmp #25		; all records? (26)
+	bcs pk17		; yes, write dir and file info block
 	jmp np11		; start over
 
-pk17	jsr sendmess2	; write file info block
+pk17	jsr sendmess2	; write record list block
 	ldx #2
 	jsr ckout
 	ldy #0
@@ -908,7 +900,7 @@ pk18	lda blockbuf,y
 	ldx strack
 	lda ssector
 	jsr sendmess3
-	jsr getfirst
+	jsr getfirst	; write info block
 	ldx #2
 	jsr ckout
 	ldy #0
@@ -921,23 +913,23 @@ pk19	lda info,y
 	ldx track
 	lda sector
 	jsr sendmess3
-	ldx wtrack
+	ldx wtrack	; now update dir entry
 	lda wsector
 	jsr getblock
-	ldy dirindex
-	lda #$83
+	ldy dirindex	; .y=0
+	lda #$83		; write c64 filetype (USR)
 	sta blockbuf+2,y
-	lda strack
+	lda strack	; write position of record list
 	sta blockbuf+3,y
 	lda ssector
 	sta blockbuf+4,y
 	lda track
-	sta blockbuf+21,y
+	sta blockbuf+21,y	; write position of info block
 	lda sector
 	sta blockbuf+22,y
-	lda #$01
+	lda #$01		; write geos structure format (VLIR)
 	sta blockbuf+23,y
-	lda #$07
+	lda #$07		; write geos file type (APP DATA)
 	sta blockbuf+24,y
 
 	lda #94		; Date and Time: 94-05-06, 6pm
@@ -951,11 +943,11 @@ pk19	lda info,y
 	lda #0
 	sta blockbuf+29,y
 
-	lda count2
+	lda count2	; write geos filesize...
 	sta blockbuf+30,y
 	lda count2+1
 	sta blockbuf+31,y
-	tya
+	tya		; ...and geos filename
 	clc
 	adc #$05
 	sta pixadd
@@ -966,18 +958,18 @@ pk20	lda ls_nambuf,y
 	sta (pixadd),y
 	dey
 	bpl pk20
-	jsr sendmess2
+	jsr sendmess2	; set buffer pointer to 0
 	ldx #2
 	jsr ckout
 	ldy #0
-pk21	lda blockbuf,y
+pk21	lda blockbuf,y	; now write block to disk buffer
 	jsr out
 	iny
 	bne pk21
 	jsr clrch
 	ldx wtrack
 	lda wsector
-	jsr sendmess3
+	jsr sendmess3	; write buffer to disk
 	jmp dfehler	; finished
 
 ; ----------------------------------------- Init Dither Routines
@@ -1267,4 +1259,3 @@ ml4	rts
 ; ----------------------------------------- 
 
 modend	!eof
-

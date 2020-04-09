@@ -1,16 +1,23 @@
 
-	*= $c000
 	!src "godotlib.lib"
+	*= $c000
 	!ct pet
+;	!sl "labels.txt"
 
 ; ----------------------------------- 
 ; Loader GeoPaint 
 ;        1.00, 15.12.03: first release
 ;        1.01, 17.12.03, bugfix: correct retrieving of 1st block
 ;        1.02, 06.11.17, bugfix: recognition whether 1st block is empty
+;        1.03, 09.04.20, added: disk initialization at launch
+;                               use correct length of filename
+;                        bugfix: finally reads geopaint images correctly!
 ; ----------------------------------- 
 
 ; ----------------------------------- Equates
+
+	pport		= $01
+	status		= $90
 
 	width	= $30	; width in tiles
 	col0	= $31	; paper color
@@ -88,8 +95,8 @@ godheader	jmp start
 	!wo modend
 	!wo 0
 	!tx "geoPaint 1:1 ldr"
-	!tx "1.02"
-	!tx "06.11.17"
+	!tx "1.03"
+	!tx "09.04.20"
 	!tx "A.Dettke        "
 
 ; ----------------------------------- Main
@@ -101,12 +108,12 @@ cancel	jsr last
 	sta used
 freq	sec
 	rts
-;
+
 ; -----------------------------------
 
 cont	clc
 	rts
-;
+
 ; -----------------------------------
 
 readhd	inc used
@@ -114,14 +121,15 @@ readhd	inc used
 	stx xpos		; reset skip values
 	stx ypos
 	jsr rsbufs	; reset buffer addresses
+	jsr inull		; ### 1.03, init disk
 
 	jsr getname
-	jsr toascii	; convert name to ASCII
+	jsr toascii	; convert name to ASCII, get length of filename
 
 	jsr gd_xopen	; retrieve list of records (1 block)
-	inc 1
-	jsr getblock
-	dec 1
+	inc pport
+	jsr getrecs	; ### 1.03: this was wrong until now!!!
+	dec pport
 	jsr ld5
 
 	ldy #0
@@ -158,7 +166,7 @@ sevgeos	ldx #1
 	stx adcnt
 	dex
 	jsr tcopy
-	ldx #$7d		; clear 4bit buffer
+	ldx #$7d		; clear 4bit buffer (32000 bytes)
 	lda #$40
 	sta dst+1
 	lda #0
@@ -171,15 +179,15 @@ spx0	sta (dst),y
 	dex
 	bne spx0
 
-	inc 1
+	inc pport		; read image
 	jsr readgeos
-	dec 1
+	dec pport
 
 	jsr gd_spron
 	jsr tobcode
 
 ld3	jsr setinfo
-ld5	jsr gd_xclose
+ld5	jsr gd_xclose	; close file
 	jsr gd_spron
 	jsr gd_xmess
 	sec
@@ -268,7 +276,7 @@ pt0	rts
 
 ; -----------------------------------
 
-toascii	ldx #15
+toascii	ldx #15		; convert to standard ASCII
 tp2	lda ls_nambuf,x
 	bpl tp1
 	and #$7f
@@ -281,9 +289,16 @@ tp6	lda #"?"
 tp7	sta ls_nambuf,x
 	dex
 	bpl tp2
+	ldx #16		; ### 1.03: get correct length of fname
+-	dex
+	lda ls_nambuf,x
+	cmp #32
+	beq -
+	inx
+	stx ls_temp
 	rts
 
-tobcode	ldx #15
+tobcode	ldx #15		; convert to screen code
 tp3	lda ls_nambuf,x
 	cmp #"?"
 	bne tp5
@@ -504,8 +519,8 @@ fl0	lda err1,x
 	  
 ; ----------------------------------- Message Handler
 
-messout	ldx #<(message)
-	ldy #>(message)
+messout	ldx #<message
+	ldy #>message
 	jmp gd_xtxout2
 ;
 action	dec adcnt
@@ -526,7 +541,7 @@ act0	ldx offx
 	lda #7
 	sta offx
 ld4	rts
-;
+
 tcopy	ldy #0
 tc0	lda txt,x
 	beq clrmess
@@ -534,7 +549,7 @@ tc0	lda txt,x
 	inx
 	iny
 	bne tc0
-;
+
 clrmess	ldx #20
 	lda #32
 cl0	sta mess,x
@@ -600,7 +615,7 @@ sendmess2	ldx #15
 
 getblock	jsr sendmess
 	jsr sendmess2
-	ldx #13
+getrecs	ldx #13
 	jsr chkin
 
 	ldy #$00
@@ -685,7 +700,7 @@ out	jsr bsout
 	bne o2
 o1	pla
 	rts
-;
+
 ; ----------------------------------------- Get Byte from Buffer2
 
 getbyte2	inc blindex
@@ -693,7 +708,7 @@ getbyte2	inc blindex
 	ldy blindex
 	lda blockbuf2,y
 	rts
-;
+
 gby1	ldx blockbuf2
 	lda blockbuf2+1
 	jsr getblock2
@@ -724,7 +739,7 @@ cb0	sta (dst),y
 
 dnib	!by $00,$ff,$44,$cc,$55,$aa,$11,$dd
 	!by $66,$22,$99,$33,$77,$ee,$88,$bb
-;
+
 ; ----------------------------------- Image Information
 
 getname	ldx #0
@@ -735,14 +750,14 @@ si0	lda ls_lastname,x
 	cpx #16
 	bcc si0
 si1	rts
-;
+
 ; ----------------------------------- 
 
 setinfo	jsr setname
 	jsr setloader
 	jsr setmode
 	jmp setdata
-;
+
 setname	lda #0
 	ldx #<(ls_picname)
 	ldy #>(ls_picname)
@@ -769,10 +784,10 @@ si4	lda nbuf,x
 	iny
 	bne si4
 si5	rts
-;
+
 nbuf	!fill 16,32
 	!by 0
-	!scr "GEOS   @"
+	!scr "GeoPnt @"
 modetx	!scr "320x200@"
 datatype	!scr "Color@"
 
@@ -787,7 +802,7 @@ f3	lda gr_pattern,y
 	dey
 	bpl f3
 	rts
-;
+
 ; -----------------------------------
 
 last	ldy #23		; restore pattern
@@ -796,7 +811,7 @@ f4	lda pbuffer,y
 	dey
 	bpl f4
 	rts
-;
+
 ; -----------------------------------
 
 sclear	ldy #9		; clear current output row
@@ -806,7 +821,7 @@ f13	sta (vekt40),y
 	bpl f13
 	ldy zsph
 	rts
-;
+
 ; -----------------------------------
 
 requ	lda #<(string1)	; first output line
@@ -857,7 +872,7 @@ ecke	ldy zbr		; add corner
 hl2	sta esign,y
 hl02	dey
 	bpl hl2
-;
+
 	ldx zspv
 	beq hl8
 hl7	jsr sclear
@@ -878,7 +893,7 @@ hl9	clc
 	inc vekt40+1
 hl10	dex
 	bne hl7
-;
+
 hl8	jsr sclear
 	lda zho
 	beq rest
@@ -908,7 +923,7 @@ rst2	sta (vekt40),y
 	bne rst2
 	beq rest
 rst1	rts
-;
+
 ; -----------------------------------
 
 settxt	lda byte3
@@ -1120,7 +1135,7 @@ ss8	lda xkoomk
 	sta $d015
 	clc
 	rts
-;
+
 ; -----------------------------------
 
 over1	tay
@@ -1191,18 +1206,18 @@ ch4	txa
 	jsr gd_xtxout1
 ch3	lda sc_keyprs
 	rts
-;
+
 ; -----------------------------------
 
 tabigad	!by <(xpostxt),>(xpostxt)
 	!by <(ypostxt),>(ypostxt)
 
-settab	lda #<(tabigad)
+settab	lda #<tabigad
 	sta vekt40
-	lda #>(tabigad)
+	lda #>tabigad
 	sta vekt40+1
 	rts
-;
+
 gettab	lda (vekt40),y
 	sta sc_screentab
 	iny
@@ -1217,7 +1232,7 @@ gt0	jsr gd_setpos
 	stx sc_ho
 	jsr gd_trim
 	jmp gd_initmove
-;
+
 ; ----------------------------------- Screenlist
 
 geoslst	!by 0
@@ -1284,5 +1299,19 @@ string1	!fill 10,32
 	!fill 10,32
 	!by 0
 	!by $80,0,0,0,$ff
+
+; ----------------------------------------- Disk Access Routines
+
+drinit	!pet "i0"
+wflen	!by 0
+
+inull	ldx #<drinit
+	ldy #>drinit
+	lda #2
+	jsr gd_sendcom
+st2	jsr clrch
+	jmp gd_xmess
+
+; ----------------------------------------- 
 
 modend	!eof
