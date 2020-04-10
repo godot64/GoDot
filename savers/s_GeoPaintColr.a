@@ -11,6 +11,7 @@
 ;  1.00, 01.04.20, first release
 ;  1.01, 04.04.20, bugfix: bugs in info block
 ;  1.02, 08.04.20, bugfix: fixed 8 image restriction
+;  1.03, 10.04.20, bugfix: 1581 didn't allocate blocks
 ;
 ; ----------------------------------------- 
 
@@ -62,8 +63,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "GeoPaint Color  "
-svversion	!pet "1.02"
-	!pet "08.04.20"
+svversion	!pet "1.03"
+	!pet "10.04.20"
 	!pet "A.Dettke        "
 
 ; ----------------------------------------- Main Routine
@@ -125,6 +126,23 @@ cn2	sec		; leave saver
 ; ----------------------------------------- Disk Access Routines
 ; ----------------------------------------- 
 
+updatebam	jsr close2	
+
+open2	lda #2		; OPEN 2,drive,2,"#"
+	ldx ls_drive
+	ldy #2
+	jsr filpar
+	lda #1
+	ldx #<dirchan
+	ldy #>dirchan
+	jsr filnam
+	jmp copen
+
+close2	lda #2
+	jmp close
+
+; ----------------------------------------- 
+
 drinit	!pet "i0"
 wflen	!by 0
 
@@ -139,9 +157,9 @@ st2	jsr clrch
 ; ----------------------------------------- Disk Error
 
 dfehler	jsr clrch
-	lda #1
-	jsr close
 	lda #2
+	jsr close
+	lda #1
 	jsr close
 	sec
 	rts
@@ -322,9 +340,9 @@ blkalloc	ldx #1		; search for TT/SS
 	lda #0
 	ldx sector	; send sector
 	jsr intout
-	dec pport		; BASIC off
 	lda #13
 	jsr out
+	dec pport		; BASIC off
 	jsr clrch
 
 	ldx #1		; retrieve answer:
@@ -586,6 +604,7 @@ writerle	inc blindex	; inc pointer in data buffer
 	sta slink1
 	jsr getfirst	; search 1st available block on disk
 	bne de2		; if disk full: error
+	jsr updatebam
 	ldx track
 	lda sector
 	stx blockbuf2
@@ -670,15 +689,7 @@ np2	lda #1		; OPEN 1,drive,15
 	lda #0
 	jsr filnam
 	jsr copen
-	lda #2		; OPEN 2,drive,2,"#"
-	ldx ls_drive
-	ldy #2
-	jsr filpar
-	lda #1
-	ldx #<dirchan
-	ldy #>dirchan
-	jsr filnam
-	jsr copen
+	jsr open2		; OPEN 2,drive,2,"#"
 	ldx ls_track	; retrieve BAM block (18/0 or 40/0)
 	lda #0
 	sta dsector
@@ -719,7 +730,8 @@ np40	jsr setloc	; set location of current blk
 	eor dsector
 	bne +
 	jsr blkalloc	; but now, now new T/S
-+	lda track		; store new T/S link to current blk:
++	jsr updatebam	; update BAM to fix block allocation
+	lda track		; store new T/S link to current blk:
 	sta blockbuf	; track
 	ldx sector	; sector
 	stx blockbuf+1
@@ -767,6 +779,7 @@ np6	sty dirindex
 	sta sector
 	jsr getfirst
 de0	bne jerr		; error if disk full
+	jsr updatebam
 	ldx track		; save found T/S number (block for records list)
 	lda sector
 	stx strack
@@ -794,6 +807,7 @@ np8	sta blockbuf,y	; and pad w/ $00
 
 np11	jsr getfirst	; search for next available block
 	bne de0		; error if disk full
+	jsr updatebam
 	lda updown	; get index in record list 
 	asl
 	tay
@@ -978,7 +992,9 @@ pk18	lda blockbuf,y
 	jsr getfirst	; write info block
 	beq +
 	jmp derror	; error if disk full
-+	ldx #2
++	jsr updatebam
+	jsr sendmess2
+	ldx #2
 	jsr ckout
 	ldy #0
 pk19	lda info,y
