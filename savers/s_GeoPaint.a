@@ -17,6 +17,7 @@
 ; 1.04: 08.06.17: bugfix: catch possible gauge overflow
 ; 1.05: 09.04.20, bugfix: init disk before work begins
 ;                 changed: contents of info block
+; 1.06: 11.04.20, bugfix: more than 8 images per disk
 ;
 ; ----------------------------------------- 
 
@@ -25,6 +26,8 @@
 	pport		= $01
 	status		= $90
 
+	dsector		= $35
+	stack		= $36
 	ycnt		= $37
 	maxcnt		= $38
 	bbuf		= $39
@@ -75,10 +78,10 @@ header	jmp start
 	!by 1
 	!wo modend
 	!wo 0
-	!pet "GeoPaint        "
-svversion	!pet "1.05"
-	!pet "09.04.20"
-	!pet "A.Dettke/W.Kling"
+	!pet "GeoPaint B/W    "
+svversion	!pet "1.06"
+	!pet "11.04.20"
+	!pet "A.Dettke        "
 
 ; ----------------------------------------- Main Routine
 
@@ -89,16 +92,13 @@ start	ldx gr_nr		; Input or Save?
 
 ; ----------------------------------------- 
 
-st0	jsr gd_sproff	; save: mouse pointer off
-	sta updown	; init variables
+st0	jsr gd_sproff	; it's "save": mouse pointer off
 	jsr inull		; init disk
 	lda gd_modswitch
 	pha
 	lda ls_flen	; kein Filename?
 	beq st1		; dann Ende
-	sta wflen
 
-	inc pport		; BASIC on
 	jsr setversion	; Infoblock beschicken
 	jsr getname	; Namen für Image Info holen
 	jsr gd_clrms	; Gauge vorbereiten
@@ -107,6 +107,7 @@ st0	jsr gd_sproff	; save: mouse pointer off
 	sty updown	; .y=0, init variables
 	iny
 	sty adcnt
+	jsr action
 	jsr cnvinit	; init dithering
 
 	jsr write		; save image to disk
@@ -120,7 +121,6 @@ st2	jsr clrch
 st1	pla
 	sta gd_modswitch 
 	jsr gd_spron	; mouse pointer on
-	dec pport		; BASIC off
 
 cn2	sec		; leave saver
 	rts
@@ -138,7 +138,6 @@ cn2	sec		; leave saver
 ; ----------------------------------------- 
 
 drinit	!pet "i0"
-wflen	!by 0
 
 inull	ldx #<drinit
 	ldy #>drinit
@@ -150,12 +149,24 @@ err9	jsr gd_xmess
 err8	sec
 	rts
 
+updatebam	lda #2
+	jsr close
+open2	lda #2		; OPEN 2,drive,2,"#"
+	ldx ls_drive
+	ldy #2
+	jsr filpar
+	lda #1
+	ldx #<dirchan
+	ldy #>dirchan
+	jsr filnam
+	jmp copen
+
 ; ----------------------------------------- Disk Error
 
 dfehler	jsr clrch
-	lda #1
-	jsr close
 	lda #2
+	jsr close
+	lda #1
 	jsr close
 	sec
 	rts
@@ -176,6 +187,7 @@ sm1	lda message3,y	; U1 2 0 TT SS
 
 sm2	lda #$20
 	jsr out
+	inc pport		; BASIC on
 	pla
 	tax
 	lda #$00
@@ -188,15 +200,18 @@ sm2	lda #$20
 	jsr intout
 	lda #$0d
 	jsr out
+	dec pport		; BASIC off
 	jmp clrch
 
 ; ----------------------------------------- Set Pointer Position in Buffer
 
 sendmess2	ldx #1
 	jsr ckout
-	ldy #>(message4)	; B-P 2 0
-	lda #<(message4)
+	inc pport		; BASIC on
+	ldy #>message4	; B-P 2 0
+	lda #<message4
 	jsr stringout
+	dec pport		; BASIC off
 	jmp clrch
 
 ; ----------------------------------------- Read Disk Block to 1st buffer
@@ -216,9 +231,9 @@ gbl1	jsr in
 
 getblock2	jsr sendmess
 	jsr sendmess2
-	ldx #$02
+	ldx #2
 	jsr chkin
-	ldy #$00
+	ldy #0
 gbl2	jsr in
 	sta blockbuf2,y
 	iny
@@ -260,30 +275,18 @@ setversion
 ; ----------------------------------------- Read Byte from Disk
 
 in	jsr basin
-	pha
-	lda status
-	and #$83
-	beq svg10
-	lda #$00
-	sta status
-	pla
-	jsr dfehler
-	jmp gd_xmess
-svg10	pla
-	rts
+	jmp o3
 
 ; ----------------------------------------- Write Byte to Disk
 
 out	jsr bsout
-	pha
+o3	pha
 	lda status
 	and #$83
 	beq o1
-	lda #$00
+o2	lda #0
 	sta status
-	pla
-	jsr dfehler
-	jmp gd_xmess
+	jmp derror
 o1	pla
 	rts
 
@@ -298,7 +301,7 @@ getbyte2	inc blindex
 gby1	ldx blockbuf2
 	lda blockbuf2+1
 	jsr getblock2
-	ldy #$01
+	ldy #1
 	sty blindex
 	jmp getbyte2
 
@@ -307,54 +310,57 @@ gby1	ldx blockbuf2
 sendmess3	pha
 	txa
 	pha
-	ldx #$01
+	ldx #1
 	jsr ckout
+	inc pport		; BASIC on
 	ldy #>message6	; U2 2 0 TT SS
 	lda #<message6
 	jsr stringout
+	dec pport		; BASIC off
 	jmp sm2
 
-; ----------------------------------------- Retrieve 1st writeable Block on Disk
+; ----------------------------------------- 
 
-getfirst	lda #0
-	sta kommas
-gfloop	ldx #1
+blkalloc	ldx #1		; search for TT/SS
 	jsr ckout
+	inc pport		; BASIC on
 	ldy #>message8	; B-A 0 TT SS
 	lda #<message8
 	jsr stringout
-	lda #$00
-	ldx track
+	lda #0
+	ldx track		; send track
 	jsr intout
 	lda #$20
 	jsr out
-	lda #$00
-	ldx sector
+	lda #0
+	ldx sector	; send sector
 	jsr intout
 	lda #13
 	jsr out
+	dec pport		; BASIC off
 	jsr clrch
 
-	ldx #1
+	ldx #1		; retrieve answer:
 	jsr chkin
 	jsr in
 	cmp #$30		; ok?
 	bne gf1
-	jmp clrch		; yes, return
+	jsr clrch		; yes, leave
+	ldx #0
+	rts
 
-gf1	inc kommas	; no, search next
+gf1	inc kommas	; no, check block in answer of b-a
 	lda kommas
-	cmp #$03
+	cmp #3
 	bne gf2
-	jsr dfehler
-	jmp gd_xmess
+	jmp derror
 gf2	jsr in		; skip error number
 	cmp #$2c
 	bne gf2
 gf3	jsr in		; skip message
 	cmp #$2c
 	bne gf3
-gf4	jsr in		; retrieve next TT
+gf4	jsr in		; retrieve new TT
 	cmp #$20
 	beq gf4
 	sec
@@ -377,7 +383,7 @@ gf4	jsr in		; retrieve next TT
 gf5	jsr in
 	cmp #$2c
 	bne gf5
-gf6	jsr in		; retrieve next SS
+gf6	jsr in		; retrieve new SS
 	cmp #$20
 	beq gf6
 	sec
@@ -397,16 +403,28 @@ gf6	jsr in		; retrieve next SS
 	clc
 	adc sector
 	sta sector
-	jsr clrch
-	lda track
-	cmp ls_track	; skip directory track
-	beq gf7
-	jmp gfloop	; check found one
+	jsr clrch		; leave to getfirst for loop
+--	ldx #1
+-	rts
 
-gf7	inc track
-	lda #$00
+; ----------------------------------------- Retrieve 1st writeable Block on Disk
+
+getfirst	lda #0
+	sta kommas
+gfloop	jsr blkalloc	; check wanted T/S
+	beq -		; leave if successful (block allocated)
+	lda track		; disk full?
+	tax
+	ora sector
+	beq --		; yes, set flag (positive)
+	txa
+	cmp ls_track	; on directory track? if yes, skip
+	bne gfloop	; check block in b-a answer
+
+gf7	inc track		; skip dir track
+	lda #0
 	sta sector
-	jmp gfloop
+	beq gfloop	; uncond. branch
 
 ; ----------------------------------------- Activity Display Routines
 
@@ -442,7 +460,7 @@ act0	ldx offx
 	sta offx
 ld4	rts
 
-clrmess	ldx #25
+clrmess	ldx #21
 	lda #32
 cl0	sta mess,x
 	dex
@@ -457,10 +475,10 @@ filltab	!by 160,93,103,127,126,124,105,109
 
 cntwert	!by 200
 
-txt	!scr " GEOS @"
+txt	!scr " GeoPaint @"
 
-message	!fill 6,32
-mess	!fill 26,32
+message	!fill 10,32
+mess	!fill 22,32
 	!by 0
 
 ; ----------------------------------------- Filename Routines
@@ -558,17 +576,17 @@ decimal	!pet "0123456789"
 offs	!by $00,$10,$20,$30
 	!by $00,$10,$20,$30
 
-dlo	!by <(dithoff)
-	!by <(dithrst)
-	!by <(dithpat)
-	!by <(dithnoi)
-	!by <(dithrnd)
+dlo	!by <dithoff
+	!by <dithrst
+	!by <dithpat
+	!by <dithnoi
+	!by <dithrnd
 
-dhi	!by >(dithoff)
-	!by >(dithrst)
-	!by >(dithpat)
-	!by >(dithnoi)
-	!by >(dithrnd)
+dhi	!by >dithoff
+	!by >dithrst
+	!by >dithpat
+	!by >dithnoi
+	!by >dithrnd
 
 dmode	!by 0,0
 
@@ -598,20 +616,23 @@ blhi	!by 0,0,0,0,0,0,0,0
 
 writerle	inc blindex	; inc pointer in data buffer
 	bne wr1		; zero?
+
 	pha		; yes, save block:
 	lda track		; set TT and SS
 	sta tlink1
 	lda sector
 	sta slink1
 	jsr getfirst	; search 1st available block on disk
+	bne de2		; if disk full: error
+	jsr updatebam
 	ldx track
 	lda sector
 	stx blockbuf2
 	sta blockbuf2+1
 	jsr sendmess2	; set pointer in disk buffer
-	ldx #$02
+	ldx #2
 	jsr ckout
-	ldy #$00
+	ldy #0
 wr2	lda blockbuf2,y	; write block to disk buffer
 	jsr out
 	iny
@@ -627,16 +648,51 @@ wr3	ldx #$00		; re-init buffer
 	lda #$ff
 	stx blockbuf2
 	sta blockbuf2+1
-	ldy #$02
+	ldy #2
 	sty blindex
 	pla		; write current byte to new buffer
+
 wr1	ldy blindex
 	sta blockbuf2,y
 	rts
 
+de2	jmp derror
+
+; ----------------------------------------- Prepare new Disk Block
+
+writedblk	jsr sendmess2	; set buffer pointer to 0
+	ldx #2
+	jsr ckout
+	ldy #0
+-	lda blockbuf,y	; write block to disk buffer
+	jsr out
+	iny
+	bne -
+	jsr clrch
+	ldx track		; set found available block
+	lda sector
+	jmp sendmess3	; write buffer to disk
+
+fillblk	ldy #0		; create empty block
+	tya
+-	sta blockbuf,y
+	iny
+	bne -
+	lda #$ff
+	sta blockbuf+1
+	rts
+
+setloc	lda dsector
+	sta sector
+	lda ls_track
+	sta track
+	rts
+
 ; ----------------------------------------- Save GeoPaint VLIR image to Disk
 
-write	ldy ls_flen	; fill filename w/ $a0 (Shift Space)
+write	tsx
+	stx stack
+	ldy ls_flen	; fill filename w/ $a0 (Shift Space)
 	lda #$a0
 np1	cpy #16
 	beq np2
@@ -651,38 +707,88 @@ np2	lda #1		; OPEN 1,drive,15
 	lda #0
 	jsr filnam
 	jsr copen
-	lda #2		; OPEN 2,drive,2,"#"
-	ldx ls_drive
-	ldy #2
-	jsr filpar
-	lda #1
-	ldx #<dirchan
-	ldy #>dirchan
-	jsr filnam
-	jsr copen
+	jsr open2		; OPEN 2,drive,2,"#"
 	ldx ls_track	; retrieve BAM block
 	lda #0
+	sta dsector
 	jsr getblock
+
 np3	ldx blockbuf
 	lda blockbuf+1
-	stx wtrack
+	stx track
+	sta sector
+
+	cpx #$4b		; blocklink: track is $4b? (geos)
+	beq +		; yes, check sector
+	cpx #0		; no, track is 0?
+	bne np4		; no, get next block
+
+	tax		; yes, sector is 0 too?
+	beq np41		; yes, 0/0 = unused, set to used
+	bmi np40		; sector is $ff: use it (bpl: never)
+
++	cmp #1		; (track was $4b) sector $01?
+	beq np43		; yes, geos unused, set to used
+	cpx ls_track	; still in dir track?
+	beq np4		; yes, get next dir block
+
+derror	jsr dfehler	; no, error: break
+	jsr gd_xmess	; show floppy message
+	ldx stack		; leave "write"
+	txs		; (blocks stay allocated)
+	rts
+
+np41	dex
+	stx blockbuf+1
+	bmi np3
+
+np40	jsr setloc	; set location of current blk
+	jsr blkalloc	; allocate, returns new T/S
+	lda sector	; blk wasn't yet allocated?
+	eor dsector
+	bne +
+	jsr blkalloc	; but now, now new T/S
++	jsr updatebam	; update BAM to fix block allocation
+	lda track		; store new T/S link to current blk:
+	sta blockbuf	; track
+	ldx sector	; sector
+	stx blockbuf+1
+	ora blockbuf+1	; if 0, error: disk full
+	beq derror
+	lda dsector	; get current blk sector
+	sta sector	; set
+	stx dsector	; save new blk sector
+	jsr writedblk	; write current blk to disk
+
+np43	jsr setloc	; set location of new blk
+	jsr fillblk	; create empty block
+	jsr writedblk	; and write to disk
+	lda sector	; prepare update of dir entry
 	sta wsector
-	cpx #0
-	bne np4
+	lda track
+	sta wtrack
+	bne np42
 
-	jsr dfehler
-	jmp gd_xmess
+np4	stx wtrack
+	sta wsector
+	sta dsector
+	jsr getblock	; get new block (1st: 18/1 or 40/3)
 
-np4	jsr getblock
-	ldy #0
-np5	lda blockbuf+2,y
-	beq np6
-	tya
+np42	ldy #0
+np5	lda blockbuf+2,y	; check file entries
+	beq np6		; empty entry? (yes: save)
+	tya		; no, next entry
 	clc
 	adc #32
-	beq np3
-	tay
+	tay		; otherwise loop for next entry
 	bne np5
+
+	lda dsector	; get current sector
+	cmp ls_track	; exceeded max sector?
+	bcs jerr		; yes, error
+	jmp np3		; no, proceed
+
+jerr	jmp derror
 
 np6	sty dirindex
 	ldx #$01		; search disk for 1st available empty block
@@ -690,10 +796,13 @@ np6	sty dirindex
 	stx track
 	sta sector
 	jsr getfirst
+de0	bne jerr		; error if disk full
+	jsr updatebam
 	ldx track		; set its T/S number
 	lda sector
 	stx strack
 	sta ssector
+
 	ldy #0
 np7	lda #$00		; fill buffer 46 times w/ $00 $ff
 	sta blockbuf,y	; (image record list)
@@ -713,7 +822,10 @@ np8	sta blockbuf,y	; and pad w/ $00
 	sta count2+1
 	lda #0		; set record counter to 0 (counts to 25)
 	sta picindex
+
 np11	jsr getfirst	; search for next available block
+	bne de0		; error if disk full
+	jsr updatebam
 	lda updown	; get flag for upper or lower half 
 	asl
 	tay
@@ -864,6 +976,7 @@ pk14	lda #$88		; pad 8 bytes $00
 	jsr writerle
 	lda #$00		; end w/ $00
 	jsr writerle
+
 	lda blindex	; write block...
 	sta blockbuf2+1
 	jsr sendmess2
@@ -900,7 +1013,12 @@ pk18	lda blockbuf,y
 	ldx strack
 	lda ssector
 	jsr sendmess3
+
 	jsr getfirst	; write info block
+	beq +
+	jmp derror	; error if disk full
++	jsr updatebam
+	jsr sendmess2
 	ldx #2
 	jsr ckout
 	ldy #0
@@ -913,10 +1031,12 @@ pk19	lda info,y
 	ldx track
 	lda sector
 	jsr sendmess3
+
 	ldx wtrack	; now update dir entry
 	lda wsector
 	jsr getblock
 	ldy dirindex	; .y=0
+
 	lda #$83		; write c64 filetype (USR)
 	sta blockbuf+2,y
 	lda strack	; write position of record list
@@ -951,13 +1071,14 @@ pk19	lda info,y
 	clc
 	adc #$05
 	sta pixadd
-	lda #>(blockbuf)
+	lda #>blockbuf
 	sta pixadd+1
 	ldy #15
 pk20	lda ls_nambuf,y
 	sta (pixadd),y
 	dey
 	bpl pk20
+
 	jsr sendmess2	; set buffer pointer to 0
 	ldx #2
 	jsr ckout
@@ -970,6 +1091,7 @@ pk21	lda blockbuf,y	; now write block to disk buffer
 	ldx wtrack
 	lda wsector
 	jsr sendmess3	; write buffer to disk
+
 	jmp dfehler	; finished
 
 ; ----------------------------------------- Init Dither Routines
@@ -1054,7 +1176,6 @@ skip86	sta buf16,x
 	cpx #25
 	beq skip87
 
-	dec pport
 	ldx #0		; .x = pointer into BUF16
 	ldy #0		; YCNT = pointer into dither pattern
 	sty ycnt
@@ -1076,7 +1197,6 @@ lp80	lda (data),y	; get 4bit data byte
 	inx		; next byte
 skip84	cpx #8
 	bne the8loop	; (upper or lower half of a tile in hires)
-	inc pport
 
 skip87	ldx blcnt
 	bne skip85
@@ -1111,7 +1231,6 @@ skip2	inx		; scanned one blockline?
 	eor #$ff
 	sta rflg		; tile counter to 0 again
 skip3	stx blcnt
-	dec pport
 
 	ldx #0		; .x = pointer into BUF16
 	ldy #0		; YCNT = pointer into dither pattern
@@ -1154,7 +1273,6 @@ theloop	lda #0		; clear buffer
 	sta ycnt
 skip4	cpx #16		; result in BUF16
 	bne theloop	; (upper half of a tile in hires)
-	inc pport
 	rts
 
 ; ----------------------------------------- Description of MAKE16
