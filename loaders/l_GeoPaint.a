@@ -12,6 +12,7 @@
 ;        1.03, 09.04.20, added: disk initialization at launch
 ;                               use correct length of filename
 ;                        bugfix: finally reads geopaint images correctly!
+;        1.04, 11.04.20, bugfix: recognize geopaint image correctly
 ; ----------------------------------- 
 
 ; ----------------------------------- Equates
@@ -95,8 +96,8 @@ godheader	jmp start
 	!wo modend
 	!wo 0
 	!tx "geoPaint 1:1 ldr"
-	!tx "1.03"
-	!tx "09.04.20"
+	!tx "1.04"
+	!tx "11.04.20"
 	!tx "A.Dettke        "
 
 ; ----------------------------------- Main
@@ -132,15 +133,12 @@ readhd	inc used
 	dec pport
 	jsr ld5
 
-	ldy #0
-	jsr findgr	; ### 1.02, is empty?
-	bne +
-	inc used		; yes, no GeoPaint image
-	inc used
+	jsr checktype	; check for GeoPaint image
+	lda used		; error?
+	bne rh5		; yes, show and leave
+	jsr checkhght	; get actual height of image
 
-+	jsr checkhght	; get actual height of image
-
-	jsr requ		; open requester
+rh5	jsr requ		; open requester
 	ldx #<(geoslst)
 	ldy #>(geoslst)
 	lda used		; error?
@@ -249,8 +247,13 @@ rg00	jsr clearbuf	; sets readbuffer for PUT and clears it
 	lda blockbuf-2,y	; open graphics file
 	sta empty
 	tax
+	cpx #80
+	bcs rg01
 	lda blockbuf-1,y
-	jsr getblock2
+	bmi +
+	cmp #40
+	bcs rg01
++	jsr getblock2
 	jsr decode
 	lda vekt42
 	sta vrbuf
@@ -475,24 +478,34 @@ jconvert	jmp convert
 
 ; -----------------------------------
 
-checkhght	ldy #0
-cht2	jsr findgr	; find end of graphics
-	beq cht4		; if equal: end of data
-	iny		; if pos  : count height
-	iny
-	bne cht2
-	dey		; ### 1.02: End of block, so
-	dey		; skip $0d,$0d
-cht4	dey		; search actual bottom (skip to top)
-	dey
+checktype	ldy #0
+	sty height
+	sty byte2
+	jsr findgr	; ### 1.02, is empty?
+	beq cht2
+	ldy #100		; ### 1.06, data beyond records?
 	jsr findgr
-	bmi cht4		; if neg  : skip at bottom
+	bne cht2
+	rts
+
+; -----------------------------------
+
+checkhght	ldy #90		; set pointer behind last possible record
+cht4	dey		; search actual bottom of image (skip via top)
+	dey
+	beq cht2		; .y=0: empty image, set flag
+	jsr findgr
+	bmi cht4		; if neg: 00 ff, so skip
 	iny
 	iny
-cht1	sty height	; set height (0 = no data)
+cht1	sty height	; set height
 	sty byte2
 	rts
-	
+
+cht2	inc used		; no GeoPaint image
+	inc used
+	rts
+
 ; -----------------------------------
 
 findgr	lda blockbuf+1,y
