@@ -12,6 +12,7 @@
 ;  1.01, 04.04.20, bugfix: bugs in info block
 ;  1.02, 08.04.20, bugfix: fixed 8 image restriction
 ;  1.03, 10.04.20, bugfix: 1581 didn't allocate blocks
+;  1.04, 13.04.20, changed: get rid of random colors in bottom row
 ;
 ; ----------------------------------------- 
 
@@ -63,8 +64,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "GeoPaint Color  "
-svversion	!pet "1.03"
-	!pet "10.04.20"
+svversion	!pet "1.04"
+	!pet "13.04.20"
 	!pet "A.Dettke        "
 
 ; ----------------------------------------- Main Routine
@@ -1098,9 +1099,15 @@ gcs4	ldy pindex	; current row
 gcs3	jsr initcols
 
 gcs1	ldx rwflg
-	cpx #2
-	bcc gcs0
-	rts
+	beq gcs0
+	dex
+	bne +
+	lda #$d0		; ### 1.04: preset 80 color bytes
+	ldy pindex
+	cpy #25		; bottom row?
+	beq gcs5		; yes, set 80
+	bne gcs0
++	rts
 
 gcs0	lda #$28		; 40 Bytes Bildfarben...
 	jsr writerle
@@ -1117,8 +1124,8 @@ gcs2	ldx #0
 	cpy #40
 	bcc gcs2
 
-+	lda #$a8		; 40 mal $fb anhängen
-	jsr writerle
+	lda #$a8		; 40 mal $fb anhängen
+gcs5	jsr writerle
 	lda #$fb
 	jsr writerle
 	inc pindex
