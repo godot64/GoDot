@@ -5,7 +5,9 @@
 ;	!sl "labels.txt"
 
 ; ----------------------------------- 
-; Loader GeoPaint 
+; Loader GeoPaint
+;  40x25 loader for (colored) GeoPaint images of any size
+;
 ;        1.00, 15.12.03: first release
 ;        1.01, 17.12.03, bugfix: correct retrieving of 1st block
 ;        1.02, 06.11.17, bugfix: recognition whether 1st block is empty
@@ -13,6 +15,8 @@
 ;                               use correct length of filename
 ;                        bugfix: finally reads geopaint images correctly!
 ;        1.04, 11.04.20, bugfix: recognize geopaint image correctly
+;        1.05, 19.04.20, bugfix: didn't read from track 80 on 1581
+;
 ; ----------------------------------- 
 
 ; ----------------------------------- Equates
@@ -96,8 +100,8 @@ godheader	jmp start
 	!wo modend
 	!wo 0
 	!tx "geoPaint 1:1 ldr"
-	!tx "1.04"
-	!tx "11.04.20"
+	!tx "1.05"
+	!tx "19.04.20"
 	!tx "A.Dettke        "
 
 ; ----------------------------------- Main
@@ -246,13 +250,13 @@ rg00	jsr clearbuf	; sets readbuffer for PUT and clears it
 	iny
 	lda blockbuf-2,y	; open graphics file
 	sta empty
-	tax
-	cpx #80
-	bcs rg01
-	lda blockbuf-1,y
+	tax		; get track
+	cpx #81		; >max (on 1581: 80)?
+	bcs rg01		; yes, leave
+	lda blockbuf-1,y	; get sector
 	bmi +
-	cmp #40
-	bcs rg01
+	cmp #40		; >max (on 1581: 39)?
+	bcs rg01		; yes, leave
 +	jsr getblock2
 	jsr decode
 	lda vekt42
