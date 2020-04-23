@@ -1,0 +1,455 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ----------------------------------------- 
+;
+;  mod.Recolor
+;   Module to recolor (IFLI) double pixels
+;
+;  1.00, 23.04.20: first release
+;
+; ----------------------------------------- 
+
+; ----------------------------------------- Equates
+
+	zeile		= sc_merk
+	spalte		= zeile+1
+
+	adcnt		= $30 	; (activity counter)
+	from1		= $31
+	from2		= $32
+	to1		= $33
+	to2		= $34
+	fcol		= $35
+	tcol		= $36
+	col		= $37
+	scan		= $38	; /$39
+	countq		= $3a
+	countb		= $3b
+
+	sprptr		= $07f8
+	spr255		= $3fc0
+
+	spr2x		= $d004
+	spr2y		= $d005
+	msbx		= $d010
+	spren		= $d015
+	sprxe		= $d01d
+	border		= $d020
+	sprcol2		= $d029
+
+; ----------------------------------------- Header
+
+header	jmp start
+	!by $20
+	!by 0
+	!by 0
+	!wo modend
+	!wo 0
+	!tx "Recolor pixels  "
+	!tx "1.00"
+	!tx "23.04.20"
+	!tx "A.Dettke        "
+
+; ----------------------------------------- Main
+
+start	ldx #<rcollst	; show requester
+	ldy #>rcollst
+	jsr gd_screen
+
+	sta sc_loop	; build color chooser:
+	ldx palgad	; palette gadget values
+	inx
+	stx palzl
+	stx sc_zl
+	ldx palgad+1
+	inx
+	stx palsp
+	stx sc_sp
+	ldx #4		; 4x4 area (color chooser)
+	stx sc_br
+	stx sc_ho
+	jsr gd_esm3	; compute address and revert
+
+	ldx #3		; init color table
+	lda sc_normtext
+-	sta from1,x
+	dex
+	bpl -
+
+	lda gr_picked	; get previously selected color to .x
+	and #15		; (will be marked by "+")
+	tax
+	jsr initpal	; and show colors
+
+	jmp gd_eloop	; now wait...
+
+; ----------------------------------------- Event: Apply New Color
+
+evapply	jsr initad	; init activity
+	jsr sftinit	; clear arrows
+
+	ldy from1		; set colors:
+	lda c64pal,y
+	and #$f0
+	sta fcol
+	ldy from2
+	lda c64pal,y
+	and #$0f
+	ora fcol
+	sta fcol		; color to find
+	ldy to1
+	lda c64pal,y
+	and #$f0
+	sta tcol
+	ldy to2
+	lda c64pal,y
+	and #$0f
+	ora tcol
+	sta tcol		; color to replace with
+
+	lda #>sy_4bit
+	ldy #<sy_4bit	; .y=0
+	sta scan+1
+	sty scan
+	sty countb
+
+--	lda #<800
+	sta ls_vekta8
+	lda #>800
+	sta ls_vekta8+1
+-	lda (scan),y	; scan 4bit
+	cmp fcol		; now replace colors
+	bne +
+	lda tcol
+	sta (scan),y
++	inc scan		; count scanned bytes:
+	bne +
+	inc scan+1
++	jsr count		; 800 x 40 = 32000 
+	bne -
+	jsr adinc
+	inc countb
+	lda countb
+	cmp #40
+	bcc --
+
+	lda #$ff		; set flag: graphics have changed
+	sta gr_redisp
+
+; ----------------------------------------- Event: Leave Module
+
+evcancel	jsr clearad	; clear activity bar
+	sec		; leave module
+	rts
+
+; ----------------------------------------- Handle Arrows
+
+sftinit	lda #32		; clear both
+	!by $2c
+
+arrfrom	lda #$5e		; show "from"
+	sta farrtx
+	lda #32		; clear the other
+	sta tarrtx
+-	jsr outarr
+	clc
+	rts
+
+; ----------------------------------------- 
+
+arrto	lda #$5e		; show "to"
+	sta tarrtx
+	lda #32		; clear the other
+	sta farrtx
+	bne -
+
+outarr	ldy #4
+	jsr textout2
+	ldy #6
+	jmp textout2
+
+; ----------------------------------------- Event: Set New Color
+
+evsetto	jsr arrto		; show arrow ("to")
+	jsr where
+	bcs +
+	sty to1		; left
+	!by $2c
++	sty to2		; or right position
+	tya
+	jmp colorize2	; show color
+
+; ----------------------------------------- Event: Set Old color
+
+evsetfrom	jsr arrfrom	; show arrow ("from")
+	jsr where
+	bcs +
+	sty from1		; left
+	!by $2c
++	sty from2		; or right position
+	tya
+	jmp colorize2	; show color
+
+; ----------------------------------------- 
+
+where	lda zeile		; prepare color output:
+	sta sc_zl		; position
+	lda spalte
+	sta sc_sp
+	ldx #1		; width and height = 1
+	stx sc_br
+	stx sc_ho
+	lda gr_picked	; chosen color
+	and #15
+	tay
+	lda spalte	; which position?
+	cmp #23
+	rts
+
+; ------------------------------------------------ Event: Pick Color
+
+evgetcol	sec		; compute row where user clicked
+	lda zeile
+	sbc palzl
+	asl
+	asl
+	sta hold
+	sec		; compute column
+	lda spalte
+	sbc palsp
+	clc
+	adc hold
+	tax		; take as index into palette
+	lda gr_basepal,x
+	tax
+	ora #$80		; sign valid
+	sta gr_picked
+initpal	lda c64pal,x	; re-display palette
+	sta col
+	jsr makepal
+	clc
+	rts
+
+; ------------------------------------------------ create palette chooser
+
+makepal	lda gr_picked	; get current color
+	and #15
+	sta plast		; and store
+
+	lda palsp		; create chooser, first column
+	sta sc_sp
+	pha
+	ldx #1		; width and height = 1
+	stx sc_br
+	stx sc_ho
+	dex
+	stx cnty		; counters = rows 0..3
+	stx hold		; color counter: 0..15
+
+mp1	stx cntx		; columns 0..3
+	ldy hold
+	jsr colorize	; colorize area (1x1)
+	sec		; is PICKED color?
+	lda sc_vekt20
+	sbc #40
+	sta sc_vekt20
+	lda sc_vekt20+1
+	sbc #$d4
+	sta sc_vekt20+1
+	ldy sc_chgcol
+	cpy plast
+	beq mp2
+	lda #160		; no, write shift space
+	bne mp3
+mp2	lda #171		; yes, write "+"
+mp3	ldy #0
+	sta (sc_vekt20),y
+	inc sc_sp		; next column
+	inc hold
+	ldx cntx
+	inx
+	cpx #4
+	bne mp1
+
+	pla		; re-get start column
+	pha
+	sta sc_sp
+	ldx #0
+	inc sc_zl		; next row
+	inc cnty
+	lda cnty
+	cmp #4
+	bne mp1
+
+	pla		; clear stack
+	rts		; finished
+
+; ----------------------------------------- 
+
+colorize	lda gr_basepal,y	; get color
+colorize2	sta sc_chgcol
+	ldx #4
+	jmp gd_fcol	; colorize area (1x1)
+
+; ----------------------------------------- Text Output Handler
+
+tabigad	!wo fromgad	; .y:0
+	!wo togad		;    2
+	!wo farrgad	;    4
+	!wo tarrgad	;    6
+
+settxt	lda #<tabigad
+	sta sc_texttab
+	lda #>tabigad
+	sta sc_texttab+1
+
+gettab	lda (sc_texttab),y	; set gadget parameters (where to output)
+	sta sc_screentab
+	iny
+	lda (sc_texttab),y
+	sta sc_screentab+1
+
+	lda #0
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #4
+	bne gt0
+	jsr gd_trim
+	jmp gd_initmove
+
+; ----------------------------------------- Output Text
+
+textout	ldy #0		; index in tabigad
+textout2	jsr settxt
+	ldy #6		; offset to gadget text
+	jmp gd_xtxout1	; show text
+
+; ----------------------------------------- Counters
+
+count 	lda ls_vekta8	; decrement ls_vekta8/9 by 1
+	bne cou7
+	dec ls_vekta8+1
+cou7 	dec ls_vekta8
+	lda ls_vekta8	; and check if 0 (sets .e)
+	ora ls_vekta8+1
+	rts
+
+; ------------------------------------------------ Activity
+
+adinc	dec adcnt		; advance after adcnt passes
+	bne +
+	inc spr2y
+	inc spr2y+2
+	jmp setadcnt	; reset adcnt
+
+; ------------------------------------------------ Abschluss Activity
+
+clearad	lda spren		; Wanderbalken aus
+	and #$f3
+	sta spren
+	lda msbx
+	and #$f3
+	sta msbx
+	clc 		; fertig
++	rts 
+
+; ------------------------------------------------ Init Activity
+
+initad	ldy #60		; Spriteblock 255 vorbereiten
+	lda #0
+-	sta spr255+3,y
+	dey 
+	bpl -
+	sty spr255	; dünner Strich
+	sty spr255+1
+	sty spr255+2
+	lda #15		; Farbe hellgrau
+	sta sprcol2
+	sta sprcol2+1
+	lda sprxe		; doppelt breit
+	ora #$0c
+	sta sprxe
+
+	lda msbx		; x über 255
+	ora #$0c
+	sta msbx
+	lda #8		; x-Ordinate: 8 (plus 256)
+	sta spr2x
+	lda #$20
+	sta spr2x+2
+	lda #$92		; y-Ordinate: 146
+	sta spr2y		; (im Image Information Fenster)
+	sta spr2y+2
+
+	sty sprptr+2	; Sprite 255
+	sty sprptr+3
+	lda spren
+	ora #$0c		; Activity-Balken aktivieren
+	sta spren		; (überstreicht 5x8=40 Linien)
+
+setadcnt	lda #1		; delimit to only one
+	sta adcnt
+	rts
+
+; ----------------------------------------- Data
+
+palzl	!by 0
+palsp	!by 0
+plast	!by 0
+hold	!by 0
+cntx	!by 0
+cnty	!by 0
+
+c64pal	!by $00,$ff,$44,$cc,$55,$aa,$11,$dd
+	!by $66,$22,$99,$33,$77,$ee,$88,$bb
+
+; ----------------------------------------- Screenlist
+
+rcollst	!by 0
+	!by 5,13,13,13,$81
+	!wo 0
+title	!scr "Recolor",0
+
+fromgad	!by 7,21,4,3,$e0
+	!wo evsetfrom
+fromtx	!scr 160,160,0
+togad	!by 12,21,4,3,$e0
+	!wo evsetto
+totx	!scr 160,160,0
+
+palgad	!by 8,14,6,6,$40
+	!wo evgetcol
+
+	!by 15,13,7,3,$c7
+	!wo evapply
+	!scr "Apply",0
+	!by 15,20,6,3,$cd
+	!wo evcancel
+	!scr "Exit",0
+
+	!by $c0,9,20,4
+	!scr "from",0
+	!by $c0,10,21,2
+	!scr "to",0
+	!by $c0,9,19,1
+	!by 32,0
+	!by $c0,10,19,1
+	!by 32,0
+
+	!by $80
+
+; ----------------------------------------- 
+
+farrgad	!by 9,19,3,3,0,0,0
+farrtx	!by 32,0
+tarrgad	!by 10,19,3,3,0,0,0
+tarrtx	!by 32,0
+
+; ----------------------------------------- 
+
+modend	!eof
