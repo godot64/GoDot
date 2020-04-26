@@ -14,6 +14,7 @@
 ;    1.02, 09.04.01, REUSIZE gets set automatically
 ;    1.03, 02.07.17, added: delete entries from REU directory
 ;    1.04, 20.07.19, bugfixes: care for SuperCPU RAM
+;    1.05, 26.04.20, bugfix: correct recognition of extended REUs
 ;
 ; ------------------------------------------------------------ 
 
@@ -39,6 +40,7 @@
 	modul		= $c000
 	kapaz		= $cde7	; !! self modifying dev.REU !!
 	sprite		= $d015
+	reubank		= reubase+6
 
 
 ; ----------------------------------------------- Header
@@ -49,8 +51,8 @@
 	!wo modend
 	!by $00,$00
 	!pet "Tool for REUs   "
-	!pet "1.04"
-	!pet "20.07.19"
+	!pet "1.05"
+	!pet "26.04.20"
 	!pet "A.Dettke        "
 
 ; ----------------------------------------------- Main 
@@ -417,27 +419,32 @@ rs4	jsr gd_swapd
 ; ----------------------------------------------- Check for more RAM
 
 newsize	jsr isreu		; Check RAM, kehrt bei fail nicht zurück
-	bne tr3		; ### 1.04
+	bne tr4		; ### 1.04/1.05, returns RAMFLAG in .x
 	rts
 
-tr3	inx		; .x contains RAMFLAG (max value on start: 5 for 512KB)
-	lda banks,x	; check if more RAM available: next bank
+tr3	lda banks,x	; check if more RAM available: next bank
 	sta werte0+4
 	ldy #$91		; FETCH 2nd byte from next bank to MERK
 	jsr setreu0
-	lda #0		; FETCH 2nd byte from bank 0 to MERK+1
-	sta werte0+4
-	inc werte0
+	lda sc_merk	; save result to stack for restore
+	pha
+	tax
+	inx
+	stx sc_merk
+	ldy #$90		; STASH different byte back to REU
 	jsr setreu0
-	dec werte0
-	ldx ramflag	; get current size
+	ldy #$91		; FETCH byte again
+	jsr setreu0
+	pla
+	sta sc_merk+1	; now compare results:
+	ldx ramflag	; (get current size)
 	lda sc_merk	; same byte values?
 	sec
 	sbc sc_merk+1
 	beq tr5		; yes, no more RAM: finished
 	inc ramflag	; more RAM, increase flag
-tr4	ldx ramflag	; check for limits
-	cpx #12		; reached?
+	ldx ramflag	; check for limits
+tr4	cpx #12		; reached?
 	bcc tr3
 	dex
 	dec ramflag	; yes, set 11 as value (eq more than 4MB)
@@ -669,19 +676,19 @@ char	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
 choose	!scr "LDRSVRMOD"
 delete	!scr "last all"
 
-mega	!scr " 0K "		; 0 no RAM
+mega	!scr " 0KB"		; 0 no RAM
 	!scr " 16K"		; 1 VDC 1
 	!scr " 32K"		; 2 Pagefox
 	!scr " 64K"		; 3 VDC 2
 	!scr "128K"		; 4 REU 1700
 	!scr "256K"		; 5 REU 1764
 	!scr "512K"		; 6 REU 1700
-	!scr " 1M "		; 7
+	!scr " 1MB"		; 7
 	!scr "1,5M"		; 8
-	!scr " 2M "		; 9
-	!scr " 4M "		; 10
+	!scr " 2MB"		; 9
+	!scr " 4MB"		; 10
 	!scr " >4M"		; 11
-scpumem	!scr " ..M"		; 12 (SuperCPU)
+scpumem	!scr "512K"		; 12 (SuperCPU)
 
 yesno	!by 25,5,19,32,14,15
 chootype	!by 76,68,82,46,42,0
