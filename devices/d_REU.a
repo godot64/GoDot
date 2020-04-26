@@ -17,6 +17,7 @@
 ;   1.07, 15.07.17, added: awareness of svr.Temp (Rucksack an $ca64)
 ;                   bug: didn't separate Undo 4Bit and Undo Rendered if both active
 ;   1.08, 24.05.19, bug: color garbage in lower screen after REU access fixed
+;   1.09, 26.04.20, serious bug: installing from REU > 512K crashed GoDot!
 ;
 ; --------------------------------------
 ;
@@ -155,7 +156,8 @@ nofix	lda #$10		; ja, dann Länge $1000
 setfix	jsr dirbuf	; = fixlength +23
 	jmp getmod	; Load/Execute (in dev, Teil2)
 
-	!fi 6,$ad		; padding		### 1.08 -->
+loadit	jsr nofix
+	jmp rldex		; ausführen	### 1.09
 
 ; -------------------------------------- Header
 
@@ -165,8 +167,8 @@ ramdev	jmp start
 	!wo modend
 	!wo 0
 	!pet "REU Handler     "
-	!pet "1.08"
-	!pet "24.05.19"
+	!pet "1.09"
+	!pet "26.04.20"
 	!pet "A. Dettke       "
 
 ; -------------------------------------- Main
@@ -321,6 +323,7 @@ lm0	lda (entry),y
 
 	ldy #0		; set address
 	lda (entry),y
+	and #15		; ### 1.09: set bank correctly
 	sta rm_werte+4	; bank
 	iny
 	lda (entry),y
@@ -334,8 +337,9 @@ lm0	lda (entry),y
 
 	jsr instfix	; 		### 1.08 --
 	iny
-	jsr nofix
-	jmp rldex		; ausführen	### 1.08 --
+	jmp loadit	;                   ### 1.09
+
+	!by $ad		; padding
 
 lm1	inc rm_nextentry	; nächsten Eintrag ansteuern
 	ldy rm_nextentry
