@@ -1,7 +1,7 @@
 
-	!src "godotlib.lib"	; Label-Library einbinden
-	*= $c000		; generelle Startadresse für alle Module
-	!ct pet		; Texte werden in PETSCII assembliert
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
 
 ; ------------------------------------------------------------ 
 ;
@@ -15,6 +15,7 @@
 ;    1.03, 02.07.17, added: delete entries from REU directory
 ;    1.04, 20.07.19, bugfixes: care for SuperCPU RAM
 ;    1.05, 26.04.20, bugfix: correct recognition of extended REUs
+;    1.06, 27.04.20, bugfix: include real REUs, too
 ;
 ; ------------------------------------------------------------ 
 
@@ -27,6 +28,10 @@
 	ofhi		= $36
 	rmbk		= $37	; don't use $38!
 	entry		= $3a	; /$3b (is dev.REU vector!)
+	bank0val		= $3c
+	banknval		= $3d
+	bankcval		= $3e
+	curbank		= $3f
 	
 
 	status		= $90
@@ -40,8 +45,6 @@
 	modul		= $c000
 	kapaz		= $cde7	; !! self modifying dev.REU !!
 	sprite		= $d015
-	reubank		= reubase+6
-
 
 ; ----------------------------------------------- Header
 
@@ -51,8 +54,8 @@
 	!wo modend
 	!by $00,$00
 	!pet "Tool for REUs   "
-	!pet "1.05"
-	!pet "26.04.20"
+	!pet "1.06"
+	!pet "27.04.20"
 	!pet "A.Dettke        "
 
 ; ----------------------------------------------- Main 
@@ -123,14 +126,13 @@ st5	ora #$30
 
 ; ----------------------------------------------- 
 
-setram	ldx ramflag	; get RAM type value (0-11)
-	cpx #7		; ### 1.04 --
+setram	ldx ramflag	; get RAM type value (0-10)
+	cpx #11		; ### 1.04/1.06 --
 	bne +
 	lda ramtype+12
 	sta scpumem+1
 	lda ramtype+13
-	sta scpumem+2
-	ldx #11		; ### bis hier --
+	sta scpumem+2	; ### bis hier --
 +	inx
 	lda ramind,x	; write text to gadget
 	tax
@@ -160,7 +162,7 @@ isreu	ldx ramflag	; Ergebnis des RAM-Check holen
 	bcs ok1
 ok2	pla		; nein, aussteigen
 	pla
-ok1	cpx #7		; ### 1.04
+ok1	cpx #11		; ### 1.04
 	rts
 
 ; ----------------------------------------------- Event: Install module to REU
@@ -419,37 +421,66 @@ rs4	jsr gd_swapd
 ; ----------------------------------------------- Check for more RAM
 
 newsize	jsr isreu		; Check RAM, kehrt bei fail nicht zurück
-	bne tr4		; ### 1.04/1.05, returns RAMFLAG in .x
+	bne tr7		; ### 1.04/1.05, returns RAMFLAG in .x
 	rts
 
 tr3	lda banks,x	; check if more RAM available: next bank
+	sta curbank
 	sta werte0+4
 	ldy #$91		; FETCH 2nd byte from next bank to MERK
 	jsr setreu0
-	lda sc_merk	; save result to stack for restore
-	pha
-	tax
+	lda sc_merk	; save result 
+	sta sc_merk+1
+
+	inc sc_merk	; change value
+	lda sc_merk
+	sta banknval
+	jsr stashit	; STASH different byte back to REU, same location
+	inx		; .x=0:
+	stx werte0+4	; from bank 0:
+	ldy #$91		; FETCH very 1st retrieved byte again
+	jsr setreu0
+	lda sc_merk	; save result
+	sta bankcval
+
+	lda curbank	; repair new bank
+	sta werte0+4
+	lda sc_merk+1
+	jsr stashit
 	inx
-	stx sc_merk
-	ldy #$90		; STASH different byte back to REU
-	jsr setreu0
-	ldy #$91		; FETCH byte again
-	jsr setreu0
-	pla
-	sta sc_merk+1	; now compare results:
+	stx werte0+4
+	lda bank0val	; repair bank 0 (probably necessary)
+	jsr stashit
+
 	ldx ramflag	; (get current size)
-	lda sc_merk	; same byte values?
-	sec
-	sbc sc_merk+1
+	lda sc_merk+1
+	cmp #$ff		; is bank byte from emulator?
+	beq tr8
+	lda bankcval	; compare retrieved byte values
+	eor banknval	; equal? (they shouldn't!)
 	beq tr5		; yes, no more RAM: finished
-	inc ramflag	; more RAM, increase flag
+
+tr4	inc ramflag	; more RAM, increase flag
 	ldx ramflag	; check for limits
-tr4	cpx #12		; reached?
+	cpx #11		; reached?
 	bcc tr3
-	dex
-	dec ramflag	; yes, set 11 as value (eq more than 4MB)
-tr5	stx rm_reusize	; set value
+
+tr5	dex
+	dec ramflag
+tr8	stx rm_reusize	; set bank value
 	jmp setsize		
+
+tr7	lda #0
+	sta werte0+4
+	ldy #$91		; FETCH 2nd byte from bank 0 to bank0val
+	jsr setreu0
+	lda sc_merk
+	sta bank0val
+	jmp tr4		; continue w/ scan
+
+stashit	sta sc_merk
+	ldy #$90
+	jmp setreu0
 
 ; ----------------------------------------------- Set REU Record
 
@@ -618,7 +649,7 @@ rc2	cpx #5		; REU 1750?
 	lda #5		; eq 512K
 rc3	cpx #7		; is SuperCPU? ### 1.04
 	bne rc4
-	txa
+	lda #11		; yes, set flg ### 1.06
 rc4	sta ramflag	; no, store to RAM flag
 	rts
 
@@ -684,15 +715,15 @@ mega	!scr " 0KB"		; 0 no RAM
 	!scr "256K"		; 5 REU 1764
 	!scr "512K"		; 6 REU 1700
 	!scr " 1MB"		; 7
-	!scr "1,5M"		; 8
-	!scr " 2MB"		; 9
-	!scr " 4MB"		; 10
-	!scr " >4M"		; 11
-scpumem	!scr "512K"		; 12 (SuperCPU)
+	!scr " 2MB"		; 8
+	!scr " 4MB"		; 9
+	!scr " >4M"		; 10
+
+scpumem	!scr " ..M"		; 11 (SuperCPU)
 
 yesno	!by 25,5,19,32,14,15
 chootype	!by 76,68,82,46,42,0
-banks	!by 0,0,0,2,4,8,16,24,32,64,128
+banks	!by 0,0,0,2,4,8,16,32,64,128
 chosen	!by 0
 delwhat	!by $ff
 choind	!by 2,5,8
@@ -705,8 +736,8 @@ sw90	!by $00,$90,$1c,$b2,$00,$00,$10	; ### jetzt: 4096 Bytes
 swold	!by 0,0,0,0,0,0,0
 hex	!pet "0123456789abcdef"
 
-werte0	!by $b0,0,1,0,0,1,0,$1f,0
-;	     c64 ,REU  ,bytes
+werte0	!by $b0,0, 1,0,0, 1,0,  $1f,0
+;	   | c64  | REU  |bytes|
 
 err1	!scr "       Can't clone Files.       "
 	!scr "        No dev.SCPU yet.        "	; ### 1.04
