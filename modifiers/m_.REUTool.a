@@ -460,8 +460,8 @@ tr3	lda banks,x	; check if more RAM available: next bank
 	eor banknval	; equal? (they shouldn't!)
 	beq tr8		; yes, no more RAM: finished
 
-tr4	inc ramflag	; more RAM, increase flag
-	ldx ramflag	; check for limits
+	inc ramflag	; more RAM, increase flag
+tr4	ldx ramflag	; check for limits
 	cpx #11		; reached?
 	bcc tr3
 
@@ -719,7 +719,7 @@ mega	!scr " 0KB"		; 0 no RAM
 	!scr " 4MB"		; 9
 	!scr " >4M"		; 10
 
-scpumem	!scr " ..M"		; 11 (SuperCPU)
+scpumem	!scr " 16M"		; 11 (SuperCPU)
 
 yesno	!by 25,5,19,32,14,15
 chootype	!by 76,68,82,46,42,0
