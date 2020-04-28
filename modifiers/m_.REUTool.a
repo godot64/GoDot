@@ -15,7 +15,7 @@
 ;    1.03, 02.07.17, added: delete entries from REU directory
 ;    1.04, 20.07.19, bugfixes: care for SuperCPU RAM
 ;    1.05, 26.04.20, bugfix: correct recognition of extended REUs
-;    1.06, 27.04.20, bugfix: include real REUs, too
+;    1.06, 28.04.20, bugfix: include real REUs, too
 ;
 ; ------------------------------------------------------------ 
 
@@ -55,7 +55,7 @@
 	!by $00,$00
 	!pet "Tool for REUs   "
 	!pet "1.06"
-	!pet "27.04.20"
+	!pet "28.04.20"
 	!pet "A.Dettke        "
 
 ; ----------------------------------------------- Main 
@@ -458,7 +458,7 @@ tr3	lda banks,x	; check if more RAM available: next bank
 	beq tr8
 	lda bankcval	; compare retrieved byte values
 	eor banknval	; equal? (they shouldn't!)
-	beq tr5		; yes, no more RAM: finished
+	beq tr8		; yes, no more RAM: finished
 
 tr4	inc ramflag	; more RAM, increase flag
 	ldx ramflag	; check for limits
