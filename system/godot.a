@@ -18,7 +18,9 @@
 ;   1.36, 31.05.17 ; changed length of swp.file to 4096 bytes
 ;   1.37, 15.07.17 ; accommodation to dev.REU v1.07
 ;   1.38, 25.08.17 ; max # of entries in dir window now variable
-;   1.39, 24.11.19 ; propagating currently chosen rgb palette 
+;   1.39, 24.11.19 ; propagating currently chosen rgb palette
+;   1.40, 30.04.20 ; better recognition of REUs
+;                    now making use of BBU REUs (like in emulators)
 ;
 ; ------------------------------------------------------------ 
 
@@ -31,7 +33,7 @@
 	!word $0814
 	!word 100
 	!byte $9e		; Basic-Line: SYS 2070
-	!pet " 2070 : ad 17"
+	!pet " 2070 : ad 20"
 	!byte 0,0,0
 
 	lda #$35		; transfer 18 blocks of data to $2000...
@@ -56,7 +58,8 @@ b2	sta booter,y
 	wordlo		= $07
 	int		= $14
 	
-	bytes		= $30
+	bytes		= $30	; /$31
+	ramused		= $32
 	entry		= $3a	; /$3b
 	status		= $90
 	cntreads		= $ac
@@ -77,7 +80,7 @@ b2	sta booter,y
 	devs		= $0fa2
 	adrive		= $0fc3
 	gdrive		= adrive+1
-	scm1		= $148e
+	scm1		= $148e	; send IO command
 	sm2		= $14e2
 	ld11		= $1825
 	filtype		= $1d29 	; selfmodifying kernel!
@@ -210,7 +213,7 @@ mkt0	lda tabs-$40,x
 
 ; --------------------------------------- 
 
-version	!byte $01,$39	; Versionsnummer in SED-Format (1.39)
+version	!byte $01,$40	; Versionsnummer in SED-Format (1.40)
 
 ; --------------------------------------- 
 
@@ -239,12 +242,12 @@ sprdata	!byte $00,$00,$00,$60,$00,$00,$70,$00	; Systemzeiger
 soffx	!byte 24		; Offsets für linke obere Ecke
 soffy	!byte 50		; des sichtbaren Screens
 
-; --------------------------------------- 
+; --------------------------------------- Werte für REU-Test
 
-werte0	!byte $ae,$00	; Werte für REU-Test
-	!byte $00,$00,$04
-	!byte $02,$00,$1f
-	!byte $00
+werte0	!byte $ae,$00	; C64-Adresse
+	!byte $00,$00,$00	; REU-Adresse und Bank
+	!byte $01,$00	; Anzahl Bytes für Übertragung
+	!byte $1f,$00
 
 ; --------------------------------------- 
 
@@ -289,8 +292,8 @@ setscreen	lda #$12		; GoDot-Boot-Screen ausgeben
 	sta tscreen
 	lda #8
 	jsr bsout
-	ldx #<(godlst)
-	ldy #>(godlst)
+	ldx #<godlst
+	ldy #>godlst
 	jsr gd_screen
 	lda #11
 	sta sc_chgcol
@@ -311,7 +314,7 @@ scolor	ldx #7		; Logo einfärben
 ; --------------------------------------- 
 
 	a=224	; Definition des Boot-Screens
-	b=a+1
+	b=a+1	; a - p: Chars für Logo ($e0..$ef)
 	c=a+2
 	d=a+3
 	e=a+4
@@ -326,52 +329,68 @@ scolor	ldx #7		; Logo einfärben
 	n=a+13
 	o=a+14
 	p=a+15
-	s=32
-	ss=160
+
+	s=32	; Space
+	ss=160	; Shift Space
 
 ; --------------------------------------- Boot Screen
 
 godlst	!byte $93
 	!byte 0,0,40,25,$02,0,0
-	!byte 22,3,34,3,$8c,0,0,87,5,12,3,15,13,5,33,0
-	!byte $c0,1,6,26,a,ss,ss,ss,b,s,s,s,s,s,s,s,ss,ss,ss,ss,b
+	!byte 22,3,34,3,$8c,0,0
+	!scr "Welcome!",0
+
+	!byte $c0,1,6,26
+	!byte a,ss,ss,ss,b,s,s,s,s,s,s,s,ss,ss,ss,ss,b
 	!byte s,s,s,s,s,s,s,ss,s,0
-	!byte $c0,2,6,26,ss,e,s,f,ss,s,a,ss,ss,ss,b,s
+	!byte $c0,2,6,26
+	!byte ss,e,s,f,ss,s,a,ss,ss,ss,b,s
 	!byte ss,s,s,f,ss,s,a,ss,ss,ss,b,i,ss,ss,0
-	!byte $c0,3,6,26,ss,s,s,s,s,s,ss,e,s,f,ss,s
+	!byte $c0,3,6,26
+	!byte ss,s,s,s,s,s,ss,e,s,f,ss,s
 	!byte ss,s,s,s,ss,s,ss,e,s,f,ss,s,ss,s,0
-	!byte $c0,4,6,26,ss,s,s,ss,ss,s,ss,s,s,s,ss,s
+	!byte $c0,4,6,26
+	!byte ss,s,s,ss,ss,s,ss,s,s,s,ss,s
 	!byte ss,s,s,s,ss,s,ss,s,s,s,ss,s,ss,s,0
-	!byte $c0,5,6,26,ss,s,s,s,ss,s,ss,s,s,s,ss,s
+	!byte $c0,5,6,26
+	!byte ss,s,s,s,ss,s,ss,s,s,s,ss,s
 	!byte ss,s,s,s,ss,s,ss,s,s,s,ss,s,ss,s,0
-	!byte $c0,6,6,26,ss,g,s,h,ss,s,ss,g,s,h,ss,s
+	!byte $c0,6,6,26
+	!byte ss,g,s,h,ss,s,ss,g,s,h,ss,s
 	!byte ss,s,s,h,ss,s,ss,g,s,h,ss,s,ss,g,0
-	!byte $c0,7,6,26,c,ss,ss,ss,d,s,c,ss,ss,ss,d,s
+	!byte $c0,7,6,26
+	!byte c,ss,ss,ss,d,s,c,ss,ss,ss,d,s
 	!byte ss,ss,ss,ss,d,s,c,ss,ss,ss,d,s,c,ss,0
-	!byte $c0,8,6,26,j,k,k,k,l,s,j,k,k,k,l,s
+	!byte $c0,8,6,26
+	!byte j,k,k,k,l,s,j,k,k,k,l,s
 	!byte k,k,k,k,l,s,j,k,k,k,l,s,j,k,0
-	!byte $c0,9,6,26,m,s,s,s,m,s,m,s,s,s,m,s
+	!byte $c0,9,6,26
+	!byte m,s,s,s,m,s,m,s,s,s,m,s
 	!byte m,s,s,s,m,s,m,s,s,s,m,s,m,s,0
-	!byte $c0,10,6,26,n,s,s,s,n,s,n,s,s,s,n,s
+	!byte $c0,10,6,26
+	!byte n,s,s,s,n,s,n,s,s,s,n,s
 	!byte n,s,s,s,n,s,n,s,s,s,n,s,n,s,0
-	!byte $c0,11,6,26,o,s,s,o,o,s,o,s,s,s,o,s
+	!byte $c0,11,6,26
+	!byte o,s,s,o,o,s,o,s,s,s,o,s
 	!byte o,s,s,s,o,s,o,s,s,s,o,s,o,s,0
-	!byte $c0,12,6,26,p,s,s,s,s,s,p,s,s,s,p,s
+	!byte $c0,12,6,26
+	!byte p,s,s,s,s,s,p,s,s,s,p,s
 	!byte p,s,s,s,p,s,p,s,s,s,p,s,p,s,0
 	
 	!byte $c0,15,8,20
-	!scr "A. Dettke & W. Kling@"
+	!scr "A. Dettke & W. Kling",0
 	!byte $c0,17,14,9
-	!scr "1991-2017@"
+	!scr "1991-2020",0
 
 	!byte $c0,19,8,20
-	!scr "C64 Image Processing@"
+	!scr "C64 Image Processing",0
 	!byte $80
 
 ; --------------------------------------- 
 
 message	!scr "Installing: "
-mess1	!scr "                @"
+mess1	!fill 16,32
+	!byte 0
 
 setmess	ldx #15		; "Installing ..." ausgeben
 	lda #32
@@ -384,15 +403,15 @@ putmess	lda #20		; in Zeile 20
 	ldy #28		; mit Breite 28
 	jsr sm2
 	jsr gd_clrline
-	ldx #<(message)
-	ldy #>(message)
+	ldx #<message
+	ldy #>message
 	jmp gd_xtxout2
 
 ; --------------------------------------- Systemfiles laden
 
 load4	lda chlen		; zuerst Zeichensatz (god.set)
-	ldx #<(charset) 
-	ldy #>(charset)
+	ldx #<charset 
+	ldy #>charset
 	jsr filnam
 	lda #$01
 	ldx drivenr
@@ -403,9 +422,10 @@ load4	lda chlen		; zuerst Zeichensatz (god.set)
 	ldy #$08
 	jsr load
 	bcs error
+
 	lda mplen		; dann den Kernel (god.main)
-	ldx #<(mainprg)
-	ldy #>(mainprg)
+	ldx #<mainprg
+	ldy #>mainprg
 	jsr filnam
 	lda #$01
 	ldx drivenr
@@ -417,9 +437,10 @@ load4	lda chlen		; zuerst Zeichensatz (god.set)
 	jsr load
 	bcs error
 	jsr setscreen	; Bootscreen aktivieren
+
 	lda s4len		; dann die Renderroutinen (god.upmem)
-	ldx #<(slot4)
-	ldy #>(slot4)
+	ldx #<slot4
+	ldy #>slot4
 	jsr filnam
 	lda #$01
 	ldx drivenr
@@ -430,9 +451,10 @@ load4	lda chlen		; zuerst Zeichensatz (god.set)
 	ldy #$f0
 	jsr load
 	bcs error
+
 	lda godlen	; und schließlich die INI-Datei (god.ini)
-	ldx #<(godini)
-	ldy #>(godini)
+	ldx #<godini
+	ldy #>godini
 	jsr filnam
 	lda #$01
 	ldx drivenr
@@ -444,6 +466,7 @@ load4	lda chlen		; zuerst Zeichensatz (god.set)
 	jsr load
 	bcc l4
 	inc noparse	; bei Fehler: "nicht auswerten" aktivieren
+
 l4	lda drivenr	; Bootdrive bekanntmachen
 	sta ls_drive
 	sta gdrive
@@ -456,7 +479,7 @@ l4	lda drivenr	; Bootdrive bekanntmachen
 	
 ; --------------------------------------- 
 
-error	jmp reset	; bei Fehler: Reset
+error	jmp reset		; bei Fehler: Reset
 
 ; ---------------------------------------
 
@@ -510,9 +533,9 @@ ts02	cmp #$0f		; 1 MB?
 	
 ts00	stx ramtype+13	; ja, eintragen
 	sty ramtype+12
-	lda #$4d	; M
+	lda #$4d		; M
 	sta ramtype+14
-	lda #$42	; B
+	lda #$42		; B
 	sta ramtype+15
 	lda #7		; ja, eintragen: Flag
 	sta gd_modswitch
@@ -550,60 +573,76 @@ tr1	stx gd_modswitch
 	lda #2
 	sta gd_modswitch
 tr11	cpx #$09
-	bcc testend
+	bcc te0
 	
-; ---------------------------------------
+; --------------------------------------- Test REUs
 
-testreu	ldx #$00		; REU vorhanden?
-	lda reupres
+testreu	ldx #0
+	stx gd_modswitch	; vorbesetzen
+	lda reupres	; REU vorhanden?
 	cmp #$1f
 	bne tr2
 	lda reupres+1
 	cmp #$3f
 	bne tr2
-	ldx #$02
+	ldx #2
 tr2	txa
-	beq testend
-	asl		; ja, Flag setzen
+	bne +
+te0	jmp testend	; nein, eintragen
+
++	asl		; ja, Typflag setzen (.a=4)
 	sta gd_modswitch
-	lda #$4c		; Einsprung aktivieren
+
+	lda #$4c		; Einsprung ins dev.REU aktivieren
 	sta ramvec
-	lda #<(ramstart)
+	lda #<ramstart
 	sta ramvec+1
 
 	lda reubase	; Kapazität feststellen
-	and #$10
+	and #$10		; ist REU 1700? (Bug in VICE!)
 	bne tr4
-	asl gd_modswitch
-tend0	bne testend	; ist REU 1700
-tr4	ldy #$91		; sonst: Check der Größe
-	jsr setreu0	; zwei Bytes ab $040000 lesen
-	lda #$b0		; dann 1 Byte schreiben
-	sta werte0
-	dec werte0+5
-	dec werte0+8
-	dey
-	sty sc_merk
-	jsr setreu0
-	inc werte0+2	; ein anderes Byte dahinter schreiben
-	inc sc_merk
-	jsr setreu0
-	dec werte0+2
-	iny
-	jsr setreu0	; und wieder auslesen
-	lda #$ae
-	sta werte0
-	inc werte0+5
-	inc werte0+8
-	tya		; Bytes vergleichen
-	sec
-	sbc sc_merk
-	beq tr3		; kein Unterschied; REU 1764 (keine Bank 4)
-	inc gd_modswitch	; sonst: REU 1750 (8 Banks)
-tr3	dey		; ursprüngliche Bytes zurückschreiben
-	jsr setreu0	
+	asl gd_modswitch	; ja, Typflag auf 8
+tend0	bne testend	; und fertig (eintragen)
 
-testend	ldx #$0c		; Ergebnis in Drivelist eintragen
+tr4	ldy #$91		; sonst: Check der Größe ($91=FETCH)
+	jsr setreu0	; ein Byte von $000000 nach $ae lesen
+	inc werte0	; neues Ziel: $af
+	lda #4		; neue Bank: 4
+	sta werte0+4
+	jsr setreu0	; ein Byte von $040000 nach $af lesen
+
+	inc werte0	; dann: neue C64-Adresse ($b0=sc_merk)
+	ldx $af		; anderen Wert bestimmen
+	inx
+	stx sc_merk	; geänderten Wert nach $b0 schreiben
+	dey		; .y=$90 (STASH)
+	jsr setreu0	; diesen Wert nach $040000 schreiben
+
+	iny		; .y wieder $91 (FETCH)
+	lda #0		; Bank wieder 0
+	sta werte0+4	
+	jsr setreu0	; auslesen aus $000000 nach $b0 (sollte $ae sein)
+
+	dec werte0	; Wert in $af zurückschreiben nach $040000
+	dey		; .y=$90
+	lda #4		; Bank 4
+	sta werte0+4
+	jsr setreu0
+	dec werte0	; Wert in $ae zurückschreiben nach $000000
+	lda #0		; Bank 0
+	sta werte0+4
+	jsr setreu0
+
+	lda $af		; Emulator?
+	cmp #$ff
+	beq testend	; ja, REU 1764 einsetzen
+
+	lda $ae		; $ae (Bank 0) und $b0 (Bank 0 neu) vergleichen
+	eor sc_merk	; (sollte bei 1750 gleich sein)
+	bne testend	; ungleich: REU 1764 (keine Bank 4)
+	inc gd_modswitch	; sonst: REU 1750 (8 Banks)
+
+testend	ldx #12		; Ergebnis in Drivelist eintragen
 	lda gd_modswitch
 	ora devs,x
 	sta devs,x
@@ -612,7 +651,7 @@ testend	ldx #$0c		; Ergebnis in Drivelist eintragen
 	
 ; ---------------------------------------
 
-setreu0	ldx #$08		; REU aktivieren,
+setreu0	ldx #8		; REU aktivieren,
 sre00	lda werte0,x	; Kommando in Y
 	sta reubase+2,x
 	dex
@@ -625,38 +664,39 @@ sre00	lda werte0,x	; Kommando in Y
 what	jsr gd_which	; welche sind angeschlossen?
 
 	lda ls_drive	; alle ab 8 (bis 11) checken
-	pha
-	ldx #$08
-wh2	lda #$02		; Zähler für Bytes
+	pha		; zurückholen: nach TESTFOX (s.u.)
+
+	ldx #8
+wh2	lda #2		; Zähler für Bytes
 	sta cntreads
 
-	ldy #$00		; Drive da?
+	ldy #0		; Drive da?
 	lda devs,x
 	and #$0f
 	beq whw		; nein, skip
 
 	sta devs,x	; M-R senden (Einschaltmeldung holen)
-	ldy #$05
+	ldy #5
 wh4	lda mess,y
 	sta sc_movetab,y
 	dey
 	bpl wh4
 
-wh3	lda #<(sc_movetab)	; dieser Teil wird mehrfach verwendet
+wh3	lda #<sc_movetab	; dieser Teil wird mehrfach verwendet
 	sta namepos
-	lda #>(sc_movetab)
+	lda #>sc_movetab
 	sta namepos+1
-wh32	lda #$06		; $06 wird modifiziert
+wh32	lda #6		; 6 wird modifiziert
 	sta namelen
 	txa
 	jsr scm1		; Kommando an Drive senden
 	txa
 	ldy #$6f
 	jsr gd_talk
-	jsr iecin		; Antwort holen
-	sta sc_merk
+	jsr iecin		; Antwort (2 Bytes) holen
+	sta sc_merk	; nach $b0...
 	jsr iecin
-	sta sc_merk+1
+	sta sc_merk+1	; ...und $b1
 wh31	jsr untalk	; JSR wird modifiziert
 
 	lda sc_merk	; Zahl? (aus 1541, 71, 70): 7 oder 4
@@ -667,23 +707,24 @@ wh31	jsr untalk	; JSR wird modifiziert
 
 wh5	lda sc_merk	; "7"?
 	and #$0f
-	cmp #$07
-	bne wh1
-	lda sc_merk+1	; "70" oder "71"?
+	cmp #7
+	bne wh1		; nein (war 4)
+	lda sc_merk+1	; "70" oder "71"? dann: 0 oder 1
 wh1	asl		; ins obere Nibble
 	asl
 	asl
 	asl
-	tay
+	tay		; Typ nach .y
 	ora devs,x	; eintragen
 	sta devs,x
-	bmi fd81		; 8 war 1581
+	bmi fd81		; 8 war 1581 (vorsichtshalber)
 
 	cpy #$20		; CMD?
 	bne whw
 	lda #34		; ja, T1, S34 eintragen (Directory)
 	ldy #1
 	bne setts
+
 fd81	lda #3		; sonst: T40, S3 (1581)
 	ldy #40
 	bne setts
@@ -693,50 +734,57 @@ setts	sta ls_ftabs-8,x
 	tya
 	sta ls_ftabt-8,x
 
-	inx		; durch alle Drives
-	cpx #$0c
+	inx		; durch alle Drives (8..11)
+	cpx #12
 	beq whw31
 	jmp wh2
 
-whw31	lda #$20		; RAM-Typen nach Drive 12 (vorbesetzen)
+; --------------------------------------- Abschluss Drives
+
+whw31	lda #$20		; RAM-Typen vorbesetzen (Drive 12)
 	sta devs,x
 	dec namelen
 
-	ldx #8		; "U0>M1" an 1571 schicken
+	ldx #8		; "U0>M1" an alle 1571 schicken
 whw3	ldy #4
 whw0	lda m1571,y
 	sta sc_movetab,y
 	dey
 	bpl whw0
-whw1	lda devs,x
-	and #$10
+
+whw1	lda devs,x	; Rückmeldung von 1571 holen
+	and #$10		; 1571?
 	beq whw2
-	txa
+
+	txa		; ja, Fehlermeldung holen
 	sta ls_drive
 	pha
 	jsr scm1
 	jsr ld10
-	pla
+	pla		; und verwerfen (LED off)
 	tax
-whw2	inx
+
+whw2	inx		; alle Drives durch
 	cpx #12
 	bne whw3
 
-; ---------------------------------------
+; --------------------------------------- RAM-Test
 
 	jsr textfox	; nun: RAM-Check
 
 	tax		; Current Drive zurück
-	pla
+	pla		; .a gesetzt in WHAT (s.o.)
 	sta ls_drive
-	sta bootinit	; REUCLEAR=1 erzwingen (Rebootflag)
-	txa		; kein RAM?
+	txa		; kein Zusatz-RAM?
 	and #15
 	cmp #9
 	bcs whx
 
-	jsr ldramdev	; doch: RAM-Device laden
+	jsr ldramdev	; doch, RAM-Device laden
 	bne whx		; Fehler, fertig
+	lda rm_nextram	; schon Einträge vorhanden?
+	cmp #6
+	bcs mr2		; ja, Init Directory übergehen
 
 	lda #$ff		; Rebootflag bearbeiten
 	ldx bbu		; RAM-Header eintragen
@@ -749,10 +797,11 @@ mr0	lda rentries,x	; Header in RAM-Directory schreiben
 	dex
 	cpx rboot
 	bne mr0
-	ldx #10		; dann FirstInit aktivieren
+
+mr2	ldx #10		; dann FirstInit aktivieren
 	jsr ramstart
-	jsr gd_swapd	; und Directory ins RAM schreiben
-whx	rts
+	jsr gd_swapd	; RAM ausblenden
+whx	rts		; (RTS wird gebraucht!)
 
 ; --------------------------------------- CMD Detect
 
@@ -1083,7 +1132,7 @@ lastn	!pet "Untitled        "		; ls_lastname ($03dc)
 ;
 swapw	!byte 0,$c0			; RAM-Strukturen ($03ec)
 	!byte 0,0,0
-	!byte <(4096),>(4096)
+	!byte <4096,>4096
 werte	!byte 0,$c0,0,0,0,0,0		; ($03f3)
 
 sysdrive	!byte 0				; ($03fa)
@@ -1200,9 +1249,9 @@ parser	lda noparse	; Parsen erlaubt?
 	beq parseinit	; ja
 	rts
 
-parseinit	lda #<(godinit)	; Zeiger auf INI-Datei setzen (an $3800)
+parseinit	lda #<godinit	; Zeiger auf INI-Datei setzen (an $3800)
 	sta ls_vekta8
-	lda #>(godinit)
+	lda #>godinit
 	sta ls_vekta8+1
 	bne parse
 
@@ -1227,9 +1276,9 @@ p0	cmp #$41		; kein Buchstabe?
 	bcs next		; dann übergehen
 
 	sty sc_merk	; Offset auf Zeichen merken
-	ldx #<(keylist)	; Keywordtabelle anpeilen
+	ldx #<keylist	; Keywordtabelle anpeilen
 	stx sc_texttab
-	ldx #>(keylist)
+	ldx #>keylist
 	stx sc_texttab+1
 	ldx #0		; Zähler auf Null
 	stx count
@@ -1493,7 +1542,7 @@ tc0	inx
 
 ; ---------------------------------------
 
-befclip	jsr gword	; CLIP x,y,b,h
+befclip	jsr gword		; CLIP x,y,b,h
 	bcc cl1
 	sta clip
 cl1	jsr getword
@@ -1509,9 +1558,9 @@ cl0	inx
 ; ---------------------------------------
 
 befdefcol	jsr gw		; DEFCOLORS n,a,..,n
-	bcc dcende
+	bcc dce
 	cmp #2
-	bcc dcende
+dce	bcc dcende
 	cmp #16
 	bcs dcende
 	tax
@@ -1649,8 +1698,8 @@ fileread	stx bytes
 	pha
 	stx sc_vekt20
 	sty sc_vekt20+1
-	ldx #<(sc_movetab)
-	lda #>(sc_movetab)
+	ldx #<sc_movetab
+	lda #>sc_movetab
 	stx ls_vekta8
 	sta ls_vekta8+1
 pt2	jsr fload
@@ -1739,8 +1788,8 @@ befptr	jsr getname	; POINTER "ptr.xy"
 	lda #0
 	sta bytes+1
 	ldx #65
-	lda #<(sprdata)
-	ldy #>(sprdata)
+	lda #<sprdata
+	ldy #>sprdata
 	jsr fileread
 	txa
 	bne ptr2
@@ -1793,14 +1842,15 @@ befreuclr	jsr gw		; REUCLEAR n
 	cmp #12
 	bne bss2		; no
 	
-	jsr gd_swapd
+	jsr gd_swapd	; returns .x=$ff/.y=$ff
+
 	pla
 	sta modul+18
 
-	lda #4		; Auf jeden Fall nextram korrekt setzen:
+initrdir	lda #4		; Auf jeden Fall nextram korrekt setzen:
 	sta sc_merk
-	iny
-	inx
+	iny		; .y=0
+	inx		; .x=0
 bss1	inc sc_merk	; Einträge zählen...
 	lda sc_merk
 	jsr mal19
@@ -1817,7 +1867,7 @@ bss2	pla
 	rts
 
 
-; ---------------------------------------
+; --------------------------------------- Load File
 
 fload	jsr gd_xopen
 	jsr setmess1
@@ -1896,7 +1946,7 @@ ld12	lda sc_movetab,y
 	bpl ld12
 	rts
 
-; ---------------------------------------
+; --------------------------------------- INI Keywords
 
 keylist	!pet "colorS"
 	!pet "defcolorS"
@@ -2006,21 +2056,30 @@ devname	!byte 7			; Länge des Filenamens
 ; ---------------------------------------
 
 offsets	!byte $80,$80,$80,$80,0,0,$80,$80,0	; Offset auf devname oder $80
-;             $80,$80, 21, 10,0,0,$80, 31,0
+;               $80,$80, 21, 10,0,0,$80, 31,0
 
 ; ---------------------------------------
 
 ldramdev	pha		; Typflag retten (0 bis 9)
-	jsr gd_swapd	; RAM einblenden, .x=$ff
+	lda #$c0		; validen RAM-Management Wert angeben
+	sta gd_modswitch
+	jsr gd_swapd	; RAM einblenden, .x=$ff, .y=$ff
 	lda modul+6	; "."? (im Namen "RM.Handler")
 	cmp #$2e
 	bne initdir	; nein, Device laden
 
-	lda bootinit	; sonst: REU-Flag testen
+	ldx #10		; sonst: FirstInit aktivieren
+	jsr ramstart
+	lda bootinit	; Reboot-REU-Flag (modul+18) testen
 	sta bbu
 	bne initdir	; neu initialisieren, wenn gesetzt
-	pla		; sonst fertig
-	inx
+	sta rm_nextram
+	ldx #$ff
+	ldy #$ff
+	jsr initrdir	; sonst: Directory zur Verfügung stellen
+	jsr gd_swapd	; und wieder einblenden
+	pla		; und fertig
+	inx		; .x=0
 	beq ldok
 
 ; ---------------------------------------
@@ -2062,8 +2121,8 @@ ln0	lda devname,x	; Namen puffern
 	inx
 	lda devname,x
 	tax
-	lda #<(ram)	; und Device laden
-	ldy #>(ram)
+	lda #<ram		; und Device laden
+	ldy #>ram
 	jsr fileread
 	txa
 	beq ldok
@@ -2076,8 +2135,10 @@ notok	lda #$18		; Bei Fehler: RAM sperren
 
 ldok	lda #12		; Sysdrive ist nun RAM
 	sta sysdrive
+	lda rm_nextram
+	bne +
 	lda #5		; ersten freien Dir-Eintrag ansteuern
-	sta rm_nextram
++	sta rm_nextram
 	txa		; .x ist Flag für Erfolg (=0)
 ln3	rts
 
