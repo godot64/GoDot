@@ -12,6 +12,7 @@
 ;  1.00, 15.11.92, first release
 ;  1.01, 15.08.18, reorganized loader
 ;                  bugfixes: in merge and in getcols
+;  1.02, 07.05.20, added: stop read on EOF
 ;
 ; ----------------------------------------- 
 
@@ -38,8 +39,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "HiBitmapSpecial!"
-	!tx "1.01"
-	!tx "15.08.18"
+	!tx "1.02"
+	!tx "07.05.20"
 	!tx "A.Dettke/W.Kling"
 
 ; ----------------------------------------- 
@@ -77,37 +78,35 @@ start	ldx used
 	ldx which		; Replace or Compose?
 	bne ld6
 
-	ldx #<(pureraw)	; Replace, reset to no-processing of bytes
-	ldy #>(pureraw)
+	ldx #<pureraw	; Replace, set to no-processing of bytes
+	ldy #>pureraw
 	jsr setdoit
 	jsr getname	; save filename for image information
 
 ld6	jsr gd_clrms	; don't save filename on Compose
-	stx offy		; .x=0
-	lda #200		; set activity 
-	sta adcnt
-	lda #7
-	sta offx
+	jsr clrmess
 	lda #1		; prepare pixel counter
 	sta btcnt
+	sta adcnt
 	ldy #0		; count 32000 bytes
 	sty ls_vekta8
 	ldy #$7d
 	sty ls_vekta8+1
+	bne ld0
 
-ld0	ldy #0
-	jsr getbyte	; read byte and convert to 4Bit
-	jsr readbytes	; process data 
-	sta (sc_texttab),y	; store to 4Bit
-
-	jsr count		; proceed and count
-	beq ld3		; finish after last byte
-
+ld01	jsr count		; last byte (after EOF)
+	jsr process
+	lda btcnt
+	cmp #4		; if bitcounter=4: finished
+	bne ld01
+	beq ld3
+	
+ld0	jsr process	; retrieve and convert bytes
 	jsr action	; move gauge
-
-	lda status	; get disk status
-	beq ld0		; loop if ok
-	bne ld0		; otherwise don't care
+	bit status	; until EOF
+	bvs ld01
+	jsr count		; proceed and count
+	bne ld0		; finish after last byte (if no EOF yet)
 
 ; ----------------------------------------- Finish
 
@@ -122,6 +121,12 @@ ld7	jsr gd_xclose	; close file
 
 	jsr clrmess	; reset gauge
 	sec		; leave loader
+	rts
+
+process	ldy #0
+	jsr getbyte	; read byte and convert to 4Bit
+	jsr readbytes	; process data
+	sta (sc_texttab),y	; store to 4Bit
 	rts
 
 ; ----------------------------------------- 
@@ -326,11 +331,11 @@ bwt2	clc
 
 getcols	lda #0		; paper: BLK
 	sta col0
-	lda gr_picked
-	and #$0f
+	lda gr_picked	; (default: 0 = BLK)
+	and #$0f		; gr_picked is set?
 	tax
-	bne gc0
-	ldx #1		; ink: WHT (or gr_picked)
+	bne gc0		; yes
+	ldx #1		; no, is BLK so ink = WHT
 gc0	lda gdcols,x	; produces: $00
 	sta col3		;           $ff
 	tax
@@ -423,8 +428,11 @@ action	dec adcnt		; Activity
 	bne ld4
 	lda #200
 	sta adcnt
-	ldy offy
-	ldx offx
+	ldy offy		; bar at maximum?
+	cpy clrmess+1
+	bne act0
+	jsr clrmess	; yes, clear
+act0	ldx offx		; write bar to output
 	lda filltab,x
 	sta mess,y
 	jsr messout
@@ -437,9 +445,13 @@ ld4	rts
 
 clrmess	ldx #21
 	lda #32
-ld5	sta mess,x
+cl0	sta mess,x
 	dex
-	bpl ld5
+	bpl cl0
+	ldy #0		; init counters
+	ldx #7	
+	sty offy
+	stx offx
 	rts
 
 filltab	!by 160,93,103,127,126,124,105,109
