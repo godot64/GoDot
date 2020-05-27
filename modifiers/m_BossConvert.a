@@ -20,6 +20,7 @@
 ;    1.08, 01.12.19, added: 2 more flags in file data
 ;    1.09, 02.12.19, added: correct value for INFILE
 ;    1.10, 05.03.20, changed: file format (added timer)
+;    1.11, 26.05.20, changed: file format (added optimization flag)
 ;
 ; ------------------------------------------------------------ 
 
@@ -74,8 +75,8 @@ header 	jmp start
 	!wo  modend
 	!wo  0
 	!pet "Boss Converter  "
-	!pet "1.10"
-	!pet "05.03.20"
+	!pet "1.11"
+	!pet "26.05.20"
 	!pet "A. Dettke       "
 
 ; --------------------------------------- Main
@@ -993,6 +994,7 @@ totals	lda #$30		; Vorbesetzung: "00"
 	ldx frames	; ### 1.09
 	bne +
 	sta infile	; # of sprites (in header if no frames)
+	sta optimized	; ### 1.11: prepare optimization
 +	tax
 	dex
 	stx maxnumber
@@ -1043,14 +1045,14 @@ wo1 	lda pw,x
 	ldx ls_saveto
 	jsr filpar
 	lda wflen
-	ldx #<(ls_nambuf)
-	ldy #>(ls_nambuf)
+	ldx #<ls_nambuf
+	ldy #>ls_nambuf
 	jsr filnam
 	jsr copen
 	jmp err9
 ;
-inull 	ldx #<(drinit)
-	ldy #>(drinit)
+inull 	ldx #<drinit
+	ldy #>drinit
 	lda #2
 	jsr gd_sendcom
 err9 	jsr gd_xmess
@@ -1079,7 +1081,9 @@ wr0	lda fheader,x
 	jsr onebyte	; ### 1.05: catch floppy err
 err7	bne err5		; ### 1.08: avoid crash
 	inx
-	cpx #17		; ### 1.08: 2 more flags in file ### 1.10: added timer
+	cpx #18		; ### 1.08: 2 more flags in file
+			; ### 1.10: added timer
+			; ### 1.11: added optimization flag
 	bne wr0
 	stx writing
 
@@ -1177,6 +1181,7 @@ frames	!by 0		; 0013: # of animframes (0: no anim)
 infile	!by 1		; 0014: # of frames (or sprites if frames=0) in *this* file
 followups	!by 0 		; 0015: # of following files to this file (0: last file)
 timer	!by 0		; 0016: timer - 0: hold, 1..255: fast..slow
+optimized	!by 1 		; 0017: # of stored sprites in frame after optimization
 
 ; --------------------------------------- Variables
 
