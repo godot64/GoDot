@@ -21,6 +21,7 @@
 ;    1.09, 02.12.19, added: correct value for INFILE
 ;    1.10, 05.03.20, changed: file format (added timer)
 ;    1.11, 26.05.20, changed: file format (added optimization flag)
+;    1.12, 27.05.20, added: button to set save-drive
 ;
 ; ------------------------------------------------------------ 
 
@@ -44,6 +45,8 @@
 
 	status		=$90
 	colors		=$b2
+
+	present		= $14a2
 
 	vram2		=$ce0b
 	vram1		=$de0b
@@ -75,8 +78,8 @@ header 	jmp start
 	!wo  modend
 	!wo  0
 	!pet "Boss Converter  "
-	!pet "1.11"
-	!pet "26.05.20"
+	!pet "1.12"
+	!pet "27.05.20"
 	!pet "A. Dettke       "
 
 ; --------------------------------------- Main
@@ -91,6 +94,7 @@ start 	ldx sc_screenvek
 	sta s1col
 	jsr defchar
 	stx sprtcol0
+	jsr setdrive	; ### 1.12
 	jsr chkmod
 	lda olap
 	bne st0
@@ -215,13 +219,10 @@ es1	ldx maxnumber
 	cpx curnumber
 	bne es0
 	lda cclash
-	jsr gd_xcnvdez
+	jsr getnumber
 	sta clashes+1
 	sta clashtx+1
-	cpx #$30
-	bne es2
-	ldx #$20
-es2	stx clashes
+	stx clashes
 	stx clashtx
 	ldy #16
 	jsr ed5
@@ -256,13 +257,10 @@ ep1	txa
 	jsr evnoalert	; Weiterklicken zum nächsten
 	pla		; Sprite
 ep2	sta curnumber
-	jsr gd_xcnvdez
+	jsr getnumber
 	sta curnum+1
 	sta cnumtx+1
-	cpx #$30
-	bne ep3
-	ldx #$20
-ep3	stx curnum
+	stx curnum
 	stx cnumtx
 	ldy #0
 	jsr ed5
@@ -334,6 +332,16 @@ ein2	lda sc_movetab,y
 	bpl ein2
 	pla
 	sta gd_modswitch
+	lda #$bd		; set mouse pointer to SAVE gadget
+	sta spritex-2
+	sta spritex
+	ldx #$cf
+	stx spritey
+	dex
+	dex
+	stx spritey-2
+	lda #0
+	sta spritehi
 	clc
 	rts
 
@@ -475,9 +483,23 @@ ed6	jmp sr3		; if stop don't recalculate
 ; --------------------------------------- Event: Alert-Meldung löschen
 
 evnoalert	ldy #14
-	jsr ed5
-	clc
-	rts
+	jmp ed5
+
+; --------------------------------------- Event: Set Drive to Save to
+
+evsetdrv	ldx ls_saveto
+-	inx
+	cpx #12
+	bne +
+	ldx #8
++	jsr present	; checks drive in .x
+	ldx ls_drive
+	beq -
+	txa
+	sta ls_saveto
+	jsr sdr0
+	ldy #24
+	jmp ed5
 
 ; --------------------------------------- Define new character
 
@@ -490,22 +512,23 @@ dc0	lda char223,x
 
 ; --------------------------------------- Textout
 
-tabigad	!wo  cnumgad	; 0
-	!wo  totgad	; 2
-	!wo  sprwin	; 4
-	!wo  widgad	; 6
-	!wo  hgtgad	; 8
-	!wo  olapgad	; 10
-	!wo  alertgad	; 12
-	!wo  noalrtgad	; 14
-	!wo  clashgad	; 16
-	!wo  dirgad	; 18
-	!wo  spr0gad	; 20
-	!wo  spr1gad	; 22
+tabigad	!wo cnumgad	; 0
+	!wo totgad	; 2
+	!wo sprwin	; 4
+	!wo widgad	; 6
+	!wo hgtgad	; 8
+	!wo olapgad	; 10
+	!wo alertgad	; 12
+	!wo noalrtgad	; 14
+	!wo clashgad	; 16
+	!wo dirgad	; 18
+	!wo spr0gad	; 20
+	!wo spr1gad	; 22
+	!wo drivegad	; 24
 ;
-settab	lda #<(tabigad)
+settab	lda #<tabigad
 	sta sc_texttab
-	lda #>(tabigad)
+	lda #>tabigad
 	sta sc_texttab+1
 	rts
 ;
@@ -527,23 +550,17 @@ gt0	jsr gd_setpos
 
 showreq	lda height
 	sta defdh		; ### 1.04
-	jsr gd_xcnvdez
+	jsr getnumber
 	sta hgttx+1
-	cpx #$30
-	bne sr0
-	ldx #$20
-sr0	stx hgttx
+	stx hgttx
 	lda width
 	sta defdw		; ### 1.04
-	jsr gd_xcnvdez
+	jsr getnumber
 	sta widtx+1
-	cpx #$30
-	bne sr1
-	ldx #$20
-sr1	stx widtx
+	stx widtx
 	jsr totals
-sr3	ldx #<(bosslst)	; display requester
-	ldy #>(bosslst)
+sr3	ldx #<bosslst	; display requester
+	ldy #>bosslst
 	jsr gd_screen
 	ldy #4		; colorize sprite window...
 	jsr settab
@@ -977,8 +994,8 @@ fb4	tay		; erase from histogram
 
 ; --------------------------------------- Total number of Sprites
 
-totals	lda #$30		; Vorbesetzung: "00"
-	tax
+totals	lda #$30		; Vorbesetzung: " 0"
+	ldx #$20
 
 	ldy height	; Höhe = 0?
 	beq tt2		; dann Ergebnis auch 0
@@ -998,12 +1015,9 @@ totals	lda #$30		; Vorbesetzung: "00"
 +	tax
 	dex
 	stx maxnumber
-	jsr gd_xcnvdez	; umwandeln
+	jsr getnumber	; umwandeln
 
 tt2	sta totnum+1	; Ziffern eintragen
-	cpx #$30
-	bne tt1
-	ldx #$20
 tt1	stx totnum
 	rts
 
@@ -1028,6 +1042,20 @@ gaugeout	ldx #<gaugelst
 	ldy #>gaugelst
 	jmp gd_screen
 
+; ---------------------------------------- Setdrive
+
+setdrive	lda ls_saveto
+sdr0	jsr getnumber
+	sta drivetx+1
+	stx drivetx
+	rts
+
+getnumber	jsr gd_xcnvdez
+	cpx #$30
+	bne +
+	ldx #$20
++	rts	
+
 ; ---------------------------------------- Diskaccess
 
 wopen 	jsr inull
@@ -1050,7 +1078,7 @@ wo1 	lda pw,x
 	jsr filnam
 	jsr copen
 	jmp err9
-;
+
 inull 	ldx #<drinit
 	ldy #>drinit
 	lda #2
@@ -1406,20 +1434,24 @@ spr1gad	!by 20,9,3,3,$87,0,0
 	!wo  evxchnge
 	!by 31,30,0
 
-	!by 18,16,7,3,$c5
+	!by 18,16,6,3,$c5
 	!wo  evsavenow
-	!scr "Save @"
+	!scr "Save",0
 
-	!by 18,23,7,3,$c6
+drivegad	!by 18,22,4,3,$c5
+	!wo evsetdrv
+drivetx	!scr " 8",0
+
+	!by 18,26,4,3,$c6
 	!wo  evcancel
-	!scr "Leave@"
+	!scr "Ex",0
 
 	!by 20,16,14,3,$ce
 	!wo  evinpname
-fname	!scr "Boss01      @"
+fname	!scr "Boss01      ",0
 
 	!by $c0,20,11,4
-	!scr "sps.@"
+	!scr "sps.",0
 
 	!by $80
 
