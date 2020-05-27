@@ -17,6 +17,7 @@
 ;    1.03, 30.11.19, added flags to manage multiple sprites per file
 ;                    or multiple single sprites
 ;    1.04, 05.03.20, changed file format (added timer)
+;    1.05, 26.05.20, changed file format (added optimization flag)
 ;
 ; ----------------------------------------- 
 
@@ -60,8 +61,8 @@
 	!wo modend
 	!by $00,$00
 	!pet "Spriteset Loader"
-	!pet "1.04"
-	!pet "05.03.20"
+	!pet "1.05"
+	!pet "26.05.20"
 	!pet "A.Dettke        "
 
 ; --------------------------------------- Service Routines 
@@ -120,7 +121,7 @@ start	ldx used		; First start? ($ff, then $00)
 
 stt2	jsr gd_xopen	; open file
 	ldy #0
-stt1	jsr readbyte	; get header (16 bytes)
+stt1	jsr readbyte	; get header (tot. 18 bytes)
 	bne jerror
 	sta fheader,y
 	iny
@@ -136,6 +137,8 @@ stt3	jsr amount	; # of sprites and # of bytes in total
 	sta followups
 	jsr basin		; timer ### 1.04
 	sta timer
+	jsr basin		; optimization flag ### 1.05
+	sta optimized
 
 	jsr spointers	; retrieve sprite pointers (for now: just skip them)
 	bcc +
@@ -192,7 +195,7 @@ convert	ldx #255
 es0	jsr next
 	lda gmode
 	bne es2
-	jsr cnvhsprite	; hires (not yet iomplemented)
+	jsr cnvhsprite	; hires (not yet implemented)
 	bne es1
 es2	jsr cnvmsprite	; multi
 es1	ldx maxnumber
@@ -450,9 +453,7 @@ getdnib	and #$0f		; Farbe holen
 	rts
 
 ; --------------------------------------- Decompress Image 
-
-; compression: flag, counter, byte ; $00 counts 256
-
+; compression: flag, counter, byte ! $00 counts 256
 ; --------------------------------------- 
 
 onebyte	lda counter	; repeated byte?
@@ -492,8 +493,8 @@ readbyte	jsr basin
 
 ; --------------------------------------- Activity Display
 
-messout	ldx #<(message)
-	ldy #>(message)
+messout	ldx #<message
+	ldy #>message
 	jmp gd_xtxout2
 
 tcopy	ldy #0
@@ -629,6 +630,8 @@ infile	!by 1		; 0014: # of frames in this file ### 1.03
 
 followups	!by 0		; 0015: # of files to follow this one
 timer	!by 0		; 0016: timer - 0: hold, 1..255: fast..slow
+optimized	!by 1 		; 0017: # of stored sprites in frame after optimization
+
 
 ; --------------------------------------- 
 
