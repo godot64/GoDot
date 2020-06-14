@@ -9,6 +9,7 @@
 ;     Saver for Subchrist's SpritePad v2
 ;
 ; 1.00, 22.10.19, first release
+; 1.01, 14.06.20, added: file version 4 compatibility
 ;
 ; -----------------------------------------
 
@@ -81,7 +82,7 @@ saver	jsr defchar	; define listbox char
 	jsr recolor
 	ldx #11
 	jsr recolor2
-	ldx gr_bkcol	; set 4bit background color
+	ldx backgnd	; set background color
 	jsr ebg0		; colorize chooser
 	jmp gd_eloop	; wait for clicks
 
@@ -140,7 +141,8 @@ err8 	sec
 ; ---------------------------------------- Write Loop on Save
 
 write	lda version	; write header...
-	bne +
+	cmp #1
+	bcs +
 	lda #<f1header
 	ldx #>f1header
 	bne ++
@@ -410,19 +412,30 @@ evmode	ldx mode
 	
 ; -------------------------------------- Event: Toggle Version
 
-evversn	ldx version	; 0: v1 / 1: v2
-	beq +
+evversn	ldx version	; 0: v1 / 1: v2 / 3: v4
+	cpx #3
+	bcc +
 	ldx #$ff
+-
 +	inx		; increment
 
 	stx version	; set
-	bne +
-	lda #9		; set according headlength
+	beq +
+	cpx #2
+	beq -
+	cpx #1
+	beq ++
+	cpx #3
+	beq +++
++	lda #9		; set according headlength
 	!by $2c
-+	lda #16
+++	lda #16
+	!by $2c
++++	lda #20
 	sta headlen
 
 	inx		; make digit
+	stx vers24
 	txa
 	ora #$30
 	sta verstx+1
@@ -1040,7 +1053,7 @@ carea	!by 12,18,6,3,10,13,11,1,18,13,10,1,18,24,3,1
 ; --------------------------------------- File Headers
 
 f1header	!pet "spd"	; file signature
-	!by 1		; version
+	!by 1		; version (1)
 numspr1	!by 0		; # of sprites (-1)
 	!by 0		; # of anims (-1)
 colors1	!by 9,0,1		; default colors (bg,m1,m2)
@@ -1049,15 +1062,18 @@ colors1	!by 9,0,1		; default colors (bg,m1,m2)
 f1footer	!by 0,1,0,0
 
 f2header	!pet "spd"	; file signature
-	!by 2		; version
-	!by 0		; active anims(2)/tiles(1)
+vers24	!by 2		; version (2 or 4)
+	!by 0		; active: anims(2)/tiles(1)/tileanims(4)
 numspr2	!wo 0		; # of sprites
 ftiles	!wo 0		; # of tiles
-	!wo 0		; # of anims
+	!wo 0		; # of anims/# of tileanims
 fwid	!by 0		; width and
 fhgt	!by 0		; height of tiles
 colors2	!by 9,0,1		; default colors (bg,m1,m2)
 			; [headlen: 16]
+sovldist	!wo 0		; version 4: distance when overlayed
+tovldist	!wo 0		; dito for tiles
+			; [headlen: 20]
 	
 ; --------------------------------------- Data
 
@@ -1067,7 +1083,7 @@ height	!by 9
 maxhgt	!by 9		; 9 (normal sprites) or 10 (overlap)
 mode	!by 1		; 0: hires, 1: multi
 olap	!by 0		; 0: no, 1: yes
-version	!by 0
+version	!by 0		; can be 1, 2, or 4
 headlen	!by 9
 curnumber	!by 0
 totnumber	!by 0
