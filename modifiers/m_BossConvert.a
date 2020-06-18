@@ -22,6 +22,7 @@
 ;    1.10, 05.03.20, changed: file format (added timer)
 ;    1.11, 26.05.20, changed: file format (added optimization flag)
 ;    1.12, 27.05.20, added: button to set save-drive
+;    1.13, 18.06.20, added: reset clashes display
 ;
 ; ------------------------------------------------------------ 
 
@@ -74,12 +75,12 @@
 header 	jmp start
 	!by $20
 	!by 0
-	!by 1		; dirty
-	!wo  modend
-	!wo  0
+	!by 1		; is dirty
+	!wo modend
+	!wo 0
 	!pet "Boss Converter  "
-	!pet "1.12"
-	!pet "27.05.20"
+	!pet "1.13"
+	!pet "18.06.20"
 	!pet "A. Dettke       "
 
 ; --------------------------------------- Main
@@ -208,7 +209,8 @@ es3	lda curnumber
 	ldx #255
 	stx curnumber
 	inx
-	stx cclash
+	stx cclash		; reset cclash (is 0)
+	jsr showclash		; ### 1.13
 es0	jsr evnext
 	jsr suphisto
 	lda togalert
@@ -218,14 +220,7 @@ es0	jsr evnext
 es1	ldx maxnumber
 	cpx curnumber
 	bne es0
-	lda cclash
-	jsr getnumber
-	sta clashes+1
-	sta clashtx+1
-	stx clashes
-	stx clashtx
-	ldy #16
-	jsr ed5
+	jsr showclash		; ### 1.13
 	jsr setcol01
 	pla
 	jsr ep2
@@ -269,6 +264,17 @@ ep2	sta curnumber
 	jsr display
 ep4	clc
 	rts
+
+; --------------------------------------- Display Clashes
+
+showclash	lda cclash		; ### 1.13..
+	jsr getnumber
+	sta clashes+1
+	sta clashtx+1
+	stx clashes
+	stx clashtx
+	ldy #16
+	jmp ed5			; ###../
 
 ; --------------------------------------- forward
 
