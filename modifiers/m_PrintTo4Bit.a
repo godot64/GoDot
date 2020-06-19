@@ -27,7 +27,8 @@
 ;    1.13: 23.08.19, bugfix: REM wasn't parsed decently
 ;    1.14: 24.08.19, bugfix: REM colors couldn't be changed
 ;    1.15: 28.11.19, bugfix: default for PRINT colors not set
-;                            TAB didn't indent not correctly
+;                            TAB didn't indent correctly
+;    1.16: 19.06.20, bugfix: removed addtxt (shorten code to prevent crash)
 ;
 ; --------------------------- 
 
@@ -93,18 +94,9 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "basic text rem/?"
-	!pet "1.15"
-	!pet "28.11.19"
+	!pet "1.16"
+	!pet "19.06.20"
 	!pet "W.Kling/A.Dettke"
-
-; --------------------------- 
-
-addtxt	!pet "mode1: print    "
-	!pet "mode2: rem      "
-	!pet " code1: align   "
-	!pet " code2: txcolor "
-	!pet " code3: bgcolor "
-	!by $00
 
 ; --------------------------- 
 
