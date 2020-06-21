@@ -29,6 +29,7 @@
 ;    1.15: 28.11.19, bugfix: default for PRINT colors not set
 ;                            TAB didn't indent correctly
 ;    1.16: 19.06.20, bugfix: removed addtxt (shorten code to prevent crash)
+;    1.17: 21.06.20, more code optimization
 ;
 ; --------------------------- 
 
@@ -77,7 +78,6 @@
 	col3	= align+3
 
 	grafreg	= $d011
-	spronoff	= $d015
 	multreg	= $d016
 	charreg	= $d018
 	rahmen	= $d020
@@ -94,8 +94,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "basic text rem/?"
-	!pet "1.16"
-	!pet "19.06.20"
+	!pet "1.17"
+	!pet "21.06.20"
 	!pet "W.Kling/A.Dettke"
 
 ; --------------------------- 
@@ -108,24 +108,24 @@ start	lda sc_screenvek	; Zeiger auf Main-Liste retten für ShowFont
 	lda mcflg
 	bne st2
 	jsr setmcols
-st2	lda gr_redisp
+st2	lda gr_redisp	; image has been rendered?
 	bne st0
-	ldx #15
+	ldx #15		; yes, reset message
 st1	lda nofont,x
 	sta nofnttx,x
 	dex
 	bpl st1
-st0	ldx #<btxlist
+st0	ldx #<btxlist	; Requester aufbauen
 	ldy #>btxlist
-	jsr gd_screen	; Requester aufbauen
+	jsr gd_screen
 	lda sc_screenvek	; Zeiger auf diese Liste retten für ERROR
 	sta list
 	lda sc_screenvek+1
 	sta list+1
-	jsr gm4
+	jsr gm4		; recolor requester
 	lda gmode
 	beq st3
-	jsr tgmode
+	jsr tgmode	; when multi: show colors
 st3	jsr gd_eloop	; warten
 
 ; --------------------------- Sub: Cancel
@@ -135,9 +135,9 @@ cancel	sec
 
 ; --------------------------- Sub: Set Mode
 
-sevovl	ldx #2		; = 2
+sevovl	ldx #2		; Overlay = 2
 	!by $2c
-sevload	ldx #1		; = 1
+sevload	ldx #1		; Replace = 1
 	stx mode
 	jsr clrmssg
 
@@ -145,34 +145,7 @@ getfile	jsr chgdrv
 
 	ldx #0
 	stx ls_flen
-	jsr swppname
-
-	lda #$38		; patch mod (SEC - RTS)
-	sta header
-	lda #$60
-	sta header+1
-	lda sc_screenvek
-	pha
-	lda sc_screenvek+1
-	pha
-	lda gd_modswitch
-	pha
-
-	inx		; Filerequester (mit eigener Screenlist)
-	jsr gd_xload
-
-	pla
-	sta gd_modswitch
-	pla
-	sta sc_screenvek+1
-	pla
-	sta sc_screenvek
-	lda #$4c
-	sta header	; unpatch mod (JMP START)
-	lda #<start
-	sta header+1
-	jsr swppname
-
+	jsr fileslct	; fetch filename from filerequester
 	lda ls_flen	; nichts gewählt?
 	beq nofile	; ja, Ende
 
@@ -236,10 +209,38 @@ chgdrv	lda ls_sysdrive
 	stx ls_sysdrive
 	rts
 	
-; --------------------------- Picname löschen
+; --------------------------- Get Filename
+
+fileslct	jsr swppname	; ### 1.17
+	lda #$38		; patch mod (to SEC - RTS)
+	sta header
+	lda #$60
+	sta header+1
+	lda sc_screenvek	; save current screenlist...
+	pha
+	lda sc_screenvek+1
+	pha
+	lda gd_modswitch	; ...and memory status
+	pha
+
+	inx		; .x=1, open Filerequester
+	jsr gd_xload
+
+	pla		; restore data
+	sta gd_modswitch
+	pla
+	sta sc_screenvek+1
+	pla
+	sta sc_screenvek
+	lda #$4c		; unpatch mod (to JMP START)
+	sta header
+	lda #<start
+	sta header+1
+
+; --------------------------- Picname sichern
 
 swppname	ldy #15
-sn0	lda mess,y
+sn0	lda mess,y	; exchange message /w filename
 	pha
 	lda ls_picname,y
 	sta mess,y
@@ -269,52 +270,26 @@ mess	!fill 25,32
 ; --------------------------- Fehlermeldungen
 
 err1 	!scr "    ERROR: Not a BASIC file!    "	; 0
-err2	!scr "ERROR: No PRINT or missing quote"	; 32
+err2	!scr "ERROR: No PRINT, missing quote? "	; 32
 err3	!scr "ERROR: Missing colon? Line >40? "	; 64
 err4	!scr " ERROR: REM-line# out of range! "	; 96
 err5	!scr "     ERROR: File corrupt!       "	; 128
-err6	!scr "  ERROR: File can't be a Font!  "	; 160
+err6	!scr "  ERROR: File probably no Font. "	; 160
 
 ; --------------------------- Sub: Load Font
 
 sevldfont	jsr clrmssg
 	jsr chgdrv
 
-	ldx #<display
+	ldx #<display	; set target address
 	ldy #>display
 	stx ls_adrmisc
 	sty ls_adrmisc+1
+
 	ldx #0
 	stx ls_flen
-	jsr swppname
-
-	lda #$38		; patch mod (to SEC - RTS)
-	sta header
-	lda #$60
-	sta header+1
-	lda sc_screenvek
-	pha
-	lda sc_screenvek+1
-	pha
-	lda gd_modswitch
-	pha
-
-	inx		; Filerequester (mit eigener Screenlist)
-	jsr gd_xload
-
-	pla
-	sta gd_modswitch
-	pla
-	sta sc_screenvek+1
-	pla
-	sta sc_screenvek
-	lda #$4c
-	sta header	; unpatch mod (to JMP START)
-	lda #<start
-	sta header+1
-	jsr swppname
-
-	jsr clrbuffer
+	jsr fileslct	; select file 
+	jsr clrbuffer	; clear charset buffer
 	lda ls_flen	; nichts gewählt?
 	beq jnofile	; ja, Ende
 
@@ -325,8 +300,8 @@ sevldfont	jsr clrmssg
 	jsr basin
 
 ldloop	ldy #0
-ldl0	jsr basin
 
+ldl0	jsr basin		; load until EOF or $0800 bytes
 	pha
 	lda status
 	tax
@@ -334,32 +309,32 @@ ldl0	jsr basin
 	bne ldl1
 	txa
 	bne jfaile
-
 	pla
-	sta (ls_adrmisc),y
-	inc ls_adrmisc
+	sta (ls_adrmisc),y	; store data
+
+	inc ls_adrmisc	; count $0800 bytes
 	bne ldl0
 	inc ls_adrmisc+1
 	lda ls_adrmisc+1
 	cmp #$28
 	bcc ldl0
 
-	jsr finish
+	jsr finish	; after $0800 bytes break /w error message
 	pha
 	pha
-	jmp failf
+	jmp failf		; file can't be a font
 
-jnofile	jmp nofile
-jfaila	jmp faila
+jnofile	jmp nofile	; (no file selected)
+jfaila	jmp faila		; not a basic file
 
 jfaile	jsr errnf
 	pha
-	jmp faile
+	jmp faile		; file corrupt
 
 ldl1	pla
 	sta (ls_adrmisc),y	; ### 1.09: write last byte from file
 	jsr nofile
-	ldx #15
+	ldx #15		; activate filename:
 cf6	lda ls_lastname,x
 	sta nofnttx,x
 	dex
@@ -370,7 +345,7 @@ cf4	lda #<nofntgad	; Fontnamen ansteuern
 	ldx #<nofnttx	; ausgeben
 	ldy #>nofnttx
 	jsr gd_xtxout2
-	ldx #3		; hiliten
+	ldx #3		; hilite
 	jmp gd_fcol
 
 ; --------------------------- Abschluss
@@ -379,15 +354,17 @@ ok	lda #1
 	sta gr_redisp	; Flag: Bild neu rendern
 	jmp txmini	; reset values ### 1.15
 
-; --------------------------- BASIC einlesen
+; --------------------------- BASIC File einlesen
 
 getlines	jsr basin
-	cmp #$01		; $0801 (Basic?)
+	cmp #$01		; $0801 or $1c01 (is Basic?)
 	bne jfaila
 	jsr basin
-	cmp #$08
-	bne jfaila
-	beq lineloop
+	and #$08		; ### 1.17
+	beq jfaila
+	bne lineloop
+
+; --------------------------- 
 
 cr	sta rvsflag
 	lda #13
@@ -497,17 +474,17 @@ skipcomm	jsr basin		; end of line?	### 1.11
 
 ; --------------------------- Error Handler
 
-faila	ldx #0
+faila	ldx #0		; err1
 	!by $2c
-failb	ldx #32
+failb	ldx #32		; err2
 	!by $2c
-failc	ldx #64
+failc	ldx #64		; err3
 	!by $2c
-faild	ldx #96
+faild	ldx #96		; err4
 	!by $2c
-faile	ldx #128
+faile	ldx #128		; err5
 	!by $2c
-failf	ldx #160
+failf	ldx #160		; err6
 	ldy #0
 fl0	lda err1,x
 	sta message,y
@@ -973,12 +950,12 @@ gf0	lda (src),y
 	cli
 	jsr ok
 
-cf3	lda fontis,x
+cf3	lda fontis,x	; Namen anzeigen
 	sta nofnttx,x
 	beq cf2
 	inx
 	bne cf3
-cf2	lda #32
+cf2	lda #32		; Rest löschen
 	sta nofnttx,x
 	inx
 	cpx #16
@@ -1300,7 +1277,7 @@ tabigad	!wo bgrgad	; 0
 	!wo fgrgad	; 6
 mlist	!wo 0		; Zeiger auf Mainlist
 chschr	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
-space	!by $a0		; Einrückungszeichen
+space	!by $a0		; Einrückungszeichen (Platzhalter)
 
 ; --------------------------- Screenlisten
 
