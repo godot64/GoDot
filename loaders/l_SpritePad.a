@@ -6,12 +6,13 @@
 ; ----------------------------------------- 
 ;
 ; ldr.SpritePad
-; loader for the SpritePad v2 spd-Spriteset files
+; loader for the SpritePad v1/2/4 spd-Spriteset files
 ; converts them to standard multicolor and hires graphics resp.
 ;
 ;    1.00, 14.10.19, first release
 ;    1.01, 17.10.19, update: SPD file version 2 (containing tiles)
 ;    1.02, 02.11.19, bugfix: now restores system sprite colors
+;    1.03, 12.07.20, added: hires sprites get marked now
 ;
 ; ----------------------------------------- 
 
@@ -46,21 +47,22 @@
 
 	cols		= bkgrnd
 
-	sprite2		=$07fa
-	spr255		=$3fc0
-	spritex		=$d002
-	spritey		=$d003
-	sprpos2		=$d004
-	spritehi		=$d010
-	sprenable		=$d015
-	spryexpand	=$d017
-	sprmulti		=$d01c
-	sprxexpand	=$d01d
-	bordercol		=$d020
-	backcol		=$d021	; %00
-	sprcol0		=$d025	; %01
-	sprcol1		=$d026	; %11
-	sprcol2		=$d029	; %10
+	video		= $0288	; video mode
+	sprite2		= $07fa
+	spr255		= $3fc0
+	spritex		= $d002
+	spritey		= $d003
+	sprpos2		= $d004
+	spritehi		= $d010
+	sprenable		= $d015
+	spryexpand	= $d017
+	sprmulti		= $d01c
+	sprxexpand	= $d01d
+	bordercol		= $d020
+	backcol		= $d021	; %00
+	sprcol0		= $d025	; %01
+	sprcol1		= $d026	; %11
+	sprcol2		= $d029	; %10
 
 ; --------------------------------------- Header
 
@@ -71,8 +73,8 @@
 	!wo modend
 	!wo 0
 	!pet "SpritePad Loader"
-	!pet "1.02"
-	!pet "02.11.19"
+	!pet "1.03"
+	!pet "12.07.20"
 	!pet "A.Dettke        "
 
 ; ----------------------------------------- Main
@@ -85,7 +87,7 @@ start	lda used		; first start? (builds requester)
 	sta ms_store
 	jsr makechr	; define 3 chars
 
-	ldx #4
+	ldx #4		; ### 1.02:
 -	lda sprcol1,x	; save system sprite colors
 	sta s1col,x
 	dex
@@ -121,7 +123,7 @@ evexit	jsr gd_spron	; mouse on
 	lda spritehi
 	and #3
 	sta spritehi
-	ldx #4
+	ldx #4		; ### 1.02:
 -	lda s1col,x	; restore system sprite colors
 	sta sprcol1,x
 	dex
@@ -282,7 +284,7 @@ sk10	jsr gd_xmess	; error message from drive (in a blink)
 	stx used
 sk11	jsr colspr1st	; show colors of 1st sprite
 	jsr evhome	; set sprite counter back to zero and display
-	jsr shsprwin	; prepare preview window
+	jsr ed6		; ### 1.03 prepare preview window
 stay	clc		; file loaded, don't leave loader
 	rts
 
@@ -417,19 +419,20 @@ evsize	ldx size		; 0: normal - 1: expanded
 +	ldy #6		; expanded
 	jsr setcols
 
-shsprwin	lda bkgrnd	; file color background
-	ldx size		; normal?
-	bne +
-	ldy #4
-	!by $2c
-+	ldy #6		; expanded
-	jsr setcols
-
+ed6	jsr shsprwin	; ### 1.03
 	jsr display	; show preview sprite
 	ldy #16		; text out (size)
 ed5	jsr settab
 	ldy #6
 	jmp gd_xtxout1	; .c=0
+
+shsprwin	lda bkgrnd	; ### 1.03 get file color background
+	ldx size		; normal?
+	bne +
+	ldy #4		; unexpanded
+	!by $2c
++	ldy #6		; expanded
+	jmp setcols	; encolor area with background color
 
 ; --------------------------------------- Events: Home, Previous und Next
 
@@ -492,8 +495,7 @@ display	jsr transfer	; .x=$ff
 
 	lda sprtcol2	; colorize: own color (%10)
 	sta sprcol2
-	ldy #14
-	jsr setcols
+	jsr colsprdis	; ### 1.03 Display colors and mode
 	lda sprtcol0	; multi1 (%01)
 	sta sprcol0
 	lda sprtcol1	; multi2 (%11)
@@ -589,7 +591,7 @@ scp8	lda curnumber
 	tax
 	ldy #0
 	jsr amount64
-	sta src		; ...and in in sprite bitmap
+	sta src		; ...and in sprite bitmap
 	tya
 	clc
 	adc #$20
@@ -880,15 +882,20 @@ colspr1st	lda s2col		; color of first individual sprite
 colsprdis	lda sprtcol2	; sprite individual color
 +	ldy #14
 	jsr setcols
+	jsr cleardis	; ### 1.03
+	jsr shsprwin
 	lda bkgrnd	; background
 	ldy #8
 	jsr setcols
 	lda sprtcol0	; multi 1
 	ldy #10
 	jsr setcols
+	jsr setsign	; ### 1.03
 	lda sprtcol1	; multi 2
 	ldy #12
 	jsr setcols
+	jmp setsign	; ### 1.03
+
 cleardis	lda sc_maincolor	; sprite window 1
 	pha
 	ldy #6
@@ -900,6 +907,18 @@ setcols	sta sc_chgcol
 	jsr settab
 	ldx #4
 	jmp gd_fcol
+
+setsign	lda #0		; ### 1.03
+	sta sc_loop	; force textmode
+	jsr gd_initmove	; set screen address
+	lda gmode		; which graphics mode?
+	bmi +
+	lda #96		; if hires: use checkered flag
+	!by $2c
++	lda #160		; if multi: use reverted space
+	ldy #1
+	jsr gd_bl4	; fill buffer (1 char)
+	jmp gd_backu	; and out
 
 ; --------------------------------------- Make Double Nibbles
 
@@ -1205,9 +1224,9 @@ tabigad	!wo snumgad	; 0
 	!wo allgad	; 18
 	!wo pagegad	; 20
 
-settab	lda #<(tabigad)
+settab	lda #<tabigad
 	sta sc_texttab
-	lda #>(tabigad)
+	lda #>tabigad
 	sta sc_texttab+1
 ;	rts
 
