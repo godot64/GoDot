@@ -10,6 +10,7 @@
 ;       Modul zum Bearbeiten von Endgegner-Sprites (Bosses)
 ;
 ;     1.00, 01.11.19, first release
+;     1.01, 14.08.20, changed some captions
 ;
 ; --------------------------------------
 
@@ -46,9 +47,9 @@
 
 	spritep		= $07fa
 	cols		= sy_global+16 	; ($3f50)
-	supercols		= cols+16		; ($3f60)
-	paltmp		= supercols+16	; ($3f70)
-	showspr		= paltmp+16	; ($3f80)
+	paltmp		= cols+16		; ($3f60)
+	supercols		= paltmp+16	; ($3f70)
+	showspr		= supercols+16	; ($3f80)
 	sprtcol2		= showspr+63	; ($3fbf)
 	spr255		= $3fc0
 
@@ -79,8 +80,8 @@
 	!wo modend
 	!wo 0
 	!tx "Edit GoDotBosses"
-	!tx "1.00"
-	!tx "01.11.19"
+	!tx "1.01"
+	!tx "14.08.20"
 	!tx "A.Dettke        "
 
 ; -------------------------------------- Main
@@ -90,7 +91,7 @@ start 	ldx sc_screenvek
 	ldx sc_screenvek+1
 	stx list+1
 	ldx #4
--	lda sprcol1,x	; save system sprite colors
+-	lda sprcol1+1,x	; save system sprite colors
 	sta s1col,x
 	dex
 	bpl -
@@ -126,7 +127,7 @@ evexit	jsr gd_spron
 	sta spritehi
 	ldx #4
 -	lda s1col,x	; restore system sprite colors
-	sta sprcol1,x
+	sta sprcol1+1,x
 	dex
 	bpl -
 	inx
@@ -603,12 +604,12 @@ display	jsr transfer	; - always
 	ora #8
 	sta spritehi
 	lda cols+2	; colorize (1st: mid gray (%10))
-	sta sprcol2
+	sta sprcol2	; for Sprite 2 & 3
 	sta sprcol2+1
 	lda cols+1	; (1st: dark gray (%01))
-	sta sprcol0
+	sta sprcol0	; general MC 1
 	lda cols+3	; (1st: light gray (%11))
-	sta sprcol1
+	sta sprcol1	; general MC 2
 	ldx #12		; multi on for Sprite 2 and 3
 	stx sprmulti
 	ldx #15		; go activate sprites 0..3
@@ -728,17 +729,17 @@ bkgnds	ldx #4
 	jsr prvsprts	; recolor sprite fields
 
 	lda backgnd	; out: 
-	ldx #11		; BGr
-	jsr bgo1
-	lda cols+2	; M1
+	ldx #11		; (.x: offset to gadget)
+	jsr bgo1		; BGr		
+	lda cols+1
 	ldx #15
-	jsr bgo1
-	lda cols+3	; M2
+	jsr bgo1		; MC1
+	lda cols+3
 	ldx #19
-	jsr bgo1
-	lda cols+1	; Own
+	jsr bgo1		; MC2
+	lda cols+2
 	ldx #23
-	jsr bgo1
+	jsr bgo1		; Own
 	ldx #0
 	stx onshow
 	ldx #2		; offset to sc_normtext
@@ -1130,9 +1131,8 @@ histospr	jsr setcurr
 
 	txa
 	sta numcols
-	ldy #15
-hs0	sta paltmp,y	; clear histograms
-	sta cols,y
+	ldy #47
+hs0	sta cols,y	; clear histograms ($3f50-$3f7f)
 	dey
 	bpl hs0
 	lda backgnd	; set defined bg color
@@ -1150,8 +1150,9 @@ hs01	tya
 	adc temp
 	tay
 	lda (renderline),y
-	beq hs02
-	sta lcnt		; counts remaining lines per tile
+	bne hs51
+	jmp hs02
+hs51	sta lcnt		; counts remaining lines per tile
 
 hs5	lda #3		; sprite is 3 bytes wide
 	sta mkbits
@@ -1168,6 +1169,8 @@ hs1	lda (src),y	; get 4 double pixels per byte
 	beq hs14		; yes, skip
 	tax
 	inc paltmp,x	; no, count color
+	bne hs14		; ### 1.01
+	inc paltmp+16,x
 hs14	pla
 	and #15		; right pixel
 	tax
@@ -1176,6 +1179,8 @@ hs14	pla
 	beq hs10		; yes, skip
 	tax
 	inc paltmp,x	; no, count color
+	bne hs10		; ### 1.01
+	inc paltmp+16,x
 hs10	dey
 	bpl hs1
 	lda src		; next byte of sprite
@@ -1230,8 +1235,10 @@ hs03	pla
 +	ldy #1		; provide found colors
 	ldx #0
 hs11	lda paltmp,x
+	bne hs90		; ### 1.01
+	lda paltmp+16,x
 	beq hs9
-	txa		; .x is color
+hs90	txa		; .x is color
 	sta cols,y	; .y is amount
 	iny
 hs9	inx
@@ -1370,10 +1377,10 @@ gs7	pla		; start over three times
 ; --------------------------------------- Find Supercolors
 
 check	jsr checkout	; show gadget
-	jsr clrhisto
 	ldx #255
 	stx curnumber
 es0	jsr next		; generates cols (histospr)
+	jsr clrhisto	; ### 1.01
 	jsr suprhisto
 	ldx maxnumber
 	cpx curnumber
@@ -1731,12 +1738,12 @@ hgttx	!scr "1 ",0
 	!by 0
 	!by $c0,8,25,3
 	!scr "BGr",0
-	!by $c0,9,26,2
-	!scr "C1",0
-	!by $c0,10,26,2
-	!scr "C2",0
-	!by $c0,11,26,2
-	!scr "C3",0
+	!by $c0,9,25,3
+	!scr "MC1",0
+	!by $c0,10,25,3
+	!scr "MC2",0
+	!by $c0,11,25,3
+	!scr "Own",0
 	!by $c0,13,25,7
 	!scr "Cols:"
 cnumtx1	!scr " 3",0
