@@ -1,0 +1,125 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ------------------------------------------------------------ 
+;
+; mod.Negative
+; Module to revert all gray values in 4Bit area
+;
+;   1.00, 11.11.92, first release
+;
+; ------------------------------------------------------------ 
+
+	dest		= $35	; /$36
+
+	sprptr		= $07f8
+	spr255		= $3fc0
+
+	spr2x		= $d004
+	spr2y		= $d005
+	msbx		= $d010
+	spren		= $d015
+	sprxe		= $d01d
+	border		= $d020
+	sprcol2		= $d029
+
+; --------------------------------------- Header
+
+header 	jmp start
+	!by $20
+	!by 0
+	!by 1		; dirty
+	!wo modend
+	!wo 0
+	!tx "xor $ff         " 
+	!tx "1.00"
+	!tx "11.11.92"
+	!tx "W.Kling         "
+
+; ----------------------------------------- Main
+
+start	jsr initad	; prepare activity, .x=3 (counter)
+
+	lda #<sy_4bit	; start at 4Bit
+	ldy #>sy_4bit
+	sta dest
+	sty dest+1
+
+	ldy #0		; perform
+-	lda (dest),y
+	eor #$ff
+	sta (dest),y
+	iny 
+	bne -
+
+	jsr adinc		; activity
+	inc dest+1
+	lda dest+1
+	cmp #>sy_bigbuffer	; until end of 4Bit
+	bne -
+
+	jsr clearad	; end activity
+	rts 
+
+; ----------------------------------------- Activity
+
+adinc	dex 
+	bne +
+	ldx #3
+	inc spr2y
+	inc spr2y+2
++	rts 
+
+; ----------------------------------------- Abschluss Activity
+
+clearad	lda spren		; Wanderbalken aus
+	and #$f3
+	sta spren
+	lda msbx
+	and #$f3
+	sta msbx
+	lda #$ff		; Grafik verändert,
+	sta gr_redisp	; also Flag für System setzen
+	clc 		; fertig
+	rts 
+
+; ----------------------------------------- Init Activity
+
+initad	ldy #60		; Spriteblock 255 vorbereiten
+	lda #0
+-	sta spr255+3,y
+	dey 
+	bpl -
+	sty spr255	; dünner Strich
+	sty spr255+1
+	sty spr255+2
+	lda #15		; Farbe hellgrau
+	sta sprcol2
+	sta sprcol2+1
+	lda sprxe		; doppelt breit
+	ora #$0c
+	sta sprxe
+	lda msbx		; x über 255
+	ora #$0c
+	sta msbx
+	lda #8		; x-Ordinate: 8 (plus 256)
+	sta spr2x
+	lda #$20
+	sta spr2x+2
+	lda #$92		; y-Ordinate: 146
+	sta spr2y		; (im Image Information Fenster)
+	sta spr2y+2
+	sty sprptr+2	; Sprite 255
+	sty sprptr+3
+	lda spren
+	ora #$0c		; Activity-Balken aktivieren
+	sta spren
+	ldx #3		; activity counter
+	rts 
+
+; ----------------------------------------- 
+
+modend	!eof
