@@ -7,13 +7,21 @@
 ; ------------------------------------------------------------ 
 ;
 ; mod.Negative
-; Module to revert all gray values in 4Bit area
+;   Module to revert all data in 4Bit area according to their mode,
+;   where in color mode there are no appropriate reverted colors for
+;   BWN, LRD and LGN, they get substituted by DGR+RED (for BWN),
+;   RED+ORA (for LRD) and YEL+GRN (for LGN), so better display in IFLI
 ;
 ;   1.00, 11.11.92, first release
+;   1.01, 03.09.20, added GUI to choose between gray and color
 ;
 ; ------------------------------------------------------------ 
 
-	dest		= $35	; /$36
+	adcnt		= $30 	; (activity counter, sample location)
+	palette		= $31	; /$32
+	dest		= $33	; /$34
+	merky		= $35
+	merka		= $36
 
 	sprptr		= $07f8
 	spr255		= $3fc0
@@ -31,27 +39,89 @@
 header 	jmp start
 	!by $20
 	!by 0
-	!by 1		; dirty
+	!by 0
 	!wo modend
 	!wo 0
-	!tx "xor $ff         " 
-	!tx "1.00"
-	!tx "11.11.92"
-	!tx "W.Kling         "
+	!tx "Revert 4Bit Data" 
+	!tx "1.01"
+	!tx "03.09.20"
+	!tx "A.Dettke/W.Kling"
 
 ; ----------------------------------------- Main
 
-start	jsr initad	; prepare activity, .x=3 (counter)
+start	jsr makechr	; Listkringel definieren
+	ldx mode		; Palette vorbesetzen
+	beq +
+	jsr dth2
+	bcc ++
++	jsr dth3
+++	ldx #<neglst	; Modul aktivieren
+	ldy #>neglst
+	jmp gd_xmloop
+
+; -------------------------------------- Event: Set Mode
+
+evnegatv	ldx mode		; current mode
+	beq +
+	ldx #$ff
++	inx		; increment
+
+dth1	stx mode		; offset auf mode merken
+	beq dth3
+dth2	lda #<colpal	; mode 1: color
+	ldy #>colpal
+	bne +
+dth3	lda #<godpal	; mode 0: gray
+	ldy #>godpal
++	sta palette
+	sty palette+1
+	
+	lda gadoffs,x	; set text
+	tax
+	ldy #5
+dpi1	lda modetxts,x
+	sta modetx,y
+	dex
+	dey
+	bpl dpi1
+
+	ldy #0		; 0: the only choice
+dpi2	jsr settab
+	ldy #6
+	jmp gd_xtxout1
+
+; ----------------------------------------- Event: Execute
+
+evexec	jsr initad	; prepare activity
 
 	lda #<sy_4bit	; start at 4Bit
 	ldy #>sy_4bit
 	sta dest
 	sty dest+1
 
-	ldy #0		; perform
--	lda (dest),y
-	eor #$ff
-	sta (dest),y
+	ldy #0		; perform:
+-	sty merky
+	lda (dest),y	; get double pixel
+	tax
+	and #15
+	txa
+	lsr		; treat left one
+	lsr
+	lsr
+	lsr
+	tay
+	lda (palette),y
+	and #$f0
+	sta merka		; save result
+
+	txa		; re-get double pixel
+	and #15		; treat right one
+	tay
+	lda (palette),y
+	and #15
+	ora merka		; join with left
+	ldy merky
+	sta (dest),y	; write back new double pixel
 	iny 
 	bne -
 
@@ -60,18 +130,38 @@ start	jsr initad	; prepare activity, .x=3 (counter)
 	lda dest+1
 	cmp #>sy_bigbuffer	; until end of 4Bit
 	bne -
+	sta gr_redisp	; Render-Flag für System setzen
 
-	jsr clearad	; end activity
-	rts 
+	jsr clearad	; clear activity display
 
-; ----------------------------------------- Activity
+; ----------------------------------------- Event: Exit
 
-adinc	dex 
-	bne +
-	ldx #3
-	inc spr2y
-	inc spr2y+2
-+	rts 
+evexit	sec		; leave module
+	rts
+
+; ------------------------------------ Output gadget text routines
+
+tabigad	!wo modegad
+
+settab	lda #<tabigad
+	sta ls_vekta8
+	lda #>tabigad
+	sta ls_vekta8+1
+
+gettab	lda (ls_vekta8),y
+	sta sc_screentab
+	iny
+	lda (ls_vekta8),y
+	sta sc_screentab+1
+	lda #0
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #3
+	bne gt0
+	stx sc_ho
+	jsr gd_trim
+	jmp gd_initmove
 
 ; ----------------------------------------- Abschluss Activity
 
@@ -81,10 +171,16 @@ clearad	lda spren		; Wanderbalken aus
 	lda msbx
 	and #$f3
 	sta msbx
-	lda #$ff		; Grafik verändert,
-	sta gr_redisp	; also Flag für System setzen
 	clc 		; fertig
 	rts 
+
+; ----------------------------------------- Activity
+
+adinc	dec adcnt		; advance after adcnt passes
+	bne +
+	inc spr2y
+	inc spr2y+2
+	jmp setadcnt	; reset adcnt
 
 ; ----------------------------------------- Init Activity
 
@@ -117,8 +213,56 @@ initad	ldy #60		; Spriteblock 255 vorbereiten
 	lda spren
 	ora #$0c		; Activity-Balken aktivieren
 	sta spren
-	ldx #3		; activity counter
-	rts 
+
+setadcnt	lda #3		; Zähler (3 x 40 = 120 pages)
+	sta adcnt
++	rts
+
+; ----------------------------------------- Kringel definieren
+
+makechr	ldx #7
+-	lda chschr,x
+	sta sc_undochar,x
+	dex
+	bpl -
+	rts
+
+; ----------------------------------------- Screenlist
+
+neglst	!by 0
+	!by 9,13,13,7,$91
+	!wo 0
+	!scr "Negative",0
+
+modegad	!by 11,18,8,3,$cf
+	!wo evnegatv
+modetx	!scr 223," Gray",0
+
+	!by 13,13,6,3,$c7
+	!wo evexec
+	!scr "Exec",0
+
+	!by 13,20,6,3,$ce
+	!wo evexit
+	!scr "Exit",0
+
+	!by $c0,11,13,4
+	!scr "Mode",0
+	!by $80
+
+; ----------------------------------------- Data
+
+chschr	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
+
+godpal	!by $ff,$ee,$dd,$cc,$bb,$aa,$99,$88
+	!by $77,$66,$55,$44,$33,$22,$11,$00
+colpal	!by $ff,$dd,$bc,$bb,$cc,$aa,$88,$77
+	!by $66,$c8,$55,$33,$44,$11,$15,$00
+
+mode	!by 0
+gadoffs	!by 5,11
+modetxts	!scr 223," Gray"
+	!scr 223,"Color"
 
 ; ----------------------------------------- 
 
