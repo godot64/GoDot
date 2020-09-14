@@ -1,0 +1,584 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ----------------------------------------- 
+;
+;  ldr.OCPAmstrad
+;   Loader for Amstrad OCP Art Studio SCR(eens)
+;
+;  1.00, 14.09.20, first release
+;
+; ----------------------------------------- 
+
+; ----------------------------------------- Equates
+
+	marker	= $01	; constant
+
+	dst	= $30	; /$31
+	counter	= $32	; /$33
+	skipcnt	= $34
+	gbyte	= $35
+	compress	= $36
+	adcnt 	= $37
+	dst2	= $38	; /$39
+	lcnt	= $3a	; 0..7
+	rcnt	= $3b	; 0..24
+	tcnt	= $3c	; 0..39
+	bcnt	= $3d	; 0..3
+	ymrk	= $3e
+
+	offx	= ls_adrmisc
+	offy	= offx+1
+
+	ctab	= $cd00	; (upto $cdff)
+
+; ----------------------------------------- Header
+
+header	jmp start
+	!by $80
+	!by 0
+	!by 0
+	!wo modend
+	!wo 0
+	!tx "Amstrad OCP SCR "
+	!tx "1.00"
+	!tx "14.09.20"
+	!tx "A.Dettke        "
+
+; ----------------------------------------- Main
+
+jfaila	jmp faila
+jfailb	jmp failb
+jfailc	jmp failc
+
+start	lda ls_flen	; save len of filename
+	sta flen
+	lda #<sy_4bit
+	ldx #>sy_4bit
+	sta current
+	stx current+1
+	ldx #0		; preset compress flag
+	stx compress
+	stx counter
+	stx counter+1
+	stx status
+
+	lda gd_modswitch
+	pha
+
+; ------------ first: load palette file
+
+	jsr setpsuff	; set PAL suffix
+	jsr gd_xopen	; open palette file
+	lda #128		; skip header
+	jsr skip
+	lda status
+	bne jfaila
+
+	jsr basin		; get screen mode
+	sta mode		; is mode 0?
+	bne jfailb	; error if not mode 0
++	jsr basin		; skip animation data
+	jsr basin
+
+	ldy #0		; get palette
+-	lda #11		; (every 12th byte)
+	sta skipcnt
+	jsr basin
+	and #$1f		; decode 16 colors
+	sta palette,y	; store 
+	jsr skipit
+	iny
+	cpy #16
+	bcc -
+	jsr gd_xclose	; close palette file
+	jsr setssuff	; then set SCR suffix
+	jsr getname	; save filename for image info
+
+; ------------ then: load image header
+
+	jsr gd_xopen	; open image file
+	jsr getheader	; read header
+	lda ftype		; check type (is it binary?)
+	cmp #2
+	bne jfailc	; if not: error
+
+	ldx #3		; check for compression
+-	dex
+	bmi +
+	lda comprs,x
+	eor image,x
+	beq -
+	lda #0		; set flag
+	!by $2c
++	lda #$40
+	sta compress
+	bne +
+	jsr gd_xclose	; if not compressed: close image file
+	jsr gd_xopen	; and re-open it
+	lda #128
+	jsr skip		; this time just skip header
+
+; ------------ then: load image
+
++	lda #50
+	sta cntwert
+	jsr gd_clrms	; init gauge bar
+	ldx #0
+	jsr tcopy
+	iny
+	sty adcnt
+	lda #7		; count rasterlines
+	sta lcnt
+	lda current	; set destination addresses (4Bit)
+	ldx current+1
+
+imgloop	sta dst2
+	sta dst
+	stx dst2+1
+	stx dst+1
+	lda #25		; count 25 blockrows
+	sta rcnt
+
+ldloop	dec rcnt
+	bmi nextline
+	lda #40
+	sta tcnt
+
+tloop	jsr action
+	dec tcnt		; count 40 tiles
+	bmi nextrow
+	lda #0		; inner tile loop
+	sta bcnt
+iloop	jsr retrieve	; get 4 (of 8) pixels
+	lda bcnt
+	cmp #4
+	bcc iloop
+	clc		; proceed to next tile
+	lda dst
+	adc #32
+	sta dst
+	bcc tloop
+	inc dst+1
+	bne tloop
+
+nextrow	clc
+	lda dst2+1
+	adc #5
+	sta dst2+1
+	bne ldloop
+
+nextline	lda #48		; skip gap between chunks
+	jsr skip
+	lda compress	; compressed?
+	beq +
+	lda lcnt		; yes, odd rasterline?
+	beq +
+	and #1
+	bne +
+	lda #5
+	jsr skip		; yes, skip next compression flag
++	clc
+	lda current
+	adc #4
+	sta current
+	ldx current+1
+	dec lcnt
+	bpl imgloop
+
+	ldx #200		; then: deflicker
+	stx cntwert
+	ldx #12
+	jsr tcopy
+	iny
+	sty adcnt
+ 	jsr deflicker
+
+; ------------ and finish
+
+finished	pla
+	sta gd_modswitch
+	sta gr_redisp	; set render flag
+	jsr setinfo
+
+leave	jsr gd_xclose	; close file
+	jsr gd_spron	; mouse pointer on
+	sec		; leave loader
+	rts
+
+; ----------------------------------------- Deflicker
+
+deflicker	lda #<sy_4bit
+	ldy #>sy_4bit
+	sta dst
+	sty dst+1
+
+	ldy #0
+-	tya 
+	and #4		; choose every other raster line..
+	beq +
+
+	lda (dst),y	; ...and exchange nibbles there
+	lsr
+	lsr
+	lsr
+	lsr
+	sta gbyte
+	lda (dst),y
+	asl
+	asl
+	asl
+	asl
+	ora gbyte
+	sta (dst),y
+
++	sty ymrk
+	jsr action	; activity
+	ldy ymrk
+	iny 
+	bne -
+
+	inc dst+1		; next page
+	lda dst+1
+	cmp #>sy_bigbuffer	; until end of 4bit
+	bne -
+	rts 
+
+; ----------------------------------------- Read Floppy File/decompress
+
+readbyte	lda counter	; repeated byte?
+	ora counter+1
+	bne getit2	; yes, re-get value
+
+	inc counter	; no, counter to 1
+	jsr basin		; get 1 byte
+	cmp #marker	; compression flag? (=$01)
+	bne getit1	; no
+
+	bit compress	; file compressed?
+	bvc getit1	; no
+
+	jsr basin		; compressed: get counter
+	sta counter
+	beq rb2		; $00 equals 256 bytes
+	lda #0
+	beq rb3
+rb2	lda #1
+rb3	sta counter+1
+	jsr basin		; get byte to compress
+
+getit1	sta gbyte		; and store
+
+getit2	lda counter	; count repetition
+	bne rb4
+	dec counter+1
+rb4	dec counter
+	lda gbyte		; re-get byte
+	rts
+
+; ----------------------------------------- Convert CPC image data to 4Bit
+; --------------------------- Retrieve 2 pixels
+
+retrieve	jsr readbyte
+	tax
+	lda cols,x
+	pha
+	lsr		; get left pixel
+	lsr
+	lsr
+	lsr
+	jsr retr0
+	pla		; get right pixel
+	and #15
+retr0	tay
+	ldx palette,y
+	lda cpccols,x
+	tax
+	lda iflicols,x
+	ldy bcnt		; write to 4Bit
+	sta (dst),y
+	inc bcnt
+	rts
+
+; --------------------------- Message Display Handler
+
+tcopy	ldy #0		; Select message
+tc0	lda txt,x		; in .x: offset to message
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+
+clrmess   ldx #20		; clear gauge bar
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0		; init gauge bar counters
+	ldx #7	
+	sty offy
+	stx offx
+	rts
+
+messout   ldx #<message	; display message and gauge
+	ldy #>message
+	jmp gd_xtxout2
+
+filltab   !by 160,93,103,127,126,124,105,109
+
+cntwert   !by 50
+
+txt	!scr " Screen    ",0	; 0 (to: .x)
+	!scr " DeFlicker ",0	; 12
+
+err1	!scr "   ERROR: No PAL file found.    "	; each message: 32 bytes
+err2	!scr "   ERROR: Not a Mode 0 file.    "
+err3	!scr "  ERROR: Not an OCP SCR file.   "
+
+message   !fill 11,32	; gauge bar: 32 bytes screencode
+mess	!fill 21,32
+	!by 0
+
+; --------------------------- Error Handler
+
+faila	ldx #0		; err1
+	!by $2c
+failb	ldx #32		; err2
+	!by $2c
+failc	ldx #64		; err3
+	ldy #0
+fl0	lda err1,x
+	sta message,y
+	inx
+	iny
+	cpy #32
+	bne fl0
+	jsr gd_clrms	; show message
+	jsr messout
+
+	pla		; then clear stack
+	sta gd_modswitch
+	jsr leave		; close file
+	clc		; but stay in (file) requester
+	rts
+
+; --------------------------- Activity Gauge
+
+action	dec adcnt		; decrement activity counter
+	bne ld4
+	lda cntwert	; reset when 0
+	sta adcnt
+	ldy offy		; bar at maximum?
+	cpy clrmess+1
+	bne act0
+	jsr clrmess	; yes, clear
+act0	ldx offx		; write bar to output
+	lda filltab,x	; add one pixel
+	sta mess,y
+	jsr messout
+	dec offx		; 8 pixels added?
+	bpl ld4
+	inc offy		; yes, advance to next block
+	lda #7
+	sta offx
+ld4	rts
+
+; ----------------------------------------- Skip Bytes
+
+skip	sta skipcnt	; amount in .a
+skipit	jsr readbyte
+	dec skipcnt
+	bne skipit
+	rts
+
+; ----------------------------------------- Skip Bytes
+
+getheader	lda #133
+	sta skipcnt
+	ldx #0
+-	jsr readbyte
+	sta iheader,x
+	inx
+	dec skipcnt
+	bne -
+	rts
+
+; ----------------------------------------- Change file suffix
+
+setssuff	lda #<ssuffix	; SCR
+	ldx #>ssuffix
+	bne +
+setpsuff	lda #<psuffix	; PAL
+	ldx #>psuffix
++	sta dst
+	stx dst+1
+	ldy #3
+	ldx flen
+	bne +
+	rts
+-	lda (dst),y	; force correct suffix
+	sta ls_nambuf,x
+	jsr scrcode
+	sta ls_lastname,x
++	dex
+	dey
+	bpl-
+	rts
+
+; ----------------------------------------- Convert to Screencode
+
+scrcode	eor #$e0		; .a to screencode
+	clc
+	adc #32
+	bpl +
+	adc #64
+	bpl +
+	eor #$a0
++	rts
+
+; ----------------------------------------- Data
+
+ssuffix	!pet "scr"
+psuffix	!pet "pal"
+flen	!by 0
+comprs	!pet "mjh"	; signature of compressed data
+
+current	!wo sy_4bit
+mode	!by $ff
+
+	; the colors from the palette file, indeces into cpccols:
+palette	!by 0,0,0,0,0,0,0,0
+	!by 0,0,0,0,0,0,0,0
+
+	; hardware colors (gate array and 31), indeces into iflicols:
+cpccols	!by 13,13,19,25, 1, 7,10,16
+	!by  7,25,24,26, 6, 8,15,17
+	!by  1,19,18,20, 0, 2, 9,11
+	!by  4,22,21,23, 3, 5,12,14
+
+	; 27 IFLI colors representing cpc ink:
+iflicols	!by $00,$11,$38,$44,$55,$15,$94,$95
+	!by $75,$3a,$8c,$88,$22,$77,$b8,$66
+	!by $99,$f5,$ec,$aa,$fc,$da,$ee,$cc
+	!by $fd,$dd,$ff
+
+	; decoded color lookup table (2 pixels per byte):
+cols	!by $00,$08,$80,$88,$02,$0a,$82,$8a
+	!by $20,$28,$a0,$a8,$22,$2a,$a2,$aa
+	!by $04,$0c,$84,$8c,$06,$0e,$86,$8e
+	!by $24,$2c,$a4,$ac,$26,$2e,$a6,$ae
+	!by $40,$48,$c0,$c8,$42,$4a,$c2,$ca
+	!by $60,$68,$e0,$e8,$62,$6a,$e2,$ea
+	!by $44,$4c,$c4,$cc,$46,$4e,$c6,$ce
+	!by $64,$6c,$e4,$ec,$66,$6e,$e6,$ee
+	!by $01,$09,$81,$89,$03,$0b,$83,$8b
+	!by $21,$29,$a1,$a9,$23,$2b,$a3,$ab
+	!by $05,$0d,$85,$8d,$07,$0f,$87,$8f
+	!by $25,$2d,$a5,$ad,$27,$2f,$a7,$af
+	!by $41,$49,$c1,$c9,$43,$4b,$c3,$cb
+	!by $61,$69,$e1,$e9,$63,$6b,$e3,$eb
+	!by $45,$4d,$c5,$cd,$47,$4f,$c7,$cf
+	!by $65,$6d,$e5,$ed,$67,$6f,$e7,$ef
+
+	!by $10,$18,$90,$98,$12,$1a,$92,$9a
+	!by $30,$38,$b0,$b8,$32,$3a,$b2,$ba
+	!by $14,$1c,$94,$9c,$16,$1e,$96,$9e
+	!by $34,$3c,$b4,$bc,$36,$3e,$b6,$be
+	!by $50,$58,$d0,$d8,$52,$5a,$d2,$da
+	!by $70,$78,$f0,$f8,$72,$7a,$f2,$fa
+	!by $54,$5c,$d4,$dc,$56,$5e,$d6,$de
+	!by $74,$7c,$f4,$fc,$76,$7e,$f6,$fe
+	!by $11,$19,$91,$99,$13,$1b,$93,$9b
+	!by $31,$39,$b1,$b9,$33,$3b,$b3,$bb
+	!by $15,$1d,$95,$9d,$17,$1f,$97,$9f
+	!by $35,$3d,$b5,$bd,$37,$3f,$b7,$bf
+	!by $51,$59,$d1,$d9,$53,$5b,$d3,$db
+	!by $71,$79,$f1,$f9,$73,$7b,$f3,$fb
+	!by $55,$5d,$d5,$dd,$57,$5f,$d7,$df
+	!by $75,$7d,$f5,$fd,$77,$7f,$f7,$ff
+	
+; ----------------------------------------- 
+
+iheader	!by 0		; 128 bytes + 5 bytes (start of image)
+	!pet "........"	; filename
+	!pet "..."	; suffix
+	!fill 4		; (gap)
+	!by 0
+	!by 0
+ftype	!by 0		; file type, 2=binary
+	!wo 0		; (gap)
+	!wo 0		; load address
+	!by 0
+	!wo 0		; file length 1
+	!wo 0		; start address
+	!fill 36		; (gap)
+	!by 0,0,0		; file length 2
+	!wo 0		; checksum
+	!fill 59		; (gap)
+
+image	!pet "..."	; possible compress flag "MJH"
+	!wo 0		; length of data stream (def. 4096 bytes)
+
+; ----------------------------------------- 
+; ----------------------------------------- Image Information Handler
+; ----------------------------------------- 
+
+getname	ldx #0
+si0	lda ls_lastname,x	; retrieve name of loaded picture
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+; ----------------------------------------- Publish Infomation
+
+setinfo	jsr setname	; propagate image name to system
+	jsr setloader	; set image information
+	jsr setmode
+	jmp setdata
+
+; ----------------------------------------- Subroutines
+
+setname	lda #0
+	ldx #<ls_picname
+	ldy #>ls_picname
+	bne si3
+setloader	lda #17
+	ldx #<ls_iloader
+	ldy #>ls_iloader
+	bne si3
+setmode	lda #25
+	ldx #<ls_imode
+	ldy #>ls_imode
+	bne si3
+setdata	lda #33
+	ldx #<ls_idrive
+	ldy #>ls_idrive
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4 	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!fill 16,32	; 16 bytes buffer for "Filename"
+	!by 0
+
+modname	!scr "OCP CPC@"
+modetx	!scr "160x200@"	; resolution: Multi
+datatype	!scr "Color@"
+
+; ----------------------------------------- 
+
+modend	!eof
