@@ -1,0 +1,427 @@
+
+	!src "godotlib.lib"	; Label-Library einbinden
+	*= $c000		; generelle Startadresse für alle Module
+	!ct pet		; Texte werden in PETSCII assembliert
+;	!sl "labels.txt"
+
+; ----------------------------------------- 
+;
+; mod.MapColorbase
+;   Modul zum Zuordnen von Farben in Bildern, die von GoDot
+;   nicht akzeptabel konvertiert werden. 
+;
+; 1.00, 23.09.20 : first release
+; 
+; -------------------------------------- 
+
+	pport	= $01
+
+	count	= $30
+	valcol	= $31
+	valrow	= $32
+	dst	= $35	; /$36
+
+	colorbase	= $0380
+
+; -------------------------------------- Header
+
+	jmp start
+	!by $20
+	!wo $00
+	!wo modend
+	!wo 0
+	!pet "Map Image Colors"
+	!pet "1.00"
+	!pet "23.09.20"
+	!pet "A.Dettke        "
+
+; -------------------------------------- Main
+
+start	ldx #<rgblst	; Screenliste ausgeben
+	ldy #>rgblst
+	jsr gd_screen
+	jsr setdeflts	; RGB-Daten holen
+
+	ldy #32
+	jsr settab
+	jsr gettab
+	ldx #2		; Index auf Textfarbe
+	jsr gd_fcol	; Fenster einfärben
+
+	stx sc_loop	; .x=0 (Höhe=16)
+	lda #13
+	sta sc_sp
+	lda #2		; Streifen mit Breite 2 invertieren
+	sta sc_br
+	jsr gd_initmove
+	jsr gd_invert
+
+	ldx #1		; Einzelfärbung
+	stx sc_ho
+	dex 
+	stx sc_merk
+-	lda gr_basepal,x	; Farbe holen
+	sta sc_chgcol
+	ldx #4		; Index auf geholte Farbe
+	jsr gd_fcol	; färben (ganze Palette durch)
+	inc sc_zl		; nächste Zeile
+	inc sc_merk
+	ldx sc_merk	; nächste Farbe
+	cpx #16
+	bcc -
+
+	ldy #34		; Hilighting der Graus
+-	sty sc_merk
+	jsr gettab
+	ldx #3		; Index auf Hilite-Farbe
+	jsr gd_fcol	; färben
+	ldy sc_merk	; nächstes Grau
+	iny 
+	iny 
+	cpy #44		; bis alle durch
+	bne -
+
+	jmp gd_eloop	; warten
+
+; -------------------------------------- Event: Edit RGB Data
+
+evshow	lda sc_merk	; wo geklickt? (Zeile)
+	clc 
+	sbc valrow	; Wert in valrow wurde in copyrgb gesetzt
+	tax 		; als Index in die rgb-Palette
+
+	lda sc_merk+1	; wo geklickt? (Spalte)
+	clc 
+	sbc valcol	; als Distributor:
+
+	cmp #8		; war Klick auf Anzeigetexte
+	bcs showvals	; nur zeigen
+
+	cmp #6		; war Klick auf die Zahlen, dann...
+	bcc +
+
+	inc bvalues,x	; ganz rechts: B
+	lda bvalues,x
+	cmp #16
+	bcc showvals
+	lda #0
+	sta bvalues,x
+	beq showvals
+
++	cmp #$03		; Mitte: G
+	bcc +
+	inc gvalues,x
+	lda gvalues,x
+	cmp #16
+	bcc showvals
+	lda #0
+	sta gvalues,x
+	beq showvals
+
++	inc rvalues,x	; sonst: R
+	lda rvalues,x
+	cmp #16
+	bcc showvals
+	lda #0
+	sta rvalues,x
+
+showvals	jsr settab	; und anzeigen
+	ldy #15		; 16 (mal 3) Stück
+-	sty count
+	lda rvalues,y	; get R
+	jsr mkdec		; to decimal
+	stx record
+	sta record+1
+	lda gvalues,y	; get G
+	jsr mkdec		; to decimal
+	stx record+3
+	sta record+4
+	lda bvalues,y	; get B
+	jsr mkdec		; to decimal
+	stx record+6
+	sta record+7
+
+	tya 		; Index mal 2
+	asl
+	tay 
+	jsr gettab	; für Ausgabe-Adressen
+	ldx #<record
+	ldy #>record
+	jsr gd_xtxout2	; anzeigen
+
+	ldy count		; nächster Record
+	dey 
+	bpl -
+	clc 
+	rts 
+
+; -------------------------------------- Convert Value to Decimal
+
+mkdec	jsr gd_xcnvdez
+	cpx #$30		; leading Null?
+	bne +
+	ldx #$20		; ersetzen mit Space
++	rts 
+
+; -------------------------------------- Set Printer's rgb Table Address
+
+setdeflts	lda #<colorbase
+	ldy #>colorbase
+	jsr spr0
+	jsr firsttime
+	lda #<rtabtemp	; leere Tabelle anlegen
+	ldy #>rtabtemp
+	jsr spr0
+	jsr update
+spr0	sta dst		; eintragen
+	sty dst+1
+	clc 
+	rts 
+
+; -------------------------------------- RGB-Tabelle (erstmalig) laden
+
+firsttime	ldy #0		; dreimal 16 Werte holen
+-	lda (dst),y
+	ldx cpref,y
+	sta rvalues,x	; und geordnet speichern
+	iny
+	cpy #16
+	bcc -
+	clc
+	tya
+	adc dst
+	sta dst
+	ldy #0
+-	lda (dst),y
+	ldx cpref,y
+	sta gvalues,x	; und geordnet speichern
+	iny
+	cpy #16
+	bcc -
+	clc
+	tya
+	adc dst
+	sta dst
+	ldy #0
+-	lda (dst),y
+	ldx cpref,y
+	sta bvalues,x	; und geordnet speichern
+	iny
+	cpy #16
+	bcc -
+	bcs crgb0
+	
+copyrgb	ldy #0
+-	lda (dst),y	; dreimal 16 Werte holen
+	sta rvalues,y
+	iny 
+	cpy #48
+	bne -
+crgb0	jsr showvals	; anzeigen
+	lda txshow	; Zeile und Spalte des Datenfensters holen
+	sta valrow
+	lda txshow+1
+	sta valcol
+	clc 
+	rts 
+
+; -------------------------------------- Event: Neue RGB-Tabelle zurückschreiben
+
+evupdate	lda #<rtabtemp	; neue RGB-Tabelle als aktuelle deklarieren
+	ldy #>rtabtemp
+	jsr spr0
+	jsr update
+
+; -------------------------------------- Event: Leave
+
+evcancel	lda #<colorbase	; alte RGB-Tabelle rekonstruieren
+	ldy #>colorbase
+	jsr spr0
+
+	ldy #0		; dreimal 16 Werte holen
+-	ldx cpref,y
+	lda rtabtemp,x	; und geordnet zurückspeichern
+	sta (dst),y
+	iny
+	cpy #16
+	bcc -
+	clc
+	tya
+	adc dst
+	sta dst
+	ldy #0
+-	ldx cpref,y
+	lda rtabtemp+16,x
+	sta (dst),y
+	iny
+	cpy #16
+	bcc -
+	clc
+	tya
+	adc dst
+	sta dst
+	ldy #0
+-	ldx cpref,y
+	lda rtabtemp+32,x
+	sta (dst),y
+	iny
+	cpy #16
+	bcc -
+
+	sec		; Modul verlassen
+	rts
+
+; -------------------------------------- RGB-Tabelle merken
+
+update	ldy #0
+-	lda rvalues,y
+	sta (dst),y
+	iny 
+	cpy #48
+	bne -
+	rts
+
+; -------------------------------------- RGB-Tabelle
+
+rvalues	!by $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00 
+gvalues	!by $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00 
+bvalues	!by $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00 
+
+; -------------------------------------- Leere rgb-Tabelle
+
+rtabtemp	!by $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00 
+	!by $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00 
+	!by $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+
+; -------------------------------------- Textanzeige Handler
+
+tabigad 	!wo txblk		; 0
+	!wo txblu 	; 2
+	!wo txbwn 	; 4
+	!wo txdgr 	; 6
+	!wo txred		; 8
+	!wo txpur		; 10
+	!wo txora 	; 12
+	!wo txmgr 	; 14
+	!wo txlbl		; 16
+	!wo txlrd 	; 18
+	!wo txgrn 	; 20
+	!wo txlgr 	; 22
+	!wo txcya		; 24
+	!wo txyel		; 26
+	!wo txlgn 	; 28
+	!wo txwht 	; 30
+	!wo txwindow 	; 32
+	!wo hlblk		; 34
+	!wo hlgr1 	; 36
+	!wo hlgr2		; 38
+	!wo hlgr3		; 40
+	!wo hlwht		; 42
+
+settab	lda #<tabigad 
+	sta sc_texttab
+	lda #>tabigad
+	sta sc_texttab+1
+	rts 
+
+gettab	lda (sc_texttab),y
+	sta sc_screentab
+	iny 
+	lda (sc_texttab),y
+	sta sc_screentab+1
+	lda #0
+	tax 
+	tay 
+gt0	jsr gd_setpos
+	cpx #4
+	bne gt0
+	jsr gd_trim
+	jmp gd_initmove
+
+; -------------------------------------- Daten
+
+cpref	!by 11,7,3,0,15,2,9,6,5,12,4,8,1,10,14,13
+
+record	!scr "00 00 00",0
+
+; -------------------------------------- Orte der Farbanzeigen
+
+txblk	!by $03,$01,$10,$03 
+txblu	!by $04,$01,$10,$03 
+txbwn	!by $05,$01,$10,$03 
+txdgr	!by $06,$01,$10,$03 
+txred	!by $07,$01,$10,$03 
+txpur	!by $08,$01,$10,$03 
+txora	!by $09,$01,$10,$03 
+txmgr	!by $0a,$01,$10,$03 
+txlbl	!by $0b,$01,$10,$03 
+txlrd	!by $0c,$01,$10,$03 
+txgrn	!by $0d,$01,$10,$03 
+txlgr	!by $0e,$01,$10,$03 
+txcya	!by $0f,$01,$10,$03 
+txyel	!by $10,$01,$10,$03 
+txlgn	!by $11,$01,$10,$03 
+txwht	!by $12,$01,$10,$03 
+hlblk	!by $03,$0e,$05,$03 
+hlgr1	!by $06,$0e,$05,$03
+hlgr2	!by $0a,$0e,$05,$03
+hlgr3	!by $0e,$0e,$05,$03 
+hlwht	!by $12,$0e,$05,$03
+colbar	!by $03,$0c,$04,$03
+
+; -------------------------------------- Screenlist
+
+rgblst	!by $00
+	!by 00,02,18,25,$81
+	!wo 0 
+	!scr "Map: Colorbase",0
+txshow	!by 03,03,10,18,$60
+	!wo evshow
+txwindow	!by 03,03,16,18,$20
+	!wo 0 
+	!by 21,04,08,03,$c0
+	!wo evupdate
+	!scr "Update",0
+	!by 21,12,07,03,$c0
+	!wo evcancel
+	!scr "Leave",0
+
+	!by $c0,01,02,15
+	!scr " R  G  B  Color",0
+	!by $c0,03,12,05	; 16mal:
+	!scr "  blk",0	; Farbname
+	!by $c0,04,12,05
+	!scr "  blu",0
+	!by $c0,05,12,05
+	!scr "  bwn",0
+	!by $c0,06,12,05
+	!scr "  dgr",0
+	!by $c0,07,12,05
+	!scr "  red",0
+	!by $c0,08,12,05
+	!scr "  pur",0
+	!by $c0,09,12,05
+	!scr "  ora",0
+	!by $c0,10,12,05
+	!scr "  mgr",0
+	!by $c0,11,12,05
+	!scr "  lbl",0
+	!by $c0,12,12,05
+	!scr "  lrd",0
+	!by $c0,13,12,05
+	!scr "  grn",0
+	!by $c0,14,12,05
+	!scr "  lgr",0
+	!by $c0,15,12,05
+	!scr "  cya",0
+	!by $c0,16,12,05
+	!scr "  yel",0
+	!by $c0,17,12,05
+	!scr "  lgn",0
+	!by $c0,18,12,05
+	!scr "  wht",0
+	!by $80 
+
+; -------------------------------------- 
+
+modend	!eof
