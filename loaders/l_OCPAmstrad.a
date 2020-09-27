@@ -10,6 +10,7 @@
 ;   Loader for Amstrad OCP Art Studio SCR(eens)
 ;
 ;  1.00, 14.09.20, first release
+;  1.01, 26.09.20, IFLI colors slightly changed
 ;
 ; ----------------------------------------- 
 
@@ -44,8 +45,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "Amstrad OCP SCR "
-	!tx "1.00"
-	!tx "14.09.20"
+	!tx "1.01"
+	!tx "26.09.20"
 	!tx "A.Dettke        "
 
 ; ----------------------------------------- Main
@@ -461,10 +462,10 @@ cpccols	!by 13,13,19,25, 1, 7,10,16
 	!by  4,22,21,23, 3, 5,12,14
 
 	; 27 IFLI colors representing cpc ink:
-iflicols	!by $00,$11,$38,$44,$55,$15,$94,$95
-	!by $75,$3a,$8c,$88,$22,$77,$b8,$66
-	!by $99,$f5,$ec,$aa,$fc,$da,$ee,$cc
-	!by $fd,$dd,$ff
+iflicols	!by $00,$11,$38,$44,$55,$15,$94,$95	; blck,blue,bblu,red ,mag ,mauv,bred,purp
+	!by $75,$3a,$82,$88,$22,$77,$b8,$66	; bmag,gren,cyan,sblu,yell,mgry,pblu,orng
+	!by $99,$f5,$ec,$aa,$ec,$da,$ee,$cc	; pink,pmag,bgrn,sgrn,bcya,lime,pgrn,pcya
+	!by $fd,$dd,$ff			; byel,pyel,bwht
 
 	; decoded color lookup table (2 pixels per byte):
 cols	!by $00,$08,$80,$88,$02,$0a,$82,$8a
