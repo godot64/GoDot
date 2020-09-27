@@ -1,0 +1,802 @@
+
+	!src "godotlib.lib"	; Label-Library einbinden
+	*= $c000		; generelle Startadresse für alle Module
+	!ct pet		; Texte werden in PETSCII assembliert
+;	!sl "labels.txt"
+
+; -----------------------------------------
+;
+; svr.OCPAmstrad
+;     Saver für OCP-Bilder für Amstrad CPC
+;
+; 1.00, 26.09.20, first release
+;
+; -----------------------------------------
+
+; ----------------------------------------- Label-Definitionen
+
+	; constants
+	marker	= $01	; compress flag
+
+	; Systemlabels
+	pport	= $01
+
+	; Modullabels
+	adcnt	= $30	; Zähler für activity
+	xmrk	= $31
+	gbyte	= $32
+	cnt	= $33	; /$34
+	src	= $35	; /$36
+	src2	= $37	; /$38
+	ymrk	= $39
+	lcnt	= $3a	; 0..7
+	rcnt	= $3b	; 0..24
+	tcnt	= $3c	; 0..39
+	bcnt	= $3d	; 0..3
+	bbuf	= $3e
+	countmode	= $3f	; $ff: counting, $00: writing
+	dothejob	= $40	; /$41
+	counter	= $42	; /$43
+
+	offx	= ls_adrmisc	; gauge counters
+	offy	= offx+1
+
+; ----------------------------------------- Header
+
+ 	jmp start
+
+	!by $40
+	!by 0
+	!by 0
+	!wo modend
+	!wo 0			; reserviert
+	!tx "CPC OCP mode 0  "
+version	!tx "1.00"
+	!tx "26.09.20"
+	!tx "A.Dettke        "
+
+; ----------------------------------------- 
+
+; ----------------------------------------- 
+; ----------------------------------------- Saver OCPAmstrad
+; ----------------------------------------- 
+
+start	ldx gr_nr
+	dex
+	bne saver
+
+	jmp initinp
+
+; -----------------------------------------
+; -----------------------------------------
+; ----------------------------------------- 
+
+; ----------------------------------------- Main
+
+st01	jmp st1
+
+saver	lda gd_modswitch	; Memory Management
+	pha
+
+	lda ls_flen	; Filename wurde vom Filerequester übergeben?
+	beq st01		; nein (dann Cancel)
+
+	sta flen		; sonst: Länge sichern
+	sta wflen
+	jsr addsig	; Namenskürzel anhängen ("pal")
+	jsr wopen		; Datei zum Schreiben öffnen
+	bne st2		; wenn Diskettenfehler: Ende
+
+	jsr getname	; Filenamen für Image Information sichern
+	jsr setcpcnm	; Filename für CPC ändern
+
+	jsr setpal	; Palettenheader vorbesetzen
+	jsr getchksum	; Checksum berechnen
+	ldx #12		; OPEN #12, out
+	jsr ckout
+	jsr gd_clrms	; Fortschrittsbalken und Statusausgaben vorbereiten
+	ldx #0		; Anzeigetext #1 ("Palette") eintragen
+	jsr tcopy
+	iny
+	sty adcnt		; Activity (Fortschrittsbalken) starten (.y=1)
+	iny
+	sty cntwert	; Zählwert: 2 (sehr schnell)
+
+	jsr writepal	; jetzt Palette speichern
+
+st3	jsr clrch		; danach Bus freigeben
+	lda #12		; Datei #12 schließen
+	jsr close
+	jsr err9		; Floppystatus zeigen (nur sehr kurz)
+	bne st1
+
+	ldx #3		; set name for image file (.SCR)
+	ldy flen
+-	lda sig2,x
+	sta ls_nambuf,y
+	iny
+	dex
+	bpl -
+	sty wflen
+
+	jsr wopen		; Datei zum Schreiben öffnen
+	bne st2		; wenn Diskettenfehler: Ende
+
+	ldy #0		; write saver version number to signature
+-	lda version,y
+	sta vers,y
+	iny
+	cpy #4
+	bcc -
+
+	jsr setscr	; Image-Header vorbesetzen
+	ldx #12		; OPEN #12, out
+	jsr ckout
+
+	jsr writeimg	; jetzt Bild speichern
+
+st2	jsr clrch		; danach Bus freigeben
+	lda #12		; Datei #12 schließen
+	jsr close
+	jsr err9		; Floppystatus zeigen (nur sehr kurz)
+	bne st1
+
+	jsr setname	; nur wenn fehlerfrei: Image Information aufbereiten
+
+st1	pla		; dann Saver abwickeln: Memory Management
+	sta gd_modswitch
+
+st12	jsr gd_spron	; Mauszeiger wieder an
+	sec		; Leave-Flag setzen
+	rts		; fertig, Saver verlassen
+
+
+; ----------------------------------------- 
+; ----------------------------------------- Input Routines (This next line _mandatory_ for savers!)
+; ----------------------------------------- 
+
+	!src "input.inc"
+
+; ----------------------------------------- 
+; -----------------------------------------
+; ----------------------------------------- 
+
+
+; ----------------------------------------- 
+; ----------------------------------------- Disk Access Routines
+; ----------------------------------------- 
+
+pw	!pet "w,p,"
+sigtx	!pet "lap."	; Signatur 1: ".pal"
+sig2	!pet "rcs."
+sigtxs	!scr "rcs."
+drinit	!pet "i0"
+flen	!by 0
+wflen	!by 0
+
+; ----------------------------------------- Filehandling
+
+wopen	jsr inull		; Initialize
+	bne err8
+	ldy wflen		; ",p,w" anhängen
+	ldx #3
+wo1	lda pw,x
+	sta ls_nambuf,y
+	iny
+	dex
+	bpl wo1
+	sty wflen
+	lda #12		; OPEN 12,drive,12,"name,p,w"
+	tay
+	ldx ls_drive
+	jsr filpar
+	lda wflen
+	ldx #<ls_nambuf
+	ldy #>ls_nambuf
+	jsr filnam
+	jsr copen
+	jmp err9
+
+inull	ldx #<drinit	; Initialize Drive
+	ldy #>drinit
+	lda #2
+	jsr gd_sendcom
+
+err9	jsr gd_xmess
+	lda ls_err2	; liefert Fehlernummer der Floppy
+	and #15		; und zwar als Bytewert (wenn <>0, dann Fehler)
+err8 	sec
+	rts
+
+; ----------------------------------------- 
+; ----------------------------------------- Activity Handler
+; ----------------------------------------- 
+
+messout	ldx #<message	; Textausgabe
+	ldy #>message
+	jmp gd_xtxout2
+
+tcopy	ldy #0		; Informationstextauswahl (hinter Label "txt"), Offset auf Text in .x
+tc0 	lda txt,x
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+
+clrmess	ldx #22		; Puffer für Balken löschen
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0		; Balkenlänge 0
+	ldx #7		; Dicke am Ende 0
+	sty offy
+	stx offx
+	rts
+
+action 	dec adcnt		; Activity, aktiviert sich nur bei 0 (Zähler abgelaufen)
+	bne ld4
+	lda cntwert	; dann: Reload des Zählers
+	sta adcnt
+	ldy offy		; Offset auf Balkenende
+	cpy clrmess+1	; Ende der Ausgabezeile erreicht?
+	bne act0
+	jsr clrmess	; ja, re-Init des Status-Bereichs
+act0	ldx offx		; offx: Index auf aktuelles Zeichen für Dicke des Balkenendstücks
+	lda filltab,x
+	sta mess,y
+	jsr messout	; ganzen Balken ausgeben
+	dec offx		; Endstück nächstes Mal dicker
+	bpl ld4		; bis Endstück gefüllt
+	inc offy		; dann den Balken selbst verlängern
+	lda #7		; nächstes Endstück wieder dünn
+	sta offx
+ld4 	rts
+
+filltab	!by 160,93,103,127,126,124,105,109	; Zeichen der Endstücke des Balkens (von hinten nach vorne)
+cntwert	!by 2
+
+txt	!scr " Palette ",0	; Offset 0
+	!scr " Cmpress ",0	; 10
+	!scr " Writing ",0	; 20
+
+message	!fill 9,32
+mess	!fill 23,32
+	!by 0
+
+; ----------------------------------------- 
+; ----------------------------------------- Image Information Handler
+; ----------------------------------------- 
+
+setcpcnm	ldx #$ff		; set cpc filename
+-	inx
+	cpx #8
+	beq +
+	lda ls_nambuf,x
+	sta cpcname,x
+	cmp #$2e		; Punkt (".")?
+	bne -
+	lda #32
+-	sta cpcname,x	; mit Space auffüllen, wenn nötig
+	inx
+	cpx #8
+	bne -
++	rts
+
+getname	ldx #0		; aktuellen Filenamen sichern
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+setname	lda #0		; Namen in Image Info eintragen
+	ldx #<ls_picname
+	ldy #>ls_picname
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+;
+nbuf	!fill 16,32	; Namenspuffer
+	!by 0
+
+; ----------------------------------------- 
+; ----------------------------------------- Write Files
+; ----------------------------------------- 
+
+writehead	ldx #0		; write amsdos header
+-	lda amsheader,x
+	jsr activity
+	inx
+	cpx #128
+	bne -
+	rts
+
+; ----------------------------------------- Move Gauge Bar
+
+activity	jsr bsout
+	stx xmrk		; gauge
+	jsr action
+	ldx xmrk
+	rts
+
+; ----------------------------------------- Write Palette 
+
+writepal	jsr writehead	; write header to disk
+	ldx #0
+-	lda paldata,x	; write cpc palette to disk
+	bmi +
+	jsr activity
+	inx
+	bne -
++	rts
+
+; ----------------------------------------- Write Image
+
+writeimg	jsr gd_clrms	; Fortschrittsbalken und Statusausgaben vorbereiten
+	ldx #10		; Anzeigetext #2 ("Cmpress") eintragen
+	jsr tcopy
+	iny
+	sty adcnt		; Activity (Fortschrittsbalken) starten (.y=1)
+	ldy #50		; Zählwert anpassen
+	sty cntwert
+
+	ldx #$ff		; first: count compacted bytes 
+	stx countmode
+	inx
+	stx counter
+	stx counter+1
+	lda #<cntbytes
+	ldx #>cntbytes
+	sta dothejob
+	stx dothejob+1
+	jsr twopasses	; perform first pass: count bytes
+
+	clc		; add missing gap bytes (8x3 plus 4x5 bytes)
+	lda counter
+	adc #44
+	sta imlen1	; set length to header
+	sta imlen2
+	bcc +
+	inc counter+1
++	lda counter+1
+	sta imlen1+1
+	sta imlen2+1
+
+	ldx #$00		; second: write bytes to disk
+	stx countmode
+	lda #<pack
+	ldx #>pack
+	sta dothejob
+	stx dothejob+1
+
+	ldx #20		; Anzeigetext #3 ("Writing") eintragen
+	jsr tcopy
+	iny
+	sty adcnt		; Activity (Fortschrittsbalken) starten (.y=1)
+
+	jsr getchksum	; compute checksum of image header
+	jsr writehead	; write correct amsdos header
+	jsr setpacked	; write pack signature ("MJH")
+
+; ----------------------------------------- Render Image
+
+twopasses	lda #<sy_4bit	; start from $4000
+	ldx #>sy_4bit
+	sta current
+	stx current+1
+	lda #7		; count 8 rasterlines
+	sta lcnt
+
+	lda current	; set destination addresses (4Bit)
+	ldx current+1
+imgloop	sta src2
+	sta src
+	stx src2+1
+	stx src+1
+	lda #25		; count 25 blockrows
+	sta rcnt
+
+ldloop	dec rcnt
+	bmi nextline
+	lda #40
+	sta tcnt
+
+tloop	jsr action
+	dec tcnt		; count 40 tiles per row
+	bmi nextrow
+
+	ldy #0		; inner tile loop
+iloop	lda (src),y	; get double pixel
+	tax
+	lda palette,x	; convert IFLI to multi
+	and #$f0		; store index to first pixel
+	sta bbuf
+	iny
+	lda (src),y	; get next double pixel
+	tax
+	lda palette,x
+	and #$0f		; combine indeces
+	ora bbuf		; convert to CPC bitmap (by COLS)
+	tax
+	lda cols,x
+	jsr render	; count/write byte
+	iny
+	cpy #4		; twice
+	bcc iloop
+
+	clc		; proceed to next tile
+	lda src
+	adc #32
+	sta src
+	bcc tloop
+	inc src+1
+	bne tloop
+
+nextrow	clc		; proceed to next tile row
+	lda src2+1
+	adc #5
+	sta src2+1
+	bne ldloop
+
+nextline	lda gbyte		; flush compress buffer
+	eor #$ff
+	jsr render
+
+	lda #0		; don't count gap in count bytes mode
+	bit countmode
+	bmi +
+	lda #marker	; write gap between chunks
+	jsr bsout
+	lda #48		; 48 times 0
+	jsr bsout
+	lda #0
+	jsr bsout
++	sta cnt		; reset pack process
+	sta cnt+1
+
+	lda lcnt		; every other time (after 4096 bytes):
+	beq +		; but not last time
+	and #1
+	bne +
+	jsr setpacked	; write pack signature
+
++	clc		; turn over to next rasterline (of 8)
+	lda current
+	adc #4
+	sta current
+	ldx current+1
+	dec lcnt		; count upto 8
+	bmi +
+	jmp imgloop
+
++	rts		; then: finished
+
+; ----------------------------------------- Count or Write Packed Bytes
+
+render	jmp (dothejob)	; either count bytes or write them to disk
+
+count	inc counter	; count compressed bytes while rendering
+	bne +
+	inc counter+1
++	rts
+
+; ----------------------------------------- Write Compress Signature
+
+setpacked	bit countmode	; but not in count bytes mode
+	bmi +
+	ldx #0		; write "MJH"+$1000
+-	lda ifpacked,x
+	jsr bsout
+	inx
+	cpx #5
+	bcc -
++	rts
+
+; ----------------------------------------- Set correct Palette Header data
+
+setpal	lda addr1		; write defaults
+	sta sladdrs
+	sta xcaddrs
+	lda addr1+1
+	sta sladdrs+1
+	sta xcaddrs+1
+	lda len1
+	sta imlen1
+	sta imlen2
+	lda len1+1
+	sta imlen1+1
+	sta imlen2+1
+	ldy #0
+	ldx #2
+-	lda sigtx,x	; and "PAL" suffix
+	sta imsig,y
+	iny
+	dex
+	bpl -
+	rts
+
+; ----------------------------------------- Set correct SCR Image Header data
+
+setscr	lda addr2		; write defaults
+	sta sladdrs
+	sta xcaddrs
+	lda addr2+1
+	sta sladdrs+1
+	sta xcaddrs+1
+	lda len2		; set length to $0000
+	sta imlen1
+	sta imlen2
+	lda len2+1
+	sta imlen1+1
+	sta imlen2+1
+	ldy #0
+	ldx #2
+-	lda sig2,x	; set "SCR" suffix
+	sta imsig,y
+	iny
+	dex
+	bpl -
+	rts
+
+; ----------------------------------------- Compute Header Checksum
+
+getchksum	ldy #checksum-amsheader
+	lda #0
+	sta checksum
+	sta checksum+1
+	clc
+-	adc amsheader,y	; add all bytes upto checksum itself
+	sta checksum
+	bcc +
+	inc checksum+1
+	clc
++	dey
+	bpl -
+	rts
+
+; ----------------------------------------- Compress
+
+pack	cmp gbyte		; current equal to last?
+	beq incr		; yes, count
+
+p256	pha
+	lda cnt+1		; counter at 256?
+	bne wl0		; yes, output
+
+	lda cnt		; first occurance?
+	beq wl1		; yes, set and count
+
+	cmp #4		; counter more than 3?
+	bcs wl0		; yes, output
+
+	lda gbyte		; current is marker?
+	cmp #marker
+	bne wl2		; no, direct output
+
+wl0	lda #marker	; yes, output marker...
+	jsr bsout
+	lda cnt		; ...counter...
+	jsr bsout
+	lda #1		; ...reset counter...
+	sta cnt
+	lda #0
+	sta cnt+1
+
+wl2	lda gbyte		; ...and output byte
+	jsr bsout
+	dec cnt		; decrement counter
+	bne wl2
+
+wl1	pla		; then refetch current byte
+	sta gbyte		; set it
+incr	inc cnt		; count
+	bne wl3
+	inc cnt+1		; until 256...
+wl4	jsr p256		; ...and process 256
+	dec cnt
+
+wl3	rts		; leave compress
+
+; ----------------------------------------- Count Bytes (compress without writing)
+
+cntbytes	cmp gbyte		; current equal to last?
+	beq cincr		; yes, count
+
+cp256	pha
+	lda cnt+1		; counter at 256?
+	bne cwl0		; yes, output
+
+	lda cnt		; first occurance?
+	beq cwl1		; yes, set and count
+
+	cmp #4		; counter more than 3?
+	bcs cwl0		; yes, output
+
+	lda gbyte		; current is marker?
+	cmp #marker
+	bne cwl2		; no, direct output
+
+cwl0	lda #marker	; yes, output marker...
+	jsr count
+	lda cnt		; ...counter...
+	jsr count
+	lda #1		; ...reset counter...
+	sta cnt
+	lda #0
+	sta cnt+1
+
+cwl2	lda gbyte		; ...and output byte
+	jsr count
+	dec cnt		; decrement counter
+	bne cwl2
+
+cwl1	pla		; then refetch current byte
+	sta gbyte		; set it
+cincr	inc cnt		; count
+	bne cwl3
+	inc cnt+1		; until 256...
+cwl4	jsr cp256		; ...and process 256
+	dec cnt
+
+cwl3	rts		; leave compress
+
+; -----------------------------------------  Namen verlängern
+
+addsig	pha		; Länge merken
+	tay
+	dey
+	ldx #0
+ag4	lda ls_nambuf,y	; endet auf ".scr"?
+	cmp sig2,x
+	bne ag2		; nein
+	dey
+	inx
+	cpx #4
+	bcc ag4
+	pla		; ja, fertig
+	rts
+
+ag2	pla
+	tay		; Name länger als 12 Zeichen?
+	cpy #13
+	bcs ag0		; ja, behandeln
+
+ag5	ldx #3		; nein, ".pal" anhängen
+ag1	lda sigtx,x
+ag3	sta ls_nambuf,y
+	lda sigtxs,x	; und ".scr" für Image Information
+	sta ls_lastname,y
+	iny
+	dex
+	bpl ag1
+	sty wflen		; neue Länge merken, fertig
+	sty ls_flen
+	rts
+
+ag0	dey		; auf 12 verkürzen
+	cpy #12
+	bne ag0
+	beq ag5		; unbed. Sprung
+
+; ----------------------------------------- 
+; ----------------------------------------- Data
+; ----------------------------------------- 
+
+	; IFLI to MULTI palette
+palette	!by $00,$11,$22,$00,$44,$55,$22,$00,$11,$44,$aa,$77,$aa,$aa,$aa,$77
+	!by $11,$11,$11,$11,$55,$55,$55,$11,$11,$55,$aa,$88,$88,$77,$aa,$88
+	!by $22,$11,$22,$22,$44,$99,$66,$22,$aa,$66,$aa,$22,$aa,$aa,$aa,$66
+	!by $00,$11,$22,$33,$44,$55,$22,$77,$11,$66,$aa,$77,$aa,$aa,$aa,$77
+	!by $44,$55,$44,$44,$44,$55,$99,$44,$11,$99,$aa,$22,$77,$66,$22,$99
+	!by $55,$55,$99,$55,$55,$55,$55,$55,$88,$55,$77,$55,$55,$99,$99,$55
+	!by $22,$55,$66,$22,$99,$55,$66,$66,$77,$66,$aa,$66,$dd,$dd,$ee,$66
+	!by $00,$11,$22,$77,$44,$55,$66,$77,$88,$66,$aa,$77,$ee,$77,$aa,$bb
+	
+	!by $11,$11,$aa,$11,$11,$88,$77,$88,$88,$88,$88,$88,$88,$88,$bb,$88
+	!by $44,$55,$66,$66,$99,$55,$66,$66,$88,$99,$aa,$99,$99,$66,$aa,$99
+	!by $aa,$aa,$aa,$aa,$aa,$77,$aa,$aa,$88,$aa,$aa,$aa,$ee,$ee,$aa,$ee
+	!by $77,$88,$22,$77,$22,$55,$66,$77,$88,$99,$aa,$bb,$bb,$cc,$ee,$ff
+	!by $aa,$88,$aa,$aa,$77,$55,$dd,$ee,$88,$99,$ee,$bb,$cc,$cc,$bb,$ff
+	!by $aa,$77,$aa,$aa,$66,$99,$dd,$77,$88,$66,$ee,$cc,$cc,$dd,$dd,$ff
+	!by $aa,$aa,$aa,$aa,$22,$99,$ee,$aa,$bb,$aa,$aa,$ee,$bb,$dd,$ee,$ff
+	!by $77,$88,$66,$77,$99,$55,$66,$bb,$88,$99,$ee,$ff,$ff,$ff,$ff,$ff
+
+	; two IFLI single pixels are index in cpc cols bitmap,
+	; corresponding to the gate array table (under PALDATA below):
+cols	!by $00,$40,$04,$44,$10,$50,$14,$54,$01,$41,$05,$45,$11,$51,$15,$55
+	!by $80,$c0,$84,$c4,$90,$d0,$94,$d4,$81,$c1,$85,$c5,$91,$d1,$95,$d5
+	!by $08,$48,$0c,$4c,$18,$58,$1c,$5c,$09,$49,$0d,$4d,$19,$59,$1d,$5d
+	!by $88,$c8,$8c,$cc,$98,$d8,$9c,$dc,$89,$c9,$8d,$cd,$99,$d9,$9d,$dd
+	!by $20,$60,$24,$64,$30,$70,$34,$74,$21,$61,$25,$65,$31,$71,$35,$75
+	!by $a0,$e0,$a4,$e4,$b0,$f0,$b4,$f4,$a1,$e1,$a5,$e5,$b1,$f1,$b5,$f5
+	!by $28,$68,$2c,$6c,$38,$78,$3c,$7c,$29,$69,$2d,$6d,$39,$79,$3d,$7d
+	!by $a8,$e8,$ac,$ac,$e8,$f8,$bc,$fc,$a9,$e9,$ad,$ed,$b9,$f9,$bd,$fd
+
+	!by $02,$42,$06,$46,$12,$52,$16,$56,$03,$43,$07,$47,$13,$53,$17,$57
+	!by $82,$c2,$86,$c6,$92,$d2,$96,$d6,$83,$c3,$87,$c7,$93,$d3,$97,$d7
+	!by $0a,$4a,$0e,$4e,$1a,$5a,$1e,$5e,$0b,$4b,$0f,$4f,$1b,$5b,$1f,$5f
+	!by $8a,$ca,$8e,$ce,$9a,$da,$9e,$de,$8b,$cb,$8f,$cf,$9b,$db,$9f,$df
+	!by $22,$62,$26,$66,$32,$72,$36,$76,$23,$63,$27,$67,$33,$73,$37,$77
+	!by $a2,$e2,$a6,$e6,$b2,$f2,$b6,$f6,$a3,$e3,$a7,$e7,$b3,$f3,$b7,$f7
+	!by $2a,$6a,$2e,$6e,$3a,$7a,$3e,$7e,$2b,$6b,$2f,$6f,$3b,$7b,$3f,$7f
+	!by $aa,$ea,$ae,$ee,$ba,$fa,$be,$fe,$ab,$eb,$af,$ef,$bb,$fb,$bf,$ff
+
+; ----------------------------------------- Header of Files
+
+amsheader	!by 0		; length of header: 128 bytes
+cpcname	!pet "........"	; filename
+imsig	!pet "pal"	; suffix (SCR)
+	!fill 4		; (gap)
+	!by 0
+	!by 0
+ftype	!by 2		; file type, 2=binary
+	!wo 0		; (gap)
+sladdrs	!wo $8809		; load address
+	!by 0
+imlen1	!wo 239		; palette length 1
+xcaddrs	!wo $8809		; start address
+	!fill 36		; (gap)
+imlen2	!24 239		; palette length 2 (24 bit)
+checksum	!wo 0		; checksum
+signature	!pet " saved by godot ocp amstrad saver v"
+vers	!pet "1.00 "	; 40 bytes signature
+	!fill 19		; (gap)
+
+; ----------------------------------------- C64 Palette
+
+paldata	!by 0		; not animated
+	!wo 0		; so no parameters
+
+	!fill 12,$54	; 0 14: blk
+	!fill 12,$44	; 1  4: blu
+	!fill 12,$5c	; 2 1c: bwn (cpc red)
+	!fill 12,$46	; 3  6: dgr (cpc cyan)
+	!fill 12,$4c	; 4  c: red (cpc br. red)
+	!fill 12,$4d	; 5  d: pur (cpc br. mag)
+	!fill 12,$4e	; 6  e: ora
+	!fill 12,$40	; 7  0: mgr
+	!fill 12,$57	; 8 17: lbl (cpc sky blu)
+	!fill 12,$47	; 9  7: lrd (cpc pink)
+	!fill 12,$56	; a 16: grn 
+	!fill 12,$5b	; b 1b: cya (cpc pst cya)
+	!fill 12,$53	; c 13: cya (cpc br. cya)
+	!fill 12,$43	; d  3: yel (cpc pst yel)
+	!fill 12,$5a	; e 1a: lgn (cpc lime)
+	!fill 12,$4b	; f  b: wht
+
+	!fill 12,$54	; blk (border)
+	!fill 16, 0	; excl. inks
+	!fill 16, 0	; prot. inks
+	!by $ff
+
+; ----------------------------------------- Compress Header
+
+ifpacked	!pet "mjh"	; compress signature and
+	!wo $1000		; length of data streams (each 4096 bytes)
+
+; ----------------------------------------- 
+
+addr1	!wo $8809		; in palette header
+len1	!wo 239
+addr2	!wo $4000		; in image header
+len2	!wo $0000
+
+current	!wo sy_4bit
+
+; ----------------------------------------- 
+
+modend 	!eof
+
+
