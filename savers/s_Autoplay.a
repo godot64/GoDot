@@ -10,6 +10,7 @@
 ;     Saver for self-starting Multicolor or Hires Images
 ;
 ; 1.00, 10.10.20, first release
+; 1.01, 11.10.20, bugfix: wrong gap len and wrong counting for 256 zeros
 ;
 ; -----------------------------------------
 
@@ -43,8 +44,8 @@
 	!wo modend
 	!wo 0
 	!tx "Autoplay Mul/Hir"
-	!tx "1.00"
-	!tx "10.10.20"
+	!tx "1.01"
+	!tx "11.10.20"
 	!tx "A.Dettke        "
 
 ; ----------------------------------------- 
@@ -104,7 +105,7 @@ st12	jsr gd_spron	; Mauszeiger wieder an
 
 
 ; ----------------------------------------- 
-; ----------------------------------------- Input Routines (This next line _mandatory_ for savers!)
+; ----------------------------------------- Input Routines 
 ; ----------------------------------------- 
 
 	!src "input.inc"
@@ -362,7 +363,7 @@ flsh0	eor #$ff
 
 fillgap	lda #$cf		; add 24 times $00
 	jsr bsout
-	lda $17
+	lda #$16		; ### 1.01
 	jmp bsout
 
 ; ----------------------------------------- 
@@ -547,13 +548,8 @@ incr0	inc count0
 	bne wl03
 	inc count0+1
 	beq wl03
-	jsr pz255
-	lda gbyte
-	bne +
-	jsr flush
+	jsr pz255		; ### 1.01
 	inc null
-+	lda #0
-	sta counter
 wl03	rts
 
 ; ----------------------------------------- Namen verlängern
