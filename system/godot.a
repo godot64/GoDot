@@ -21,6 +21,7 @@
 ;   1.39, 24.11.19 ; propagating currently chosen rgb palette
 ;   1.40, 30.04.20 ; better recognition of REUs
 ;                    now making use of BBU REUs (like in emulators)
+;   1.41, 13.10.20 ; added ability to STOP directory output
 ;
 ; ------------------------------------------------------------ 
 
@@ -85,7 +86,7 @@ b2	sta booter,y
 	ld11		= $1825
 	filtype		= $1d29 	; selfmodifying kernel!
 	ramtype		= $1d8f
-	hirs		= $1db4
+	hirs		= $1db7	; ### 1.41
 	scrmode		= $1edc
 	numcols		= $1ee9
 	
@@ -213,7 +214,7 @@ mkt0	lda tabs-$40,x
 
 ; --------------------------------------- 
 
-version	!byte $01,$40	; Versionsnummer in SED-Format (1.40)
+version	!byte $01,$41	; Versionsnummer in SED-Format (1.41)
 
 ; --------------------------------------- 
 
