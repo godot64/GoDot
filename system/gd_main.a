@@ -16,6 +16,7 @@
 ; 1.33, 14.11.18, bugfix, now correct generation of quantization table
 ; 1.34, 26.10.19, bugfix, now returns correct pointer values if other
 ;                 sprites have x-positions >255
+; 1.35, 13.10.20, added: STOP while reading DIR ends DIR
 ;
 ; -------------------------------------------------- 
 
@@ -390,7 +391,7 @@ xy2spzl	sec		; subtract offset of hotspot
 
 position	ldx sy_soffy	; convert sprite position to screen position
 	stx sc_merk+1	; hotspot y (-50)
-	lda spritey-2	; v1.30: Referenz ist jetzt *weiï¿½er* Mauszeiger
+	lda spritey-2	; v1.30: Referenz ist jetzt *weißer* Mauszeiger
 	jsr xy2spzl
 	sta sc_merk
 	ldx sy_soffx	; hotspot x (-24)
@@ -611,7 +612,7 @@ most	txa		; ### 1.34
 ; -------------------------------------------------- Version Number
 
 gd_version
-	!by $01,$34	; version number, SED-mode
+	!by $01,$35	; version number, SED-mode
 
 ; -------------------------------------------------- 
 ; -------------------------------------------------- Entry to GoDot, Main Loop
@@ -685,7 +686,9 @@ gd_xcnvdez	jmp cnvdez
 gd_xloadm		jmp lsm0
 
 ; -------------------------------------------------- 
-magic	!by $ad
+
+dirchan	!pet "#"
+
 ; -------------------------------------------------- 
 ; -------------------------------------------------- IO routines
 ; -------------------------------------------------- 
@@ -1673,7 +1676,11 @@ s1570	ldx #3
 	bne sdr6
 
 ; -------------------------------------------------- 
-magic5	!by $ad,$ad
+
+magic5	!by $ad
+
+dspalte	!by 5
+
 ; -------------------------------------------------- 
 
 ; -------------------------------------------------- 
@@ -1681,8 +1688,8 @@ magic5	!by $ad,$ad
 ; -------------------------------------------------- 
 
 getdir	lda #1		; read dir block
-	ldx #<(dirchan)
-	ldy #>(dirchan)
+	ldx #<dirchan
+	ldy #>dirchan
 	sta ls_temp
 	stx ls_vekta8
 	sty ls_vekta8+1
@@ -1784,14 +1791,14 @@ dir4	dex
 	stx ls_index	; dir index (into block)
 	stx ls_lines	; # of lines in window
 	stx ls_cblocks	; # of blocks with matching files
-	jsr gd_sproff	; pointer off
+	stx sc_stop
 
 	tya		; retrieve dir block
 	tax
-dir2	stx ls_sector
+dir2	stx ls_sector 
 	lda sc_zl
 	pha
-	jsr getdir
+	jsr dirstop
 	pla
 	sta sc_zl
 	lda ls_err2
@@ -2074,16 +2081,17 @@ ramtype	!scr "1700"
 
 ; -------------------------------------------------- 
 
-messu1	!pet "u1:13 0 "
+messu1	!pet "u1:13 0"
 
 ; -------------------------------------------------- 
 
-logo	!pet "!GoDot!"
+dirstop	jsr gd_sproff	; pointer off
+	jsr getdir
+	lda sc_stop
+	sta ls_err2
+	rts
 
 ; -------------------------------------------------- 
-
-dirchan	!pet "#"
-dspalte	!by 5
 
 hirs	!scr "Hires@"
 mult	!scr "Multi@"
@@ -2101,12 +2109,9 @@ exlst	!by $00
 	!by 10,25,08,03,$c0
 	!wo se_cancel
 	!scr "Cancel@"
-	!by $c0,10,16,07
-	!scr "Really?@"
+	!by $c0,10,17,05
+	!scr "Sure?@"
 	!by $80
-; -------------------------------------------------- 
-
-magic3	!by $ad
 
 ; -------------------------------------------------- 
 
