@@ -16,6 +16,7 @@
 ; 1.12, 19.11.95, converted to ACME on 11.08.17
 ;                 changed some minor things
 ; 1.13, 29.08.17, changed: getting empty DIR (VICE would crash old way to do it)
+; 1.14, 13.10.20, changed: location of DSPALTE in god.main has changed
 ;
 ; ------------------------------------------------ 
 
@@ -39,7 +40,7 @@
 
 	sdw10		= $1558		; part of se_scup/dwn
 	dir4		= $1b69		; part of gd_dir
-	dspalte		= $1db3		; system dir window indent
+	dspalte		= $1aac		; system dir window indent; ### 1.14
 
 	block		= sy_global	; system dir buffers
 	ftrack		= block+96
@@ -64,8 +65,8 @@
 	!wo modend
 	!wo 0
 	!pet "FileCopy        "
-	!pet "1.13"
-	!pet "29.08.17"
+	!pet "1.14"
+	!pet "13.10.20"
 	!pet "A.Dettke        "
 
 ; ----------------------------------------- Main
