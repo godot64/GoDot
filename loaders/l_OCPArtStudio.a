@@ -13,6 +13,7 @@
 ; 1.02, 24.11.16: better recognition of Hires files
 ; 1.03, 09.01.17: saves original bg color
 ; 1.04, 05.12.19: Error reading some Hires images
+; 1.05, 14.10.20: bugfix: retrieved wrong bgr color
 ;
 ; ----------------------------------------- 
 
@@ -43,8 +44,8 @@
 	!wo modend
 	!wo 0 
 	!pet "OCP Art Studio  "
-	!pet "1.04"
-	!pet "05.12.19"
+	!pet "1.05"
+	!pet "14.10.20"
 	!pet "W.Kling/A.Dettke"
 
 ; ----------------------------------------- Main
@@ -149,7 +150,7 @@ mloop	ldx #4		; 4 Pages Videoram verschieben
 	sta sc_texttab 
 	jsr move
 
-	lda $6328		; Hintergrundfarbe holen
+	lda $6329		; Hintergrundfarbe holen ### 1.05
 	and #$0f
 	sta col0
 	sta gr_fbkcol	; v1.03: store original file background color
@@ -330,8 +331,11 @@ action	dec $ff
 	bne ld4
 	lda cntwert
 	sta $ff
-	ldy offy
-	ldx offx
+	ldy offy		; bar at maximum?
+	cpy clrmess+1
+	bne act0
+	jsr clrmess	; yes, clear
+act0	ldx offx		; write bar to output
 	lda filltab,x
 	sta mess,y
 	jsr messout
