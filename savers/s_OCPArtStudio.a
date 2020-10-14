@@ -1,6 +1,8 @@
 
-!src "godotlib.lib"
-*	= $c000
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
 
 ; ----------------------------------------- 
 ; svr.OCPAst
@@ -9,6 +11,7 @@
 ; 1.00: 08.01.05, first release
 ; 1.01: 09.01.05, added recognition of existing suffix
 ; 1.02: 15.11.16, bugfix: upper case letters in filename
+; 1.03: 14.10.20, bugfix: wrong location of bg color
 ;
 ; ----------------------------------------- 
 
@@ -35,8 +38,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "OCP Art Studio  "
-	!pet "1.02"
-	!pet "15.11.16"
+	!pet "1.03"
+	!pet "14.10.20"
 	!pet "A.Dettke        "
 ;
 ; ----------------------------------------- 
@@ -128,8 +131,8 @@ wo1	lda pw,x
 	ldx ls_drive
 	jsr filpar
 	lda wflen
-	ldx #<(ls_nambuf)
-	ldy #>(ls_nambuf)
+	ldx #<ls_nambuf
+	ldy #>ls_nambuf
 	jsr filnam
 	jsr copen
 	jmp err9
@@ -148,7 +151,7 @@ addsig	tax		; check whether a suffix is present
 	ldx wflen		; Name longer than 12 chars?
 	cpx #13
 	bcs ag0		; yes, treat it
-;
+
 ag5	ldy #3		; no, add ".ocp" or ".art"
 ag1	lda (sigvec),y
 ag3	sta ls_nambuf,x
@@ -168,8 +171,8 @@ ag0	dex		; shorten to 12
 
 ; ----------------------------------------- Initialize Disk
 
-inull	ldx #<(drinit)
-	ldy #>(drinit)
+inull	ldx #<drinit
+	ldy #>drinit
 	lda #2
 	jsr gd_sendcom
 err9	jsr gd_xmess
@@ -181,8 +184,8 @@ err8	sec
 
 ; ----------------------------------------- Activity gauge Routines
 
-messout	ldx #<(message)
-	ldy #>(message)
+messout	ldx #<message
+	ldy #>message
 	jmp gd_xtxout2
 ;
 tcopy	ldy #0
@@ -197,8 +200,11 @@ action	dec adcnt
 	bne ld4
 	lda cntwert
 	sta adcnt
-	ldy offy
-	ldx offx
+	ldy offy		; bar at maximum?
+	cpy clrmess+1
+	bne act0
+	jsr clrmess	; yes, clear
+act0	ldx offx		; write bar to output
 	lda filltab,x
 	sta mess,y
 	jsr messout
@@ -208,7 +214,7 @@ action	dec adcnt
 	lda #7
 	sta offx
 ld4	rts
-;
+
 clrmess	ldx #23
 	lda #32
 cl0	sta mess,x
@@ -463,13 +469,15 @@ wm1	ldx #24		; Text on screen: "Hires"
 	stx sc_texttab+1
 	jsr writeit	; write section
 
+	lda back		; ### 1.03 ab hier
+	jsr bsout		; write dummy border color
 	ldx mode
 	bmi wm4
 
-	ldx #16		; 16 padding bytes in multi
+	ldx #15		; 16 padding bytes in multi
 	bne wm5
-wm4	ldx #7		; 7 padding bytes in hires
-wm5	lda back		; write background color 
+wm4	ldx #6		; 7 padding bytes in hires ### bis hier
+wm5	lda back		; write border and background color 
 wm3	jsr bsout		; (into the 16 byte gap)
 	dex
 	bne wm3
@@ -512,4 +520,3 @@ writeit	ldy #0		; get byte to write to file
 	rts
 
 modend	!eof
-
