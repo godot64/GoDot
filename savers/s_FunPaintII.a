@@ -10,6 +10,7 @@
 ;
 ;       1.00: 16.06.94, first release
 ;       1.01: 23.07.94, requester inserted (choose compressed/uncompressed)
+;       1.02: 19.10.20, added automatic name signature
 ;
 ; ----------------------------------------- 
 
@@ -42,8 +43,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "FunPaintII  bg=0"
-ver	!tx "1.01"
-	!tx "23.07.94"
+ver	!tx "1.02"
+	!tx "19.10.20"
 	!tx "A.Dettke/W.Kling"
 ; ----------------------------------------- 
 addtxt	!tx "< GoDot FP2 Saver "
@@ -100,8 +101,7 @@ st1	pla		; restore system values
 
 canc	lda #$ff
 	sta used
-	lda #$03		; mouse on
-	sta spren
+	jsr gd_spron	; mouse on
 cn2	sec		; leave saver
 	rts
 
@@ -131,7 +131,8 @@ wflen	!by 0
 
 wopen	jsr inull
 	bne err8
-	ldy wflen
+
+	ldy wflen		; add ",p,w"
 	cpy #15
 	bcc wo2
 	ldy #15
@@ -142,7 +143,13 @@ wo1	lda pw,x
 	dex
 	bpl wo1
 	sty wflen
-	ldx wflen
+
+	lda ls_nambuf	; if nessessary, add two up arrows to name
+	cmp #94
+	bne +
+	cmp ls_nambuf+1
+	beq ++
++	ldx wflen		; then shift two positions right
 	inx
 	dey
 wo3	lda ls_nambuf,y
@@ -150,12 +157,13 @@ wo3	lda ls_nambuf,y
 	dex
 	dey
 	bpl wo3
-	lda #94		; add two up arrows to name
+	lda #94
 	sta ls_nambuf+1
 	sta ls_nambuf
+	inc wflen		; increase length by 2
 	inc wflen
-	inc wflen
-	lda #12
+
+++	lda #12
 	tay
 	ldx ls_drive
 	jsr filpar
@@ -187,22 +195,12 @@ messout	ldx #<message
 
 ; ----------------------------------------- 
 
-tcopy	ldy #0
-tc0	lda txt,x
-	beq clrmess
-	sta message,y
-	inx
-	iny
-	bne tc0
-
-; ----------------------------------------- 
-
 action	dec adcnt
 	bne ld4
 	lda cntwert
 	sta adcnt
 	ldy offy		; Offset auf Balkenende
-	cpy #20		; Ende der Ausgabezeile erreicht? (Hier den gleichen Wert wie bei clrmess einsetzen!)
+	cpy clrmess+1	; Ende der Ausgabezeile erreicht?
 	bne act0
 	jsr clrmess	; ja, re-Init des Status-Bereichs
 act0	ldx offx		; offx: Index auf aktuelles Zeichen für Dicke des Balkenendstücks
@@ -215,6 +213,16 @@ act0	ldx offx		; offx: Index auf aktuelles Zeichen für Dicke des Balkenendstücks
 	lda #7
 	sta offx
 ld4	rts
+
+; ----------------------------------------- 
+
+tcopy	ldy #0
+tc0	lda txt,x
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
 
 ; ----------------------------------------- 
 
@@ -302,8 +310,8 @@ prepl	lda mask1,y
 	sta col0+4
 	sta maxcol
 
-	lda #<$4000	; start render
-	ldx #>$4000	; 4Bit at $4000 (upto $bcff)
+	lda #<sy_4bit	; start render
+	ldx #>sy_4bit	; 4Bit at $4000 (upto $bcff)
 	sta src
 	stx src+1
 	lda #<cram	; buffer address
@@ -472,7 +480,7 @@ writefli	lda #0
 
 	sta vrcnt		; counter for 8 video rams
 vrloop	lda vrcnt
-	ldx #>$4000
+	ldx #>sy_4bit
 	sta src
 	stx src+1
 	lda #<cram
@@ -581,8 +589,8 @@ l24	lda addtxt,x
 	beq ok12
 	jmp vrloop
 
-ok12	lda #<$4000	; compute bitmap
-	ldx #>$4000
+ok12	lda #<sy_4bit	; compute bitmap
+	ldx #>sy_4bit
 	sta src
 	stx src+1
 	lda #<cram
@@ -752,6 +760,7 @@ write0	lda #0
 fpheader	!by $f0,$3f	; start address $3ff0
 	!tx "funpaint (mt) "
 packflag	!by $00,$ad
+
 used	!by $ff
 
 dnib	!by $00,$11,$22,$33,$44,$55,$66,$77
