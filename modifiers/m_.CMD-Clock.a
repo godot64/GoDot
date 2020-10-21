@@ -12,6 +12,7 @@
 ;   1.00, 09.12.95, first release
 ;   1.01, 27.05.96, added RTC in CMD Smartmouse (different h/w type)
 ;   1.02, 19.10.20, bugfix: didn't recognize Smartmouse at all
+;   1.03, 21.10.20, bugfix: correct pm/am recognition
 ;
 ; ------------------------------------------------ 
 
@@ -43,8 +44,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "CMD RT Clock    "
-	!tx "1.02"
-	!tx "19.10.20"
+	!tx "1.03"
+	!tx "21.10.20"
 	!tx "A.Dettke        "
 ;
 ; ------------------------------------------------ 
@@ -356,7 +357,7 @@ comlen	!by 4
 time	!by 0,0,0,0,0,0,0,0,0
 
 adays	!scr "SunMonTueWedThuFriSat"
-gdays	!scr "SonMonDieMitDonFreSam"
+gdays	!scr "So Mo Di Mi Do Fr Sa "
 
 msflg	!by $ff		; Puffer beim Dezimal-Wandeln
 mult	!by  0,10,20,30,40	; Zehner beim Wandeln
@@ -503,13 +504,13 @@ chkmouse	lda #<clkdata
 	jsr rdclk
 
 	lda clkdata+5	; weekday (1..7)
-	beq nomouse
+	beq nom0
 	cmp #8
-	bcs nomouse
+	bcs nom1
 	lda clkdata+4	; month ($01..$12, SED!)
-	beq nomouse
+nom0	beq nomouse
 	cmp #$13
-	bcs nomouse
+nom1	bcs nomouse
 
 ; ------------------------------------------------ 
 
@@ -523,15 +524,33 @@ getmouse	ldy #6		; set flag for Smartmouse RTC
 	lda clkdata+1	; Minuten
 	jsr wandeln
 
-	ldx #$80		; .x: 12/24 ($80/$00)
 	lda clkdata+2	; Stunde
-	cmp #$13		; 12 abziehen, wenn nachmittags
-	bcc +
-	sbc #$12
-	!by $2c
-+	ldx #0
+	tax
+	and #$e0		; 12h/24h?
+	bpl gm24		; branch if 24h
+
+	and #$20		; am/pm?
+	beq gam
+	txa		; pm
+	and #$1f
+	ldx #$80
+	bmi +
+gam	txa		; am
 	and #$3f
-	stx time+7
+	ldx #0
+	beq +
+
+gm24	txa		; am/pm according to time
+	and #$3f
+	sed
+	cmp #$13
+	bcc gmam
+	sbc #$12
+	ldx #$80
+	!by $2c
+gmam	ldx #$0
+	cld
++	stx time+7
 	jsr wandeln
 
 	lda clkdata+3	; Datum
