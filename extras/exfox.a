@@ -1,0 +1,78 @@
+
+	!src "godotlib.lib"
+	!ct pet
+;	!sl "labels.txt"
+
+; --------------------------------------
+;
+;     exfox
+;
+;     Program to reload GoDot from within Pagefox.
+;     It starts after hitting C=v in graphics screen.
+;     Before booting the Pagefox, POKE GoDot's
+;     bootdrive number to 684 (this is already done
+;     if you ran GoDot before Pagefox) and then
+;     LOAD and RUN "gofox".
+;
+; --------------------------------------
+
+; -------------------------------------- Equates
+
+	pport	= $01
+	start	= $0816
+	pfox	= $de80
+	pfoxmodul	= $8000
+	load	= $ffd5
+	irq	= $ea31
+
+; --------------------------------------
+
+	*= $3c78		; Pagefox: C=v
+
+	lda #$37		; set standard RAM config
+	sta pport
+	sei		; Standard-IRQ
+	lda #<irq
+	sta $0314
+	lda #>irq
+	sta $0315
+	cli
+
+	lda #5		; set filename ("godot")
+	ldx #<godot
+	ldy #>godot
+	jsr filnam
+	lda #16		; set 16,dr,0 (for LOAD)
+	ldx ls_bootdrive	; 684: GoDot's bootdrive
+	ldy #0
+	jsr filpar
+
+	lda #0		; set program mode
+	sta $9d
+	ldx #$01		; set target address for LOAD
+	ldy #$08
+	jsr load		; and load "godot",dr,1
+	bcs error		; on load error: stay in Pagefox
+
+	sei
+	jsr $fda3		; reset all ICs
+	ldx #$00		; set memtop to $a000
+	ldy #$a0
+	jsr $fd8c
+	jsr $fd15		; reset all hardware vectors
+	jsr $ff5b		; reset VIC
+	cli
+
+	jsr $e453		; reset BASIC vectors
+	jsr $e3bf		; init RAM
+	ldx #$fb		; reset stack
+	txs
+	jmp start		; RUN "godot"
+;
+error	lda #0		; error, stay in Pagefox
+	sta pfox
+	jmp (pfoxmodul)
+;
+godot	!tx "godot"
+
+	!eof
