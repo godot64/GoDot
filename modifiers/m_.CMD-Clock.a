@@ -22,7 +22,7 @@
 ;   0: seconds (0..59),     bit 7 lets the clock halt (if 1)
 ;   1: minutes (0..59)
 ;   2: hours (1..12/0..23), bit 7 sets mode (1: 12hs, 0: 24hs)
-;                           if set, bit 5 indicates am (set) or pm (not set)
+;                           if set, bit 5 indicates pm (set) or am (not set)
 ;   3: date    (1..31)
 ;   4: month   (1..12)
 ;   5: weekday (1.. 7),     1: Sunday
