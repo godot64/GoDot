@@ -19,6 +19,7 @@
 ; -------------------------------------- Equates
 
 	pport	= $01
+	pfdrive	= $8f
 	start	= $0816
 	pfox	= $de80
 	pfoxmodul	= $8000
@@ -44,6 +45,7 @@
 	jsr filnam
 	lda #16		; set 16,dr,0 (for LOAD)
 	ldx ls_bootdrive	; 684: GoDot's bootdrive
+	stx pfdrive	; set for -fox prg
 	ldy #0
 	jsr filpar
 
@@ -71,6 +73,8 @@
 ;
 error	lda #0		; error, stay in Pagefox
 	sta pfox
+	ldx ls_bootdrive	; 684: GoDot's bootdrive
+	stx pfdrive	; set for -fox prg
 	jmp (pfoxmodul)
 ;
 godot	!tx "godot"
