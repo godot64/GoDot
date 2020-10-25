@@ -22,6 +22,7 @@
 ;   1.40, 30.04.20 ; better recognition of REUs
 ;                    now making use of BBU REUs (like in emulators)
 ;   1.41, 13.10.20 ; added ability to STOP directory output
+;   1.42, 25.10.20 ; bugfix in testscpu (results got discarded)
 ;
 ; ------------------------------------------------------------ 
 
@@ -37,11 +38,11 @@
 	!pet " 2070 : ad 20"
 	!byte 0,0,0
 
-	lda #$35		; transfer 18 blocks of data to $2000...
+	lda #$35		; transfer 19 blocks of data to $2000...
 	sta sc_merk
 	lda #$08
 	sta sc_merk+1
-	ldx #18
+	ldx #19		; 19 blocks
 	ldy #0
 b1	lda (sc_merk),y
 b2	sta booter,y
@@ -214,7 +215,7 @@ mkt0	lda tabs-$40,x
 
 ; --------------------------------------- 
 
-version	!byte $01,$41	; Versionsnummer in SED-Format (1.41)
+version	!byte $01,$42	; Versionsnummer in SED-Format (1.42)
 
 ; --------------------------------------- 
 
@@ -493,11 +494,19 @@ sa1	lda sprdata,y
 	sta (sc_vekt20),y
 	dey
 	bpl sa1
-	rts
+-	rts
 
 ; --------------------------------------- RAM-Check
 
-textfox	jsr vdctest	; zuerst: VDC
+nosram	jsr testreu	; check for REU
+	lda gd_modswitch	; found one?
+	and #15
+	bne +		; yes, leave
+	lda #9		; set "no ram" ("C64n")
+	bne ts05
++	rts
+
+testfox	jsr vdctest	; zuerst: VDC
 
 testscpu	sed		; dann SuperCPU: Fehler in 6502 erzeugen
 	lda #$99
@@ -516,31 +525,37 @@ testscpu	sed		; dann SuperCPU: Fehler in 6502 erzeugen
 	ldy #$20
 	lda $d27f		; letze RAM-Bank holen
 	sta rm_sram	; als Flag merken
-	beq ts03		; kein RAM, skippen
+	beq nosram	; kein SuperRAM, dann auf REU testen
 
-	bpl ts01		; 16 MB?
+	cmp #$f6		; 16 MB?
+	bcc ts04
 	ldx #$36		; ja
 	ldy #$31
 	bne ts00
 
-ts01	cmp #$40		; 4 MB?
-	bcc ts02
-	ldx #34
+ts04	cmp #$80		; 8 MB?
+	bcc ts01
+	ldx #$38		; ja
 	bne ts00
 
-ts02	cmp #$0f		; 1 MB?
+ts01	cmp #$40		; 4 MB?
+	bcc ts02
+	ldx #$34		; ja
 	bne ts00
-	ldx #$31
+
+ts02	cmp #$10		; 1 MB?
+	bne ts00
+	ldx #$31		; ja, ansonsten: 0 MB
 	
-ts00	stx ramtype+13	; ja, eintragen
+ts00	stx ramtype+13	; Wert eintragen
 	sty ramtype+12
 	lda #$4d		; M
 	sta ramtype+14
 	lda #$42		; B
 	sta ramtype+15
-	lda #7		; ja, eintragen: Flag
-	sta gd_modswitch
-ts03	bne testreu	; jetzt REU testen (hat Vorrang)
+	lda #7		; Flag eintragen
+ts05	sta gd_modswitch
+ts03	bne te0		; REU-Test übergehen
 
 ; ---------------------------------------
 
@@ -573,7 +588,7 @@ tr1	stx gd_modswitch
 	bne tr11
 	lda #2
 	sta gd_modswitch
-tr11	cpx #$09
+tr11	cpx #9
 	bcc te0
 	
 ; --------------------------------------- Test REUs
@@ -771,7 +786,7 @@ whw2	inx		; alle Drives durch
 
 ; --------------------------------------- RAM-Test
 
-	jsr textfox	; nun: RAM-Check
+	jsr testfox	; nun: RAM-Check
 
 	tax		; Current Drive zurück
 	pla		; .a gesetzt in WHAT (s.o.)
@@ -2043,7 +2058,7 @@ bbu	!byte 32			;    (darin: Anim-Counter und REUClear-Flag)
 
 devname	!byte 7			; Länge des Filenamens
 	!pet "UER.ved"		; dev.REU (Filename rückwärts)
-	!word 1360		; max. Länge des Files
+	!by >1432,<1432		; max. Länge des Files
 	!byte 8
 	!pet "xoFP.ved"		; dev.PFox
 	!word 1360
