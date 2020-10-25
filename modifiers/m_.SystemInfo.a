@@ -1,4 +1,4 @@
-	!src "godotlib.lib"	; library nicht erforderlich
+	!src "godotlib.lib"
 	*= $c000
 
 ; ------------------------------------------------ 
@@ -9,6 +9,7 @@
 ; 1.04, 25.08.95
 ; 1.05, 16.07.17, re-coded by AD
 ;                 bug fixes and shorter code
+; 1.06, 25.10.20, added SuperCPU info
 ;
 ; Modul von Martin Burggraf
 ;
@@ -19,6 +20,8 @@
 	dst		= $32
 	ymrk		= $34
 	filetype		= $1d29
+	ramtype		= $1d8f
+	fast		= $d030
 	vupmem		= $f01a
 	dupmem		= $f01e
 
@@ -161,19 +164,27 @@ setdrinfo	ldy #$ff
 	cpy #3
 	bne -
 
-getrminfo	lda ls_ramdrive	; U12
+getrminfo	lda ls_ramdrive	; U12:
 	and #$0f
 	tax 
-	cpx #$02
+	cpx #$02		; VDC
 	beq drc0
-	cpx #$03
+	cpx #$03		; Pagefox
 	beq drc1
-	cpx #$04
+	cpx #$04		; REU 1764
 	beq drc2
-	cpx #$05
+	cpx #$05		; REU 1750
 	beq drc3
-	cpx #$08
+	cpx #$07		; SuperRAM
+	beq drc5
+	cpx #$08		; REU 1700
 	beq drc4
+
+	lda fast		; Fast-Bit in $d030 gesetzt?
+	and #1
+	beq +		; nein
+	lda #14		; ja, C64II kennzeichnen ("n")
+	sta nonetx+4
 
 	ldx #<nonetx
 	ldy #>nonetx
@@ -193,9 +204,20 @@ drc3	ldx #<reu50tx
 	jmp dr9
 drc4	ldx #<reu00tx
 	ldy #>reu00tx
+	jmp dr9
+
+drc5	ldx #12
+-	lda ramtype,x
+	sta scputx-11,x
+	inx
+	cpx #14
+	bcc -
+	ldx #<scputx
+	ldy #>scputx
 
 dr9	stx src
 	sty src+1
+
 	ldx #<ramtx
 	ldy #>ramtx
 	stx dst
@@ -306,6 +328,7 @@ pfoxtx	!scr " PFox"
 reu64tx	!scr " 1764"
 reu50tx	!scr " 1750"
 reu00tx	!scr " 1700"
+scputx	!scr "  0MB"
 
 txtablo	!by <dr8tx,<dr9tx,<dratx,<drbtx
 txtabhi	!by >dr8tx,>dr9tx,>dratx,>drbtx
