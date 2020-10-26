@@ -16,6 +16,7 @@
 ;    1.04, 20.07.19, bugfixes: care for SuperCPU RAM
 ;    1.05, 26.04.20, bugfix: correct recognition of extended REUs
 ;    1.06, 28.04.20, bugfix: include real REUs, too
+;    1.07, 26.10.20, slight GUI changes
 ;
 ; ------------------------------------------------------------ 
 
@@ -54,8 +55,8 @@
 	!wo modend
 	!by $00,$00
 	!pet "Tool for REUs   "
-	!pet "1.06"
-	!pet "28.04.20"
+	!pet "1.07"
+	!pet "26.10.20"
 	!pet "A.Dettke        "
 
 ; ----------------------------------------------- Main 
@@ -126,7 +127,7 @@ st5	ora #$30
 
 ; ----------------------------------------------- 
 
-setram	ldx ramflag	; get RAM type value (0-10)
+setram	ldx ramflag	; get RAM type value (0-11)
 	cpx #11		; ### 1.04/1.06 --
 	bne +
 	lda ramtype+12
@@ -370,13 +371,10 @@ rs1	lda gstat,x
 	jsr sy_global	; execute 
 
 	lda rmbk		; bank of next entry
-	jsr gd_xcnvdez
+	jsr mhex
 	sta banktx+2	; publish
-	lda #32
-	cpx #$30
-	beq rs2
-	txa
-rs2	sta banktx+1
+	tya
+	sta banktx+1
 	lda oflo		; offset
 	jsr mhex
 	sta offstx+3	; publish
@@ -707,28 +705,28 @@ char	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
 choose	!scr "LDRSVRMOD"
 delete	!scr "last all"
 
-mega	!scr " 0KB"		; 0 no RAM
+mega	!scr "  0K"		; 0 no RAM
 	!scr " 16K"		; 1 VDC 1
 	!scr " 32K"		; 2 Pagefox
 	!scr " 64K"		; 3 VDC 2
 	!scr "128K"		; 4 REU 1700
 	!scr "256K"		; 5 REU 1764
 	!scr "512K"		; 6 REU 1700
-	!scr " 1MB"		; 7
-	!scr " 2MB"		; 8
-	!scr " 4MB"		; 9
-	!scr " >4M"		; 10
+	!scr "  1M"		; 7
+	!scr "  2M"		; 8
+	!scr "  4M"		; 9
+	!scr "  8M"		; 10
 
 scpumem	!scr " 16M"		; 11 (SuperCPU)
 
 yesno	!by 25,5,19,32,14,15
 chootype	!by 76,68,82,46,42,0
-banks	!by 0,0,0,2,4,8,16,32,64,128
+banks	!by 0,0,0,2,4,8,16,32,64,128,246,0
 chosen	!by 0
 delwhat	!by $ff
 choind	!by 2,5,8
 ramflag	!by $ff
-ramind	!by 3,7,11,15,19,23,27,31,35,39,43,47,51
+ramind	!by 3,7,11,15,19,23,27,31,35,39,43,47,47
 list	!wo 0
 last	!wo 0
 success	!by 0
@@ -759,13 +757,13 @@ deltx	!scr"last@"
 	!scr "Install@"
 choosegad	!by 18,21,7,3,$c0,<(evchoose),>(evchoose),223,32
 choosetx	!scr "LDR@"
-ramgad	!by 21,12,7,3,$8c,0,0,61
-megatx	!scr " 0K @"
+ramgad	!by 21,12,7,3,$8c,0,0
+megatx	!scr "  0KB@"
 	!by 21,19,9,3,$cc,<(evcan),>(evcan)
 	!scr " Leave@"
 	!by $c0,5,12,14
 	!scr "Bank  :    "
-banktx	!scr "  0@"
+banktx	!scr "$00@"
 	!by $c0,6,12,14
 	!scr "Offset:  $"
 offstx	!scr "0000@"
