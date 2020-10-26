@@ -23,6 +23,7 @@
 ;                    now making use of BBU REUs (like in emulators)
 ;   1.41, 13.10.20 ; added ability to STOP directory output
 ;   1.42, 25.10.20 ; bugfix in testscpu (results got discarded)
+;   1.43, 26.10.20 ; bugfix: dev.REU wouldn't load correctly
 ;
 ; ------------------------------------------------------------ 
 
@@ -38,11 +39,11 @@
 	!pet " 2070 : ad 20"
 	!byte 0,0,0
 
-	lda #$35		; transfer 19 blocks of data to $2000...
+	lda #$35		; transfer 20 blocks of data to $2000...
 	sta sc_merk
 	lda #$08
 	sta sc_merk+1
-	ldx #19		; 19 blocks
+	ldx #20		; 19 blocks
 	ldy #0
 b1	lda (sc_merk),y
 b2	sta booter,y
@@ -215,7 +216,7 @@ mkt0	lda tabs-$40,x
 
 ; --------------------------------------- 
 
-version	!byte $01,$42	; Versionsnummer in SED-Format (1.42)
+version	!byte $01,$43	; Versionsnummer in SED-Format (1.43)
 
 ; --------------------------------------- 
 
@@ -2058,7 +2059,7 @@ bbu	!byte 32			;    (darin: Anim-Counter und REUClear-Flag)
 
 devname	!byte 7			; Länge des Filenamens
 	!pet "UER.ved"		; dev.REU (Filename rückwärts)
-	!by >1432,<1432		; max. Länge des Files
+	!wo 1360			; max. Länge des Files
 	!byte 8
 	!pet "xoFP.ved"		; dev.PFox
 	!word 1360
