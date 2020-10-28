@@ -24,6 +24,7 @@
 ;   1.41, 13.10.20 ; added ability to STOP directory output
 ;   1.42, 25.10.20 ; bugfix in testscpu (results got discarded)
 ;   1.43, 26.10.20 ; bugfix: dev.REU wouldn't load correctly
+;   1.44, 28.10.20 ; bugfix: wouldn't show "C64" if there's no extra RAM
 ;
 ; ------------------------------------------------------------ 
 
@@ -43,7 +44,7 @@
 	sta sc_merk
 	lda #$08
 	sta sc_merk+1
-	ldx #20		; 19 blocks
+	ldx #20		; 20 blocks
 	ldy #0
 b1	lda (sc_merk),y
 b2	sta booter,y
@@ -216,7 +217,7 @@ mkt0	lda tabs-$40,x
 
 ; --------------------------------------- 
 
-version	!byte $01,$43	; Versionsnummer in SED-Format (1.43)
+version	!byte $01,$44	; Versionsnummer in SED-Format (1.44)
 
 ; --------------------------------------- 
 
@@ -605,6 +606,8 @@ testreu	ldx #0
 	ldx #2
 tr2	txa
 	bne +
+	ldx #9		; no, set: no RAM available ### 1.44
+	stx gd_modswitch
 te0	jmp testend	; nein, eintragen
 
 +	asl		; ja, Typflag setzen (.a=4)
