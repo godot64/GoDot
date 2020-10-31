@@ -25,6 +25,7 @@
 ;   1.42, 25.10.20 ; bugfix in testscpu (results got discarded)
 ;   1.43, 26.10.20 ; bugfix: dev.REU wouldn't load correctly
 ;   1.44, 28.10.20 ; bugfix: wouldn't show "C64" if there's no extra RAM
+;   1.45, 31.10.20 ; added: SuperRAM support, loads dev.REU only when no SRAM
 ;
 ; ------------------------------------------------------------ 
 
@@ -77,6 +78,7 @@ b2	sta booter,y
 	nummer		= $fc
 	zaehler		= $fd
 	byte		= $fe
+
 	iwerte		= $0300
 	irq		= $0314
 	sprite0		= $07f8
@@ -84,6 +86,7 @@ b2	sta booter,y
 	devs		= $0fa2
 	adrive		= $0fc3
 	gdrive		= adrive+1
+
 	scm1		= $148e	; send IO command
 	sm2		= $14e2
 	ld11		= $1825
@@ -93,14 +96,14 @@ b2	sta booter,y
 	scrmode		= $1edc
 	numcols		= $1ee9
 	
-	godinit		= $3800
+	godinit		= $3800	; target address of god.ini
 	
-	mal19		= $bd8c
+	mal19		= $bd8c	; part of dev.REU
 
 	modul		= $c000
 	bootinit		= $c012
-	ram		= $ca64
-	ramstart		= $cab0
+	ram		= $ca64	; start address of dev.REU
+	ramstart		= $cab0	; header address of dev.REU
 	
 	spr0x		= $d000
 	spr0y		= $d001
@@ -111,10 +114,11 @@ b2	sta booter,y
 	spr0col		= $d027
 	spr1col		= $d028
 	fast		= $d030
-	vdc		= $d600
+	vdc		= $d600	; VDC base address
 	vdcdata		= $d601
-	pfox		= $de80
-	reupres		= $df09
+	pfox		= $de80	; Pagefox control register
+	reupres		= $df09	; REU register
+
 	iecin		= $ffa5
 	untalk		= $ffab
 	load		= $ffd5
@@ -196,9 +200,9 @@ m2	stx numcols+1
 	sta spronoff
 	sta gr_redisp	; force Rendering on first "Display"
 	lda version	; enter Version number 
-	sta sysdrive+1
+	sta sy_versioninit
 	lda version+1
-	sta sysdrive+2
+	sta sy_versioninit+1
 	jsr mktabs	; set tables definitely
 	jsr setpat	; enter Dither pattern 
 	jmp sy_into	; Start GoDot
@@ -210,14 +214,13 @@ mkt0	lda tabs-$40,x
 	sta iwerte,x
 	inx
 	bne mkt0
-	stx rm_tmpsaved	; Flags initialisieren
-	stx rm_reusize
+	stx rm_tmpsaved	; .x=0, Flags initialisieren
 	stx gr_colorbase	; ### 1.39 Base Palette: GoDot
 	rts
 
 ; --------------------------------------- 
 
-version	!byte $01,$44	; Versionsnummer in SED-Format (1.44)
+version	!byte $01,$45	; Versionsnummer in SED-Format (1.45)
 
 ; --------------------------------------- 
 
@@ -242,7 +245,7 @@ sprdata	!byte $00,$00,$00,$60,$00,$00,$70,$00	; Systemzeiger
 	!byte $00,$00,$00,$00,$00,$00,$00,$00
 	!byte $00,$00,$00,$00,$00,$00,$00,$00
 	!byte $00,$00,$00,$00,$00,$00,$00,$00,0
-;
+
 soffx	!byte 24		; Offsets für linke obere Ecke
 soffy	!byte 50		; des sichtbaren Screens
 
@@ -500,14 +503,6 @@ sa1	lda sprdata,y
 
 ; --------------------------------------- RAM-Check
 
-nosram	jsr testreu	; check for REU
-	lda gd_modswitch	; found one?
-	and #15
-	bne +		; yes, leave
-	lda #9		; set "no ram" ("C64n")
-	bne ts05
-+	rts
-
 testfox	jsr vdctest	; zuerst: VDC
 
 testscpu	sed		; dann SuperCPU: Fehler in 6502 erzeugen
@@ -526,38 +521,58 @@ testscpu	sed		; dann SuperCPU: Fehler in 6502 erzeugen
 	ldx #$30		; mit " 0" vorbesetzen
 	ldy #$20
 	lda $d27f		; letze RAM-Bank holen
-	sta rm_sram	; als Flag merken
 	beq nosram	; kein SuperRAM, dann auf REU testen
 
 	cmp #$f6		; 16 MB?
 	bcc ts04
 	ldx #$36		; ja
 	ldy #$31
+	lda #11
 	bne ts00
 
 ts04	cmp #$80		; 8 MB?
 	bcc ts01
 	ldx #$38		; ja
+	lda #10
 	bne ts00
 
 ts01	cmp #$40		; 4 MB?
 	bcc ts02
 	ldx #$34		; ja
+	lda #9
 	bne ts00
 
 ts02	cmp #$10		; 1 MB?
-	bne ts00
-	ldx #$31		; ja, ansonsten: 0 MB
+	bne ts06
+	ldx #$31		; ja
+	lda #7
+	!by $2c
+ts06	lda #0		; ansonsten: 0 MB
 	
 ts00	stx ramtype+13	; Wert eintragen
 	sty ramtype+12
+	sta rm_sram	; Größe eintragen
 	lda #$4d		; M
 	sta ramtype+14
 	lda #$42		; B
 	sta ramtype+15
-	lda #7		; Flag eintragen
+	bne hasboth
+
+nosram	sta rm_sram	; set size of SuperRAM to 0
+
+hasboth	jsr testreu	; check for REU
+	lda rm_sram	; sowohl SRAM als auch REU?
+	ora gd_modswitch
+	beq ts03		; nein, no RAM
+	lda gd_modswitch	; REU-Typ holen
+	and #15
+	ldx rm_sram	; kein SRAM?
+	beq ts05		; dann dev.REU installieren
+	lda #7		; doch, mit SRAM
+	!by $2c
+ts03	lda #9		; kein REU oder SRAM, set "no ram" ("C64n")
 ts05	sta gd_modswitch
-ts03	bne te0		; REU-Test übergehen
+	jmp testend	; und dev.REU nicht installieren
 
 ; ---------------------------------------
 
@@ -568,7 +583,7 @@ no65816	lda pport		; nein, Pagefox vorhanden?
 	ldy #$00
 	ldx #$09		; Flag vorbesetzen
 	sty pfox		; Pagefox einblenden
-	lda $8000,x	; Modulkennung da?
+	lda $8000,x	; Modulkennung da ("PF")?
 	cmp #$50
 	bne tr0
 	inx
@@ -662,10 +677,11 @@ tr4	ldy #$91		; sonst: Check der Größe ($91=FETCH)
 	bne testend	; ungleich: REU 1764 (keine Bank 4)
 	inc gd_modswitch	; sonst: REU 1750 (8 Banks)
 
-testend	ldx #12		; Ergebnis in Drivelist eintragen
+testend	ldx #12
 	lda gd_modswitch
-	ora devs,x
-	sta devs,x
+	sta rm_reusize	; als Größe propagieren
+	ora #$20
+	sta devs,x	; und Ergebnis in Drivelist eintragen
 	sec
 	rts
 	
