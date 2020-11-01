@@ -200,9 +200,9 @@ m2	stx numcols+1
 	sta spronoff
 	sta gr_redisp	; force Rendering on first "Display"
 	lda version	; enter Version number 
-	sta sy_versioninit
+	sta versionnm
 	lda version+1
-	sta sy_versioninit+1
+	sta versionnm+1
 	jsr mktabs	; set tables definitely
 	jsr setpat	; enter Dither pattern 
 	jmp sy_into	; Start GoDot
