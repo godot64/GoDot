@@ -26,6 +26,7 @@
 ;   1.43, 26.10.20 ; bugfix: dev.REU wouldn't load correctly
 ;   1.44, 28.10.20 ; bugfix: wouldn't show "C64" if there's no extra RAM
 ;   1.45, 31.10.20 ; added: SuperRAM support, loads dev.REU only when no SRAM
+;   1.46, 04.11.20 ; added: option to not use SRAM explicitly
 ;
 ; ------------------------------------------------------------ 
 
@@ -220,7 +221,7 @@ mkt0	lda tabs-$40,x
 
 ; --------------------------------------- 
 
-version	!byte $01,$45	; Versionsnummer in SED-Format (1.45)
+version	!byte $01,$46	; Versionsnummer in SED-Format (1.46)
 
 ; --------------------------------------- 
 
@@ -510,13 +511,16 @@ testscpu	sed		; dann SuperCPU: Fehler in 6502 erzeugen
 	adc #1		; wird negativ auf 6502
 	cld
 	bmi no65816
-
 	lda $d0bc		; Supercpu?
 	bmi no65816	; nein, dann nicht beachten
+
 	sta $d07b		; ja, dann Turbo an!
 	ldy cmdoff+4	; RAM-Drive kennzeichnen mit ">"
 	lda #$3e		; (einziges sichtbares SCPU-Flag!)
 	sta filtype,y
+
+	lda rm_usesram	; SuperRAM to be used?
+	beq no65816	; nein (=0), nicht beachten
 
 	ldx #$30		; mit " 0" vorbesetzen
 	ldy #$20
@@ -561,18 +565,16 @@ ts00	stx ramtype+13	; Wert eintragen
 nosram	sta rm_sram	; set size of SuperRAM to 0
 
 hasboth	jsr testreu	; check for REU
-	lda rm_sram	; sowohl SRAM als auch REU?
+usesr	lda rm_sram	; sowohl SRAM als auch REU?
 	ora gd_modswitch
-	beq ts03		; nein, no RAM
-	lda gd_modswitch	; REU-Typ holen
-	and #15
+	beq ts03		; nein, no additional RAM
 	ldx rm_sram	; kein SRAM?
 	beq ts05		; dann dev.REU installieren
 	lda #7		; doch, mit SRAM
 	!by $2c
 ts03	lda #9		; kein REU oder SRAM, set "no ram" ("C64n")
 ts05	sta gd_modswitch
-	jmp testend	; und dev.REU nicht installieren
+	jmp testend	; und dev.REU (nicht) installieren
 
 ; ---------------------------------------
 
@@ -1871,6 +1873,29 @@ px1	rts
 
 ; ---------------------------------------
 
+befusesram
+	jsr gw		; USESRAM n
+	sta rm_usesram
+	beq us1
+
+	lda #0
+	sta gd_modswitch
+	lda #$18		; dev.REU sperren
+	sta ramvec
+	lda #$60
+	sta ramvec+1
+	sta hasboth	; RTS
+	jsr testscpu
+	lda #$20		; JSR
+	sta hasboth
+	jsr usesr
+	lda drivenr
+	sta sysdrive
+
+us1	rts
+
+; ---------------------------------------
+
 befreuclr	jsr gw		; REUCLEAR n
 	pha
 
@@ -2003,6 +2028,7 @@ keylist	!pet "colorS"
 	!pet "savetO"
 	!pet "pfoX"
 	!pet "reucleaR"
+	!pet "usesraM"
 	!byte 0
 ;
 beflist	!word (befcols)-1
@@ -2024,6 +2050,7 @@ beflist	!word (befcols)-1
 	!word (befsvto)-1
 	!word (befusepfx)-1
 	!word (befreuclr)-1
+	!word (befusesram)-1
 
 ; --------------------------------------- Defaults
 
