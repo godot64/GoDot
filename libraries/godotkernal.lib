@@ -18,8 +18,9 @@ ls_lines       = $26   ; amount of files currently in filerequester
 rm_reusize     = $27   ; encoded size of attached REU (none if 0, see section "values" below))
 ls_found       = $28   ; flag: files of current type existing
 ls_dlines		= $29	; max. entries in directory window
+gr_colorbase	= $2a	; number of RGB palette currently in use (0=GoDot)
 
-;                $2a to $2f: reserved
+;                $2b to $2f: reserved
 ;                $30 up to $53: free for programmer
 
 sy_soffx       = $7a   ; x-offset of mouse pointer to its hotspot
@@ -47,6 +48,7 @@ sy_numbers     = $0100 ; space for converting bytes to digits (16 bytes)
 ls_nambuf      = $0200 ; buffer for filenames (16 bytes)
 
 sy_area1       = $0220 ; 46 bytes temporarily used by ldr..SnapShot
+rm_usesram     = $0253 ; switch use of SuperRAM on (if 1) or off (if 0, default)
 rm_sram        = $0254 ; size of SuperRAM
 ls_cmdtypes    = $0255 ; drive types for attached units if CMD drives ("H", "F", or "R")
 sy_tbuffer     = $0277 ; buffer for keys pressed
