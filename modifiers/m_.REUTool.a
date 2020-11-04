@@ -17,6 +17,7 @@
 ;    1.05, 26.04.20, bugfix: correct recognition of extended REUs
 ;    1.06, 28.04.20, bugfix: include real REUs, too
 ;    1.07, 26.10.20, slight GUI changes
+;    2.00, 04.11.20, added: install of dev.REU at runtime
 ;
 ; ------------------------------------------------------------ 
 
@@ -29,21 +30,26 @@
 	ofhi		= $36
 	rmbk		= $37	; don't use $38!
 	entry		= $3a	; /$3b (is dev.REU vector!)
-	bank0val		= $3c
-	banknval		= $3d
-	bankcval		= $3e
-	curbank		= $3f
+	bank0val		= $3d
+	banknval		= $3e
+	bankcval		= $3f
+	curbank		= $40
 	
 
 	status		= $90
-	swappfox		= $1714
+	swappfox		= $1714	; swap slots of 4KB
 	func3		= $186f	; !! self modifying the kernel !!
 	ramtype		= $1d8f	; ### 1.04
 
-	mtarget		= $9000
+	devarea		= $2000	; initialisation area for devices
+	mtarget		= $3000	; load space for devices
+	rdinit		= devarea+$0a64	; position of dev.REU in devarea
 	mal19		= $bd8c	; part of dev.REU
 	back		= $befd	; part of dev.REU
+	dirblock		= $bf00	; directory block
 	modul		= $c000
+	ramdevice		= $ca64	; start address of dev.REU
+	ramstart		= $cab0	; header address of dev.REU
 	kapaz		= $cde7	; !! self modifying dev.REU !!
 	sprite		= $d015
 
@@ -55,8 +61,8 @@
 	!wo modend
 	!by $00,$00
 	!pet "Tool for REUs   "
-	!pet "1.07"
-	!pet "26.10.20"
+	!pet "2.00"
+	!pet "04.11.20"
 	!pet "A.Dettke        "
 
 ; ----------------------------------------------- Main 
@@ -91,7 +97,7 @@ evcan	sec		; Modul verlassen
 
 stats	lda rm_ramundo	; welche gibt's und wie viele?
 	pha
-	and #1
+	and #1		; Undo 4Bit
 	beq st1
 	ldx #2
 	!by $2c
@@ -103,7 +109,7 @@ st2	lda yesno,x
 	dey
 	bpl st2
 	pla
-	and #2
+	and #2		; Undo Rendered
 	beq st3
 	ldx #2
 	!by $2c
@@ -114,7 +120,7 @@ st4	lda yesno,x
 	dex
 	dey
 	bpl st4
-	lda rm_tmpsaved
+	lda rm_tmpsaved	; Temp
 	beq st5
 	cmp #3
 	bne st6
@@ -130,15 +136,21 @@ st5	ora #$30
 setram	ldx ramflag	; get RAM type value (0-11)
 	cpx #11		; ### 1.04/1.06 --
 	bne +
-	lda ramtype+12
+	lda ramtype+12	; get amount
 	sta scpumem+1
 	lda ramtype+13
 	sta scpumem+2	; ### bis hier --
-+	inx
+
+	lda #3		; ### 1.08 -- allow DEV
+	!by $2c
++	lda #2
+	sta choomax	; ### --
+
+	inx
 	lda ramind,x	; write text to gadget
 	tax
 sr0	ldy #3
-sr1	lda mega,x	; Anzeigetexte für Größe
+sr1	lda mega,x	; Anzeigetexte für RAM-Größe
 	sta megatx,y
 	dex
 	dey
@@ -158,52 +170,41 @@ ok	clc
 ; ----------------------------------------------- Check for REU
 
 isreu	ldx ramflag	; Ergebnis des RAM-Check holen
-	bmi ok2		; kein REU? dann aussteigen
+	bmi ok2		; kein extra RAM? dann aussteigen
 	cpx #4		; mindestens 128 K?
 	bcs ok1
 ok2	pla		; nein, aussteigen
 	pla
-ok1	cpx #11		; ### 1.04
+ok1	cpx #11		; ### 1.04 (SuperCPU?)
 	rts
 
 ; ----------------------------------------------- Event: Install module to REU
 
 evinst	jsr isreu		; Check RAM, kehrt bei fail nicht zurück
-	beq show		; ### 1.04
+	beq supercpu	; if SuperRAM, ### 1.04, load differently ### 1.08
 
-	jsr chgdrv	; care for bootdrive
-	ldx #<mtarget	; save $9000 to REU
-	ldy #>mtarget
-	stx ls_adrmisc
-	sty ls_adrmisc+1
-	lda #0
-	sta ls_flen
-	jsr swap90
+ei1	jsr chgdrv	; is REU: care for bootdrive
+	jsr swapmt	; save $2000 to REU Swapfile...
 
 	lda gd_modswitch
 	pha
-	lda #$f7		; patch vector to function ForceOff
-	sta func3+1
-	lda #$18
-	sta func3+2
-	jsr lddir		; open file requester
-	jsr gd_eloop	; wait for events
-	lda #<rm_ramvec	; then unpatch vector
-	sta func3+1
-	lda #>rm_ramvec
-	sta func3+2
 
-	lda ls_flen	; any file selected now?
-	sta rm_rlen
-	beq ei0		; no, leave
-	jsr gd_testram	; yes, REU active?
-	beq fail		; no, leave
-	jsr readfile	; yes, get file...
+	ldx #<devarea	; target: devarea
+	ldy #>devarea
+	stx ls_adrmisc
+	sty ls_adrmisc+1
+	jsr loadrequ	; filerequester for LDR, SVR, MOD
+	beq ei0		; if no file selected, leave
+
+	jsr gd_testram	; REU selected?
+	beq fail		; no, error and leave
+	jsr readfile	; yes, get file to $2000...
 	jsr setfile	; ...and transfer to REU
+
 ei0	pla
 	sta gd_modswitch
 
-	jsr swap90	; restore $9000
+	jsr swapmt	; restore $3000
 	jsr reustat	; recalculate status values
 	jsr chgdrv	; care for system drive
 
@@ -216,11 +217,48 @@ show	ldx last		; then overlay REUTool Requester
 	clc
 	rts
 
+; ----------------------------------------------- 
+
+supercpu	lda gd_modswitch
+	pha
+
+	ldx chosen	; did you want to load a DEV file at all?
+	cpx #3		; (you are on a SuperCPU)
+	beq +
+
+	lda rm_reusize
+	cmp #7
+	beq fail2
+
+	jmp ei1		; no, load the other ones
+
++	jsr chgdrv
+	ldx #<mtarget	; to $3000
+	ldy #>mtarget
+	stx ls_adrmisc
+	sty ls_adrmisc+1
+	jsr loadrequ	; Filerequester for DEVs
+	beq +		; if no file selected, leave
+
+	jsr initdev1	; init device area ($2000)
+	jsr readfile	; and get file...
+	jsr initdev2
+	jsr setdevice
+
++	jsr chgdrv
+	lda #$ff
+	sta gr_redisp	; since display is distorted: set flag
+
+	pla
+	sta gd_modswitch
+
+	jmp show		; leave
+
 ; ----------------------------------------------- Fehler
 
-fail2	ldx #32
+fail2	ldx #32		; = no dev.SCPU available
 	!by $2c
-fail	ldx #0
+fail	ldx #0		; = can't clone
 	ldy #0
 fl0	lda err1,x
 	sta message,y
@@ -228,35 +266,95 @@ fl0	lda err1,x
 	iny
 	cpy #32
 	bne fl0
+	jsr gaugeout
 	jsr gd_clrms
 	ldx #<message
 	ldy #>message
 	jsr gd_xtxout2
+	jsr wait
+
 	jmp ei0
+
+; ----------------------------------------------- 
+
+initdev1	ldx #16		; Area löschen (mit $c0)
+	ldy #0
+	sty sc_merk
+	lda #>devarea
+	sta sc_merk+1
+	lda #$c0
+ln1	sta (sc_merk),y
+	iny
+	bne ln1
+	inc sc_merk+1
+	dex
+	bne ln1
+			; und Basis-Entrys eintragen:
+	ldx #(reulst-rentries-1)
+-	lda rentries,x
+	sta devarea,x
+	dex
+	bpl -
+	rts
+
+initdev2	ldy #0
+	sty sc_merk	; from $3000...
+	lda #>mtarget
+	sta sc_merk+1
+	lda #<rdinit	; ...to $2a64
+	sta ls_adrmisc
+	lda #>rdinit
+	sta ls_adrmisc+1
+-	lda (sc_merk),y
+	sta (ls_adrmisc),y
+	iny
+	bne -
+	inc ls_adrmisc+1
+	inc sc_merk+1
+	lda ls_adrmisc+1
+	cmp #>mtarget
+	bcc -
+	rts
 
 ; ----------------------------------------------- GoDot: Load Misc
 
-lddir	lda #<chootype
+lddir	lda #<chootype	; Kürzel angeben
 	pha
 	lda #>chootype
 	pha
 	lda #8
-	jmp gd_xloadm
+	jmp gd_xloadm	; Filrequester
+
+; ----------------------------------------------- 
+
+loadrequ	lda #$f5		; patch vector to function ForceOff
+	sta func3+1	; (now init ls_flen to 0 instead)
+	lda #$18
+	sta func3+2
+	jsr lddir		; open file requester
+	jsr gd_eloop	; wait for events
+	lda #<rm_ramvec	; then unpatch vector
+	sta func3+1
+	lda #>rm_ramvec
+	sta func3+2
+	lda ls_flen	; any file selected now?
+	sta rm_rlen
+	rts
 
 ; ----------------------------------------------- Load File
 
-readfile	jsr gd_sproff	; load file to $9000
-	sta success
+readfile	jsr gd_sproff	; load file to buffer
+	sta success	; .a=0
 	jsr gd_xopen
-	jsr onebyte
+	jsr onebyte	; skip start address
 	bne lderr
 	jsr onebyte
 	bne lderr
-ld7	lda status
+ld7	lda status	; get file...
 	sta success
 	bne lderr
 	jsr basin
-	sta (sc_vekt20),y
+	sta (sc_vekt20),y	; ...to mtarget/devarea
 	iny
 	bne ld7
 	inc sc_vekt20+1
@@ -273,27 +371,84 @@ setfile	lda success	; transfer file to REU: status?
 	beq nofile	; no file, so leave
 	and #$40		; no EOF, leave
 	beq nofile
-	lda mtarget+3	; recognize module type
+
+	lda devarea+3	; no, recognize module type (LDR, SVR, MOD)
 	pha
-	ldx #40		; install swap routine to global area...
+	ldx #(setdevice-msf-1); install swap routine to global area...
 sf0	lda msf,x
-	sta sy_global,x
+	sta dirblock,x
 	dex
 	bpl sf0
-	jmp sy_global	; ...and execute
+	jmp dirblock	; ...and execute:
 
-msf	lda #>mtarget	; Swap routine: swap $9000 and $c000
-	ldx #>modul
+msf	lda #>devarea	; swap $2000 and $c000
+	ldx #>modul	; (now loaded file at $c000)
 	jsr swappfox
 	jsr gd_swapd	; swap $c000 and reu device
-	pla		; get module type
+	pla		; re-get module type
 	tay
 	ldx #6		; execute function #6: Install to REU
 	jsr rm_ramvec
-	lda #>mtarget	; swap $c000 and $9000
+	lda #>devarea	; swap $c000 and $2000
 	ldx #>modul
 	jsr swappfox
 nofile	sec		; transfer complete
+	rts
+
+; ----------------------------------------------- 
+
+setdevice	lda rdinit+79	; yes, try to install dev.REU:
+	cmp #$10		; is it a DEV?	 ### 1.08
+	bne +		; no, leave
+
+	lda #$4c		; Einsprung ins dev.REU aktivieren
+	sta rm_ramvec
+	lda #<ramstart
+	sta rm_ramvec+1
+	ldx #(wait-msd-1)	; Initroutine auslagern...
+sd0	lda msd,x
+	sta dirblock,x
+	dex
+	bpl sd0
+	jmp dirblock	; ...und ausführen
+
+msd	ldx #3		; neue RAM-Größe ermitteln
+	stx ramflag
+	jsr tr3
+	jsr setram	; und eintragen
+
+	lda #>devarea	; Swap routine: swap $2000 and $c000
+	ldx #>modul
+	jsr swappfox
+	ldx #10		; First Init
+	jsr rm_ramvec
+	jsr gd_swapd	; write device into REU
+	lda #>devarea	; restore $c000 from $2000
+	ldx #>modul	; (leaves garbage at $2000: SWPFILE)
+	jsr swappfox
+
+	lda #5		; ersten freien Dir-Eintrag ansteuern
+	sta rm_nextram
+	lda ramflag	; und REU bekannt machen
+	ora #$20
+	sta ls_ramdrive
+	lda #12
+	sta ls_bootdrive	; fertig, Device installiert
+
++	sec
+	rts
+
+; ----------------------------------------- Wait for Clicks
+
+wait	lda #0
+	sta sc_stop
+	sta sc_keyprs
+waiton	lda joy		; wait for click or STOP
+	eor #$ff
+	and #$10
+	ora sc_keyprs
+	ora sc_stop
+	beq waiton
 	rts
 
 ; ----------------------------------------------- 
@@ -313,10 +468,10 @@ onebyte	jsr basin
 
 ; ----------------------------------------------- Swap 
 
-swap90	ldx #6		; Swapwerte retten
+swapmt	ldx #6		; Swapwerte retten
 sw0	lda rm_swapw,x
 	sta swold,x
-	lda sw90,x
+	lda swmt,x
 	sta rm_swapw,x
 	dex
 	bpl sw0
@@ -363,7 +518,7 @@ reustat	jsr isreu
 	bne +		; ### 1.04
 	rts
 
-+	ldx #32		; transfer routine to GLOBAL (1st pt)
++	ldx #(reustat-gstat-1)	; auslagern (1st pt)
 rs1	lda gstat,x
 	sta sy_global,x
 	dex
@@ -386,7 +541,7 @@ rs1	lda gstat,x
 	tya
 	sta offstx
 
-	ldx #64		; transfer routine to GLOBAL (2nd pt)
+	ldx #(newsize-rs4-1)	; auslagern (2nd pt)
 rs3	lda rs4,x
 	sta sy_global,x
 	dex
@@ -497,7 +652,7 @@ setsize	jsr isreu		; Check RAM, kehrt bei fail nicht zurück
 	ldx ramflag	; get RAM size value
 	lda banks,x	; get # of banks available
 	pha
-	ldx #32		; transfer routine to Global...
+	ldx #(evchdel-ss0-1); transfer routine to Global...
 ss0	lda ss1,x
 	sta sy_global,x
 	dex
@@ -621,8 +776,10 @@ rd7	sta (entry),y
 ramcheck	jsr stats		; set status of Undo and Temp
 	lda ls_ramdrive	; which RAM?
 	and #15
+	sta thisram	; store it
 	tax
 	lda #0		; default RAM flag value=0
+
 	cpx #2		; VDC?
 	bne rc00
 	lda rm_vdcflag	; which VDC?
@@ -630,12 +787,15 @@ ramcheck	jsr stats		; set status of Undo and Temp
 	lda #0		; eq 16K
 	!by $2c
 rc02	lda #2		; eq 64K
+
 rc00	cpx #3		; Pagefox?
 	bne rc01
 	lda #1
+
 rc01	cpx #9		; no extra RAM?
 	bne rc0
 	lda #$ff		; eq 0KB
+
 rc0	cpx #8		; REU 1700?
 	bne rc1
 	lda #3		; eq 128K
@@ -645,22 +805,24 @@ rc1	cpx #4		; REU 1764?
 rc2	cpx #5		; REU 1750?
 	bne rc3
 	lda #5		; eq 512K
+
 rc3	cpx #7		; is SuperCPU? ### 1.04
 	bne rc4
 	lda #11		; yes, set flg ### 1.06
+
 rc4	sta ramflag	; no, store to RAM flag
 	rts
 
 ; ----------------------------------------------- Event: Choose type of module to install
 
-evchoose	inc chosen
-	ldx chosen
-	lda choind,x
-	cpx #2
-	bne evc1
+evchoose	ldx chosen
+	cpx choomax
+	bcc evc1
 	ldx #$ff
+evc1	inx
 	stx chosen
-evc1	tax
+	lda choind,x
+	tax
 	ldy #2
 evc2	lda choose,x
 	sta choosetx,y
@@ -672,7 +834,7 @@ evc2	lda choose,x
 evc3	jsr settab
 	jsr gettab
 	ldy #6
-	jmp gd_xtxout1
+	jmp gd_xtxout1	; returns .c=0
 
 ; ----------------------------------------------- 
 
@@ -699,10 +861,30 @@ gt0	jsr gd_setpos
 	jsr gd_trim
 	jmp gd_initmove
 
+; ----------------------------------------- Gauge 
+
+gaugeout	lda sc_screenvek	; show "requester"
+	pha
+	lda sc_screenvek+1
+	pha
+	ldx #<gaugelst
+	ldy #>gaugelst
+	jsr gd_screen
+	pla
+	sta sc_screenvek+1
+	pla
+	sta sc_screenvek
+	rts
+
+; ----------------------------------------- Screenlist for Gauge
+
+gaugelst	!by 0,22,3,34,3,$02
+	!wo 0
+	!by $80
+
 ; ----------------------------------------------- 
 
 char	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
-choose	!scr "LDRSVRMOD"
 delete	!scr "last all"
 
 mega	!scr "  0K"		; 0 no RAM
@@ -719,28 +901,47 @@ mega	!scr "  0K"		; 0 no RAM
 
 scpumem	!scr " 16M"		; 11 (SuperCPU)
 
-yesno	!by 25,5,19,32,14,15
-chootype	!by 76,68,82,46,42,0
-banks	!by 0,0,0,2,4,8,16,32,64,128,246,0
+yesno	!scr "yes no"
+choose	!scr "LDRSVRMODDEV"
+choind	!by 2,5,8,11
 chosen	!by 0
+choomax	!by 2
+chootype	!tx "ldr.*",0
+thisram	!by 0
 delwhat	!by $ff
-choind	!by 2,5,8
+banks	!by 0,0,0,2,4,8,16,32,64,128,246,0
 ramflag	!by $ff
 ramind	!by 3,7,11,15,19,23,27,31,35,39,43,47,47
 list	!wo 0
 last	!wo 0
 success	!by 0
-sw90	!by $00,$90,$1c,$b2,$00,$00,$10	; ### jetzt: 4096 Bytes
+swmt	!by $00,>devarea,$1c,$b2,$00,$00,$10	; ### jetzt: 4096 Bytes
 swold	!by 0,0,0,0,0,0,0
-hex	!pet "0123456789abcdef"
+hex	!tx "0123456789abcdef"
 
-werte0	!by $b0,0, 1,0,0, 1,0,  $1f,0
-;	   | c64  | REU  |bytes|
+werte0	!by sc_merk,0, 1,0,0, 1,0,  $1f,0
+;	   | c64      | REU  |bytes|
 
 err1	!scr "       Can't clone Files.       "
 	!scr "        No dev.SCPU yet.        "	; ### 1.04
 message	!fill 32,32
 	!by 0
+
+; --------------------------------------- Default RAM Entries
+
+rentries	!byte 0			; REU-Flag ($00)
+	!byte $1c,$c2,$00		; entry 0: 
+	!pet "RM.Handler    "	;    RAM-Handler-Header
+bbu	!byte 32			;    (darin: Anim-Counter und REUClear-Flag bbu)
+	!byte 0,$00,$10		; entry 1:
+	!pet "Undo 4Bit       "	;    Undo 4Bit
+	!byte 0,$00,$8d		; entry 2:
+	!pet "Undo Rendered   "	;    Undo Rendered
+	!byte $f0,$1c,$b2		; entry 3:
+	!pet "swp.file        "	;    Swapfile
+	!byte $07,0,$83		; 
+	!pet "temp00          "	; entry 4:
+				;    Temp (so, first user entry: 5)
 
 ; ----------------------------------------------- 
 
@@ -749,18 +950,26 @@ reulst	!by 0
 	!scr "REU Tool@"
 	!by 3,12,16,12,$b0,0,0
 	!scr "Status@"
-	!by 15,12,9,3,$c0,<evdelete,>evdelete
+	!by 15,12,9,3,$c0
+	!wo evdelete
 	!scr "Delete!@"
-delgad	!by 15,21,7,3,$c0,<evchdel,>evchdel,223
+delgad	!by 15,21,7,3,$c0
+	!wo evchdel
+	!by 223				; List-Kringel
 deltx	!scr"last@"
-	!by 18,12,9,3,$c0,<(evinst),>(evinst)
+	!by 18,12,9,3,$c0
+	!wo evinst
 	!scr "Install@"
-choosegad	!by 18,21,7,3,$c0,<(evchoose),>(evchoose),223,32
+choosegad	!by 18,21,7,3,$c0
+	!wo evchoose
+	!by 223,32
 choosetx	!scr "LDR@"
 ramgad	!by 21,12,7,3,$8c,0,0
 megatx	!scr "  0KB@"
-	!by 21,19,9,3,$cc,<(evcan),>(evcan)
+	!by 21,19,9,3,$cc
+	!wo evcan
 	!scr " Leave@"
+
 	!by $c0,5,12,14
 	!scr "Bank  :    "
 banktx	!scr "$00@"
