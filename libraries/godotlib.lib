@@ -272,6 +272,7 @@ gd_onebyte	= $1c96	; read one byte from file (return in .A) and check status (in
 gd_testram	= $1ca9	; check for active RAM device (status bit must be EQUAL then)
 gd_swapd		= $1caf	; switch RAM device on
 gd_reu		= $1cb4	; send REU command, command in .A, register parameters in RM_WERTE
+gd_xbeyond	= $1ccc	; contains SPRITEX bit 8 (from $d010)
 ls_picname	= $1fa8	; name of current image in screencode (16 bytes)
 ls_iloader	= ls_picname+$16	; loader name
 ls_imode		= ls_picname+$22	; graphics mode
