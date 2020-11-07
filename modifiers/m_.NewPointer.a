@@ -16,6 +16,7 @@
 ; 1.00, 13.06.92, first release
 ; 1.01, 25.07.17, Modul sicherer gemacht
 ; 1.02, 07.11.20, Zeiger-Hotspot begrenzt auf Spritegröße
+; 1.03, 07.11.20, added: set default values if no hotspot data in file
 ;
 ; ------------------------------------------------------------ 
 
@@ -34,7 +35,7 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "Mouse Pointer   "
-	!pet "1.02"
+	!pet "1.03"
 	!pet "07.11.20"
 	!pet "A. Dettke       "
 
@@ -116,17 +117,17 @@ readptr	jsr gd_xopen	; Datei öffnen
 	bne lderr
 
 	ldy #0
-ld6	jsr basin		; 63 Bytes einlesen
-	ldx status	; Lesefehler?
-	bne lderr		; dann Abbruch
+ld6	jsr onebyte	; 63 Bytes einlesen
+	bne lderr		; bei Lesefehler Abbruch
 	sta (sc_vekt20),y	; und in den Puffer übertragen
 	iny 
 	cpy #63
 	bne ld6
 
 	jsr onebyte	; Hotspot x lesen (Byte 64)
-	bne lderr
-	and #31		; auf Zeiger begrenzen ### 1.02
+	beq +
+	jsr default
++	and #31		; auf Zeiger begrenzen ### 1.02
 	sta xoff		; und sichern
 	jsr onebyte	; Hotspot y lesen (Byte 65)
 	and #31		; auf Zeiger begrenzen ### 1.02
@@ -134,11 +135,16 @@ ld6	jsr basin		; 63 Bytes einlesen
 	txa
 	and #$bf		; EOF ausschließen
 	tax
-	bne lderr
-	sty yoff		; sichern
+	beq +
+	jsr default
++	sty yoff		; sichern
 	stx ok		; successful
 
 lderr	jmp gd_xclose	; Datei schließen
+
+default	lda #0		; set 0 as default value for hotspot
+	tay
+	rts
 
 ; ----------------------------------------- Byteweise lesen
 
