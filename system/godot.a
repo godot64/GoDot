@@ -27,6 +27,7 @@
 ;   1.44, 28.10.20 ; bugfix: wouldn't show "C64" if there's no extra RAM
 ;   1.45, 31.10.20 ; added: SuperRAM support, loads dev.REU only when no SRAM
 ;   1.46, 04.11.20 ; added: option to not use SRAM explicitly
+;   1.47, 07.11.20 ; bugfix: mouse pointer wouldn't click at the correct position
 ;
 ; ------------------------------------------------------------ 
 
@@ -221,7 +222,7 @@ mkt0	lda tabs-$40,x
 
 ; --------------------------------------- 
 
-version	!byte $01,$46	; Versionsnummer in SED-Format (1.46)
+version	!byte $01,$47	; Versionsnummer in SED-Format (1.47)
 
 ; --------------------------------------- 
 
@@ -238,11 +239,11 @@ m0	lda textcols,y
 
 ; --------------------------------------- 
 
-sprdata	!byte $00,$00,$00,$60,$00,$00,$70,$00	; Systemzeiger
+sprdata	!byte $c0,$00,$00,$e0,$00,$00,$70,$00	; Systemzeiger ### 1.47
 	!byte $00,$38,$00,$00,$1c,$00,$00,$0e
 	!byte $00,$00,$07,$00,$00,$03,$80,$00
-	!byte $01,$c0,$00,$00,$e0,$00,$00,$70
-	!byte $00,$00,$20,$00,$00,$00,$00,$00
+	!byte $01,$c0,$00,$00,$e0,$00,$00,$40
+	!byte $00,$00,$00,$00,$00,$00,$00,$00
 	!byte $00,$00,$00,$00,$00,$00,$00,$00
 	!byte $00,$00,$00,$00,$00,$00,$00,$00
 	!byte $00,$00,$00,$00,$00,$00,$00,$00,0
