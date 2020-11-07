@@ -14,13 +14,13 @@ GoDot has a **mouse driven GUI** (can also be controlled by joystick or keyboard
 
 ## What do you need?
 
-You need nothing more than **a stock Commodore 64** and a disk drive. Of course, the more peripheral hardware you have, the better. The best performance can be achieved when you use an REU RAM extension together with three or four (CMD) disk drives or even a SuperCPU. GoDot also supports graphics delivering devices like the Scanntronik Handyscanner or several video digitizers (see an [overview][Graphics Hardware]).
+You need nothing more than **a stock Commodore 64** and a disk drive. Of course, the more peripheral hardware you have, the better. The best performance can be achieved when you use an REU RAM expansion together with three or four (CMD) disk drives or even a SuperCPU. GoDot also supports graphics delivering devices like the Scanntronik Handyscanner or several video digitizers (see an [overview][Graphics Hardware]).
 
 ## How do you get it?
 
-All source code files available from here are written using the ACME assembler. So first you have to download ACME and probably a facility to edit, run and thus test out the code you write, like Relaunch64. Following [this link][ACME] you will have both of them.
+All source code files available from here are written using the ACME cross assembler. So first you have to download ACME and probably a facility to edit, run and thus test out the code you write, like Relaunch64. Following [this link][ACME] you will have both of them.
 
-Then just clone this GoDot repository to your computer, add a path to ACME (and to VICE if you want to use an emulator), add a MAKE utility to your system ([Make for Windows][Make Link] if you run Windows), and run this repository's Makefile.
+Then just clone this GoDot repository to your computer, add a path to ACME (and to VICE if you want to use an emulator), add a MAKE utility to your system ([Make for Windows][Make Link] if you run Windows), and run this repository's makefile.
 
 You have several options:
 - **make d81**<br>
@@ -36,7 +36,7 @@ You have several options:
 
 ## How to GoDot?
 
-Go to GoDot's website: https://www.godot64.de. It's German, but Google Translate will do. You'll find a most elaborate [manual][Manual] of GoDot's modifiers there, and some intensive [tutorials][Tutorials].
+Go to GoDot's website: https://www.godot64.de. It's German, but [Google Translate][Google Translate] or [DeepL][DeepL] will do. You'll find a most elaborate [manual][Manual] of GoDot's modifiers there, and some intensive [tutorials][Tutorials].
 
 Additional material can be found in the [downloads section of godot64.de][Downloads]. On three D64 disk images you find the *complete* GoDot system, together with convolution filters, dither patterns, mouse pointers and more.
 
@@ -55,3 +55,6 @@ Arndt
 [Manual]: https://www.godot64.de/german/index.htm "GoDot Manual: How to GoDot"
 [Tutorials]: https://www.godot64.de/german/tutorials.htm "GoDot Tutorials"
 [Downloads]: https://www.godot64.de/german/downloads.htm "GoDot's download section"
+[Google Translate]: https://translate.google.de/?hl=de&tab=wT
+[DeepL]: https://www.deepl.com/translator
+
