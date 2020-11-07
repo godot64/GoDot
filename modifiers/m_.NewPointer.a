@@ -1,41 +1,48 @@
 
-*= $c000
-!src "godotlib.lib"
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
 
 ; ------------------------------------------------------------ 
 ;
 ; mod..NewPointer
 ; Modul zum Installieren eines alternativen Mauszeigers
 ;
+; Die Adressen sy_soffx und sy_soffy enthalten den Basisoffset
+; des Mauszeiger-Sprites (x=24, y=50). Ein Zeiger-Hotspot muss
+; dazu gerechnet werden. Die Offsets des Hotspots stehen in den
+; beiden letzten Bytes der Zeigerdatei.
+;
 ; 1.00, 13.06.92, first release
 ; 1.01, 25.07.17, Modul sicherer gemacht
+; 1.02, 07.11.20, Zeiger-Hotspot begrenzt auf Spritegröße
 ;
 ; ------------------------------------------------------------ 
 
 ; ----------------------------------------- Equates
 
 	ok		= $30
-	status		= $90
+
 	buffer		= $c600
 
 ; ----------------------------------------- Header
 
 header	jmp start
-	!by $80
-	!by 4
+	!by $20
+	!by 0
 	!by 0
 	!wo modend
 	!wo 0
 	!pet "Mouse Pointer   "
-	!pet "1.01"
-	!pet "25.07.17"
+	!pet "1.02"
+	!pet "07.11.20"
 	!pet "A. Dettke       "
 
 ; ----------------------------------------- Main
 
 start	jsr chgdrv	; Sysdrive auf Bootdrive umlenken
-	ldx #<(buffer)	; Zeiger auf Directory-Filter setzen ("ptr.*")
-	ldy #>(buffer)
+	ldx #<buffer	; Zeiger auf Directory-Filter setzen ("ptr.*")
+	ldy #>buffer
 	stx ls_adrmisc	; (wird bei Klick auf LOAD nach sc_vekt20 geschrieben)
 	sty ls_adrmisc+1
 	sty ok		; Success-Flag
@@ -50,37 +57,40 @@ start	jsr chgdrv	; Sysdrive auf Bootdrive umlenken
 	jsr gd_eloop	; warten auf Mausklick (Load oder Cancel)
 
 	lda ls_flen	; kein File ausgewählt?
-	beq lp0		; dann Abschluss
+	beq lp1		; dann Abschluss
 
 	jsr readptr	; sonst: Mauszeiger einlesen
 	lda ok		; geklappt?
-	bne lp0		; nein, Abbruch
+	bne lp1		; nein, Abbruch, alter Zeiger bleibt
 
 	ldy #62		; erfolgreich, neuen Mauszeiger installieren
--	lda buffer,y
+-	lda buffer,y	; 63 Bytes übertragen
 	sta sc_pointer,y
 	dey
 	bpl -
 
-	lda xoff		; Hotspot x größer als 15?
-	cmp #16
-	bcs pt0
-	sec 
-	lda #24		; dann von 24 abziehen (linker Rand)
+	lda xoff		; Hotspot x aus Datei größer als 24?
+	cmp #25
+	bcc pt0
+	lda #24		; ja, auf 24 begrenzen ### 1.02
+pt0	sec 
+	lda #24		; dann von Basisoffset abziehen (linker Rand)
 	sbc xoff
 	sta sy_soffx
-pt0	lda yoff		; Hotspot y größer als 15?
-	cmp #16
-	bcs lp0
-	sec 
-	lda #50		; dann von 50 abziehen (oberer Rand)
+	lda yoff		; Hotspot y größer als 21?
+	cmp #22
+	bcc lp0
+	lda #21		; ja, auf 21 begrenzen ### 1.02
+lp0	sec 
+	lda #50		; dann von Basisoffset abziehen (oberer Rand)
 	sbc yoff		; (damit bleibt der Hotspot im sichtbaren Screen)
 	sta sy_soffy
 
-lp0	jsr gd_spron	; Mauszeiger an
+lp1	jsr gd_spron	; Mauszeiger an (ist aus durch gd_xopen)
 	pla 		; aufräumen
 	sta gd_modswitch
 	jsr chgdrv	; Sysdrive zurück
+
 	ldx sc_scvek2	; Main-Screenlist ansteuern
 	stx sc_screenvek
 	ldx sc_scvek2+1
@@ -90,9 +100,9 @@ lp0	jsr gd_spron	; Mauszeiger an
 
 ; ----------------------------------------- Load mit Dateifilter
 
-lddir	lda #<(ptr)	; Zeiger auf Filter
+lddir	lda #<ptr		; Zeiger auf Filter
 	pha 
-	lda #>(ptr)
+	lda #>ptr
 	pha 
 	lda #8		; Flag für "nur Directory zeigen"
 	jmp gd_xloadm	; und ausführen
@@ -114,16 +124,18 @@ ld6	jsr basin		; 63 Bytes einlesen
 	cpy #63
 	bne ld6
 
-	jsr onebyte	; Hotspot x lesen
+	jsr onebyte	; Hotspot x lesen (Byte 64)
 	bne lderr
-	sta xoff
-	jsr onebyte	; Hotspot y lesen
+	and #31		; auf Zeiger begrenzen ### 1.02
+	sta xoff		; und sichern
+	jsr onebyte	; Hotspot y lesen (Byte 65)
+	and #31		; auf Zeiger begrenzen ### 1.02
 	tay
 	txa
 	and #$bf		; EOF ausschließen
 	tax
 	bne lderr
-	sty yoff
+	sty yoff		; sichern
 	stx ok		; successful
 
 lderr	jmp gd_xclose	; Datei schließen
@@ -144,8 +156,7 @@ chgdrv	lda ls_sysdrive	; prevents hanging system
 
 ; ----------------------------------------- Filter
 
-ptr	!pet "ptr.*"
-	!by 0
+ptr	!pet "ptr.*",0
 xoff	!by 0
 yoff	!by 0
 
