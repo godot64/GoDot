@@ -17,6 +17,7 @@
 ;  1.04, 08.11.18, added fill feature for better masking
 ;  1.05, 26.11.18, better usability
 ;  1.06, 20.06.19, added init keyboard for SuperCPU
+;  1.07, 08.11.20, added option to "re-render" (hitting Shift on "Make")
 ;
 ; ----------------------------------------- 
 
@@ -43,6 +44,7 @@
 
 	zeile		= sc_merk
 	spalte		= zeile+1
+	shift		= $028d
 
 	sysbag		= $ca00
 
@@ -67,8 +69,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "Generate Mask   "
-	!tx "1.06"
-	!tx "20.06.19"
+	!tx "1.07"
+	!tx "08.11.20"
 	!tx "ADettke/M.Bohnet"
 
 ; ----------------------------------------- Main
@@ -98,7 +100,11 @@ start	jsr gd_savescvek	; save vector to previous screenlist
 
 ; ----------------------------------------- Event: Generate Mask
 
-evmask	lda #$40		; vekt20=$4000 (source)
+evmask	lda shift		; shift pressed?	### 1.07
+	and #1
+	sta gr_redisp	; if yes, re-render on "Display"
+
+	lda #$40		; vekt20=$4000 (source)
 	sta sc_vekt20+1
 	sta ls_vekta8	; vekta8= 8000 (counter)
 	ldx #$20
@@ -168,7 +174,7 @@ vw0	sta colors-1,y
 	sty sc_keyprs
 
 	jsr wait		; wait for click
-	bit fillflg	; check if used from evfill
+	bit fillflg	; check whether used from evfill
 	bpl voff
 	rts
 
