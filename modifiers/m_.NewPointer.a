@@ -6,25 +6,52 @@
 ; ------------------------------------------------------------ 
 ;
 ; mod..NewPointer
-; Modul zum Installieren eines alternativen Mauszeigers
-;
-; Die Adressen sy_soffx und sy_soffy enthalten den Basisoffset
-; des Mauszeiger-Sprites (x=24, y=50). Ein Zeiger-Hotspot muss
-; dazu gerechnet werden. Die Offsets des Hotspots stehen in den
-; beiden letzten Bytes der Zeigerdatei.
+; Modul zum Erstellen eines alternativen Mauszeigers
 ;
 ; 1.00, 13.06.92, first release
 ; 1.01, 25.07.17, Modul sicherer gemacht
 ; 1.02, 07.11.20, Zeiger-Hotspot begrenzt auf Spritegröße
-; 1.03, 07.11.20, added: set default values if no hotspot data in file
+; 1.03, 10.11.20, added: set default values if no hotspot data in file
+; 2.00, 16.11.20, now: true pointer editor
 ;
 ; ------------------------------------------------------------ 
 
 ; ----------------------------------------- Equates
 
-	ok		= $30
+	pport		= $01
+	indentx		= 24
+	maxx		= 24
+	indenty		= 50
+	maxy		= 21
+	zeile		= sc_merk
+	spalte		= zeile+1
 
-	buffer		= $c600
+	curcol		= $30
+	cntr		= $31
+	move		= $32	; /$33
+	byte		= $34
+	ymrk		= $35
+	bitcnt		= $36
+	dotset		= $37
+
+	spritep		= $07fa
+	spr255		= $3fc0
+	sprite1x		= $d002
+	sprite1y		= $d003
+	sprite2x		= $d004
+	sprite2y		= $d005
+	sprite3x		= $d006
+	sprite3y		= $d007
+	spritehi		= $d010
+	sprenable		= $d015
+	spryexpand	= $d017
+	sprmulti		= $d01c
+	sprxexpand	= $d01d
+	rahmen		= $d020
+	sprcol0		= $d027
+	sprcol1		= $d028
+	sprcol2		= $d029
+	sprcol3		= $d02a
 
 ; ----------------------------------------- Header
 
@@ -34,72 +61,789 @@ header	jmp start
 	!by 0
 	!wo modend
 	!wo 0
-	!pet "Mouse Pointer   "
-	!pet "1.03"
-	!pet "07.11.20"
+	!pet "EditMousePointer"
+	!pet "2.00"
+	!pet "16.11.20"
 	!pet "A. Dettke       "
 
 ; ----------------------------------------- Main
 
-start	jsr chgdrv	; Sysdrive auf Bootdrive umlenken
+start	lda sc_normtext	; dark border
+	sta rahmen
+	jsr makechr	; make middot
+	stx scrlmode	; init edit modes (.x=$ff)
+	stx hspmode
+	jsr getcurptr	; fetch current pointer
+	ldx #<pntlist	; show GUI
+	ldy #>pntlist
+	jsr shs0
+	jsr showspr	; show sprite
+	jmp gd_eloop	; and now wait...
+
+; ----------------------------------------- Event: Use Pointer
+
+evuse	lda fgcol		; Set sprite colors
+	ldx bgcol
+	sta sprcol0
+	stx sprcol1
+	sec 
+	lda #indentx	; set hotspot
+	sbc xoff
+	sta sy_soffx
+	sec 
+	lda #indenty
+	sbc yoff
+	sta sy_soffy
+	ldx #63		; activate sprite
+-	lda sprite,x
+	sta sc_pointer,x
+	dex
+	bpl -
+
+	lda cleared	; is this pointer empty?
+	bmi evexit
+	jsr evdefault	; yes, activate system pointer
+	bcc evuse		; .c=0: recursion
+
+; ----------------------------------------- Event: Leave Module
+
+evexit	jsr resetchr	; reset characters
+	lda sc_maincolor	; reset border color
+	sta rahmen
+	jsr gd_spron	; switch off edit sprites
+	sec		; leave module
+	rts
+
+; ----------------------------------------- Event: Save Pointer
+
+evsave	jsr chgdrv	; Sysdrive auf Bootdrive umlenken
+	ldx #<buffer	; Zeiger auf Directory-Filter setzen ("ptr.*")
+	ldy #>buffer
+	stx ls_adrmisc
+	sty ls_adrmisc+1
+	lda #0		; und mit 0 vorbesetzen (für Rückmeldung)
+	sta ls_flen
+	lda gd_modswitch	; Modul-Management
+	pha
+
+	jsr svdir		; show Filerequester
+	sta ls_loadsave
+	jsr gd_eloop	; now wait...
+
+	lda ls_flen	; file chosen?	
+	beq sp0
+
+	jsr writeptr	; yes, write file
+
+sp0	jmp after		; restore GUI
+
+; ----------------------------------------- Event: Load Pointer
+
+evload	jsr chgdrv	; Sysdrive auf Bootdrive umlenken
 	ldx #<buffer	; Zeiger auf Directory-Filter setzen ("ptr.*")
 	ldy #>buffer
 	stx ls_adrmisc	; (wird bei Klick auf LOAD nach sc_vekt20 geschrieben)
 	sty ls_adrmisc+1
-	sty ok		; Success-Flag
-	lda gd_modswitch	; Modul-Management
-	pha 
 	lda #0		; und mit 0 vorbesetzen (für Rückmeldung)
 	sta ls_flen
-	sta xoff		; Hotspot vorbesetzen
-	sta yoff
+	lda gd_modswitch	; Modul-Management
+	pha 
 
 	jsr lddir		; gefiltertes Directory anzeigen (Filerequester)
 	jsr gd_eloop	; warten auf Mausklick (Load oder Cancel)
 
 	lda ls_flen	; kein File ausgewählt?
-	beq lp1		; dann Abschluss
+	beq ++		; dann Abschluss
 
 	jsr readptr	; sonst: Mauszeiger einlesen
-	lda ok		; geklappt?
-	bne lp1		; nein, Abbruch, alter Zeiger bleibt
+	bcc +		; Fehler, Abbruch, alter Pointer bleibt
+	lda sprslot
+	cmp #11		; is meant as system pointer?
+	beq ++
++	lda cspr0		; no, break and repair
+	ldx cspr1
+	jsr gcp0
+++	jsr sprcols
 
-	ldy #62		; erfolgreich, neuen Mauszeiger installieren
--	lda buffer,y	; 63 Bytes übertragen
-	sta sc_pointer,y
-	dey
-	bpl -
-
-	lda xoff		; Hotspot x aus Datei größer als 24?
-	cmp #25
-	bcc pt0
-	lda #24		; ja, auf 24 begrenzen ### 1.02
-pt0	sec 
-	lda #24		; dann von Basisoffset abziehen (linker Rand)
-	sbc xoff
-	sta sy_soffx
-	lda yoff		; Hotspot y größer als 21?
-	cmp #22
-	bcc lp0
-	lda #21		; ja, auf 21 begrenzen ### 1.02
-lp0	sec 
-	lda #50		; dann von Basisoffset abziehen (oberer Rand)
-	sbc yoff		; (damit bleibt der Hotspot im sichtbaren Screen)
-	sta sy_soffy
-
-lp1	jsr gd_spron	; Mauszeiger an (ist aus durch gd_xopen)
-	pla 		; aufräumen
+after	pla 		; aufräumen
 	sta gd_modswitch
-	jsr chgdrv	; Sysdrive zurück
 
-	ldx sc_scvek2	; Main-Screenlist ansteuern
-	stx sc_screenvek
-	ldx sc_scvek2+1
-	stx sc_screenvek+1
-	sec 		; Modul verlassen
+	jsr chgdrv	; Sysdrive zurück
+	jsr showscreen
+	jsr showspr
+	clc 		; Modul *nicht* verlassen
 	rts 
 
-; ----------------------------------------- Load mit Dateifilter
+; -------------------------------------- Event: Set Color
+
+evbground	ldx #0		; Index auf Background
+	!by $2c
+evfground	ldx #1		; Index auf Foreground
+	lda bgcol,x
+	and #15
+	tax
+	stx curcol	; store current color
+
+	lda spalte	; wo geklickt?
+	cmp #37
+	bcs +
+	dex		; linke Hälfte: rückwärts zählen
+	bpl bgr0
+	ldx #14
++	inx		; rechte Hälfte: vorwärts zählen
+	cpx #16
+	bcc bgr0
+	ldx #0
+
+bgr0	stx curcol
+	ldy tab3,x
+	lda zeile
+	cmp bcgad
+	bcs fc1
+
+fc0	stx fgcol
+	ldx #0
+-	lda coltxs,y	; Farbnamen eintragen
+	sta fcoltx,x
+	iny
+	inx
+	cpx #3
+	bne -
+	beq colrize
+
+fc1	stx bgcol
+	ldx #0
+-	lda coltxs,y	; Farbnamen eintragen
+	sta bcoltx,x
+	iny
+	inx
+	cpx #3
+	bne -		; und dann:
+
+; -------------------------------------- Colorize Gadget Entry
+
+colrize	lda zeile		; determine which gadget
+	cmp bcgad
+	bcs +
+	ldy #2		; Foreground
+	!by $2c
++	ldy #4		; Background
+	jsr out2		; 1st: colorize color gadget
+
+	lda curcol	; 2nd: colorize sprite 
+	sta sc_chgcol
+	lda #3
+	sta sc_br
+	sta sc_loop
+	lda #36
+	sta sc_sp
+	ldx #4
+	jsr gd_fcol
+	stx sc_loop	; .x=0
+	jsr gd_esm3
+	jsr showspr
+	clc
+	rts
+
+; ----------------------------------------- Address Color Gadgets
+
+sprcols	ldy fcgad
+	iny
+	ldx fgcol
+	jsr spr1
+	ldy bcgad
+	iny
+	ldx bgcol
+spr1	sty zeile
+	jmp bgr0
+
+; ----------------------------------------- Event: Mirror
+
+evmirror	lda #<sprite
+	ldx #>sprite
+	sta move
+	stx move+1
+
+	ldx #$ff		; set counter
+	stx cntr
+	stx ymrk
+
+--	inc ymrk
+	inc cntr		; 21 Zeilen (.x: 0..20)
+	ldx cntr		; alle durch?
+	cpx #maxy
+	bcs sethspx
+	lda mirtab,x	; nein:
+	tax		; 3 Bytes pro Zeile
+
+-	ldy #0
+	lda (move),y	; lesen
+	lsr		; Byte invertieren
+	rol byte
+	lsr
+	rol byte
+	lsr
+	rol byte
+	lsr
+	rol byte
+	lsr
+	rol byte
+	lsr
+	rol byte
+	lsr
+	rol byte
+	lsr
+	rol byte
+	lda byte
+	sta modify,x	; schreiben
+
+	inc move		; vorwärts lesen
+	bne +
+	inc move+1
++	dex		; rückwärts schreiben
+	txa
+	ldy ymrk
+	cmp tab3,y
+	bpl -
+	bmi --
+
+; ----------------------------------------- Show edited Sprite
+
+sethspy	sec
+	lda #(maxy-1)
+	sbc yoff
+	sta yoff
+	jmp movespr
+
+sethspx	lda #(maxx-1)
+	sbc xoff
+	sta xoff
+
+movespr	ldx #62
+-	lda modify,x
+	sta sprite,x
+	dex
+	bpl -
+msp0	jsr showspr
+	clc
+	rts
+
+; ----------------------------------------- Event: Flip
+
+evflip	lda #<modify
+	ldx #>modify
+	sta move
+	stx move+1
+
+	ldx #maxy		; set counter
+	stx cntr
+	ldy #0
+
+--	dec cntr		; 21 Zeilen (.x: 20..0)
+	ldx cntr		; alle durch?
+	bmi sethspy
+
+	lda tab3,x	; unten Anfang
+	pha
+	lda mirtab,x	; unten Ende
+	sta ymrk
+	inc ymrk
+	pla
+	tax
+-	lda sprite,x	; Zeile lesen (von unten)
+	sta (move),y	; und schreiben (nach oben)
+	iny		; .y: fortlaufend
+	inx
+	cpx ymrk
+	bcc -
+	bcs --
+
+; ----------------------------------------- Event: Clear Sprite
+
+evclear	ldx #62
+	lda #0
+-	sta modify,x
+	dex
+	bpl -
+	sta cleared	; .a=0
+	sta xoff		; reset hotspot to 0,0
+	sta yoff
+	bmi movespr
+
+; ----------------------------------------- Event: Activate System Pointer
+
+evdefault	ldx #(pntlist-system-1)
+-	lda system,x
+	sta wid,x
+	dex
+	bpl -
+	stx cleared	; passed
+	jmp sprcols	; show
+
+; ----------------------------------------- Event: Set Hotspot
+
+evhotspot	ldx #0		; set hotspot editmode
+	stx hspmode
+	lda sc_hilite
+ehs0	ldx #15		; highlight button
+	jsr recolor2
+	clc
+	rts
+
+; ----------------------------------------- Event: Edit
+
+evedit	lda #$ff		; if cleared: set flag to off
+	sta cleared
+	lda hspmode	; hotspot mode?
+	bmi pointer	; no, normal edit
+	lda scrlmode	; or scroll mode? (priority!)
+	beq scroll
+
+hotspot	ldy #0		; no, set hotspot
+	jsr settab
+	sec
+	lda zeile
+	sbc sc_zl
+	sta yoff
+	lda spalte
+	sbc sc_sp
+	sta xoff
+	jsr showmax	; and show it
+	lda sc_normtext
+	dex		; end hotspot mode
+	stx hspmode	; .x=$ff
+	bmi ehs0
+
+pointer	lda scrlmode
+	beq scroll
+	sec
+	lda zeile
+	sbc edarea
+	sbc #1		; 0..20 of %00000000 00000000 00000
+	tay
+	lda tab3,y
+	sta ymrk		; Zeilenindex in sprite
+
+	sec
+	lda spalte
+	sbc edarea+1
+	sbc #1		; 0..23 of %00000000 00000000 00000000
+	tax
+	and #7	
+	tay
+	lda bits,y
+	sta bitcnt	; store affected bit
+
+	txa		; Spalte durch 8
+	lsr
+	lsr
+	lsr
+	clc
+	adc ymrk		; zu Zeilenindex
+	tay
+	lda sprite,y	; Bit setzen/löschen
+	eor bitcnt
+	sta sprite,y
+	jsr showspr
+	clc
+	rts
+
+scroll	lda #0
+	sta directn
+	lda zeile	
+	cmp #4		; up?
+	bcc +
+	cmp #21		; down?
+	bcc scr0
+
+	lda #2		; 2: down
+	!by $2c
++	lda #1		; 1: up
+	sta directn
+
+scr0	lda spalte
+	cmp #3		; left?
+	bcc +
+	cmp #23		; right?
+	bcc scr1
+
+	lda #8		; 8: right
+	!by $2c
++	lda #4		; 4: left
+	ora directn
+	sta directn	; and all combinations
+
+scr1	lsr directn
+	bcc +
+	jsr scrup
+
++	lsr directn
+	bcc +
+	jsr scrdwn
+
++	lsr directn
+	bcc +
+	jsr scrlft
+
++	lsr directn
+	bcc +
+	jsr scrrgt
+
++	jsr showspr
+	clc
+	rts
+
+scrup	ldy #0
+	ldx #0
+-	lda sprite,y
+	sta scrbuf,y
+	iny
+	cpy #3
+	bcc -
+-	lda sprite,y
+	sta sprite,x
+	inx
+	iny
+	cpy #63
+	bcc -
+	ldy #2
+-	lda scrbuf,y
+	sta sprite+60,y
+	dey
+	bpl -
+	ldy yoff
+	dey
+	bpl +
+	ldy #20
++	sty yoff
+	rts
+
+scrdwn	ldy #62
+	ldx #62
+-	lda sprite,y
+	sta scrbuf-60,y
+	dey
+	cpy #60
+	bcs -
+-	lda sprite,y
+	sta sprite,x
+	dex
+	dey
+	bpl -
+-	lda scrbuf,x
+	sta sprite,x
+	dex
+	bpl -
+	ldy yoff
+	iny
+	cpy #21
+	bcc +
+	ldy #0
++	sty yoff
+	rts
+
+scrlft	ldx #0
+-	lda mirtab,x	; get index ot lines (0..20)
+	sta byte		; store index of rightmost byte
+	stx ymrk		; store line counter
+	tax
+	asl sprite,x	; shift left byte 3
+	dex
+	rol sprite,x	; shift left byte 2
+	dex
+	rol sprite,x	; shift left byte 1
+	bcs +		; leftmost bit set?
+	lda #0		; no
+	!by $2c
++	lda #1		; yes
+	ldx byte		
+	ora sprite,x	; combine to byte 3
+	sta sprite,x
+	ldx ymrk
+	inx
+	cpx #21
+	bcc -
+	ldx xoff		; hotspot
+	dex
+	bpl +
+	ldx #23
++	stx xoff
+	rts
+
+scrrgt	ldx #0
+-	lda tab3,x	; get index ot lines (0..20)
+	sta byte		; store index of leftmost byte
+	stx ymrk		; store line counter
+	tax
+	lsr sprite,x	; shift left byte 3
+	inx
+	ror sprite,x	; shift left byte 2
+	inx
+	ror sprite,x	; shift left byte 1
+	bcs +		; leftmost bit set?
+	lda #0		; no
+	!by $2c
++	lda #128		; yes
+	ldx byte		
+	ora sprite,x	; combine to byte 3
+	sta sprite,x
+	ldx ymrk
+	inx
+	cpx #21
+	bcc -
+	ldx xoff		; hotspot
+	inx
+	cpx #24
+	bcc +
+	ldx #0
++	stx xoff
+	rts
+
+; ----------------------------------------- Event: Toggle Scroll Mode
+
+evscroll	ldx scrlmode	; toggle scroll editmode flag
+	beq +
+	lda sc_hilite	; and set highlight if "on"
+	ldx #0
+	beq ++
++	lda sc_normtext
+	ldx #$ff
+++	stx scrlmode
+	ldx #19
+	jsr recolor2
+	clc
+	rts
+
+; --------------------------------------- New Chars
+
+makechr	ldx #15		; create
+	lda sc_undochar,x
+	sta chrbuf,x
+-	lda chschr,x
+	sta sc_undochar,x
+	dex
+	bpl -
+	rts
+
+resetchr	ldx #15		; reset
+-	lda chrbuf,x
+	sta sc_undochar,x
+	dex
+	bpl -
+	rts
+
+; -------------------------------------- Show Editor Screen (GUI)
+
+showscreen
+	ldx sc_scvek2	; Screenlist ausgeben
+	ldy sc_scvek2+1
+shs0	jsr gd_screen
+	jsr preparea	; Editarea vorbereiten
+shs1	jsr recolor	; ...einfärben
+	lda fgcol		; und die Farben des Pointers anzeigen
+	ldx #7
+	jsr recolor2
+	stx sc_loop	; .x=0
+	jsr gd_esm3	; revert 
+	lda bgcol
+	ldx #11
+	jsr recolor2
+	stx sc_loop	; .x=0
+	jmp gd_esm3	; revert
+
+; ----------------------------------------- Show Pointer to be Edited
+
+showspr	ldy #62
+-	lda sprite,y	; 63 Bytes übertragen
+	sta spr255,y
+	dey
+	bpl -
+	sty spritep
+	sty spritep+1
+	lda #240
+	sta sprite2x
+	sta sprite3x
+	lda #66
+	sta sprite2y
+	lda #68
+	sta sprite3y
+	lda fgcol		; färben
+	sta sprcol2
+	lda bgcol
+	sta sprcol3
+	lda #$f0
+	sta sprmulti	; und aktivieren
+	eor #$ff
+	sta sprenable
+
+; ----------------------------------------- Show Pointer in Edit Area
+
+showmax	jsr prepshow	; init, returns .y=0
+
+sh0	sty spalte
+	sty ymrk		; (indent in output buffer)
+sh2	ldy spalte
+sh4	lda (move),y
+	and bitcnt
+	bne sh1
+	lda #$e0		; if no pixel set: middot
+	!by $2c
+sh1	lda #160		; if pixel set: shift space
+	ldy ymrk		; set indent
+	sta sc_movetab,y	; store
+	iny
+	sty ymrk
+	lsr bitcnt
+	bcc sh2
+
+	ror bitcnt	; reset bitmask to $80
+	inc spalte
+	ldy spalte
+	cpy #3
+	bcc sh4
+
+sh3	ldy #maxx
+	sty sc_br		; output 1 editor line
+	ldx #1
+	jsr gd_fi1
+	lda move		; address each line
+	clc
+	adc #3
+	sta move
+	bcc +
+	inc move+1
++	ldy #0		; reset indent
+	inc cntr		; next line
+	lda cntr
+	cmp #maxy		; maxline?
+	bcc sh0		; no, loop
+
+	jsr settab	; prepare output (.y=0)
+markhsp	iny
+	sty sc_loop	; now: mark hotspot
+	jsr areacfill	; base color (light grey)
+	clc		; compute position
+	lda xoff
+	adc sc_sp
+	tax
+	lda yoff
+	adc sc_zl
+	ldy #10		; hotspot color (light red)
+markdot	sta sc_zl
+	stx sc_sp
+	lda #1
+	sta sc_br
+	sta sc_ho
+mdt0	sty sc_chgcol
+	ldx #4
+	jmp gd_fcol
+
+prepshow	lda #<sprite	; address edit area
+	ldx #>sprite+1
+	sta move
+	stx move+1
+	lda #$80		; set bitmask
+	sta bitcnt
+	ldy #0		; prepare output
+	sty sc_loop
+	jsr settab
+	sty cntr		; .y=0, line counter (up to 21)
+	rts
+
+; -------------------------------------- Prepare Edit Area
+
+preparea	ldy #0
+	sty sc_loop
+	jsr settab
+	ldy edarea+2	; fill the editor area with middots
+	dey
+	dey
+	lda #$e0
+	jsr gd_bl3
+	ldx sc_ho
+	jsr gd_fi1
+areacfill	ldx #1		; and fill with color "light"
+	jmp gd_fcol
+
+; ----------------------------------------- Text Output Handler
+
+tabigad	!wo edarea	; .y:0
+	!wo fcgad		; .y:2
+	!wo bcgad		; .y:4
+
+settab	lda #<tabigad
+	sta sc_texttab
+	lda #>tabigad
+	sta sc_texttab+1
+
+gettab	lda (sc_texttab),y	; set gadget parameters (where to output)
+	sta sc_screentab
+	iny
+	lda (sc_texttab),y
+	sta sc_screentab+1
+
+	lda #0
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #4
+	bne gt0
+	jsr gd_trim
+	jmp gd_initmove
+
+; ----------------------------------------- Output Text
+
+textout	ldy #0		; index in tabigad
+out2	jsr settab
+	ldy #6		; offset to gadget text
+	jmp gd_xtxout1	; show text
+
+; ----------------------------------------- Open Files
+
+wopen	jsr inull		; init disk
+	bne err8
+	ldy wflen
+	ldx #3
+wo1	lda pw,x
+	sta ls_nambuf,y	; prepare filename ("name,p,w")
+	iny
+	dex
+	bpl wo1
+	sty wflen
+	lda #12		; open 12,drive,12,"name,p,w"
+	tay
+	ldx ls_drive
+	jsr filpar
+	lda wflen
+	ldx #<ls_nambuf
+	ldy #>ls_nambuf
+	jsr filnam
+	jsr copen
+	jmp err9
+
+; ----------------------------------------- Initiate Disk
+
+inull	ldx #<drinit
+	ldy #>drinit
+	lda #2
+	jsr gd_sendcom
+err9	jsr gd_xmess
+	lda ls_err2
+	and #15
+err8	sec
+	rts
+
+; ----------------------------------------- Show Directory for "Save"
+
+svdir	lda #<ptr
+	pha
+	lda #>ptr
+	pha
+	lda #8
+	ldx #0		; flag for Save
+	jmp gd_xloadsave
+
+; ----------------------------------------- Show Directory for "Load"
 
 lddir	lda #<ptr		; Zeiger auf Filter
 	pha 
@@ -108,42 +852,131 @@ lddir	lda #<ptr		; Zeiger auf Filter
 	lda #8		; Flag für "nur Directory zeigen"
 	jmp gd_xloadm	; und ausführen
 
+; ----------------------------------------- Save Pointer
+
+writeptr	sta wflen		; .a: Filelänge
+	jsr wopen		; Datei öffnen für Ausgabe
+	bne wp0
+	ldx #12
+	jsr ckout
+
+	ldy #0
+wp1	lda (ls_adrmisc),y	; Daten schreiben
+	jsr bsout
+	lda status
+	bne wp0		; bei Lesefehler: Abbruch
+	iny
+	cpy #84
+	bne wp1
+
+wp0	jsr clrch		; Datei schließen
+	lda #12
+	jsr close
+	jmp err9
+
 ; ----------------------------------------- Mauszeiger einlesen
 
 readptr	jsr gd_xopen	; Datei öffnen
-	jsr onebyte	; Startadresse überlesen ($4733="g3")
-	bne lderr
-	jsr onebyte
-	bne lderr
+	lda #83		; Bytezähler
+	sta ls_vekta8
+	lda #0
+	sta ls_vekta8+1
 
 	ldy #0
-ld6	jsr onebyte	; 63 Bytes einlesen
-	bne lderr		; bei Lesefehler Abbruch
+ld6	jsr onebyte	; 83 Bytes einlesen
 	sta (sc_vekt20),y	; und in den Puffer übertragen
-	iny 
-	cpy #63
+	bne lderr		; bei Lesefehler Abbruch
+	jsr count
 	bne ld6
+	dey
+	sty cleared	; Cleared-Flag initialisieren
 
-	jsr onebyte	; Hotspot x lesen (Byte 64)
+lderr	jsr gd_xclose	; Datei schließen
+
+; ----------------------------------------- Check Filetype
+
+checktype	ldx #$ff
+-	inx
+	cpx #4		; if correct: .c=1
 	beq +
-	jsr default
-+	and #31		; auf Zeiger begrenzen ### 1.02
-	sta xoff		; und sichern
-	jsr onebyte	; Hotspot y lesen (Byte 65)
-	and #31		; auf Zeiger begrenzen ### 1.02
-	tay
-	txa
-	and #$bf		; EOF ausschließen
+	lda buffer,x	; check file header ("god3")
+	cmp ftype,x
+	beq -
+
+; ----------------------------------------- Blink the Border
+
+graphon	ldy #2		; red
+gon0	lda rahmen	; save border color
+	pha
+	sty rahmen	; set new color
+	ldx #$40
+	jsr gd_dl2	; delay
+	pla
+	sta rahmen	; reset old border color
+	stx sy_tbuffer	; clear key strokes
+	clc		; set .c=0
++	rts
+
+; ----------------------------------------- Re-Color Area
+
+recolor	lda sc_normtext	; Normale "Tinte"
+	ldx #3
+recolor2	ldy #3		; (color in .a, offset in .x!)
+	sta sc_chgcol	; if you want to set your individual color, pass it over in .a
+-	lda carea,x
+	sta sc_zl,y
+	dex
+	dey
+	bpl -
+ 	ldx #4		; 4: offset to sc_chgcol
+	jmp gd_fcol
+
+; ----------------------------------------- Get Current Pointer
+
+getcurptr	ldx havecols	; only at first start
+	beq +
+	inx
+	stx havecols
+
+	sec
+	lda #indentx
+	sbc sy_soffx
+	sta xoff		; Hotspot
+	lda #indenty
+	sbc sy_soffy
+	sta yoff
+	lda sprcol0	; Colors
+	and #15
+	sta cspr0
+	pha
+	lda sprcol1
+	and #15
+	sta cspr1
 	tax
-	beq +
-	jsr default
-+	sty yoff		; sichern
-	stx ok		; successful
+	pla
+gcp0	sta fgcol
+	stx bgcol
+	ldx #63		; Spritedaten
+-	lda sc_pointer,x
+	sta sprite,x
+	dex
+	bpl -
+	jsr sprcols
++	stx spryexpand	; .x=0 (sicherstellen, dass Expand aus ist)
+	stx sprxexpand
+	rts
 
-lderr	jmp gd_xclose	; Datei schließen
+; ----------------------------------------- Counters
 
-default	lda #0		; set 0 as default value for hotspot
-	tay
+count 	inc sc_vekt20	; increment sc_vekt20 (or any other) by 1
+	bne cou6
+	inc sc_vekt20+1
+cou6 	lda ls_vekta8	; decrement ls_vekta8/9 by 1
+	bne cou7
+	dec ls_vekta8+1
+cou7 	dec ls_vekta8
+	lda ls_vekta8	; and check if 0 (sets .e)
+	ora ls_vekta8+1
 	rts
 
 ; ----------------------------------------- Byteweise lesen
@@ -160,16 +993,148 @@ chgdrv	lda ls_sysdrive	; prevents hanging system
 	stx ls_sysdrive
 	rts
 
-; ----------------------------------------- Filter
+; -------------------------------------- Data
 
-ptr	!pet "ptr.*",0
-xoff	!by 0
-yoff	!by 0
+ptr	!tx "ptr.*",0
+pw	!tx "w,p,"
+drinit	!tx "i0"
+wflen	!by 0
+ftype	!tx "god3"	; pointer signature
+
+chschr	!by $00,$3a,$46,$4e,$40,$40,$3c,$00	; chars: $e0..$e1
+	!by $00,$00,$00,$10,$00,$00,$00,$00
+chrbuf	!fill 16				; chars save buffer
+scrbuf	!fill 3				; scroll buffer
+
+coltxs	!scr "blkwhtredcyapurgrnbluyelorabwnlrddgrmgrlgnlbllgr"
+tab3	!by 0,3,6,9,12,15,18,21,24,27,30,33,36,39,42,45,48,51,54,57,60
+mirtab	!by 2,5,8,11,14,17,20,23,26,29,32,35,38,41,44,47,50,53,56,59,62
+
+cspr0	!by 1
+cspr1	!by 0
+bits	!by 128,64,32,16,8,4,2,1
+havecols	!by $ff
+cleared	!by $ff
+hspmode	!by $ff
+scrlmode	!by $ff
+directn	!by 0
+
+carea	!by 7,27,8,7	;  3, Captions
+	!by 9,36,3,1	;  7, FGr
+	!by 11,36,3,1	; 11, BGr
+	!by 7,36,3,1	; 15, Hotspot-Button
+	!by 18,27,6,1	; 19, Scroll-Button
+
+buffer	!tx "god3"	; pointer data
+wid	!by $01		; width: 1 sprite
+hgt	!by $01		; height: 1 sprite
+mode	!by $00		; mode: hires
+	!by $00		; (unsused)
+bgcol	!by $00		; black (background pointer)
+fgcol	!by $01		; white (foreground pointer)
+xoff	!by $00		; hotspot x
+yoff	!by $00		; hotspot y
+compr	!by $00		; no compression
+aframes	!by $00		; not animated
+amnt	!by $01		; 1 frame
+follower	!by $00		; no follow up files
+animspeed	!by $00		; freeze frame (speed is 0)
+total	!by $01		; total number of frames
+sprslot	!by $0b		; location (11*64: $02c0)
+
+sprite	!by $c0,$00,$00,$e0,$00,$00,$70,$00
+	!by $00,$38,$00,$00,$1c,$00,$00,$0e
+	!by $00,$00,$07,$00,$00,$03,$80,$00
+	!by $01,$c0,$00,$00,$e0,$00,$00,$40
+	!by $00,$00,$00,$00,$00,$00,$00,$00
+	!by $00,$00,$00,$00,$00,$00,$00,$00
+	!by $00,$00,$00,$00,$00,$00,$00,$00
+	!by $00,$00,$00,$00,$00,$00,$00
+	!by $00
+isgodot	!by $ad
+
+modify	!fill 64
+
+system	!by $01,$01,$00,$00,$00,$01,$00,$00	; Systemzeiger
+	!by $00,$00,$01,$00,$00,$01,$0b
+	!by $c0,$00,$00,$e0,$00,$00,$70,$00
+	!by $00,$38,$00,$00,$1c,$00,$00,$0e
+	!by $00,$00,$07,$00,$00,$03,$80,$00
+	!by $01,$c0,$00,$00,$e0,$00,$00,$40
+	!by $00,$00,$00,$00,$00,$00,$00,$00
+	!by $00,$00,$00,$00,$00,$00,$00,$00
+	!by $00,$00,$00,$00,$00,$00,$00,$00
+	!by $00,$00,$00,$00,$00,$00,$00
+	!by $00
+
+; ----------------------------------------- Screenlist
+
+pntlist	!by $93
+
+edarea	!by 1,0,26,23,$41	; Edit Area
+	!wo evedit
+	!by 1,26,5,5,$20	; Preview
+	!wo 0
+
+	!by 15,26,14,9,$01
+	!wo 0
+	!by 15,26,8,3,$c4	; Mirror
+	!wo evmirror
+	!scr "Mirror@"
+	!by 17,26,8,3,$c8	; Scroll
+	!wo evscroll
+	!scr "Scroll@"
+	!by 19,26,8,3,$c8	; Clear
+	!wo evclear
+	!scr "Clear@"
+	!by 21,26,8,3,$c7	; System Pointer
+	!wo evdefault
+	!scr "System@"
+	!by 15,34,6,3,$c6	; Flip
+	!wo evflip
+	!scr "Flip@"
+	!by 17,34,6,3,$de	; Load
+	!wo evload
+	!scr "Load@"
+	!by 19,34,6,3,$de	; Save
+	!wo evsave
+	!scr "Save@"
+	!by 21,34,6,3,$ce	; Exit
+	!wo evexit
+	!scr "Exit@"
+
+	!by 6,26,14,9,$01
+	!wo 0
+	!by 6,35,5,3,$c6	; Set Hotspot
+	!wo evhotspot
+	!scr "Set@"
+fcgad	!by 8,35,5,3,$ce	; Foreground Color
+	!wo evfground
+fcoltx	!scr "wht@"
+bcgad	!by 10,35,5,3,$ce	; Background Color
+	!wo evbground
+bcoltx	!scr "blk@"
+	!by 12,35,5,3,$ce
+	!wo evuse
+	!scr "now",0
+
+	!by $c0,2,31,3	; "New"
+	!scr "New",0
+	!by $c0,3,31,7 	; "Pointer"
+	!scr "Pointer@"
+	!by $c0,6,26,7
+	!scr "HotSpot",0
+	!by $c0,8,26,7
+	!scr "ForeGnd",0
+	!by $c0,10,26,7
+	!scr "BackGnd",0
+	!by $c0,12,26,8 	; "Use"
+	!scr "Use Pntr@"
+	!by $80
 
 ; ----------------------------------------- 
 
 modend	!eof
 
 ; ----------------------------------------- 
-
 
