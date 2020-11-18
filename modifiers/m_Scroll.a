@@ -6,7 +6,7 @@
 
 ; ------------------------------------------------ 
 ;
-;     mod.scroll
+;     mod.Scroll
 ;
 ; 1.00: 14.07.98, first release
 ; 1.01: 14.07.01, vertical operation drastically speeded
@@ -16,6 +16,7 @@
 ; 1.05: 07.10.05, bugfix: crash after input (memory managament garbaged)
 ; 1.06: 31.01.18, bugfix: activity bar could run all down the screen
 ; 1.07: 27.02.20, changed: now advance in gadget goes up OR down
+; 1.08: 17.11.20, changed: now advance in gadgets goes clockwise or counterclockwise
 ; 
 ; ------------------------------------------------ 
 
@@ -59,12 +60,12 @@
 
 	jmp start
 	!by $20
-	!by $00,$00
+	!wo 0
 	!wo modend
-	!by $00,$00
-	!pet "scroll 4Bit     "
-	!pet "1.07"
-	!pet "27.02.20"
+	!wo 0
+	!pet "Scroll 4Bit     "
+	!pet "1.08"
+	!pet "17.11.20"
 	!pet "A.Dettke        "
 
 ; ------------------------------------ Hauptschleife 
@@ -72,8 +73,8 @@
 start	lda gd_modswitch	; ### 1.05
 	pha
  	jsr initinput	; Input für Ziffern vorbereiten
-	ldx #<(scrlist)	; Requester ausgeben
-	ldy #>(scrlist)
+	ldx #<scrlist	; Requester ausgeben
+	ldy #>scrlist
 	jsr gd_screen
 	jsr gd_eloop	; Warten auf Ereignisse
 	pla		; ### 1.05
@@ -91,15 +92,15 @@ evexec	lda #5		; ### 1.06
 	sta adrun		; re-init activity counter
 	jsr initad	; Activity initialisieren
 	lda direction	; welche Richtung?
-	cmp #2		; senkrecht?
-	bcc ex0
+	and #1		; senkrecht? (1 und 3) ### 1.08
+	beq ex0
 	jmp vertical	; ja, dort weiter
 
-ex0	lda #$00		; Linien (0-200)
+ex0	lda #0		; Linien (0-200)
 	sta linenr
 loop00	jsr getladd	; Zeilenadresse ermitteln
-	lda #<(buf0)	; eine Linie holen und "entnibbeln"
-	ldx #>(buf0)
+	lda #<buf0	; eine Linie holen und "entnibbeln"
+	ldx #>buf0
 	sta src
 	stx src+1
 	ldx #0
@@ -139,8 +140,8 @@ skip2	dec blcnt		; 40 Kacheln durch (320 Pixel)
 ; ------------------------------------ Back to 4Bit
 
 	jsr getladd	; Adresse der Linie ermitteln
-	lda #<(buf1)	; zurückschreiben
-	ldx #>(buf1)
+	lda #<buf1	; zurückschreiben
+	ldx #>buf1
 	sta src
 	stx src+1
 	ldx #0
@@ -210,7 +211,7 @@ vertical	lda amount	; (Anzahl Linien) mod 8
 	sta vamount
 	lda #1
 	sta adrun
-	ldx direction
+	ldx direction	; welche Richtung? 
 	pla		; plus (Anzahl Linien) div 8
 	lsr
 	lsr
@@ -219,7 +220,7 @@ vertical	lda amount	; (Anzahl Linien) mod 8
 	bne vtc
 	jmp vertrest	; bei Null: keine Blockzeile
 
-vtc	cpx #2
+vtc	cpx #3		; 3: up ### 1.08
 	bne bdown
 
 brep0	jsr initad
@@ -264,7 +265,7 @@ bauf0	jsr seth0vek	; letzte Quelle als Ziel merken
 	ldx direction
 	jmp vertrest
 
-bdown	cpx #3		; unzulässiger Wert?
+bdown	cpx #1		; unzulässiger Wert? (1: down) ### 1.08
 	bne vertrest	; ja, Sprung
 
 brep1	jsr initad
@@ -312,7 +313,7 @@ vertrest	txa
 	stx repeat
 	ldx #5
 	stx adrun
-	cmp #2		; aufwärts?
+	cmp #3		; aufwärts? ### 1.08
 	bne down		; nein
 
 rep0	jsr initad	; Balken einschalten
@@ -352,7 +353,7 @@ vtcend	jmp exit		; fertig, Balken aus
 
 ; ------------------------------------ 
 
-down	cmp #3
+down	cmp #1		; 1: down ### 1.08
 	bne vtcend
 
 rep1	jsr initad	; Balken einschalten
@@ -487,10 +488,10 @@ getword	iny		; erste Ziffer holen
 	sbc #$30		; "0" subtrahieren
 	sec		; den Ausgangswert wiederherstellen
 	sbc #$d0
-	bcs gw0		; war keine Ziffer, also Abschluß
+	bcs gw0		; war keine Ziffer, also Abschluss
 	sbc #$2f		; wieder "0" subtrahieren
 	sta wordlo	; merken
-	lda int+1		; Hi-Byte merken, größer als 64000?
+	lda int+1		; Hi-Byte merken, größer als 63999?
 	sta ls_temp
 	cmp #$19
 	bcs gw0		; ja, beenden
@@ -539,21 +540,21 @@ ss5	txa
 
 ; ------------------------------------ Richtung eingeben
 
-evsdirctn	lda direction	; Flag holen..
+evsdirctn	lda direction	; Flag holen...
 	ldx spalte	; ### 1.07 wo geklickt?
 	cpx #25
-	bcc sdi3		; rechts im Gadget
+	bcc sdi3
 
-	cmp #3
-	bne sdi0
-	lda #$ff
+	cmp #3		; rechts im Gadget: vorwärts
+	bne sdi0		; Richtung: 3? (Maxwert)
+	lda #$ff		; ja, von vorn zählen (0)
 	sta direction
 sdi0	inc direction	; erhöhen (nächste Richtung)
 	jmp sdi4
 
-sdi3	tax
-	bne sdi5
-	lda #4
+sdi3	tax		; links im Gadget: rückwärts
+	bne sdi5		; Richtung: 0? (Minwert)
+	lda #4		; ja, von hinten zählen (3)
 	sta direction
 sdi5	dec direction	; herunterzählen (vorige Richtung)
 	
@@ -569,12 +570,12 @@ sdi2	ldy #6
 
 ; ------------------------------------ Gadget neu beschriften
 
-tabigad	!wo (dirgad)
-	!wo (amntgad)
+tabigad	!wo dirgad
+	!wo amntgad
 
-settext	lda #<(tabigad)
+settext	lda #<tabigad
 	sta sc_texttab
-	lda #>(tabigad)
+	lda #>tabigad
 	sta sc_texttab+1
 
 gettext 	lda (sc_texttab),y
@@ -595,8 +596,8 @@ gt0	jsr gd_setpos
 ; ------------------------------------ Variablen 
 
 amount	!by 8
-direction	!by 0		; 0=rechts, 1=links, 2=up, 3=down
-dirchars	!by 94,91,30,31
+direction	!by 0		; 0=rechts, 1=down, 2=links, 3=up
+dirchars	!by 94,31,91,30
 adrun	!by 5
 save	!by 0
 ziffern	!pet " 0123456789"
@@ -614,7 +615,7 @@ line8	!by $40,$45,$4a,$4f,$54
 scroll	lda direction	; welche Richtung?
 	bne scroll2
 
-; ------------------------------------ nach rechts
+; ------------------------------------ 0: nach rechts
 
 rechts	jsr setvb0	; Quellpuffer auf Start
 	lda #<buf1	; Zielpuffer, eingerückt um amount Bytes
@@ -642,10 +643,10 @@ shf0	lda (vbuf0),y	; Bytes umlagern
 	rts
 ; ------------------------------------ 
 
-scroll2	cmp #1
+scroll2	cmp #2
 	bne scroll3
 
-; ------------------------------------ nach links
+; ------------------------------------ 2: nach links
 
 links	jsr setvb1	; Zielpuffer auf Start
 	lda #<buf0	; Quellbuffer um amount Bytes eingerückt
