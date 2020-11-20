@@ -13,6 +13,7 @@
 ; 1.02, 07.11.20, Zeiger-Hotspot begrenzt auf Spritegröße
 ; 1.03, 10.11.20, added: set default values if no hotspot data in file
 ; 2.00, 16.11.20, now: true pointer editor
+; 2.01, 20.11.20, changed: file structure (to allow multicolor sprites)
 ;
 ; ------------------------------------------------------------ 
 
@@ -62,8 +63,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "EditMousePointer"
-	!pet "2.00"
-	!pet "16.11.20"
+	!pet "2.01"
+	!pet "20.11.20"
 	!pet "A. Dettke       "
 
 ; ----------------------------------------- Main
@@ -1029,10 +1030,10 @@ buffer	!tx "god3"	; pointer data
 wid	!by $01		; width: 1 sprite
 hgt	!by $01		; height: 1 sprite
 mode	!by $00		; mode: hires
-	!by $00		; (unsused)
-bgcol	!by $00		; black (background pointer)
-fgcol	!by $01		; white (foreground pointer)
 xoff	!by $00		; hotspot x
+bgcol	!by $00		; pointer in background: black
+fgcol	!by $01		; pointer in foreground: white ($d025, pattern %01)
+mc1	!by $00		; if multi: multicolor 2       ($d026, pattern %11)
 yoff	!by $00		; hotspot y
 compr	!by $00		; no compression
 aframes	!by $00		; not animated
