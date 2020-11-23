@@ -13,7 +13,8 @@
 ;       of the screen
 ;
 ;     1.00, 30.10.93, first release
-;     1.01, 22.03.18, added restriction to only one quarter
+;     1.01, 22.03.18, added: optional restriction to only one quarter
+;     1.02, 23.11.20, added: forced re-render in full screen
 ;
 ; -------------------------------------- 
 
@@ -23,8 +24,8 @@
 	!wo modend
 	!by $00,$00
 	!tx "Quarter & Tile  "
-	!tx "1.01"
-	!tx "22.03.18"
+	!tx "1.02"
+	!tx "23.11.20"
 	!tx "W.Kling/A.Dettke"
 
 ; -------------------------------------- Equates
@@ -44,6 +45,7 @@
 	which	= $42
 
 	sprptr	= $07f8
+	areatype	= $1ef5
 	spr255	= $3fc0
 
 	sprx2	= spritex+2
@@ -73,6 +75,7 @@ sevexec	jsr vhv		; squeeze vertically
 	jsr clearad	; reset activity
 	lda #$ff		; data have changed
 	sta gr_redisp
+	jsr forcefull
 
 ; -------------------------------------- Event: Leave Modifier
 
@@ -607,6 +610,17 @@ gt0	jsr gd_setpos
 	jsr gd_trim
 	jmp gd_initmove
 
+; --------------------------------------- Force Full Render Area
+
+forcefull	ldx #3
+ar1	lda atype,x
+	sta areatype,x
+	dex
+	bpl ar1
+	inx
+	stx sc_clipped		; set Clip to Full
+	rts
+
 ; -------------------------------------- Make Kringel
 
 makech	ldx #7
@@ -649,6 +663,8 @@ whichcol	!by 223
 	!scr "    Color     "
 	!by 223
 	!scr "    Gray      "
+
+atype	!scr "Full"
 
 char	!by $00,$5c,$62,$72,$02,$02,$3c,$00
 
@@ -696,6 +712,7 @@ coltab	!by $00,$00,$00,$00,$02,$03,$02,$03
 tflag	!by 0
 mirflag	!by 1
 colflag	!by $ff
+
 ; -------------------------------------- 
 
 
