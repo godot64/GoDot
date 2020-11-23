@@ -10,7 +10,8 @@
 ;  
 ;
 ; 1.00, 14.07.95, first release
-; 1.01, 07.04.98, added mode: Border
+; 1.01, 07.04.98, added: mode Border
+; 1.02, 23.11.20, added: force re-render on Full Screen
 ;
 ; ------------------------------------------------ 
 
@@ -32,6 +33,7 @@
 	ybuf1		= $cc00
 
 	sprptr		= $07f8
+	areatype		= $1ef5
 	spr255		= $3fc0
 
 	spr2x		= $d004
@@ -72,6 +74,7 @@ accept	lda sc_lastclpbr	; höchste Clipbreite: 32!
 	jsr htile
 	lda sc_lastclpho
 	jsr vtile
+	jsr forcefull	; ### 1.02
 
 ; ------------------------------------------------ Event: Cancel
 
@@ -456,6 +459,18 @@ nextline	inc linenr
 adskp	jmp hloop00
 hok	rts
 
+; --------------------------------------- Force Full Render Area
+; ### 1.02
+
+forcefull	ldx #3
+ar1	lda atype,x
+	sta areatype,x
+	dex
+	bpl ar1
+	inx
+	stx sc_clipped		; set Clip to Full
+	rts
+
 ; ------------------------------------------------ Start of 4Bit blockrows
 
 line8	!by $40,$45,$4a,$4f,$54
@@ -514,6 +529,7 @@ ymir	!by 0
 centered	!by 0
 xoff	!by 0
 yoff	!by 0
+atype	!scr "Full"
 
 xcen	!by 0,4,8,20,16		; x-centered (0..32)
 	!by 20,8,36,64
