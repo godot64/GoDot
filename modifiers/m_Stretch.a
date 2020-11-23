@@ -12,7 +12,8 @@
 ;   with the option to keep the aspect ratio of a C64 screen
 ;
 ;  1.00, 11.05.18, first release (derived from mod.StretchClip)
-;  1.01, 12.05.18, added input routines
+;  1.01, 12.05.18, added: input routines
+;  1.02, 23.11.20, added: force re-render on Full Screen
 ; 
 ; -------------------------------------- 
 
@@ -38,11 +39,12 @@
 	tab		= $43	; /$44
 	txtlen		= $45
 	xmrk		= $46
-;					!! don't use $47 !!
+				; !! don't use $47 !!
 	ymrk		= $48
 	amrk		= $49
 
 	sprptr		= $07f8
+	areatype		= $1ef5
 	spr255		= $3fc0
 	
 	xtab0		= $ca00
@@ -84,8 +86,8 @@
 	!wo modend
 	!wo 0
 	!tx "Stretch /w Ratio"
-	!tx "1.01"
-	!tx "12.05.18"
+	!tx "1.02"
+	!tx "23.11.20"
 	!tx "A.Dettke/W.Kling"
 
 ; -------------------------------------- main 
@@ -102,6 +104,7 @@ start	jsr savesvars
 
 evexec	jsr vres		; execute
 	jsr hres
+	jsr forcefull
 	jsr clearad	; and leave module
 
 ; ----------------------------------------- Event: Leave Modifier
@@ -266,7 +269,7 @@ update	lda #2		; das Gleiche in Pixel (Clip-Breite)
 	ldx #2		; ausgeben
 	jsr di0		; .x=0
 
-	lda sc_lastclpho	; und ebenso Clip-HÃ¶he
+	lda sc_lastclpho	; und ebenso Clip-Höhe
 	asl
 	asl
 	asl
@@ -280,7 +283,7 @@ shresult	jsr getwid	; result will be distorted?
 	jsr fac2arg
 	jsr gethgt
 	jsr argdivfac
-	lda #<fratio	; Breite:HÃ¶he=8:5? (Richtiger Aspekt?)
+	lda #<fratio	; Breite:Höhe=8:5? (Richtiger Aspekt?)
 	ldy #>fratio
 	jsr conisfac
 	beq +
@@ -314,10 +317,10 @@ shresult	jsr getwid	; result will be distorted?
 
 	dec pport
 
-	jsr settxt	; ..und fÃ¼r Ausgabe vorbereiten
+	jsr settxt	; ..und für Ausgabe vorbereiten
 	ldx xmrk
 	bmi +		; pos: Aspekt stimmt
-	lda #15		; Zeile mit Adjust-Aufforderung lÃ¶schen
+	lda #15		; Zeile mit Adjust-Aufforderung löschen
 	ldx #13
 	ldy #14
 	jsr gd_setpar	; !! mind values at adjtx !!
@@ -331,7 +334,7 @@ shresult	jsr getwid	; result will be distorted?
 di0	stx ymrk		; Index auf Zahl merken
 di4	jsr facasc	; convert fac to digits
 	jsr di1		; Ziffern holen
-	ldy ymrk		; Index zurÃ¼ck
+	ldy ymrk		; Index zurück
 	jsr movetx	; Ziffern in die Screenlist schreiben
 	jsr textout	; und ausgeben
 	clc		; im Modul bleiben
@@ -345,7 +348,7 @@ di2	dey
 	lda sy_numbers,y
 	bne di2
 
-	ldx #0		; Ziffernpuffer lÃ¶schen
+	ldx #0		; Ziffernpuffer löschen
 	lda #32
 -	sta text,x
 	inx
@@ -939,7 +942,7 @@ divit	jsr argdivfac	; dividieren
 lmultiply	jsr gethgt
 	jmp mp0
 
-multiply	jsr hgt2fac	; hÃ¶he holen
+multiply	jsr hgt2fac	; höhe holen
 mp0	jsr fac2arg	; nach arg
 	jsr cnvrio	; aspekt holen
 	jsr argmulfac	; multiplizieren mit 1.6
@@ -997,6 +1000,18 @@ intmerk	lda int
 	sta imrk
 	lda int+1
 	sta imrk+1
+	rts
+
+; --------------------------------------- Force Full Render Area
+; ### 1.02
+
+forcefull	ldx #3
+ar1	lda atype,x
+	sta areatype,x
+	dex
+	bpl ar1
+	inx
+	stx sc_clipped		; set Clip to Full
 	rts
 
 ; -------------------------------------------------- Activity Display
@@ -1151,6 +1166,7 @@ makechr	ldx #7
 ; -------------------------------------------------- Data
 
 chschr	!by $00,$0e,$06,$0a,$50,$60,$70,$00
+atype	!scr "Full"
 
 line8	!by $40,$45,$4a,$4f,$54
 	!by $59,$5e,$63,$68,$6d
