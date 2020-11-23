@@ -18,6 +18,7 @@
 ;  1.05, 26.11.18, better usability
 ;  1.06, 20.06.19, added init keyboard for SuperCPU
 ;  1.07, 08.11.20, added option to "re-render" (hitting Shift on "Make")
+;  1.08, 23.11.20, bugfix: shift must be scanned directly from keybord
 ;
 ; ----------------------------------------- 
 
@@ -69,8 +70,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "Generate Mask   "
-	!tx "1.07"
-	!tx "08.11.20"
+	!tx "1.08"
+	!tx "23.11.20"
 	!tx "ADettke/M.Bohnet"
 
 ; ----------------------------------------- Main
@@ -100,8 +101,16 @@ start	jsr gd_savescvek	; save vector to previous screenlist
 
 ; ----------------------------------------- Event: Generate Mask
 
-evmask	lda shift		; shift pressed?	### 1.07
-	and #1
+evmask	sei
+	lda #$fd		; col %11111101
+	sta $dc00
+	lda $dc01		; row %10000000
+	and #$80		; if .z: shift pressed
+	cli
+	beq +
+	lda #0
+	!by $2c
++	lda #$ff		; not pressed
 	sta gr_redisp	; if yes, re-render on "Display"
 
 	lda #$40		; vekt20=$4000 (source)
