@@ -14,6 +14,7 @@
 ;   1.01, 06.08.03, fixed no clipwidth > 32
 ;   1.02, 09.08.03, fixed crash at clipwidth=32
 ;   1.03, 10.08.03, fixed right and bottom most pixel missing
+;   1.04, 23.11.20, added: force re-render on Full Screen
 ; 
 ; -------------------------------------- 
 
@@ -35,6 +36,7 @@
 	which		= $42
 	tab		= $43
 
+	areatype		= $1ef5
 	spr255		= $3fc0
 	
 	ybuf0		= $bf00
@@ -58,16 +60,17 @@
 	!by 0
 	!by 0
 	!tx "stretch the clip"
-	!tx "1.03"
-	!tx "10.08.03"
+	!tx "1.04"
+	!tx "23.11.20"
 	!tx "w.kling/a.dettke"
 
 ; -------------------------------------- main 
 
 start	jsr vres
 	jsr hres
+	jsr forcefull
 	jsr clearad
-	clc
+	sec
 	rts
 
 ; --------------------------------------
@@ -284,6 +287,7 @@ vok	rts
 
 ; -------------------------------------- 
 
+atype	!scr "Full"
 ystep	!by 0, 0
 
 ystep0	!by $00,$00,$80,$55,$40
@@ -568,6 +572,18 @@ nextline	inc linenr
 	sta adcnt
 adskp	jmp hloop00
 hok	rts
+
+; --------------------------------------- Force Full Render Area
+; ### 1.04
+
+forcefull	ldx #3
+ar1	lda atype,x
+	sta areatype,x
+	dex
+	bpl ar1
+	inx
+	stx sc_clipped		; set Clip to Full
+	rts
 
 ; -------------------------------------- 
 
