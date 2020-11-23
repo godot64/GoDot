@@ -13,6 +13,7 @@
 ;  1.01, 10.05.98: bugfix (destination buffer didn't increment correctly)
 ;  1.02, 08.11.00: added blinking the border if no pass necessary
 ;  1.03, 10.08.03: minor speed up
+;  1.04, 23.11.20, added: force re-render on Full Screen
 ;
 ; ----------------------------------------- 
 
@@ -35,6 +36,7 @@
 	which		= $44
 
 	sprptr		= $07f8
+	areatype		= $1ef5
 	spr255		= $3fc0
 
 	ybuf0		= $bf00
@@ -60,16 +62,17 @@
 	!wo modend
 	!wo 0
 	!tx "Squeeze To Clip "
-	!tx "1.03"
-	!tx "10.08.03"
+	!tx "1.04"
+	!tx "23.11.20"
 	!tx "W.Kling/A.Dettke"
 
 ; -------------------------------------------------- Main Program
 
 start	jsr vres
 	jsr hres
+	jsr forcefull
 	jsr clearad
-	clc
+	sec
 	rts
 
 ; -------------------------------------------------- First Pass: vertically
@@ -556,6 +559,18 @@ nextline	inc linenr	; next line
 adskp	jmp hloop00	; start over
 hok	rts
 
+; --------------------------------------- Force Full Render Area
+; ### 1.04
+
+forcefull	ldx #3
+ar1	lda atype,x
+	sta areatype,x
+	dex
+	bpl ar1
+	inx
+	stx sc_clipped		; set Clip to Full
+	rts
+
 ; -------------------------------------------------- 
 
 line8	!by $40,$45,$4a,$4f,$54
@@ -569,6 +584,7 @@ line8	!by $40,$45,$4a,$4f,$54
 xstep	!by 0,0
 tabstart	!by 0,0
 bufstart	!by 0,0
+atype	!scr "Full"
 
 ; --------------------------------------------------
 ; xstep = 320x256/blockspalte*8 (0..40)
