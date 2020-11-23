@@ -29,6 +29,7 @@
 ;     1.09, 03.03.18, bugfix: set correct target position on SetClip
 ;     1.10, 28.05.18, bugfix: garbage when moved right on same row, fixed
 ;     1.11, 25.01.20, better matching translation, changed prio
+;     1.12, 23.11.20, added: option to stay in module while copying
 ;
 ; --------------------------------------
 ;
@@ -78,6 +79,7 @@
 
 	spalte		= sc_merk+1
 
+	shift		= $028d
 	sprpnt		= $07fa
 	sp252		= $3f00
 	sp253		= sp252+64
@@ -109,8 +111,8 @@
 	!wo modend
 	!wo 0
 	!tx "Move the Clip ! "
-	!tx "1.11"
-	!tx "25.01.20"
+	!tx "1.12"
+	!tx "23.11.20"
 	!tx "M.Burggraf/$AD  "
 
 ; -------------------------------------- Main
@@ -136,7 +138,7 @@ start	ldx sc_screenvek	; save vector to mainlist
 	sta gd_modswitch
 
 	ldx #3
--	lda sc_lastclpzl,x	; if modified ("Give"), update clip data
+-	lda sc_lastclpzl,x	; if modified ("Pass"), update clip data
 	sta sc_clipzl,x
 	dex
 	bpl -
@@ -147,6 +149,10 @@ start	ldx sc_screenvek	; save vector to mainlist
 
 cancel	lda dispmk
 	sta gr_redisp
+	lda #$ff		; definitely deactivate Stay Mode
+	sta stay
+	lda #$ce
+	sta exitgad+4
 	sec 
 	rts 
 
@@ -170,8 +176,8 @@ befchang	lda #0
 ; -------------------------------------- Perform Transport
 
 cliptrans	jsr initad
+	sta dispmk	; set re-render flag
 	jsr chkwhere	; check position of destination clip (overlap?)
-	sta gr_redisp
 	beq +		; if equal do nothing
 	bmi bwards
 
@@ -219,8 +225,14 @@ trend	lda transfl
 	sty sc_lastclpsp
 	jsr reinit
 
-+	jsr clearad	; finished
-	sec 
++	jsr clearad	; finished:
+	lda dispmk
+	sta gr_redisp	; set re-render flag
+	lda stay		; stay mode active?
+	bmi +
+	clc		; yes, stay
+	!by $24
++	sec		; no, leave
 	rts
 
 ; -------------------------------------- 
@@ -628,10 +640,25 @@ out2	jsr settab
 
 ; ------------------------------------------------ Event: SetClip
 
-sevsetcl	ldx #0		; clear key buffer
+sevsetcl	sei
+	lda #$fd		; col %11111101
+	sta $dc00
+	lda $dc01		; row %10000000
+	and #$80		; if .z: shift pressed (toggle Stay Mode)
+	cli
+	bne +
+
+	lda stay		; yes, toggle stay after copy
+	eor #$ff
+	sta stay
+	lda exitgad+4	; yes, change screenlist accordingly
+	eor #$10
+	sta exitgad+4
+
++	ldx #0		; clear key buffer
 	stx sy_tbuffer
-	sta sc_stop
 	inx
+	stx sc_stop
 	stx gr_redisp
 	jsr redisplay	; turn graphics on
 	jsr iselectr	; set selector angles
@@ -997,7 +1024,7 @@ graphon	lda rahmen
 	pla
 	sta rahmen
 	stx sy_tbuffer
-stay	clc
+	clc
 	rts
 
 ; ------------------------------------------------ 
@@ -1339,6 +1366,7 @@ tab1	!by 6,12,18,3,9,15,21
 tab2	!by 18,12,6,0,15,9,3
 tab3	!by 0,3,6,9,12,15,18,21,24,27,30,33,36,39,42,45
 
+stay	!by $ff
 zzeile	!by 0
 zspalte	!by 0
 zbreite	!by 0
@@ -1392,7 +1420,7 @@ togclp	!by 18,13,8,3,$c8
 	!by 223
 togtx	!scr " Pass@"	; or " Hold@"
 
-	!by 19,21,8,3,$ce
+exitgad	!by 19,21,8,3,$ce
 	!wo cancel
 	!scr " Exit@"
 
