@@ -11,6 +11,7 @@
 ;   1.01, 24.08.04, added: preview
 ;   1.02, 20.03.18, added: scale any clip (using ClipWorks/LastClip)
 ;   1.03, 25.04.19, added correct image information
+;   1.04, 23.11.20, added: reset Clip to Full after work
 ; 
 ; -------------------------------------- 
 
@@ -33,6 +34,7 @@
 	tab		= $43
 
 	sprptr		= $07f8
+	areatype		= $1ef5
 	spr255		= $3fc0
 	
 	ybuf0		= $bf00
@@ -59,8 +61,8 @@
 	!by 0
 	!by 0
 	!tx "Double Quadrant "
-	!tx "1.03"
-	!tx "25.04.19"
+	!tx "1.04"
+	!tx "23.11.20"
 	!tx "W.Kling/A.Dettke"
 
 ; -------------------------------------- Main 
@@ -121,6 +123,7 @@ areago	lda frow,x
 	sta column
 	jsr vres
 	jsr hres
+	jsr forcefull
 	jmp clearad
 
 ; -------------------------------------- vertically
@@ -592,9 +595,21 @@ mulply8	asl
 	asl
 	rts
 
-; --------------------------------------- 
+; --------------------------------------- Force Full Render Area
+
+forcefull	ldx #3
+ar1	lda atype,x
+	sta areatype,x
+	dex
+	bpl ar1
+	inx
+	stx sc_clipped		; set Clip to Full
+	rts
+
+; --------------------------------------- Data
 
 modetx	!scr "160x100@"
+atype	!scr "Full"
 
 line8	!by $40, $45, $4a, $4f, $54
 	!by $59, $5e, $63, $68, $6d
