@@ -8,12 +8,14 @@
 ; mod.Gradient
 ;
 ;   1.00, 06.04.93, first official release
+;   2.00, 28.11.20, added: GUI
 ;
 ; ------------------------------------------------ 
 
 ; ------------------------------------------------ Equates
 
 	adcnt		= $30
+	cmerk		= $31
 	src		= $35
 	dst		= $37
 	lcnt		= $39
@@ -23,12 +25,15 @@
 	pmask		= $3d
 
 	sprptr		= $07f8
+	numcols		= $1ee9
 	invpalet		= sy_global
+	backuppal		= invpalet+16
+	backupdth		= backuppal+16
 	spr255		= $3fc0
 
-	balanced		= $c600
-	color2		= $c800
-	color1		= $ca00
+	balanced		= $c900
+	color2		= $ca00
+	color1		= $cb00
 	gradline		= $cc00
 
 	spr2x		= $d004
@@ -47,25 +52,29 @@
 ; ------------------------------------------------ 
 
 	jmp start
-	!by 20
+	!by 20		; modifier
 	!by 00
 	!by 00 
 	!wo modend
 	!wo 0
 	!tx "gradientbackdrop"
-	!tx "1.00"
-	!tx "06.04.93"
-	!tx "W.Kling         "
-addtext	!tx "palette colors  "
-	!tx "dither modes    "
-	!tx "color mode      "
-	!by 0
+	!tx "2.00"
+	!tx "28.11.20"
+	!tx "W.Kling/A.Dettke"
 
 ; ------------------------------------------------ 
 
-start	jsr initad	; Init Activity
-	lda #$80		; Zufallsgenerator an,
-	sta filter	; Wert abholen in "rausch"
+start	jsr thepatt	; rescue syspattern
+	jsr makepatt	; fetch pattern
+	jsr dobalance	; prepare balancing display
+	jsr buildreq	; show requester
+	jmp gd_eloop	; and wait...
+
+; ------------------------------------------------ 
+
+evapply	jsr initad	; init activity
+	lda #$80		; Zufallsgenerator an
+	sta filter	; Wert abholen in RAUSCH
 	sta oszi3
 	sta oszi3+1
 	lda #0
@@ -85,8 +94,182 @@ start	jsr initad	; Init Activity
 	cmp #200
 	bne -
 
-	jmp clearad	; Activity beenden, Modul verlassen
+	jsr clearad	; Activity beenden
 
+	lda #0
+	sta applied	; set flag to reset balancing
+	lda gr_cmode	; set image info, then leave
+	beq +
+	jsr setinfom
+	beq evexit
++	jsr setinfoh
+
+; ----------------------------------------- Event: Leave Module
+
+evexit	jsr restpatt	; restore system pattern
+	lda mirrored	; if inverted: restore
+	bmi +
+;	jsr evtrncls	; (gets differenciated in future versions)
++	lda derethid	; this flag for future versions
+	bmi +
+	jsr evtrndth
+
++	lda applied	; if applied: reset data
+	bmi evleave
+
+	ldy #16		; finished, reset Balancing
+	sty gr_howmany	; also reset number of colors
+	sty gr_ctr
+	sty gr_brt
+dc8	dey
+	tya
+	sta gr_btab,y
+	bne dc8
+	jsr gd_makeqtab	; reset quantization table
+
+	ldy #15		; then, reset Palette
+-	lda gr_basepal,y
+	sta gr_palette,y
+	dey
+	bpl -
+
+	sty applied	; clear applied flag
+	lda #$31		; set correct number of colors
+	sta numcols+1
+	lda #$36
+	sta numcols+2
+
+evleave	sec		; leave modifier
+	rts
+
+; ------------------------------------------------ 
+
+dobalance	ldy #15		; convert balancing values to dither patterns
+sh2	lda gr_btab,y
+	ora #$e0
+	sta dithtx,y	; write to output buffer
+	dey
+	bpl sh2
+	clc
+	rts
+
+; ------------------------------------------------ Event: Mirror Dither
+
+evtrndth	ldx #0
+	ldy #15
+-	lda dithtx,x
+	pha
+	lda dithtx,y
+	sta backupdth,x
+	pla
+	sta backupdth,y
+	inx
+	dey
+	bpl -
+	ldy #15
+-	lda backupdth,y
+	sta dithtx,y
+	dey
+	bpl -
+;	jsr buildreq	; here for an individual button
+	lda derethid
+	eor #$ff
+	sta derethid
+;	clc		; must end here then
+;	rts
+	
+
+; ------------------------------------------------ Event: Mirror Colors
+
+evtrncls	ldx #0
+-	lda gr_palette,x
+	sta invpalet,x
+	inx
+	cpx #16
+	bcc -
+	jsr mirror
+	ldx #0
+-	lda invpalet,x
+	sta gr_palette,x
+	inx
+	cpx #16
+	bcc -
+	jsr buildreq
+	lda mirrored
+	eor #$ff
+	sta mirrored
+	clc
+	rts
+
+; ----------------------------------------- Show Requester
+
+buildreq	ldx #<gdntlst	; then: requester
+	ldy #>gdntlst
+	jsr gd_screen
+
+; ----------------------------------------- Show Colors
+
+	jsr overlay
+setcol	ldx colsgad+1	; Spalte
+	ldy colsgad	; Zeile
+	lda #1		; Höhe: 1 Kachel
+	iny
+stc1	sty sc_zl
+	inx
+	stx sc_sp
+	ldx #1		; Breite: 1 Kachel
+	stx sc_br
+	sta sc_ho
+	ldx #0		; Farbe (0..16)
+stc0	stx cmerk
+	lda gr_palette,x
+	sta sc_chgcol
+	ldx #4
+	jsr gd_fcol
+	inc sc_sp
+	ldx cmerk
+	inx
+	cpx gr_howmany
+	bne stc0
+	rts
+
+overlay	sec
+	lda colsgad+2	; Breite berechnen
+	sbc gr_howmany
+	tay
+	dey
+	sty cmerk		; und merken
+	clc
+	lda colsgad+1	; Spalte berechnen
+	adc gr_howmany
+	tax		; .x: neue Startspalte
+	inx
+	lda colsgad	; :a: Zeile
+	ldy cmerk		; .y: neue Breite
+	jsr gd_setpar
+	jsr gd_blank
+	jsr gd_initmove
+	ldx sc_ho		; .x=1
+-	jsr gd_backu	; löschen
+	ldy #0
+	lda sc_vekt20+1
+	pha
+	clc
+	adc #$d4
+	sta sc_vekt20+1
+	lda sc_light
+	sta (sc_vekt20),y
+	pla
+	sta sc_vekt20+1
+	jsr gd_plus40
+	lda chars,x
+	sta sc_movetab
+	inx		; Höhe erreicht?
+	cpx #4
+	bcc -
+	rts
+	
+	
 ; ------------------------------------------------ 
 
 makecols	ldy gr_howmany	; aktuelle Palette holen
@@ -137,10 +320,7 @@ makecols	ldy gr_howmany	; aktuelle Palette holen
 	bcc +
 	inc hisum
 +	ldx passes	; Tabellen für Farbe1 und Farbe2 erzeugen
-	lda invpalet,x
-	sta color2,y
-	lda invpalet-1,x
-	sta color1,y
+	jsr setcolors
 	iny 
 	dec dcnt
 	bne -
@@ -155,16 +335,26 @@ makecols	ldy gr_howmany	; aktuelle Palette holen
 
 -	lda #15		; sonst: den Rest jeweils mit Höchstwert auffüllen
 	sta balanced,y
-	lda invpalet,x
-	sta color2,y
-	lda invpalet-1,x
-	sta color1,y
+	jsr setcolors
 
 	iny 		; Zeilen zählen
 	cpy #200
 	bne -
 
 +	rts 
+
+setcolors	stx xchg
+	lda invpalet,x
+	tax
+	lda balancing,x
+	sta color2,y
+	ldx xchg
+	lda invpalet-1,x
+	tax
+	lda balancing,x
+	sta color1,y
+	ldx xchg
+	rts
 
 ; ------------------------------------------------ Mirror Palette
 
@@ -184,11 +374,18 @@ mirror	lda gr_howmany	; Anzahl Farben
 	iny 
 	cpy oben
 	bne -
+	ldy #15		; revert balancing table, too
+	ldx #0
+-	lda gr_btab,y
+	sta balancing,x
+	inx
+	dey
+	bpl -
 	rts 
 
 ; ------------------------------------------------ Data
 
-c64cols	!by $00,$0f,$04,$0c,$05,$0a,$01,$0d 
+c64cols	!by $00,$0f,$04,$0c,$05,$0a,$01,$0d
 	!by $06,$02,$09,$03,$07,$0e,$08,$0b
 
 spreads	!by $c8,$64,$42,$32,$28,$21,$1c,$19
@@ -197,9 +394,7 @@ spreads	!by $c8,$64,$42,$32,$28,$21,$1c,$19
 addfak	!by $0a,$14,$1e,$28,$33,$3d,$49,$51
 	!by $5c,$66,$71,$7a,$85,$8f,$99,$aa
 
-dithrout	!wo nodith,ordered,pattern,noise,random
-
-patoffs	!by $00,$10,$20,$30
+balancing	!fill 16
 
 mmask	!by $00,$03,$0c,$0f 
 	!by $30,$33,$3c,$3f 
@@ -211,6 +406,12 @@ blinehi	!by $40,$45,$4a,$4f,$54,$59,$5e,$63
 	!by $90,$95,$9a,$9f,$a4,$a9,$ae,$b3,$b8 
 
 dither	!wo 0 
+pattadds	!wo patoff,patord,patpatt,patnois,patrand
+dithrout	!wo nodith,ordered,pattern,noise,random
+patoffs	!by $00,$10,$20,$30
+
+chschr	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
+chars	!by 32,120,125
 
 addit	!by 0 
 vdist	!by 0 
@@ -220,6 +421,9 @@ dcnt	!by 0
 passes	!by 0 
 somany	!by 0
 is_on	!by 1
+mirrored	!by $ff
+derethid	!by $ff
+applied	!by $ff
 
 ; ------------------------------------------------ Set Dither Routines
 
@@ -458,6 +662,37 @@ initad	ldy #60
 	sta adcnt
 	rts
 
+; ----------------------------------------- Handle chosen Patterns
+
+makepatt	lda gr_dither
+	asl
+	tax
+	lda pattadds,x
+	sta src
+	lda pattadds+1,x
+	sta src+1
+	ldy #$7f
+-	lda (src),y
+	sta gr_pattern,y
+	dey
+	bpl -
++	rts
+
+thepatt	ldy #$7f
+-	lda gr_pattern,y
+	sta patpatt,y
+	dey
+	bpl -
++	rts
+
+restpatt	lda gr_dither
+	ldy #$7f
+-	lda patpatt,y
+	sta gr_pattern,y
+	dey
+	bpl -
+	rts
+
 ; ------------------------------------------------ Activity
 
 adinc	dec adcnt		; Balken wandern lassen
@@ -467,6 +702,176 @@ adinc	dec adcnt		; Balken wandern lassen
 	lda #5
 	sta adcnt
 +	rts 
+
+; ----------------------------------------- Publish Infomation
+
+setinfom	jsr setmulti	; according to type
+	beq +
+setinfoh	jsr sethires
++	jsr setname	; propagate image name to system
+	jsr setloader	; set image information
+	jmp setdata
+
+; ----------------------------------------- Subroutines
+
+setname	lda #0
+	ldx #<ls_picname
+	ldy #>ls_picname
+	bne si3
+setloader	lda #17
+	ldx #<ls_iloader
+	ldy #>ls_iloader
+	bne si3
+setmulti	lda #25
+	ldx #<ls_imode
+	ldy #>ls_imode
+	bne si3
+sethires	lda #33
+	ldx #<ls_imode
+	ldy #>ls_imode
+	bne si3
+setdata	lda #41
+	ldx #<ls_idrive
+	ldy #>ls_idrive
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4 	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!scr "Backdrop"	; Namenspuffer
+	!fill 8,32
+	!by 0
+
+modname	!scr "Grdient",0	; 17: Name of Generator
+multitx	!scr "160x200",0	; 25: Multi
+hirestx	!scr "320x200",0	; 33: Hires
+datatype	!scr "Gray @"	; 41: Datatype
+
+; ------------------------------------------------ 
+
+gdntlst   !by 0		; no cls
+
+	!by 6,9,20,11,$91	; Requester
+	!wo 0
+	!scr "Gradient",0
+
+	!by 14,10,5,3,$cc	; turn dith
+	!wo evtrndth
+	!scr "Inv",0
+
+	!by 14,15,7,3,$cc	; Apply
+	!wo evapply
+	!scr "Apply",0
+
+	!by 14,22,6,3,$cc	; Exit
+	!wo evexit
+	!scr "Exit",0
+
+dithgad	!by 8,10,18,3,$a0	; Dither
+	!wo 0
+dithtx	!by $e0,$e1,$e2,$e3,$e4,$e5,$e6,$e7
+	!by $e8,$e9,$ea,$eb,$ec,$ed,$ee,$ef,0
+
+colsgad	!by 11,10,18,3,$a0	; Colors
+	!wo 0
+colstx	!fill 16,160
+	!by 0
+
+	!by $80
+
+; ------------------------------------------------ Patterns
+
+patoff	!by $00,$00,$00,$00,$00,$00,$00,$00
+	!by $00,$00,$00,$00,$00,$00,$00,$00
+	!by $00,$00,$00,$00,$00,$00,$00,$00
+	!by $00,$00,$00,$00,$00,$00,$00,$00
+	!by $00,$00,$00,$00,$00,$00,$00,$00
+	!by $00,$00,$00,$00,$00,$00,$00,$00
+	!by $00,$00,$00,$00,$00,$00,$00,$00
+	!by $00,$00,$00,$00,$00,$00,$00,$00
+	!by $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff
+	!by $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff
+	!by $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff
+	!by $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff
+	!by $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff
+	!by $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff
+	!by $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff
+	!by $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff
+
+patord	!by $00,$00,$00,$00,$00,$00,$00,$00
+	!by $00,$00,$00,$11,$00,$00,$00,$11
+	!by $00,$44,$00,$11,$00,$44,$00,$11
+	!by $00,$11,$44,$11,$00,$11,$44,$11
+	!by $44,$11,$44,$11,$44,$11,$44,$11
+	!by $44,$11,$44,$33,$44,$11,$44,$33
+	!by $44,$11,$cc,$33,$44,$11,$cc,$33
+	!by $44,$33,$cc,$33,$44,$33,$cc,$33
+	!by $cc,$33,$cc,$33,$cc,$33,$cc,$33
+	!by $dd,$77,$cc,$33,$dd,$77,$cc,$33
+	!by $dd,$77,$dd,$33,$dd,$77,$dd,$33
+	!by $dd,$77,$dd,$77,$dd,$77,$dd,$77
+	!by $ff,$77,$dd,$77,$ff,$77,$dd,$77
+	!by $ff,$dd,$ff,$77,$ff,$dd,$ff,$77
+	!by $ff,$ff,$ff,$77,$ff,$ff,$ff,$77
+	!by $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff
+
+patpatt	!by $00,$00,$00,$00,$00,$00,$00,$00
+	!by $00,$44,$00,$11,$00,$44,$00,$11
+	!by $00,$55,$00,$11,$00,$55,$00,$11
+	!by $00,$55,$00,$55,$00,$55,$00,$55
+	!by $00,$55,$22,$55,$00,$55,$22,$55
+	!by $88,$55,$22,$55,$88,$55,$22,$55
+	!by $aa,$55,$22,$55,$aa,$55,$22,$55
+	!by $aa,$55,$aa,$55,$aa,$55,$aa,$55
+	!by $ee,$55,$aa,$55,$ee,$55,$aa,$55
+	!by $ee,$55,$bb,$55,$ee,$55,$bb,$55
+	!by $ff,$55,$bb,$55,$ff,$55,$bb,$55
+	!by $ff,$55,$ff,$55,$ff,$55,$ff,$55
+	!by $ff,$77,$ff,$55,$ff,$77,$ff,$55
+	!by $ff,$77,$ff,$77,$ff,$77,$ff,$77
+	!by $ff,$77,$ff,$ff,$ff,$77,$ff,$ff
+	!by $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff
+
+patnois	!by $00,$00,$00,$00,$00,$00,$00,$00
+	!by $42,$00,$00,$00,$60,$04,$00,$20
+	!by $26,$80,$02,$00,$18,$20,$00,$50
+	!by $54,$80,$15,$20,$83,$50,$02,$0c
+	!by $e0,$7c,$85,$03,$40,$60,$c2,$9f
+	!by $89,$01,$25,$43,$30,$00,$69,$51
+	!by $47,$50,$11,$81,$fb,$85,$df,$04
+	!by $dc,$a2,$7f,$9a,$83,$8e,$44,$aa
+	!by $c0,$f7,$6f,$61,$8f,$91,$18,$e8
+	!by $00,$1d,$0e,$01,$c0,$bf,$af,$78
+	!by $cb,$6e,$83,$87,$a1,$3d,$ff,$20
+	!by $3f,$be,$a7,$a8,$e7,$fe,$db,$7b
+	!by $ff,$fe,$ff,$76,$fe,$ff,$75,$7d
+	!by $ff,$fa,$7f,$f7,$fc,$ff,$f3,$ff
+	!by $ff,$ff,$ff,$ff,$f7,$fe,$ff,$7f
+	!by $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff
+
+patrand	!by $00,$00,$00,$00,$00,$00,$00,$00
+	!by $00,$00,$00,$00,$00,$00,$00,$00
+	!by $00,$00,$00,$00,$00,$00,$00,$00
+	!by $00,$00,$00,$00,$00,$00,$00,$00
+	!by $00,$00,$00,$00,$00,$00,$00,$00
+	!by $00,$00,$00,$00,$00,$00,$00,$00
+	!by $00,$00,$00,$00,$00,$00,$00,$00
+	!by $eb,$a4,$c7,$1c,$dc,$2e,$19,$ba
+	!by $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff
+	!by $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff
+	!by $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff
+	!by $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff
+	!by $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff
+	!by $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff
+	!by $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff
+	!by $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff
 
 ; ------------------------------------------------ 
 
