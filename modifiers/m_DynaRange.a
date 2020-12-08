@@ -11,21 +11,24 @@
 ;   (affects grey values, enhances contrast)
 ;
 ;  0.99, 14.11.92, first release
+;  1.00, 08.12.20, added GUI
 ;
 ; ----------------------------------------- 
 
 ; ----------------------------------------- Equates
 
 	adcnt		= $30
-	data		= $35
+	data		= $35		; /$36
+	hasnull		= $37
+	pass		= $38
 	lower		= $39
-	upper		= $3a
 	bbuf		= $3a
 	range		= $3b
 
 	histlo		= $c400
 	histhi		= histlo+16
 	drtab		= histhi+16
+	baltab		= drtab+16
 
 	sprptr		= $07f8
 	spr255		= $3fc0
@@ -44,19 +47,32 @@
 	!by $20
 	!wo 0
 	!wo modend
-	!by $00,$00
+	!wo 0
 	!tx "expansion2max   "
-	!tx "0.99"
-	!tx "14.11.92"
-	!tx "W.Kling         "
+	!tx "1.00"
+	!tx "08.12.20"
+	!tx "W.Kling/A.Dettke"
 ;
 ; ----------------------------------------- Main
 
-start	jsr initad	; init activity
-	jsr histo		; compute histogram and new balancing table (drtab)
-	beq finish
+start	jsr makechr
+	lda #$e0
+	sta baltx
+	sta dyntx
+	lda #$ff
+	sta pass
+	jsr process	; do the thing first time, then
+	jmp gd_eloop	; wait...
 
-apply	lda #<sy_4bit
+; ------------------------------------------------ Event: Exit
+
+evleave	sec		; leave modifier
+	rts
+
+; ------------------------------------------------ Event: Apply
+
+evapply	jsr initad	; re-init activity
+	lda #<sy_4bit
 	ldy #>sy_4bit
 	sta data
 	sty data+1
@@ -90,14 +106,27 @@ apply	lda #<sy_4bit
 	cmp #>sy_bigbuffer
 	bne -
 
-finish	jsr clearad	; end activity
-	clc		; end of modifier
+	sta gr_redisp	; Grafik verändert
+
+; ------------------------------------------------ Process Data
+
+process	jsr initad	; init activity
+	jsr histo		; compute histogram and new balancing table (drtab)
+	jsr dobalance	; and show original image data and
+	jsr initad
+	jsr dorange	; processed image data
+	jsr clearad	; end activity
+
+	ldx #<dynlst	; requester in the end
+	ldy #>dynlst
+	jsr gd_screen
+	clc
 	rts 
 
-; ----------------------------------------- Preparations
+; ----------------------------------------- Compute Histograms
 
-histo	lda #0		; clear histogram
-	ldx #31
+histo	lda #0		; clear histograms
+	ldx #63
 -	sta histlo,x
 	dex 
 	bpl -
@@ -127,10 +156,24 @@ aloop	lda (data),y	; left pixel
 +	iny 		; one page
 	bne aloop
 
+	jsr adinc		; activity
 	inc data+1	; next page
 	lda data+1
 	cmp #>sy_bigbuffer	; until end of 4bit
 	bne aloop
+
+	sta hasnull	; set to "black wasn't used" (>0)
+	ldx #0		; determine used colors
+-	lda histlo,x
+	ora histhi,x
+	beq ++
+	txa		; color .x was used
+	bne +		; was black?
+	sta hasnull	; yes, set to "black was used" (=0)
++	sta baltab,x
+++	inx
+	cpx #16
+	bcc -
 
 	ldx #$ff		; find start of range
 -	inx 		; (lowest gray value)
@@ -146,13 +189,11 @@ aloop	lda (data),y	; left pixel
 	beq -
 	stx range
 
-	lda range		; range is already to the max?
+	lda range		; compute range (to .y)
 	sec 
 	sbc lower
-	cmp #15
-	beq +		; yes, finish
 
-	tay 		; no, compute new balancing table
+	tay 		; compute new balancing table
 	ldx lower		; .y: index to distance (starting w/ 8)
 	lda #8
 -	pha 
@@ -168,16 +209,64 @@ aloop	lda (data),y	; left pixel
 	cpx range
 	bne -
 
-	lda #15		; last entry is 15
+	lda #15		; fill table w/ max value
 	sta drtab,x
 +	rts 
 
-; ----------------------------------------- 
+; ------------------------------------------------ 
+
+dobalance	ldy #15		; convert balancing values to dither patterns
+sh2	lda baltab,y
+	ora #$e0
+	sta baltx,y	; write to output buffer
+	dey
+	bpl sh2
+	bmi setnull
+
+; ------------------------------------------------ 
+
+dorange	inc pass
+	ldy #15		; convert new balancing values to dither patterns
+sh3	lda drtab,y
+	and #$0f
+	ora #$e0
+	sta dyntx,y	; write to output buffer
+	dey
+	bpl sh3
+
+	lda pass
+	bne setnull
+	ldx lower
+	lda #$df
+	sta dyntx,x
+
+setnull	lda hasnull
+	beq +
+	lda #$e0
+	!by $2c
++	lda #$df
+	sta baltx
+	sta dyntx
+	clc
+	rts
+
+; --------------------------------------- New Char
+
+makechr	ldx #7		; create
+-	lda chschr,x
+	sta sc_undochar,x
+	dex
+	bpl -
+	rts
+
+; ----------------------------------------- Data
 
 distab	!by 0,240,120,80
 	!by 60,48,40,34
 	!by 30,27,24,22
 	!by 20,18,17,16
+
+chschr	!by $00,$40,$00,$00,$00,$00,$00,$00
 
 ; ------------------------------------------------ Abschluss Activity
 
@@ -187,8 +276,6 @@ clearad	lda spren		; Wanderbalken aus
 	lda msbx
 	and #$f3
 	sta msbx
-	lda #$ff		; Grafik verändert
-	sta gr_redisp
 	clc 		; fertig
 	rts 
 
@@ -238,6 +325,34 @@ adinc	dec adcnt
 	lda #3
 	sta adcnt
 +	rts 
+
+; ------------------------------------------------ 
+
+dynlst	!by 0		; no cls
+
+	!by 6,9,20,11,$91	; Requester
+	!wo 0
+	!scr "Dynamic Range",0
+
+balgad	!by 8,10,18,3,$a0	; Balancing
+	!wo 0
+baltx	!by $df,$e1,$e2,$e3,$e4,$e5,$e6,$e7
+	!by $e8,$e9,$ea,$eb,$ec,$ed,$ee,$ef,0
+
+dyngad	!by 11,10,18,3,$a0	; Dynamic Range
+	!wo 0
+dyntx	!by $df,$e1,$e2,$e3,$e4,$e5,$e6,$e7
+	!by $e8,$e9,$ea,$eb,$ec,$ed,$ee,$ef,0
+
+	!by 14,15,7,3,$cc	; Apply
+	!wo evapply
+	!scr "Apply",0
+
+	!by 14,22,6,3,$cc	; Exit
+	!wo evleave
+	!scr "Exit",0
+
+	!by $80
 
 ; ----------------------------------------- 
 
