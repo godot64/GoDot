@@ -13,6 +13,7 @@
 ; 1.03, 23.07.17, bugfix: determination of Filename
 ;                 added new filetypes
 ; 1.04, 31.10.18, bugfix: Loadstar Hires wasn't recognized anymore
+; 1.05, 10.12.20, update: added latest filetypes (like PICT, IP and PNG)
 ;
 ; --------------------------------------
 
@@ -38,8 +39,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "Filetype Checker"
-	!pet "1.04"
-	!pet "31.10.18"
+	!pet "1.05"
+	!pet "10.12.20"
 	!pet "A.Dettke        "
 
 ; --------------------------------------------- Requester
@@ -82,11 +83,11 @@ sel5	lda ls_nambuf,y
 	sta dollar+2,y
 	dey
 	bpl sel5
-	lda #0		; Blockpuffer löschen
+	iny
+	tya		; Blockpuffer löschen
 sel6	sta blockbuf,y
-	dey
+	iny
 	bne sel6
-	sta blockbuf
 	lda ls_nambuf	; Koalaname? (Pik als erstes Zeichen)
 	cmp #$c1
 	bne stt1
@@ -116,7 +117,7 @@ stt1	ldx len
 	inc len
 	inc ls_flen
 
-; --------------------------------------
+; -------------------------------------- Get Data Block
 
 stt2	jsr fileread	; 1.: ersten Fileblock puffern
 	beq stt3
@@ -124,7 +125,7 @@ stt2	jsr fileread	; 1.: ersten Fileblock puffern
 	lda cntr		; Lesefehler?
 	beq filerr	; ja, "Could not get Information"
 
-; --------------------------------------
+; -------------------------------------- Get Dir Entry
 
 stt3	lda ls_flen	; 2.: Direintrag puffern
 	clc
@@ -329,6 +330,8 @@ checkfile	lda blockbuf	; Byte 0 im File testen
 	beq seps
 	cmp #$8e		; $8e: Paint Magic
 	beq spmagic
+	cmp #$89		; $89: PNG
+	beq spng
 
 	ldy #13		; "." als viertletztes Zeichen?
 	lda (fnameoff),y
@@ -337,6 +340,19 @@ checkfile	lda blockbuf	; Byte 0 im File testen
 	jmp sstarp	; ja, Starpainter?
 
 ; --------------------------------------------- 
+
+scpc	jsr isocp
+	ldx #<cpc
+	lda #>cpc
+	bne set
+
+; --------------------------------------------- 
+
+spng	ldx #<png
+	lda #>png
+	bne set
+
+; ---------------------------------------------
 
 spmagic	ldx #<pmagic
 	lda #>pmagic
@@ -387,8 +403,6 @@ sgeos	ldy #0
 	lda (fnameoff),y	; Filetype USR?
 	cmp #85
 	bne noidea	; nein, keine Ahnung, was dann
-;	lda warn		; Filelänge 1 Block?
-;	bmi noidea
 	ldx #<(geos)	; ja, GEOS-File
 	lda #>(geos)
 
@@ -754,14 +768,15 @@ jdraz	jmp sdraz
 jstarp	jmp sstarp
 jpsetc	jmp spsetc
 jpsetp	jmp spsetp
-jplus4	jmp splus4
 jbotti	jmp sbotti
 jtrue	jmp strue
+jcpc	jmp scpc
 
 ; --------------------------------------------- Startadresse LO = $00
 ; Startadresse HI?
 
 sc64	lda blockbuf+1	; Startadresse lo = $00
+	beq smprog
 
 	cmp #$60		; $6000: Koala
 	beq jskoala
@@ -797,7 +812,7 @@ sc64	lda blockbuf+1	; Startadresse lo = $00
 	cmp #$1c		; $1c00: Pagesetter
 	beq jdoodle
 	cmp #$18		; $1800: P4 Botticelli
-	beq jplus4
+	beq jbotti
 	cmp #$78		; $7800: P4 Botticelli, Saracen P., 
 	beq jbotti
 	cmp #$49		; $4900: Pagesetter Charset
@@ -805,15 +820,29 @@ sc64	lda blockbuf+1	; Startadresse lo = $00
 
 ; --------------------------------------------- File is Machine Code
 
-smprog	lda flength	; Filelänge 28?
+smprog	tax
+
+	lda blockbuf+18
+	cmp #2
+	beq jcpc
+
+	lda flength	; Filelänge 28?
 	cmp #28		; dann eher ZX Spectrum
 	bne +
 	jmp sspec
 
-+	jsr laenge	; nichts trifft zu, dann: Länge anzeigen
++	txa
+	beq svdc
+	jsr laenge	; nichts trifft zu, dann: Länge anzeigen
 	ldx #<(mprog)	; Maschinencode
 	lda #>(mprog)
 ndx2	jmp set
+
+; --------------------------------------------- 
+
+svdc	ldx #<vdc		; IPaint oder Basic8
+	lda #>vdc
+	bne ndx2
 
 ; --------------------------------------------- Startadresse LO = $01
 ; Startadresse HI?
@@ -888,7 +917,7 @@ socp	cmp #37		; Filelänge 37 Blocks?
 	beq shieddic
 	cmp #40		; 40 Blocks?
 	beq saocp
-	ldx #<(ocp)	; OCP
+isocp	ldx #<(ocp)	; OCP
 	lda #>(ocp)
 	bne nd2
 
@@ -924,6 +953,8 @@ g1	inx
 
 	cmp #$31		; "0" oder "1"?
 	beq g21
+	cmp #$33		; "3"?
+	beq g20
 	cmp #$35		; "5"?
 	beq g22
 	cmp #$37		; "7"?
@@ -938,6 +969,9 @@ g2	cpx #4		; oder keins?
 	bne nd20
 g21	ldx #<(cgodot)	; 1: GoDot Clip
 	lda #>(cgodot)
+	bne nd20
+g20	ldx #<mpgodot	; 3: GoDot Mouse Pointer
+	lda #>mpgodot
 	bne nd20
 g22	ldx #<(fgodot)	; 5: GoDot Font
 	lda #>(fgodot)
@@ -1286,12 +1320,6 @@ spsetp	ldx #<(psetp)	; Pagesetter
 
 ; --------------------------------------------- 
 
-splus4	ldx #<(plus4) 	; Plus/4
-	lda #>(plus4)
-	bne pc2
-
-; --------------------------------------------- 
-
 sbotti	ldx #<(botti)	; Botticelli
 	lda #>(botti)
 	bne pc2
@@ -1340,7 +1368,7 @@ lg1	sta length,x
 zx	!scr "ZX Spectrum@"
 fgm	!scr "FGM Clipart@"
 millu	!scr "Micro Illustrator@"
-cfunet	!scr "Cmp. "
+cfunet	!scr "Cmpr "
 funet	!scr "FLIGraph@"
 cdu	!scr "CDUPaint@"
 artist	!scr "Artist64@"
@@ -1360,13 +1388,14 @@ pmaster	!scr "Printmaster@"
 vidcom	!scr "Vidcom@"
 saracen	!scr "Saracen Paint@"
 gun	!scr "Gunpaint (IFLI)@"
-ckoala	!scr "Cmp. "
+ckoala	!scr "Cmpr "
 koala	!scr "Koala@"
-blpad	!scr "Blazing Paddles (BlPaddles)@"
-cdoodle	!scr "Cmp. "
+blpad	!scr "BlPaddles@"
+cdoodle	!scr "Cmpr "
 doodle	!scr "Doodle@"
 aocp	!scr "Adv. "
 ocp	!scr "OCP Art Studio@"
+cpc	!scr " CPC@"
 starp	!scr "Starpainter@"
 starpg	!scr "Graphics@"
 starph	!scr "Help@"
@@ -1395,20 +1424,21 @@ bm8xxx	!scr "8    Bytes (HiresBitmap)@"
 mcs	!scr " MCS FLI (MCS)@"
 hypra	!scr "Hypra Ass Src@"
 degas	!scr "Atari PI3 (DegasPI3)@"
-gigap	!scr "Giga Paint@"
-gphires	!scr " Hires (HiresBitmap)@"
+gigap	!scr "Giga Paint @"
+gphires	!scr "HiresBitmap@"
 gpmulti	!scr "Multicolor (Koala)@"
 geos	!scr "C64 GEOS (GeoPaint)@"
-eps	!scr "Encapsulated PostScript@"
-pflip	!scr "Cmp. "
+eps	!scr "Encaps. PostScript@"
+pflip	!scr "Cmpr "
 flip	!scr "FLIPainter (Flip)@"
-phiman	!scr "Cmp. "
+phiman	!scr "Cmpr "
 himan	!scr "Hires Manager (HiManRaw)@"
-fp2p	!scr "Cmp. "
+fp2p	!scr "Cmpr "
 fp2u	!scr "Funpaint (IFLI)@"
 pcx	!scr "PCX @"
-ega	!scr "EGA 16 (PCX-EGA)@"
-vga	!scr "VGA 256 (PCX-VGA320)@"
+png	!scr "PNG@"
+ega	!scr "16 (PCX-EGA)@"
+vga	!scr "256 (PCX-VGA320)@"
 none	!scr "No Idea@"
 rgodot	!scr "Raw "
 godot	!scr "GoDot (4Bit*)@"
@@ -1416,24 +1446,25 @@ cgodot	!scr "GoDot Clip (4Bit*)@"
 fgodot	!scr "GoDot Font (Fonts)@"
 spgodot	!scr "GoDot Sprite Set (SPSto4Bit)@"
 cogodot	!scr "GoDot Conv. (m.Convolve)@"
+mpgodot	!scr "GoDot Pointer (m.NewPointer)@"
 gif8	!scr "GIF8"
 giftyp	!scr " a@"
 ferr	!scr "   Couldn't get Information.   @"
 viza	!scr "Vizawrite Text@"
 tifpc	!scr "TIF PC (no ldr)@"
 tifmac	!scr "TIF Mac (no ldr)@"
-pset	!scr "Pl4 Pagesetter Page (PSetSelect)@"
-psetb	!scr "Pl4 Pagesetter Block (no ldr)@"
-psetc	!scr "Pl4 Pagesetter CSet (no ldr)@"
-psetp	!scr "Pl4 Pagesetter Screen (no ldr)@"
-plus4	!scr "Plus4 (no ldr)@"
-botti	!scr "Plus4 Botticelli (no ldr)@"
+pset	!scr "Plus4 PS Page (PSetSelect)@"
+psetb	!scr "Plus4 PS Block (no ldr)@"
+psetc	!scr "Plus4 PS CSet (no ldr)@"
+psetp	!scr "Plus4 PS Screen (no ldr)@"
+botti	!scr "Plus4 (Botticelli)@"
 drazl	!scr "DrazLace MCI (DrazPaint)@"
 drazp	!scr "DrazPaint MC@"
 truep	!scr "Truepaint MCI@"
 flid	!scr "FLI-Designer "
 flidnr	!scr "1@"
-svbm	!scr "VBM Hires@"
+svbm	!scr "VBM@"
+vdc	!scr "IPaint/Basic8@"
 xray	!scr "XRay (IFLI)@"
 
 ; --------------------------------------------- 
