@@ -28,6 +28,7 @@
 ;   1.45, 31.10.20 ; added: SuperRAM support, loads dev.REU only when no SRAM
 ;   1.46, 04.11.20 ; added: option to not use SRAM explicitly
 ;   1.47, 07.11.20 ; bugfix: mouse pointer wouldn't click at the correct position
+;   1.48, 21.12.20 ; added: propagate release date from booter to system files
 ;
 ; ------------------------------------------------------------ 
 
@@ -106,6 +107,7 @@ b2	sta booter,y
 	bootinit		= $c012
 	ram		= $ca64	; start address of dev.REU
 	ramstart		= $cab0	; header address of dev.REU
+	releasenm		= $fffa	; stores release date (in upmem)
 	
 	spr0x		= $d000
 	spr0y		= $d001
@@ -205,6 +207,11 @@ m2	stx numcols+1
 	sta versionnm
 	lda version+1
 	sta versionnm+1
+	ldx #2		; enter release date
+-	lda release,x
+	sta releasenm,x
+	dex
+	bpl -
 	jsr mktabs	; set tables definitely
 	jsr setpat	; enter Dither pattern 
 	jmp sy_into	; Start GoDot
@@ -222,7 +229,8 @@ mkt0	lda tabs-$40,x
 
 ; --------------------------------------- 
 
-version	!byte $01,$47	; Versionsnummer in SED-Format (1.47)
+version	!byte $01,$48	; Versionsnummer in SED-Format (1.48)
+release	!byte 13,10,20	; Kernel Release Date in Byte-Format (13.10.20)
 
 ; --------------------------------------- 
 
