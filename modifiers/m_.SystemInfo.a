@@ -6,12 +6,13 @@
 ; mod.SystemInfo
 ; Modul zur Anzeige der GoDot-Systeminformationen
 ;
+; von Martin Burggraf
+;
 ; 1.04, 25.08.95
 ; 1.05, 16.07.17, re-coded by AD
 ;                 bug fixes and shorter code
 ; 1.06, 25.10.20, added SuperCPU info
-;
-; Modul von Martin Burggraf
+; 1.07, 21.12.20, changed release date info
 ;
 ; ------------------------------------------------ Declarations
 
@@ -19,11 +20,13 @@
 	src		= $30
 	dst		= $32
 	ymrk		= $34
+	pmrk		= $35
 	filetype		= $1d29
 	ramtype		= $1d8f
 	fast		= $d030
 	vupmem		= $f01a
 	dupmem		= $f01e
+	releasenm		= $fffa	; stores release date (in upmem)
 
 ; ------------------------------------------------ Header
 
@@ -34,8 +37,8 @@
 	!wo modend
 	!wo $00 
 	!pet "SystemInfo      "
-	!pet "1.05"
-	!pet "16.07.17"
+	!pet "1.07"
+	!pet "21.12.20"
 	!pet "M.Burggraf/AD   "
 
 ; ------------------------------------------------ Main
@@ -84,11 +87,22 @@ setsysfvs	ldx #8		; retrieve ">" significations from filerequester
 	dex 
 	bpl -
 
-	ldx #7
--	lda dupmem,x	; upmem (date)
-	sta vupdtx,x
-	dex 
-	bpl -
+	ldy #0		; booter (release date)
+	sty pmrk
+-	sty ymrk
+	ldy pmrk
+	inc pmrk
+	lda releasenm,y
+	jsr getdigits
+	ldy ymrk
+	sta vupdtx+1,y
+	txa
+	sta vupdtx,y
+	iny
+	iny
+	iny
+	cpy #8
+	bcc -
 
 	pla 
 	sta pport
@@ -270,8 +284,8 @@ silist	!by $00
 	!scr "Kernel@"
 	!by $c0,$06,$0a,$05
 	!scr "Upmem@"
-	!by $c0,$09,$0a,$04 
-	!scr "Date@"
+	!by $c0,$09,$0a,$08
+	!scr "Release:@"
 	!by $c0,$0c,$0a,$0b 
 	!scr "Driveinfos:@"
 	!by $c0,$0e,$15,$03 
