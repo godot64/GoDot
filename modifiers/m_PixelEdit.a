@@ -34,6 +34,7 @@
 ;   1.41, 20.06.19: added init keyboard for SuperCPU
 ;   1.42, 19.01.20: bugfix due to v1.34 of gd_main (sprite msb x)
 ;   1.43, 24.01.20: reposition mouse after "w"
+;   1.44, 23.12.20: bugfix, mind the limits when positioning by mouse click
 ;
 ; ------------------------------------------------------------ 
 
@@ -96,8 +97,8 @@
 	!wo (modend)
 	!wo 0
 	!pet "Edit 4bit pixels"
-	!pet "1.43"
-	!pet "24.01.20"
+	!pet "1.44"
+	!pet "23.12.20"
 	!pet "AD/ H.McMenamin "
 
 ; ------------------------------------------ Main
@@ -1228,6 +1229,7 @@ disp2:	jsr setspr	; set pointer
 	jsr gd_spron	; switch on
 	jsr redisplay	; redisplay graphics
 	jsr gd_position	; get pointer position
+
 	lda zeile		; Mauszeile
 	pha
 	lda #5
@@ -1237,10 +1239,17 @@ disp2:	jsr setspr	; set pointer
 	lda #35
 	sta horizont
 	jsr setspr	; setze auf 5/35 ("O")
+
+	pla		; last pointer position: 	#### 1.44
+	cmp #37		; too far right?
+	bcc +
+	lda #36		; yes, delimit
++	sta horizont
 	pla
-	sta horizont
-	pla
-	sta vertical
+	cmp #23		; too far down?
+	bcc +
+	lda #22		; yes, delimit
++	sta vertical
 	rts
 
 ; ------------------------------------------ Set pointer to last tile
