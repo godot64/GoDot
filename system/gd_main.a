@@ -2113,7 +2113,7 @@ exlst	!by $00
 	!scr " Exit@"
 	!by 10,25,08,03,$c0
 	!wo se_cancel
-	!scr " Stay@"	; ### 1.49
+	!scr "Stay@"	; ### 1.49
 	!by $c0,10,17,05
 	!scr "Sure?@"
 	!by $80

@@ -95,8 +95,8 @@ b2	sta booter,y
 	filtype		= $1d29 	; selfmodifying kernel!
 	ramtype		= $1d8f
 	hirs		= $1dba	; ### 1.41 / 1.49
-	scrmode		= $1edd	; ### 1.49
-	numcols		= $1eea	; ### 1.49
+	scrmode		= $1edc
+	numcols		= $1ee9
 	
 	booter		= $2000	; target of launcher code
 	godinit		= $3800	; target address of god.ini
