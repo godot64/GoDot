@@ -16,7 +16,8 @@
 ; 1.33, 14.11.18, bugfix, now correct generation of quantization table
 ; 1.34, 26.10.19, bugfix, now returns correct pointer values if other
 ;                 sprites have x-positions >255
-; 1.35, 13.10.20, added: STOP while reading DIR ends DIR
+; 1.35, 13.10.20, added: STOP while reading DIR now ends DIR
+; 1.36, 25.12.20, bugfix: stop permanent error message after Delete
 ;
 ; -------------------------------------------------- 
 
@@ -612,7 +613,7 @@ most	txa		; ### 1.34
 ; -------------------------------------------------- Version Number
 
 gd_version
-	!by $01,$35	; version number, SED-mode
+	!by $01,$36	; version number, SED-mode
 
 ; -------------------------------------------------- 
 ; -------------------------------------------------- Entry to GoDot, Main Loop
@@ -1071,9 +1072,12 @@ dlt0	lda ls_nambuf-1,x
 	jsr gd_sendcom
 	jsr sevch15	; error message (answer from drive)
 	stx ls_flen	; .x=0
-	jsr prepdir	; display changed dir
-	dec ls_cblocks
-	jmp se_scdwn
+	jsr prepdir
+	jmp suni		; ### 1.49
+
+; -------------------------------------------------- 
+
+	!by $ad,$ad,$ad	; padding
 
 ; -------------------------------------------------- Exchange Modules
 
@@ -1792,11 +1796,11 @@ dir4	dex
 	stx ls_lines	; # of lines in window
 	stx ls_cblocks	; # of blocks with matching files
 	stx sc_stop
+	stx ls_err2
 
 	tya		; retrieve dir block
 	tax
-dir2	stx ls_sector 
-	lda sc_zl
+dir2	lda sc_zl
 	pha
 	jsr dirstop
 	pla
@@ -2086,6 +2090,7 @@ messu1	!pet "u1:13 0"
 ; -------------------------------------------------- 
 
 dirstop	jsr gd_sproff	; pointer off
+	stx ls_sector	; ### 1.49
 	jsr getdir
 	lda sc_stop
 	sta ls_err2
@@ -2105,10 +2110,10 @@ exlst	!by $00
 	!wo 0
 	!by 10,08,08,03,$c0
 	!wo se_ende
-	!scr " Exit @"
+	!scr " Exit@"
 	!by 10,25,08,03,$c0
 	!wo se_cancel
-	!scr "Cancel@"
+	!scr " Stay@"	; ### 1.49
 	!by $c0,10,17,05
 	!scr "Sure?@"
 	!by $80
