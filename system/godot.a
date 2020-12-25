@@ -29,18 +29,17 @@
 ;   1.46, 04.11.20 ; added: option to not use SRAM explicitly
 ;   1.47, 07.11.20 ; bugfix: mouse pointer wouldn't click at the correct position
 ;   1.48, 21.12.20 ; added: propagate release date from booter to system files
+;   1.49, 25.12.20 ; changed due to altered locations in god.main
 ;
 ; ------------------------------------------------------------ 
 
 !src "godotlib.lib"
 
-	booter		= $2000
+	*= $0801
 
-*= $0801
-
-	!word $0814
+	!word $0814	; Basic-Line: SYS 2070
 	!word 100
-	!byte $9e		; Basic-Line: SYS 2070
+	!byte $9e
 	!pet " 2070 : ad 20"
 	!byte 0,0,0
 
@@ -95,12 +94,12 @@ b2	sta booter,y
 	ld11		= $1825
 	filtype		= $1d29 	; selfmodifying kernel!
 	ramtype		= $1d8f
-	hirs		= $1db7	; ### 1.41
-	scrmode		= $1edc
-	numcols		= $1ee9
+	hirs		= $1dba	; ### 1.41 / 1.49
+	scrmode		= $1edd	; ### 1.49
+	numcols		= $1eea	; ### 1.49
 	
+	booter		= $2000	; target of launcher code
 	godinit		= $3800	; target address of god.ini
-	
 	mal19		= $bd8c	; part of dev.REU
 
 	modul		= $c000
@@ -229,8 +228,8 @@ mkt0	lda tabs-$40,x
 
 ; --------------------------------------- 
 
-version	!byte $01,$48	; Versionsnummer in SED-Format (1.48)
-release	!byte 13,10,20	; Kernel Release Date in Byte-Format (13.10.20)
+version	!byte $01,$49	; Versionsnummer in SED-Format (1.49)
+release	!byte 25,12,20	; Kernel Release Date in Byte-Format (25.12.20)
 
 ; --------------------------------------- 
 
