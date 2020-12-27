@@ -17,6 +17,7 @@
 ; 1.06: 31.01.18, bugfix: activity bar could run all down the screen
 ; 1.07: 27.02.20, changed: now advance in gadget goes up OR down
 ; 1.08: 17.11.20, changed: now advance in gadgets goes clockwise or counterclockwise
+; 1.09: 27.12.20, changed: now cursor on Execute after input of amount
 ; 
 ; ------------------------------------------------ 
 
@@ -46,8 +47,8 @@
 	spr255		= $3fc0
 
 	buf2		= $c600
-	buf0		= $c600		; $ca00
-	buf1		= $c800		; $cc00 up to v1.03
+	buf0		= $c600	; $ca00 and
+	buf1		= $c800	; $cc00 up to v1.03
 
 	x2		= $d004
 	y2		= x2+1
@@ -64,8 +65,8 @@
 	!wo modend
 	!wo 0
 	!pet "Scroll 4Bit     "
-	!pet "1.08"
-	!pet "17.11.20"
+	!pet "1.09"
+	!pet "27.11.20"
 	!pet "A.Dettke        "
 
 ; ------------------------------------ Hauptschleife 
@@ -466,6 +467,17 @@ evsetamnt	lda #<ibuff	; Zeiger auf zulässige Zeichen für Input
 	lda #>ibuff
 	sta ls_vekta8+1
 	jsr gd_xinput	; Input, Ergebnis in $0200 (max 2 Ziffern)
+
+	ldy #0		; ### 1.09: locate cursor on Execute
+	sty spritehi
+	ldy #$a8
+	sty spritex
+	sty spritex-2
+	ldy #$bf
+	sty spritey
+	iny
+	iny
+	sty spritey-2
 
 	lda #>ls_nambuf	; Zeiger auf Ergebnis setzen
 	sta ls_vekta8+1
