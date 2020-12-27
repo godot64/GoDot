@@ -9,6 +9,7 @@
 ;
 ;   1.00, 06.04.93, first official release
 ;   2.00, 28.11.20, added: GUI
+;   2.01, 27.12.20, bugfix: wrong implementation of balancing
 ;
 ; ------------------------------------------------ 
 
@@ -27,8 +28,7 @@
 	sprptr		= $07f8
 	numcols		= $1ee9
 	invpalet		= sy_global
-	backuppal		= invpalet+16
-	backupdth		= backuppal+16
+	backupdth		= invpalet+16
 	spr255		= $3fc0
 
 	balanced		= $c900
@@ -58,8 +58,8 @@
 	!wo modend
 	!wo 0
 	!tx "gradientbackdrop"
-	!tx "2.00"
-	!tx "28.11.20"
+	!tx "2.01"
+	!tx "27.12.20"
 	!tx "W.Kling/A.Dettke"
 
 ; ------------------------------------------------ 
@@ -109,7 +109,7 @@ evapply	jsr initad	; init activity
 evexit	jsr restpatt	; restore system pattern
 	lda mirrored	; if inverted: restore
 	bmi +
-;	jsr evtrncls	; (gets differenciated in future versions)
+;	jsr evtrncls	; (gets activated in future versions)
 +	lda derethid	; this flag for future versions
 	bmi +
 	jsr evtrndth
@@ -134,7 +134,7 @@ dc8	dey
 	bpl -
 
 	sty applied	; clear applied flag
-	lda #$31		; set correct number of colors
+	lda #$31		; show correct number of colors
 	sta numcols+1
 	lda #$36
 	sta numcols+2
@@ -171,12 +171,12 @@ evtrndth	ldx #0
 	sta dithtx,y
 	dey
 	bpl -
-;	jsr buildreq	; here for an individual button
+; --	jsr buildreq	; here for an individual button
 	lda derethid
 	eor #$ff
 	sta derethid
-;	clc		; must end here then
-;	rts
+; --	clc		; must end here then
+; --	rts
 	
 
 ; ------------------------------------------------ Event: Mirror Colors
@@ -281,10 +281,6 @@ makecols	ldy gr_howmany	; aktuelle Palette holen
 	dey 
 	bpl -
 
-	lda is_on
-	beq +
-	jsr mirror	;  beim ersten Aufruf: Palette spiegeln
-
 +	ldy #0
 	ldx gr_howmany	; Anzahl Farben
 	lda gr_dither	; Dither aus?
@@ -346,12 +342,12 @@ makecols	ldy gr_howmany	; aktuelle Palette holen
 setcolors	stx xchg
 	lda invpalet,x
 	tax
-	lda balancing,x
+	lda gr_btab,x	; ### 2.01
 	sta color2,y
 	ldx xchg
 	lda invpalet-1,x
 	tax
-	lda balancing,x
+	lda gr_btab,x	; ### 2.01
 	sta color1,y
 	ldx xchg
 	rts
@@ -391,8 +387,8 @@ c64cols	!by $00,$0f,$04,$0c,$05,$0a,$01,$0d
 spreads	!by $c8,$64,$42,$32,$28,$21,$1c,$19
 	!by $16,$14,$12,$10,$0f,$0e,$0d,$0c
  
-addfak	!by $0a,$14,$1e,$28,$33,$3d,$49,$51
-	!by $5c,$66,$71,$7a,$85,$8f,$99,$aa
+addfak	!by 10,20,31,41,51,62,73,82		; ### 2.01
+	!by 93,102,114,128,137,146,158,171
 
 balancing	!fill 16
 
@@ -420,7 +416,6 @@ hisum	!by 0
 dcnt	!by 0 
 passes	!by 0 
 somany	!by 0
-is_on	!by 1
 mirrored	!by $ff
 derethid	!by $ff
 applied	!by $ff
