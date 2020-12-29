@@ -1,8 +1,10 @@
 
 	!src "godotlib.lib"
 	*= $c000
+	!ct pet
+;	!sl "labels.txt"
 
-; ------------------------------------------------------------ 
+; ------------------------------------------ 
 ;
 ; mod.DrawMask
 ; Module to paint a mask onto a picture
@@ -15,17 +17,19 @@
 ;   1.03, 30.03.02: inelegant handling of switching on graphics fixed
 ;   1.04, 02.06.17: positioning problem with drawing near borders fixed
 ;   1.05, 31.03.18: changed size of smaller brushes (1 and 4)
+;   2.00, 29.12.20: added hotkeys for Size and Mode
 ;
 ; ------------------------------------------ 
 
 	jmp start
 	!by $20
-	!by $00,$00
+	!by $00
+	!by $00
 	!wo modend
-	!by $00,$00
+	!wo 0
 	!pet "Draw Mask on pic"
-	!pet "1.05"
-	!pet "31.03.18"
+	!pet "2.00"
+	!pet "29.12.20"
 	!pet "A. Dettke       "
 
 ; ------------------------------------------ 
@@ -48,15 +52,19 @@
 	stoa		= $43
 	bytev		= $44
 	byteh		= $45
+
 	offx		= $b2
 	offy		= $b3
+	lastkey 		= $c5	; current key
 
+	commoflag 	= $028d
 	spr11		= $02c0
 	sprx0		= $d000
 	spry0		= $d001
 	x2		= $d004
 	y2		= $d005
 	sprxmsb		= $d010
+	raster		= $d012	; used by delay
 	spren		= $d015
 	sprcolor		= $d027
 
@@ -97,8 +105,8 @@ es0	stx bsize
 	ldy #2
 	jsr gd_setpar
 	jsr gd_initmove
-	ldx #<(sizet)
-	ldy #>(sizet)
+	ldx #<sizet
+	ldy #>sizet
 	jmp gd_xtxout2
 
 ; ----------------------------------------- Event: Switch Draw Mode
@@ -121,8 +129,8 @@ md1	lda drawtxt,y
 	ldy #6
 	jsr gd_setpar
 	jsr gd_initmove
-	ldx #<(drawm)
-	ldy #>(drawm)
+	ldx #<drawm
+	ldy #>drawm
 	jmp gd_xtxout2
 
 ; ------------------------------------------ Event: Draw
@@ -132,10 +140,8 @@ ex1	jmp exit		; skip if not valid (not used in 1.04)
 evdraw	jsr swapspr	; exchange mouse pointer with drawing brush
 	lda #1		; switch off mouse shadow
 	sta spren
-	ldx pmode		; set brush color according to drawmode
-	lda brushcols,x
-	sta sprcolor
 	jsr view		; switch graphics on (returns .y=0)
+	jsr switch	; set brush color
 
 drloop	jsr draw		; wait for mouse moves (or STOP)
 	ldx sc_stop
@@ -143,13 +149,12 @@ drloop	jsr draw		; wait for mouse moves (or STOP)
 	sty redisp	; .y=0
 
 dr0	lda spry0		; Brush scanline minus 50 (to get graphics ordinate)
-	cmp #250
+	cmp #251
 	bcc dr3
 	lda #250
 	sta spry0
 	lda #200		; ### 1.04
 	sta spry
-;	bne ex1
 
 dr3	sec
 	sbc #50
@@ -159,22 +164,25 @@ dr3	sec
 	sta spry0
 	lda #0		; ### 1.04
 	sta spry
-;	bne ex1
 
 goon	lda sprxmsb	; Brush x-position (hi)
 	and #1
 	sta sprx+1
 	beq dr1
-	ldx bsize
+	lda sprx0		; ### 2.00 (too far to the right?)
+	bpl +
+	lda #68
+	sta sprx0		; ### --
++	ldx bsize
 	lda rightborder,x
 	clc
 	adc sprx0
+	bmi drloop
 	cmp #91
 	bcc dr1
 	lda #90
 	sbc rightborder,x
 	sta sprx0
-;	bne ex1		; ### 1.04
 
 dr1	lda sprx0		; and lo
 	sec		; minus 24 (to get graphics ordinate)
@@ -188,7 +196,6 @@ dr1	lda sprx0		; and lo
 	sta sprx		; ### 1.04
 	lda #24
 	sta sprx0
-;	bne ex1
 
 goon1	and #7		; bit in byte
 	sta stoa
@@ -338,8 +345,8 @@ finish 	jsr swapspr	; restore mouse pointer
 
 ; --------------------------------------- Show Requester
 
-showreq	ldx #<(pmasklst)	; display DrawMask requester
-	ldy #>(pmasklst)
+showreq	ldx #<pmasklst	; display DrawMask requester
+	ldy #>pmasklst
 	jsr gd_screen
 	clc
 	rts
@@ -446,18 +453,64 @@ bsize	!by 7		; start with biggest brush
 rightborder !by 3,5,7,10,13,16,19,23
 sprofflo	!by <spr0,<spr1,<spr2,<spr3,<spr4,<spr5,<spr6,<spr7
 sproffhi	!by >spr0,>spr1,>spr2,>spr3,>spr4,>spr5,>spr6,>spr7
+keys	!by 56,59,8,11,16,19,24,27	; ### 2.00
 
 ; ------------------------------------------ Move Brush
 
 draw	lda #0
 	sta sc_keyprs
 	sta sc_stop
+	sta commoflag	; ### 2.00
 kl	lda sc_stop
 	ora sc_keyprs	; wait for key
+	ora commoflag 	; CBM key? (=2) ### 2.00
 	beq kl
-ok	rts
 
-; ------------------------------------------ 
+; ------------------------------------------ Scan Keyboard
+
+	lda commoflag 	; check for CBM/Shift #	### 2.00 --
+	beq ok		; no, other key, leave
+	and #3
+	cmp #1		; Shift? (left mouse button)
+	beq ok
+
+	lda lastkey 	; no, CBM, so check:
+	cmp #36		; key "m" (Mode)?
+	bne +
+	jsr evmode	; yes, switch mode (returns .c=0)
+	jsr repair
+	jsr tdelay	; Tastatur entprellen
+	jsr switch	; Farbe setzen
+	bcc draw
+
++	ldx #0		; key "1..8"? (Size)
+-	cmp keys,x
+	beq +
+	inx
+	cpx #8
+	bcc -
+	bcs draw
+
++	stx stoa
+	jsr tdelay	; Tastatur entprellen
+	jsr swapspr	; recall system pointer
+	ldx stoa
+	jsr es0		; set new size
+	jsr repair
+	jsr swapspr	; and activate sprite
+	bmi draw
+
+ok	ldy #0
+	rts
+
+; ------------------------------------------ Set Brush Color
+
+switch	ldx pmode		; set brush color according to drawmode
+	lda brushcols,x
+	sta sprcolor
+	rts		; ### --
+
+; ------------------------------------------ Exchange System Pointer with Draw Sprite
 
 swapspr	ldy #62
 ssl	ldx spr11,y
@@ -481,6 +534,27 @@ sb0	lda (src),y
 	dey
 	bpl sb0
 	rts
+
+; ------------------------------------------ Tastaturentprellung
+
+tdelay:	ldx #32		; ### 2.00 --
+td1	lda raster
+	cmp #64
+	bne td1
+	dex
+	bne td1
+	rts
+
+; ------------------------------------------ Repair Color Screen
+
+repair	lda redis+3	; take color ($f0)
+	sta $05a8
+	sta $05a9
+	ldx #5
+-	sta $05f4,x
+	dex
+	bpl -
+	rts		; ### --
 
 ; ------------------------------------------ Redisplay routines
 
@@ -523,19 +597,23 @@ tmode:	ldx #$13		; back to text mode (graphics off)
 
 pmasklst	!by 0
 	!by 7,13,14,11,$81,0,0
-	!scr "DrawMask@"
-sizeg	!by 9,23,4,3,$cf,<evsize,>evsize
-sizet	!scr " 8@"
-	!by 11,19,8,3,$ce,<evmode,>evmode
-drawm	!scr " Draw @"
-	!by 13,13,14,3,$cb,<(evdraw),>(evdraw)
-	!scr " Draw Mask  @"
-	!by 15,13,14,3,$cb,<(evexit),>(evexit)
-	!scr "Leave@"
+	!scr "DrawMask",0
+sizeg	!by 9,23,4,3,$cf
+	!wo evsize
+sizet	!scr " 8",0
+	!by 11,19,8,3,$ce
+	!wo evmode
+drawm	!scr " Draw ",0
+	!by 13,13,14,3,$cb
+	!wo evdraw
+	!scr " Draw Mask  ",0
+	!by 15,13,14,3,$cb
+	!wo evexit
+	!scr "Leave",0
 	!by $c0,9,13,9
-	!scr "Brushsize@"
+	!scr "Brushsize",0
 	!by $c0,11,13,4
-	!scr "Mode@"
+	!scr "Mode",0
 	!by $80
 
 ; --------------------------------------- 
