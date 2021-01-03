@@ -35,6 +35,7 @@
 ;   1.42, 19.01.20: bugfix due to v1.34 of gd_main (sprite msb x)
 ;   1.43, 24.01.20: reposition mouse after "w"
 ;   1.44, 23.12.20: bugfix, mind the limits when positioning by mouse click
+;   1.45, 03.01.21: added ability to edit in Multicolor (using double pixels)
 ;
 ; ------------------------------------------------------------ 
 
@@ -71,6 +72,7 @@
 	commoflag 	= $028d
 	shiftvekt 	= $028f
 	sprites 		= $07f8	; Sprite definition pointers
+	setevent		= $12c2	; set event vector at spalte/zeile
 	spr255 		= $3fc0	; Spriteblock 255
 
 	sprp2 		= $d004	; spr #2 x pos
@@ -97,8 +99,8 @@
 	!wo (modend)
 	!wo 0
 	!pet "Edit 4bit pixels"
-	!pet "1.44"
-	!pet "23.12.20"
+	!pet "1.45"
+	!pet "03.01.21"
 	!pet "AD/ H.McMenamin "
 
 ; ------------------------------------------ Main
@@ -109,8 +111,8 @@ start:	jsr makech	; define new character
 	jsr bestcols	; set best colors
 	jsr makespr	; define spritebox
 	jsr checkcols	; where is which module? (for re-display)
-	ldx #<(pixlst)	; build requesters
-	ldy #>(pixlst)
+	ldx #<pixlst	; build requesters
+	ldy #>pixlst
 	jsr gd_screen	; returns with .a=0
 	jsr messoff	; hide Edit Mode message
 	lda #0
@@ -179,8 +181,7 @@ mp1:	stx cntx
 	ldy hold		; get palette offset
 	lda gr_basepal,y
 	sta sc_chgcol
-	ldx #4		; colorize one tile
-	jsr gd_fcol
+	jsr encolor	; colorize one tile
 	sec		; now write shift space or...
 	lda sc_vekt20
 	sbc #40
@@ -216,8 +217,7 @@ mp3:	ldy #0
 
 ; ------------------------------------------ Pick color from chooser
 
-evgetcol:
- 	sec		; row of mouse pointer
+evgetcol:	sec		; row of mouse pointer
 	lda zeile
 	sbc palzl		; minus topleft corner of gadget
 	asl
@@ -236,27 +236,62 @@ pdirect:	lda gr_basepal,x	; get GoDot palette entry
 initpal:	lda c64pal,x	; get native pal entry (is color)
 	sta col		; store value
 	jsr makepal	; change chooser display
-	jsr shpicked	; show picked color
+	jsr shemode	; show picked color
 	clc
 	rts
 
+; ------------------------------------------ Toggle Edit Mode
+
+keymode	lda #17		; invoked from keyboard:
+	sta zeile		; fake row
+	lda #34
+	sta spalte	; fake column of gadget
+	lda #<emodegad
+	sta sc_screentab
+	lda #>emodegad
+	sta sc_screentab+1
+	ldx #0
+	ldy #0
+	jsr setevent	; search Mode event in screenlist
+	jsr evemode	; and execute it
+	jmp edx3		; and then re-enter edit loop
+
+; ------------------------------------------ 
+
+evemode	ldx emode		; 0: Hires - 1: Multi
+	beq +
+	ldx #$ff
++	inx		; or increment
+eem1	stx emode
+	txa
+	asl
+	tax
+	ldy #1
+-	lda wemode,x
+	sta emodetx,y
+	inx
+	iny
+	cpy #3
+	bcc -
+	ldy #6		; und anzeigen
+	jsr gd_xtxout1
+
 ; ------------------------------------------ Show chosen color
 
-shpicked:	lda plast		; color
+shemode:	lda plast		; current color
 	sta sc_chgcol
 	ldy #3
-spk0:	lda pickgad,y
+spk0:	lda emodegad,y
 	sta sc_zl,y
 	dey
 	bpl spk0
-	jsr gd_trim
-	ldx #4
-	jsr gd_fcol
+	jsr encol0
 	clc
 	rts
 
 ; ------------------------------------------ Values
 
+emode	!by 0		; 0: hires, 1: multi
 palzl:	!by 0
 palsp:	!by 0
 hold:	!by 0
@@ -343,8 +378,8 @@ fill:	ldy #0		; set textscreen as destination
 
 ; ------------------------------------------ Toggle to new navi icons
 
-makenav:	ldx #31
-mn0:	lda gr_pattern,x	; buffer syspattern (chars 224 to 227)
+makenav:	ldx #47
+mn0:	lda gr_pattern,x	; buffer syspattern (chars 224 to 229)
 	ldy newnavs,x
 	sta newnavs,x
 	tya
@@ -432,7 +467,6 @@ sprbox:	lda #$ff
 
 ; ------------------------------------------ Data
 
-char:	!by $7e,$ff,$ff,$ff,$ff,$ff,$ff,$7e
 tab:	!by 0,8,16,24		; horizontal tab positions
 tabspr:	!by 0,64,128,192
 cols:	!by 0,0,0,0,0
@@ -462,14 +496,31 @@ ckgads	lda spalte	; horizontal in Gadgetgebiet?
 	cmp gdsp
 	bcc ok1		; nein, zu weit links
 	lda zeile		; vertikal darin?
-	cmp gdho2
+	cmp gdho4		; (21)
 	bcs ok1		; nein, zu weit unten
-	cmp gdzl1
+
+	cmp gdzl1		; ist im Mover? (ab 4)
 	bcc ok1		; nein, zu weit oben
-	cmp gdho1		; ist im Mover?
+	cmp gdho1		; (bis 8)
 	bcc jended	; ja, Edit beenden
-	cmp gdzl2		; ist im Chooser?
-	bcc ok1		; nein, dazwischen
+
+	cmp gdzl2		; ist im Chooser? (ab 10)
+	bcc ok1		; nein, darüber
+	cmp gdho2		; (bis 14)
+	bcc jended	; ja, Edit beenden
+
+	cmp gdzl3		; ist im Mode-Toggle? (in 17)
+	bcc ok1		; nein, darüber
+	cmp gdho3		; (bis 18)
+	bcc jended	; ja, Edit beenden
+
+	cmp gdzl2		; ist im Edit-Toggle? (in 20)
+	bcc ok1		; nein, darüber
+	ldx #30		; set fake mouse move
+	stx spalte
+	cmp gdho2		; (bis 21)
+	bcs ok1		; ja, Edit beenden
+
 jended	pla
 	pla
 	lda vertical
@@ -477,6 +528,7 @@ jended	pla
 	lda horizont
 	sta oldh
 	jmp endedit
+
 ok1	rts
 
 ; ------------------------------------------ Event: Edit pixels
@@ -551,9 +603,7 @@ ed3:	lda editgad,y
 	sta sc_zl,y
 	dey
 	bpl ed3
-	jsr gd_trim
-	ldx #4
-	jsr gd_fcol
+	jsr encol0
 	jsr messoff	; hide message
 	lda #$40
 	sta bigbox
@@ -616,7 +666,14 @@ sl0:	ldy plast		; get chosen color
 	sty sc_chgcol	; set for display output
 	lda c64pal,y
 	tay
-	txa		; now decide which nibble
+	lda emode		; Hires?
+	beq slh		; (yes)
+
+	tya		; no, Multi, write double pixel
+	ldy #0
+	beq slm
+
+slh:	txa		; yes, now decide which nibble
 	and #1
 	bne sl1
 	tya		; left nibble (or pixel)
@@ -626,6 +683,7 @@ sl0:	ldy plast		; get chosen color
 	lda (screenpnt),y
 	and #$0f
 	jmp sl2
+
 sl1:	tya		; right nibble (or pixel)
 	and #$0f
 	sta cnt
@@ -633,18 +691,21 @@ sl1:	tya		; right nibble (or pixel)
 	lda (screenpnt),y
 	and #$f0
 sl2:	ora cnt		; set new color to 4Bit
-	sta (screenpnt),y
+
+slm:	sta (screenpnt),y	; encolor pixel
 	lda zeile		; set new color to display
 	sta sc_zl
 	lda spalte
-	sta sc_sp
-	lda #1
-	sta sc_br
-	sta sc_ho
-	sta gr_redisp
-	ldx #4
-	jsr gd_fcol
+	ldy emode		; Hires?
+	beq +
 
+	and #$fe		; no, Multi: force even
+	pha
+	jsr encdispl	; show left pixel
+	pla
+	clc
+	adc #1		; show right pixel
++	jsr encdispl
 sl3:	pla		; restore indents
 	sta horizont
 	pla
@@ -654,6 +715,13 @@ sl3:	pla		; restore indents
 	pla
 	sta screenpnt
 	jmp ed0		; edit loop
+
+encdispl	sta sc_sp
+	lda #1
+	sta sc_br
+	sta sc_ho
+	sta gr_redisp
+	jmp encolor
 
 ; ------------------------------------------ Move by key
 
@@ -731,8 +799,12 @@ km52:	cpx #42		; "l" for Bottom Left
 	jsr evbotleft
 	bcc km6
 km7:	cpx #49		; "*" for Center
-	bne km8
+	bne km71
 	jsr evcenter
+	bcc km6
+km71:	cpx #36		; "m" for Mode
+	bne km8
+	jsr keymode
 	bcc km6
 km8:	cpx #38 		; "o" for Overview
 	bne kmc
@@ -803,8 +875,7 @@ ms0:	sta sc_chgcol
 	inx   		; one line high
 	stx sc_ho
 	stx sc_loop
-	ldx #4
-	jmp gd_fcol
+	bne encolor
 
 ; ------------------------------------------ hilite Edit gadget
 
@@ -815,8 +886,8 @@ ed2:	lda editgad,y
 	sta sc_zl,y
 	dey
 	bpl ed2
-	jsr gd_trim
-	ldx #4
+encol0:	jsr gd_trim
+encolor:	ldx #4
 	jmp gd_fcol
 
 ; ------------------------------------------ Display 4 Bit 8x enlarged
@@ -859,8 +930,7 @@ dp0:	lda (sc_texttab),y	; get pixel (left)
 	tax
 	lda gr_basepal,x	; get color of pixel
 	sta sc_chgcol
-	ldx #4		; colorize character on screen
-	jsr gd_fcol
+	jsr encolor	; colorize character on screen
 	inc sc_sp		; next column
 	inc spi
 	pla		; get pixel (right)
@@ -868,8 +938,7 @@ dp0:	lda (sc_texttab),y	; get pixel (left)
 	tax
 	lda gr_basepal,x	; get color of pixel
 	sta sc_chgcol
-	ldx #4		; colorize as well
-	jsr gd_fcol
+	jsr encolor	; colorize as well
 	inc sc_sp		; next column
 	inc spi
 	inc sc_texttab	; next two pixels
@@ -1343,12 +1412,12 @@ scv0:	stx $b3
 ; ------------------------------------------ 
 
 setlast:	sty gr_bkcol
-	ldy #<(cstart)
+	ldy #<cstart
 	sty $20
 	sta $21
-	lda #<(500)
+	lda #<500
 	sta $a8
-	lda #>(500)
+	lda #>500
 	sta $a9
 	ldy #0
 	rts
@@ -1610,11 +1679,11 @@ hh3:	sta mac
 pixlst:	!by $93		; Clear screen
 	!by 0,0,32,24	; Edit area
 bigbox:	!by $40 		; active
-	!wo (evedit)
+	!wo evedit
 
 movgad:	!by 3,33,6,6	; mover
 	!by $d0
-	!wo (evmove)
+	!wo evmove
 	!by 224,30,225
 	!scr "H@"
 
@@ -1622,10 +1691,10 @@ palgad:	!by 9,33,6,6	; chooser
 	!by $40
 	!wo evgetcol
 
-pickgad:	!by 15,33,6,4
-	!by $a0 		; show chosen color in here
-	!wo 0
-	!by 160,160,160,160,0
+emodegad:	!by 16,33,6,3
+	!by $c0 		; show edit mode
+	!wo evemode
+emodetx	!by 32,228,229,32,0	; Hires: Single Dot, Multi: Double Dot
 
 editgad:	!by 19,33,6,3
 	!by $c0		; Edit
@@ -1657,9 +1726,6 @@ rowtx	!scr " 0@"
 	!by $c0,6,33,4
 	!scr "WQLB@"
 	
-	!by $c0,16,33,4	; extra texts (picked)
-	!by 160,160,160,160,0
-
 	!by $c0,23,255,26	; Message: Edit Mode
 	!scr "STOP exits from Edit Mode.@"
 	!by $80
@@ -1691,8 +1757,8 @@ rotf:	jsr hv1		; get block address
 	lda #24
 	sta ymk
 	jsr adup
-	jsr f3		; buffer to screen
-	rts
+	jmp f3		; buffer to screen
+
 ; ------------------------------------------ 
 cloop:	clc		; work horse for entire block
 	ldx #0		; set registers at zero
@@ -1753,12 +1819,16 @@ ad1:	clc
 
 ; ------------------------------------------ 
 
-gdzl1	!by 4
-gdzl2	!by 10
 gdsp	!by 34
 gdbr	!by 38
+gdzl1	!by 4
+gdzl2	!by 10
+gdzl3	!by 17
+gdzl4	!by 20
 gdho1	!by 8
 gdho2	!by 14
+gdho3	!by 18
+gdho4	!by 21
 
 t1:	!by 0
 ymk:	!by 0
@@ -1768,10 +1838,15 @@ stow:	!by 0,0,0,0,0,0,0,0
 stoy:	!by 0,0,0,0,0,0,0,0
 	!by 0,0,0,0,0,0,0,0
 
+wemode	!by 228,229,223,223
+char:	!by $7e,$ff,$ff,$ff,$ff,$ff,$ff,$7e
+
 newnavs	!by $00,$00,$00,$00,$0e,$08,$0a,$01
 	!by $00,$00,$00,$00,$70,$10,$50,$80
 	!by $01,$0a,$08,$0e,$00,$00,$00,$00
 	!by $80,$50,$10,$70,$00,$00,$00,$00
+	!by $07,$0f,$0f,$0f,$0f,$0f,$0f,$07
+	!by $e0,$f0,$f0,$f0,$f0,$f0,$f0,$e0
 
 ; ------------------------------------------ 
 
