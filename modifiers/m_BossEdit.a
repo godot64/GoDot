@@ -11,6 +11,7 @@
 ;
 ;     1.00, 01.11.19, first release
 ;     1.01, 14.08.20, changed some captions
+;     1.02, 06.01.21, added editing with double pixels
 ;
 ; --------------------------------------
 
@@ -80,8 +81,8 @@
 	!wo modend
 	!wo 0
 	!tx "Edit GoDotBosses"
-	!tx "1.01"
-	!tx "14.08.20"
+	!tx "1.02"
+	!tx "06.01.21"
 	!tx "A.Dettke        "
 
 ; -------------------------------------- Main
@@ -166,27 +167,19 @@ ed0	inx
 	lda #>lcnts1
 	sta renderline+1
 	lda #9		; reset maxheight
-	ldy #5
 	bne ed4
 ed1	lda #<lcnts2
 	sta renderline
 	lda #>lcnts2
 	sta renderline+1
 	lda #10
-	ldy #2
 ed4	sta maxheight
 
 chgfield	lda olap		; resize editor field
 	bne +
 	lda #$cb
-	ldx #23
-	bne ++
+	!by $2c		; ### 1.02
 +	lda #$db
-	ldx #21	
-++	stx field+3
-	dex
-	dex
-	stx earea+3
 	sta olapgad+4
 	jsr showreq
 	lda curnumber
@@ -407,7 +400,14 @@ evpixed	jsr sprdivmod	; compute row and column of sprite
 +	ldy plast		; get chosen color
 	lda c64pal,y
 	tay
-	txa		; now decide which nibble (.x)
+
+	lda gr_cmode	; ### 1.02 --
+	beq slh
+	tya
+	ldy #0
+	beq slm		; ### --
+
+slh	txa		; now decide which nibble (.x)
 	and #1
 	bne +
 	tya		; left nibble (or pixel)
@@ -424,7 +424,8 @@ evpixed	jsr sprdivmod	; compute row and column of sprite
 	lda (currspr),y
 	and #$f0
 sl2:	ora temp		; set new color to 4Bit
-	sta (currspr),y
+
+slm	sta (currspr),y
 	lda #1
 	sta gr_redisp 	; set re-render flag
 currout	lda curnumber	; and display
@@ -527,11 +528,11 @@ txtout	jsr settab
 shwedfd	pha		; save current double pixel
 	sty temp
 
-	ldx olap
-	beq +
-	ldx farea
-	cpx #22
-	bcs skp2
+;	ldx olap
+;	beq +
+;	ldx farea
+;	cpx #22
+;	bcs skp2
 
 +	lsr
 	lsr
