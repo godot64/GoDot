@@ -528,12 +528,6 @@ txtout	jsr settab
 shwedfd	pha		; save current double pixel
 	sty temp
 
-;	ldx olap
-;	beq +
-;	ldx farea
-;	cpx #22
-;	bcs skp2
-
 +	lsr
 	lsr
 	lsr
