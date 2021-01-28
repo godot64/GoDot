@@ -14,6 +14,8 @@
 ;                  when accessing diskdrives
 ;  1.08, 27.01.21: added: show names of pattern and
 ;                  propagate them to system, bugfixes
+;  1.09, 28.01.21: added: publish name after SAVE,
+;                  bugfix when leaving modifier via Cancel
 ;
 ; ----------------------------------------- 
 
@@ -25,7 +27,7 @@
 	bitcnt		= $31
 
 	dithertype	= $1e30
-	dtpat		= $f996	; take care!!!
+	dtpat		= $f996	; take care on changes there!!!
 
 ; ----------------------------------------- Header
 
@@ -36,8 +38,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "PatternEditor   "
-	!tx "1.08"
-	!tx "27.01.21"
+	!tx "1.09"
+	!tx "28.01.21"
 	!tx "A. Dettke       "
 
 ; ----------------------------------------- Main
@@ -50,6 +52,7 @@ start	jsr gd_savescvek	; save vector to previous screenlist
 	jsr getpat	; retrieve custom pattern
 	jsr getpatnme
 	jsr getundo	; save current pattern for undo
+	jsr hiliteoff
 
 sta0	lda #0		; entry point after disk access
 	sta mode
@@ -86,7 +89,15 @@ gst0	lda syspat,x
 	dex
 	bpl -
 	stx changed	; and set flag
-+	clc
+	jsr hiliteon
+	ldx #<hlaccept
+	ldy #>hlaccept
+	jsr gettab
+	lda sc_normtext
+	sta sc_chgcol
+	ldx #4
+	jsr gd_fcol
+	clc
 	rts
 
 ; ----------------------------------------- Get Custom Pattern
@@ -126,10 +137,7 @@ gpt1	lda gr_pattern,x
 ; Button: "Cancel"
 
 sevcancel	ldx #127		; re-set custom pattern to original state
-scn0	lda patold,x
-	sta gr_pattern,x
-	dex
-	bpl scn0
+	jsr sevpundo
 	lda #0		; do not re-render graphics
 	sta changed
 	!by $2c
@@ -139,6 +147,7 @@ scn0	lda patold,x
 
 sevuse	lda #1		; do re-render graphics on display
 	sta gr_redisp
+	jsr hiliteoff
 	lda changed	; has pattern changed?
 	beq +
 	ldx #11		; yes, activate new pattern name
@@ -696,7 +705,16 @@ ld6	lda status
 lderr	cpy #128
 	bne +
 
-	ldy #0		; publish filename
+	jsr publishnm
+
++	jsr gd_xclose
+	jsr gd_spron
+	sec
+	rts
+
+; ----------------------------------------- Publish Name
+
+publishnm	ldy #0		; publish filename
 -	lda ls_nambuf+4,y
 	sta sc_movetab,y
 	iny
@@ -717,16 +735,19 @@ lderr	cpy #128
 	lsr
 	tax
 -	lda sc_movetab,y
-	beq +
+	beq hiliteon
 	sta patname,x
 	inx
 	iny
 	cpy ls_flen2
 	bcc -
 
-+	jsr gd_xclose
-	jsr gd_spron
-	sec
+; ----------------------------------------- Set Hilite
+
+hiliteon	lda #$c0
+	!by $2c
+hiliteoff	lda #$d0
+	sta hlaccept+4
 	rts
 
 ; ----------------------------------------- Read Byte from Disk
@@ -753,6 +774,7 @@ wp1	lda (ls_adrmisc),y	; 128 Bytes Pattern-Data
 	iny
 	cpy #128
 	bne wp1
+	jsr publishnm	; publish name to system
 wp0	jsr clrch
 	lda #12
 	jsr close
@@ -935,15 +957,7 @@ patpick	!by 1,3,34,5,$da
 
 	!by 16,28,8,3,$d0
 	!wo sevsyspat
-	!scr "SysPat@"
-
-	!by 19,28,8,3,$d0
-	!wo sevuse
-	!scr "Accept@"
-
-	!by 22,28,8,3,$dc
-	!wo sevcancel
-	!scr "Cancel@"
+	!scr "SysPat",0
 
 	!by 16,4,10,3,$d0
 	!wo sevok
@@ -1009,7 +1023,15 @@ tall	!by 94
 
 	!by 22,4,10,3,$dc
 	!wo sevpundo
-	!scr " Oh no! @"
+	!scr " Oh no! ",0
+
+hlaccept	!by 19,28,8,3,$d0	; $dc (hilite), $cc (no hilite)
+	!wo sevuse
+	!scr "Accept@"
+
+	!by 22,28,8,3,$dc
+	!wo sevcancel
+	!scr "Cancel@"
 
 	!by $c0,2,3,32
 	!by $e0,$e0,$e1,$e1,$e2,$e2,$e3,$e3	; Pattern, 2nd row
