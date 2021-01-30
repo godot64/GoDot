@@ -18,6 +18,7 @@
 ;    1.06, 28.04.20, bugfix: include real REUs, too
 ;    1.07, 26.10.20, slight GUI changes
 ;    2.00, 04.11.20, added: install of dev.REU at runtime
+;    2.01, 30.01.21, added: set ReloadOnBoot-flag (REUClear)
 ;
 ; ------------------------------------------------------------ 
 
@@ -35,7 +36,7 @@
 	bankcval		= $3f
 	curbank		= $40
 	
-
+	reuclear		= 18	; constant: position of REUClear
 	status		= $90
 	swappfox		= $1714	; swap slots of 4KB
 	func3		= $186f	; !! self modifying the kernel !!
@@ -574,7 +575,7 @@ rs4	jsr gd_swapd
 ; ----------------------------------------------- Check for more RAM
 
 newsize	jsr isreu		; Check RAM, kehrt bei fail nicht zurück
-	bne tr7		; ### 1.04/1.05, returns RAMFLAG in .x
+	bne tr77		; ### 1.04/1.05, returns RAMFLAG in .x
 	rts
 
 tr3	lda banks,x	; check if more RAM available: next bank
@@ -635,6 +636,16 @@ stashit	sta sc_merk
 	ldy #$90
 	jmp setreu0
 
+tr77	lda #18		; first: retrieve REUClear
+	sta werte0+2
+	ldy #$91		; fetch REUClear
+	jsr setreu0
+	ldx sc_merk
+	jsr swc0		; and show
+	lda #1
+	sta werte0+2
+	bne tr7
+
 ; ----------------------------------------------- Set REU Record
 
 setreu0	ldx #8
@@ -652,7 +663,7 @@ setsize	jsr isreu		; Check RAM, kehrt bei fail nicht zurück
 	ldx ramflag	; get RAM size value
 	lda banks,x	; get # of banks available
 	pha
-	ldx #(evchdel-ss0-1); transfer routine to Global...
+	ldx #(evchdel-ss1-1); transfer routine to Global...
 ss0	lda ss1,x
 	sta sy_global,x
 	dex
@@ -836,9 +847,39 @@ evc3	jsr settab
 	ldy #6
 	jmp gd_xtxout1	; returns .c=0
 
+; ----------------------------------------------- Event: Switch REUClear
+
+evswclear	ldx reuclflg	; get current value of REUClear
+	beq +
+	ldx #$ff
++	inx
+swc0	stx reuclflg	; store new one
+	beq swc1
+	ldx #2
+	!by $2c
+swc1	ldx #5
+	ldy #2
+swc2	lda yesno,x
+	sta cleartx,y
+	sta cleartx2,y
+	dex
+	dey
+	bpl swc2
+	ldy #6		; and show
+	jsr evc3
+
+	lda #18		; then update REUClear in REU
+	sta werte0+2
+	lda reuclflg
+	jsr stashit	; stash new value
+	lda #1		; re-init record
+	sta werte0+2
+	clc
+	rts
+
 ; ----------------------------------------------- 
 
-tabigad	!wo choosegad,ramgad,delgad
+tabigad	!wo choosegad,ramgad,delgad,cleargad	; 0,2,4,6
 
 settab	lda #<tabigad
 	sta sc_texttab
@@ -915,6 +956,7 @@ ramind	!by 3,7,11,15,19,23,27,31,35,39,43,47,47
 list	!wo 0
 last	!wo 0
 success	!by 0
+reuclflg	!by 32
 swmt	!by $00,>devarea,$1c,$b2,$00,$00,$10	; ### jetzt: 4096 Bytes
 swold	!by 0,0,0,0,0,0,0
 hex	!tx "0123456789abcdef"
@@ -929,10 +971,10 @@ message	!fill 32,32
 
 ; --------------------------------------- Default RAM Entries
 
-rentries	!byte 0			; REU-Flag ($00)
+rentries	!byte 0			; REU-Flag (immer $00)
 	!byte $1c,$c2,$00		; entry 0: 
 	!pet "RM.Handler    "	;    RAM-Handler-Header
-bbu	!byte 32			;    (darin: Anim-Counter und REUClear-Flag bbu)
+bbu	!byte 32			;    (darin: Anim-Counter und REUClear-Flag "bbu")
 	!byte 0,$00,$10		; entry 1:
 	!pet "Undo 4Bit       "	;    Undo 4Bit
 	!byte 0,$00,$8d		; entry 2:
@@ -948,16 +990,19 @@ bbu	!byte 32			;    (darin: Anim-Counter und REUClear-Flag bbu)
 reulst	!by 0
 	!by 1,11,18,23,$81,0,0
 	!scr "REU Tool@"
-	!by 3,12,16,12,$b0,0,0
+cleargad	!by 9,23,5,3,$d0
+	!wo evswclear
+cleartx	!scr " no",0
+	!by 3,12,16,12,$b0,0,0	; Statusfenster
 	!scr "Status@"
-	!by 15,12,9,3,$c0
+	!by 15,12,9,3,$d0
 	!wo evdelete
 	!scr "Delete!@"
 delgad	!by 15,21,7,3,$c0
 	!wo evchdel
-	!by 223				; List-Kringel
+	!by 223			; Listbox-Kringel
 deltx	!scr"last@"
-	!by 18,12,9,3,$c0
+	!by 18,12,9,3,$d0
 	!wo evinst
 	!scr "Install@"
 choosegad	!by 18,21,7,3,$c0
@@ -979,10 +1024,15 @@ offstx	!scr "0000@"
 	!by $c0,7,12,14
 	!scr "Avail :$"
 availtx	!scr "000000@"
-	!by $c0,9,12,14
+	!by $c0,9,12,11
+	!scr "InitOnBoot:",0
+	!by $c0
+	!by 9,23,3
+cleartx2	!scr " no",0
+	!by $c0,10,12,14
 	!scr "Undo 4Bit :"
 un4tx	!scr " no@"
-	!by $c0,10,12,14
+	!by $c0,11,12,14
 	!scr "Undo Rend :"
 unrtx	!scr " no@"
 	!by $c0,12,12,14
