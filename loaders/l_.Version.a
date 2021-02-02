@@ -6,10 +6,11 @@
 ; ------------------------------------------------ 
 ;
 ; ldr..Version
-;   System Module to show the version numbers of svr, mod, and upmem
+;   System Module to show the version numbers of mod and upmem
 ;
 ; 1.00, 21.08.18, first release
 ; 1.01, 22.08.18, added SVR
+; 1.02, 02.02.21, restrict to the essentials
 ;
 ; ------------------------------------------------ 
 
@@ -28,9 +29,9 @@ header	jmp start
 	!by 0
 	!wo modend
 	!wo 0
-	!tx "Mod, svr, upmem "
-	!tx "1.01"
-	!tx "22.08.18"
+	!tx "Modifier/UpMem  "
+	!tx "1.02"
+	!tx "02.02.21"
 	!tx "A. Dettke       "
 
 ; ------------------------------------------------ Main
@@ -39,6 +40,7 @@ start	ldx #<verlst
 	ldy #>verlst
 	jsr gd_screen
 	jsr show
+	jsr hiliterev
 	jsr gd_eloop
 
 ; ------------------------------------------------ Event: Cancel
@@ -53,21 +55,11 @@ show	sei
 	lda #$30		; C64 auf RAM
 	sta pport
 
-	lda modul+$1000	; mod
-	cmp #$18		; Code für CLC? ( = kein mod)
-	beq sh2		; ja, skip
-
-	lda #6		; an Zeile 6
-	sta zeile
-	lda #>(modul+$1000)	; Hibyte der Quelladresse
-	sta hivec
-	jsr out		; Record ausgeben
-
-sh2	lda modul+$2000	; mod
+	lda modul+$2000	; mod
 	cmp #$18		; Code für CLC? ( = kein mod)
 	beq sh0		; ja, skip
 
-	lda #12		; an Zeile 12
+	lda #8		; an Zeile 8
 	sta zeile
 	lda #>(modul+$2000)	; Hibyte der Quelladresse
 	sta hivec
@@ -77,7 +69,7 @@ sh0	lda modul+$3000	; upmem
 	cmp #$18		; Code für CLC? ( = kein upmem)
 	beq sh1		; ja, skip
 
-	lda #18		; an Zeile 18
+	lda #14		; an Zeile 14
 	sta zeile
 	lda #>(modul+$3000)	; Hibyte der Quelladresse
 	sta hivec
@@ -106,8 +98,8 @@ tr0	lda (sc_texttab),y
 
 ; ------------------------------------------------ Set Position
 
-set	lda #15		; Spalte 15
-	sta sc_sp
+set	lda #14		; Spalte 14
+set1	sta sc_sp
 	lda zeile		; Zeile variabel
 	sta sc_zl
 	rts 
@@ -115,14 +107,14 @@ set	lda #15		; Spalte 15
 ; ------------------------------------------------ Output one Record
 
 out	jsr set		; Position setzen
-	ldx #10		; Index auf "name"
+	ldx #10		; Index auf "module"/"upmem"
 	lda hivec
 	ldy #16		; 16 Zeichen
 	jsr trans		; in Requester ausgeben
 
 	inc zeile		; darunter:
 	jsr set		; Position setzen
-	ldx #26		; Index auf "version"
+	ldx #26		; Index auf "rev"
 	lda hivec
 	ldy #4		; 4 Zeichen
 	jsr trans		; ausgeben
@@ -144,7 +136,7 @@ out	jsr set		; Position setzen
 ; ------------------------------------------------ Colorize
 
 color	ldx #2		; Index auf sc_normtext
-	lda #6		; an 6,15
+	lda #8		; an 8,14
 	sta zeile
 	jsr set		; Position setzen
 	lda #16		; 16 breit, 4 hoch
@@ -153,60 +145,58 @@ color	ldx #2		; Index auf sc_normtext
 	sta sc_ho
 	jsr gd_fcol	; einfärben
 
-	ldx #2		; dito an 12,15
-	lda #12
+	ldx #2		; dito an 14,14
+	lda #14
 	sta sc_zl
-	jsr gd_fcol
+	jmp gd_fcol
 
-	ldx #2		; dito an 18,15
-	lda #18
+; ------------------------------------------------ Hilite Rev
+
+hiliterev	lda #9		; set hilite position
+	ldx #14
+	ldy #4
+	jsr gd_setpar
+	jsr hl0
+	lda #15
 	sta sc_zl
+	
+hl0	ldx #1		; and hilite
 	jmp gd_fcol
 
 ; ------------------------------------------------ Screenlist
 
 verlst	!by 0
-	!by 2,7,25,21,$91
+	!by 4,6,25,15,$91
 	!wo 0
-	!scr "Version (w/o LDR)@"
-	!by 2,7,3,3,$c4
+	!scr "Version",0
+	!by 4,6,3,3,$c4
 	!wo evcan
 	!by 160,0
-	!by 2,29,3,3,$c6
+	!by 4,28,3,3,$c6
 	!wo evcan
 	!by 160,0
 
-	!by 5,14,18,6,$0f		; Boxes
+	!by 7,13,18,6,$0f		; Boxes
 	!wo 0
-	!by 11,14,18,6,$0f
-	!wo 0
-	!by 17,14,18,6,$0d
+	!by 13,13,18,6,$0d
 	!wo 0
 
-	!by $c0,5,8,6
-	!scr "Saver@"
-	!by $c0,6,10,3
-	!scr "Rev@"
-	!by $c0,7,9,4
-	!scr "Date@"
-	!by $c0,8,7,6
-	!scr "Author@"
-	!by $c0,11,7,6
-	!scr "Module@"
-	!by $c0,12,10,3
-	!scr "Rev@"
-	!by $c0,13,9,4
-	!scr "Date@"
-	!by $c0,14,7,6
-	!scr "Author@"
-	!by $c0,17,8,5
-	!scr "UpMem@"
-	!by $c0,18,10,3
-	!scr "Rev@"
-	!by $c0,19,9,4
-	!scr "Date@"
-	!by $c0,20,7,6
-	!scr "Author@"
+	!by $c0,7,6,6
+	!scr "Module",0
+	!by $c0,8,9,3
+	!scr "Rev",0
+	!by $c0,9,8,4
+	!scr "Date",0
+	!by $c0,10,6,6
+	!scr "Author",0
+	!by $c0,13,7,5
+	!scr "UpMem",0
+	!by $c0,14,9,3
+	!scr "Rev",0
+	!by $c0,15,8,4
+	!scr "Date",0
+	!by $c0,16,6,6
+	!scr "Author",0
 	!by $80
 
 ; ------------------------------------------------ 
