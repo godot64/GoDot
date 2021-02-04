@@ -36,6 +36,7 @@
 ;   1.43, 24.01.20: reposition mouse after "w"
 ;   1.44, 23.12.20: bugfix, mind the limits when positioning by mouse click
 ;   1.45, 03.01.21: added ability to edit in Multicolor (using double pixels)
+;   1.46, 04.02.21: added automatic recognition of gmode on startup
 ;
 ; ------------------------------------------------------------ 
 
@@ -93,14 +94,15 @@
 	cstart 		= $ee0b
 
 ; ------------------------------------------ Header
+
 	jmp start
 	!by $20
 	!by $00,$00
-	!wo (modend)
+	!wo modend
 	!wo 0
 	!pet "Edit 4bit pixels"
-	!pet "1.45"
-	!pet "03.01.21"
+	!pet "1.46"
+	!pet "04.02.21"
 	!pet "AD/ H.McMenamin "
 
 ; ------------------------------------------ Main
@@ -124,8 +126,14 @@ start:	jsr makech	; define new character
 	sbc sy_soffx
 	sta hotx
 	jsr initchooser	; set colors in color chooser
+	jsr sprbox	; show grid sprites
 	jsr display	; show 4Bit enlarged
-	jsr sprbox	; show spritebox
+	ldx gr_cmode	; active graphics mode?	### 1.46 --
+	beq +
+	ldx #$ff
++	inx
+	stx emode		; set for init and
+	jsr initmode	; show in gadget		### --
 	jmp gd_eloop	; wait... (what else within GoDot?)
 
 ; ------------------------------------------ 
@@ -242,7 +250,10 @@ initpal:	lda c64pal,x	; get native pal entry (is color)
 
 ; ------------------------------------------ Toggle Edit Mode
 
-keymode	lda #17		; invoked from keyboard:
+keymode	jsr keymode	; fake click in gadget
+	jmp edx3		; and then re-enter edit loop
+
+initmode	lda #17		; invoked from keyboard:
 	sta zeile		; fake row
 	lda #34
 	sta spalte	; fake column of gadget
@@ -253,8 +264,7 @@ keymode	lda #17		; invoked from keyboard:
 	ldx #0
 	ldy #0
 	jsr setevent	; search Mode event in screenlist
-	jsr evemode	; and execute it
-	jmp edx3		; and then re-enter edit loop
+	jmp evemode	; and execute it
 
 ; ------------------------------------------ 
 
@@ -467,7 +477,7 @@ sprbox:	lda #$ff
 
 ; ------------------------------------------ Data
 
-tab:	!by 0,8,16,24		; horizontal tab positions
+tab:	!by 0,8,16,24	; horizontal tab positions
 tabspr:	!by 0,64,128,192
 cols:	!by 0,0,0,0,0
 grclr:	!by 1
