@@ -9,6 +9,7 @@
 ; -> 18 convolution modifiers in one module
 ;
 ; 1.00, 21.08.18, first release
+; 1.01, 04.02.21, replaced RemIsoPixels by Negative
 ;
 ; ------------------------------------------------ 
 
@@ -60,8 +61,8 @@
 	!wo modend
 	!wo 0
 	!pet "Convolve Filters"
-	!pet "1.00"
-	!pet "20.08.18"
+	!pet "1.01"
+	!pet "04.02.21"
 	!pet "A.Dettke (+WK)  "
 
 ; ------------------------------------------------ Main
@@ -218,7 +219,7 @@ adinc	dec adcnt
 	bne +
 	inc spr2y
 	inc spr2y+2
-	lda #5
+isa1	lda #5
 	sta adcnt
 +	rts 
 
@@ -236,7 +237,9 @@ abschl	lda spren		; Wanderbalken aus
 
 ; ------------------------------------------------ Init Activity
 
-init_sa	ldy #60
+init_sa	lda #5		; 5 x 40 = 200
+	sta adcnt
+	ldy #60
 	lda #0
 -	sta spr255+3,y	; Spriteblock 255 vorbereiten
 	dey 
@@ -267,8 +270,6 @@ init_sa	ldy #60
 	lda spren
 	ora #$0c		; Activity-Balken aktivieren
 	sta spren
-	lda #5		; 5 x 40 = 200
-	sta adcnt
 	rts
 
 ; ----------------------------------------- Event: Show Preview
@@ -302,9 +303,6 @@ xhatch	ldx #<evxhatch
 	bne +
 gauss	ldx #<evgauss
 	ldy #>evgauss
-	bne +
-rmisopx	ldx #<evrmisopx
-	ldy #>evrmisopx
 	bne +
 random	ldx #<evrandom
 	ldy #>evrandom
@@ -1115,54 +1113,55 @@ evsharp3	ldy #0
 	bne -
 	rts 
 
-; ------------------------------------------------ RemIsoPixels
+; ----------------------------------------- Event: Nagative
 
-evrmisopx	ldy #0
+evnegatv	lda #3
+	sta isa1+1
+	jsr init_sa
 
--	lda buf_o-1,y
-	cmp buf_o,y
-	bne +
-	cmp buf_o+1,y
-	bne +
-	cmp buf_m-1,y
-	bne +
-	cmp buf_m+1,y
-	bne +
-	cmp buf_u-1,y
-	bne +
-	cmp buf_u,y
-	bne +
-	cmp buf_u+1,y
-	bne +
-	sta buf_r,y
-	bpl ++
-+	lda buf_m,y
-	sta buf_r,y
+	lda #<sy_4bit	; start at 4Bit
+	ldy #>sy_4bit
+	sta dst
+	sty dst+1
 
-++	lda buf_o+160-1,y
-	cmp buf_o+160,y
-	bne +
-	cmp buf_o+160+1,y
-	bne +
-	cmp buf_m+160-1,y
-	bne +
-	cmp buf_m+160+1,y
-	bne +
-	cmp buf_u+160-1,y
-	bne +
-	cmp buf_u+160,y
-	bne +
-	cmp buf_u+160+1,y
-	bne +
-	sta buf_r+160,y
-	bpl ++
-+	lda buf_m+160,y
-	sta buf_r+160,y
+	ldy #0		; perform:
+-	sty mrky
+	lda (dst),y	; get double pixel
+	tax
+	and #15
+	txa
+	lsr		; treat left one
+	lsr
+	lsr
+	lsr
+	tay
+	lda palette,y
+	and #$f0
+	sta mrkx		; save result
 
-++	iny 
-	cpy #160
+	txa		; re-get double pixel
+	and #15		; treat right one
+	tay
+	lda palette,y
+	and #15
+	ora mrkx		; join with left
+	ldy mrky
+	sta (dst),y	; write back new double pixel
+	iny 
 	bne -
-	rts 
+
+	jsr adinc		; activity
+	inc dst+1
+	lda dst+1
+	cmp #>sy_bigbuffer	; until end of 4Bit
+	bne -
+
+	lda #5
+	sta isa1+1
+	jmp abschl	; fertig
+
+palette	!by $ff,$ee,$dd,$cc,$bb,$aa,$99,$88
+	!by $77,$66,$55,$44,$33,$22,$11,$00
 
 ; ------------------------------------------------ Cartoon
 
@@ -1549,8 +1548,8 @@ filtlist	!by 0
 	!wo median
 	!scr "Median @"
 	!by 13,2,9,3,$c8
-	!wo rmisopx
-	!scr "RmIsoPx@"
+	!wo evnegatv
+	!scr "Negativ@"
 	!by 16,2,9,3,$c8
 	!wo watrcol
 	!scr "WatrCol@"
