@@ -16,6 +16,7 @@
 ;                  propagate them to system, bugfixes
 ;  1.09, 28.01.21: added: publish name after SAVE,
 ;                  bugfix when leaving modifier via Cancel
+;  1.10, 06.02.21: bugfix: only publish new name if selected
 ;
 ; ----------------------------------------- 
 
@@ -25,6 +26,7 @@
 
 	cnter		= $30
 	bitcnt		= $31
+	dselect		= $32
 
 	dithertype	= $1e30
 	dtpat		= $f996	; take care on changes there!!!
@@ -38,8 +40,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "PatternEditor   "
-	!tx "1.09"
-	!tx "28.01.21"
+	!tx "1.10"
+	!tx "06.02.21"
 	!tx "A. Dettke       "
 
 ; ----------------------------------------- Main
@@ -149,14 +151,25 @@ sevuse	lda #1		; do re-render graphics on display
 	sta gr_redisp
 	jsr hiliteoff
 	lda changed	; has pattern changed?
-	beq +
+	beq ++
+
+	lda gr_dither	; is current dither "Pattern"?  ### 1.10
+	cmp #2
+	bne +
+	lda #$80		; set flag ($80 if yes)
+	!by $2c
++	lda #0
+	sta dselect
+
 	ldx #11		; yes, activate new pattern name
 -	lda patname,x
 	sta dtpat,x
-	sta dithertype,x
-	dex
+	bit dselect
+	bpl +
+	sta dithertype,x	; in main only if selected
++	dex
 	bpl -
-+	sec		; leave module
+++	sec		; leave module
 	rts
 
 ; ----------------------------------------- Event: Pick a Pattern
