@@ -37,6 +37,7 @@
 ;   1.44, 23.12.20: bugfix, mind the limits when positioning by mouse click
 ;   1.45, 03.01.21: added ability to edit in Multicolor (using double pixels)
 ;   1.46, 04.02.21: added automatic recognition of gmode on startup
+;   1.47, 07.02.21: bugfix: endless recursion when changing mode from keyboard
 ;
 ; ------------------------------------------------------------ 
 
@@ -250,7 +251,7 @@ initpal:	lda c64pal,x	; get native pal entry (is color)
 
 ; ------------------------------------------ Toggle Edit Mode
 
-keymode	jsr keymode	; fake click in gadget
+keymode	jsr initmode	; fake click in gadget   ### 1.47
 	jmp edx3		; and then re-enter edit loop
 
 initmode	lda #17		; invoked from keyboard:
