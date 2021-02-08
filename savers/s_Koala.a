@@ -1,6 +1,8 @@
 
-!src "godotlib.lib"
-*= $c000
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
 
 ; -------------------------------------------------- 
 ;
@@ -12,6 +14,8 @@
 ;
 ; 1.01: 07.02.98, added compress routines
 ; 1.02: 14.06.01, bug: "Cancel Save" didn't work, fixed
+; 1.03: 08.02.21, rewrote code for better convenience
+;                 now .koa suffix can be chosen
 ;
 ; -------------------------------------------------- 
 
@@ -39,8 +43,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "Koala Multicolor"
-	!pet "1.02"
-	!pet "14.06.01"
+	!pet "1.03"
+	!pet "08.02.21"
 	!pet "A.Dettke        "
 
 ; ----------------------------------------- Main
@@ -52,64 +56,25 @@ start	ldx gr_nr
 
 ; ----------------------------------------- Saver Koala
 
-st0	jsr setmode	; set (compress or standard) mode
-	lda used		; was cancelled?
-	cmp #3
-	bne st11
-	jsr canc		; yes, leave
-	bcs st12
+st0	jsr makechr	; build list box arrow
 
-st11	jsr gd_sproff
-	sta cnt		; .a=0
-	lda gd_modswitch
+st11	lda gd_modswitch
 	pha
+
 	lda ls_flen	; no filename?
-	beq st1		; yes, leave
+	sta wflen
+	beq st01		; yes, leave
 
-	ldx mode
-	bmi st4
-	clc		; contruct correct koala file name
-	adc #5
-	cmp #16
-	bcc st3
-	lda #15
-	bne st3
-st4	clc
-	adc #2
-	cmp #17
-	bcc st3
-	lda #16
-st3	sta wflen
+	ldx #<koalalst
+	ldy #>koalalst
+	jsr gd_xmloop
 
-	lda #1		; init save pic
-	sta adcnt
-	lda #50
-	sta cntwert
-	jsr getpic	; gather data
-
-	jsr wopen
-	bne st2
-	jsr getname
-	ldx #12
-	jsr ckout
-	jsr gd_clrms
-	ldx #0
-	jsr tcopy
-
-	jsr write		; save pic
-
-st2	jsr clrch
-	lda #12
-	jsr close
-	jsr err9
-	bne st1
-	jsr setname	; set image information if successful
-
-st1	pla
+st01	pla		; finished
 	sta gd_modswitch
-st12	jsr gd_spron
 
-	sec
+; ----------------------------------------- Event: Leave saver
+
+evcancel	sec
 	rts
 
 ; --------------------------- 
@@ -123,25 +88,58 @@ st12	jsr gd_spron
 pw	!pet "w,p,"
 drinit	!pet "i0"
 wflen	!by 0
+suftx	!pet "aok."
+suftxs	!scr "aok."
 
 koala	!by $81,80,73,67,32	; "?PIC "
 	!fill 16,32 	; name
 
-; ----------------------------------------- 
 
-wopen	jsr chkmode	; Compressed Koala? (doesn't return if yes)
+; ----------------------------------------- Open Files for SAVE
 
-; ----------------------------------------- 
+wopen	ldx suffmode	; add PC suffix to name?
+	beq asf0		; no, build Koala name
 
-	ldy #5
+	ldx #0		; yes, add ".koa" 
+	stx mode		; (don't ever compress PC files)
+	lda wflen
+	jsr addsuffix
+
+asf0	lda mode		; file should be compressed?
+	beq wl3		; no, skip prefix
+
+asf1	ldy wflen		; yes, move name 2 chars right
+	dey
+cm00	lda ls_nambuf,y
+	sta ls_nambuf+2,y
+	dey
+	bpl cm00
+	lda wflen
+	clc
+	adc #2		; take care of len 
+	cmp #17
+	bcc st3
+	lda #16		; (max 16 chars)
+st3	sta wflen
+	lda #$47		; and add prefix "gg"
+	sta ls_nambuf
+	sta ls_nambuf+1
+	bne wo60		; uncond. branch
+
+wl3	lda suffmode	; has PC name? 
+	bmi wo6		; yes, skip koala stuff
+
+	ldy #5		; uncompressed Koala:
+	ldx #0
 wo2	lda ls_nambuf-5,y	; combine own filename with Koala name intro
 	sta koala,y
 	iny
-	cpy wflen
+	inx
+	cpx wflen
 	bne wo2
 	cpy #16
 	bcs wo3
-	lda #32		; fill up to 15 chars if necessary
+	lda #32		; fill with spaces (to 15 chars)
 wo4	sta koala,y
 	iny
 	cpy #16
@@ -149,12 +147,29 @@ wo4	sta koala,y
 wo3	ldy #14
 	sty wflen
 	inc wflen
-wo5	lda koala,y
+wo5	lda koala,y	; move from edit buffer to out buffer
 	sta ls_nambuf,y
 	dey
 	bpl wo5
 
-wo6	jsr inull		; init disk
+wo60	ldy wflen		; now convert to screen code for GoDot
+	sty sc_br
+-	dey
+	bmi +
+	lda ls_nambuf,y	; copy to convert buffer
+	sta sc_movetab,y
+	bne -
++	jsr gd_cnvbc	; convert, returns .a=0
+	tay
+-	lda sc_movetab,y	; copy to GoDot screenlist for proper display
+	sta ls_lastname,y
+	iny
+	cpy wflen
+	bcc -
+
+; ----------------------------------------- 
+
+wo6	jsr inull		; now open file, first: init disk
 	bne err8
 	ldy wflen
 	ldx #3
@@ -169,16 +184,16 @@ wo1	lda pw,x
 	ldx ls_drive
 	jsr filpar
 	lda wflen
-	ldx #<(ls_nambuf)
-	ldy #>(ls_nambuf)
+	ldx #<ls_nambuf
+	ldy #>ls_nambuf
 	jsr filnam
 	jsr copen
 	jmp err9
 
-; ----------------------------------------- 
+; ----------------------------------------- Init Disk
 
-inull	ldx #<(drinit)
-	ldy #>(drinit)
+inull	ldx #<drinit
+	ldy #>drinit
 	lda #2
 	jsr gd_sendcom
 err9	jsr gd_xmess
@@ -189,8 +204,8 @@ err8	sec
 
 ; ----------------------------------------- Message Handling
 
-messout	ldx #<(message)
-	ldy #>(message)
+messout	ldx #<message
+	ldy #>message
 	jmp gd_xtxout2
 
 tcopy	ldy #0
@@ -206,7 +221,7 @@ action	dec adcnt
 	lda cntwert
 	sta adcnt
 	ldy offy
-	cpy #22		; #1.03: catch Gauge Overflow
+	cpy clrmess+1	; #1.03: catch Gauge Overflow
 	bne act0
 	jsr clrmess
 act0	ldx offx
@@ -252,8 +267,8 @@ si0	lda ls_lastname,x
 si1	rts
 
 setname	lda #0
-	ldx #<(ls_picname)
-	ldy #>(ls_picname)
+	ldx #<ls_picname
+	ldy #>ls_picname
 si3	stx sc_texttab
 	sty sc_texttab+1
 	tax
@@ -269,63 +284,161 @@ si5	rts
 nbuf	!fill 16,32
 	!by 0
 
-; ----------------------------------------- Requester management
+; ----------------------------------------- Event: Set Compression Mode
 
-setmode	ldx used		; first call?
-	bmi requ		; then: requester
-	rts
+evsetcomp	ldx compr
+	beq +
+	ldx #$ff
++	inx
 
-; ----------------------------------------- Display Requester
-
-requ	inc used
-	ldx #<(koalalst)
-	ldy #>(koalalst)
-	jmp gd_xmloop
-
-; ----------------------------------------- Event: Leave saver
-
-cn2	lda #3
-	!by $2c
-canc	lda #$ff
-	sta used
-	sec
-	rts
-
-; ----------------------------------------- Event: Set Compressed
-
-evcomp	inc used
-
-; ----------------------------------------- Event: Set Standard
-
-evnocomp	inc used
-	ldx used
+dth1	stx compr		; hold
+	stx mode		; preset mode flag
+	ldy offs,x	; toggle text
+	ldx #13
+-	lda comptxt,y
+	sta comptx,x
+	dey
 	dex
-	beq ec01
-	ldx #$80
-ec01	stx mode
-	sec
-	rts
+	bpl -
+
+	lda #$80		; now set appropriate mode flag
+	ldx compr		; (uncompr.  : 0)
+	beq dth2
+	sta mode		; (compressed: $80)
+dth2	ldy #0		; and output text
+	!by $2c
+dth3	ldy #2
+	jsr settab
+	ldy #6
+	jmp gd_xtxout1	; returns .c=0
+
+; ----------------------------------------- Event: Set Suffix Mode
+
+evsetsuff	ldx suffx
+	beq +
+	ldx #$ff
++	inx
+
+dth4	stx suffx		; hold
+	stx suffmode	; preset suffmode flag
+	ldy offs,x	; toggle text
+	ldx #13
+-	lda sufftxt,y
+	sta sufftx,x
+	dey
+	dex
+	bpl -
+
+	lda #$80		; now set appropriate suffmode flag
+	ldx suffx		; (koala prefix: 0)
+	beq dth3
+	sta suffmode	; (pc suffix   : $80)
+	bne dth3		; uncond. branch
+
+; ----------------------------------------- Event: Save Image
+
+evsave	jsr gd_sproff	; no, mouse pointer off
+	sta cnt		; .a=0, init compression counter
+
+	lda #1		; init save pic
+	sta adcnt
+	lda #50
+	sta cntwert
+	jsr getpic	; first gather data
+
+	jsr wopen		; now open file
+	bne st2
+	jsr getname
+	ldx #12
+	jsr ckout
+	jsr gd_clrms
+	ldx #0
+	jsr tcopy
+
+	jsr write		; save pic
+
+st2	jsr clrch		; close file
+	lda #12
+	jsr close
+	jsr gd_spron
+	jsr err9
+	bne st1
+
+	jsr setname	; set image information if successful
+
+st1	rts		; .c is set, so leave requester
 
 ; ----------------------------------------- Screenlist
 
 koalalst	!by 0
-	!by 4,11,18,16,$81,0,0
-	!scr "  Save Koala  @"
-	!by 9,11,18,3,$ca,<(evnocomp),>(evnocomp)
-	!scr " Standard @"
-	!by 12,11,18,3,$ca,<(evcomp),>(evcomp)
-	!scr "Compressed@"
-	!by 15,11,18,3,$ca,<(cn2),>(cn2)
-	!scr "Cancel Save@"
-	!by $c0,6,14,11
-	!scr "Select Mode@"
+	!by 6,13,17,14,$81,0,0
+	!scr " Save Koala",0
+compgad	!by 11,13,17,3,$ca
+	!wo evsetcomp
+	!by 223
+comptx	!scr " Uncompressed ",0
+suffgad	!by 14,13,17,3,$ca
+	!wo evsetsuff
+	!by 223
+sufftx	!scr " w/ PC-Suffix ",0
+	!by 17,13,9,3,$c7
+	!wo evsave
+	!scr "Save",0
+	!by 17,22,8,3,$cd
+	!wo evcancel
+	!scr "Cancel",0
+	!by $c0,8,15,12
+	!scr "Select  Mode@"
 	!by $80
 
 ; ----------------------------------------- 
 
-used	!by $ff
+compr	!by 0
 mode	!by 0
+suffx	!by 1
+suffmode	!by $80
 cntwert	!by 50
+offs	!by 13,27
+comptxt	!scr " Uncompressed "
+	!scr "  Compressed  "
+sufftxt	!scr " w/KoalaPrefix"
+	!scr " w/ PC-Suffix "
+chschr	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
+
+; --------------------------- Kringel definieren
+
+makechr	ldx #7
+-	lda chschr,x
+	sta sc_undochar,x
+	dex
+	bpl -
+	rts
+
+; ------------------------------------ Output gadget text routines
+
+tabigad	!wo compgad	; 0
+	!wo suffgad	; 2
+
+settab	lda #<tabigad	; address gadget descriptor
+	sta ls_vekta8
+	lda #>tabigad
+	sta ls_vekta8+1
+
+gettab	lda (ls_vekta8),y	; set working vector
+	sta sc_screentab
+	iny
+	lda (ls_vekta8),y
+	sta sc_screentab+1
+
+	lda #0		; transfer gadget data (to compute them)
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #3
+	bne gt0
+	stx sc_ho
+	jsr gd_trim	; trim to inner area of gadget
+	jmp gd_initmove	; compute screen address for display
 
 ; ----------------------------------------- Gather Image Colors
 
@@ -432,12 +545,12 @@ write	lda #0		; Start address $6000
 	jsr bsout
 	lda #$60
 	jsr bsout		; 8000 bytes bitmap
-	lda #<(8000)
-	ldx #>(8000)
+	lda #<8000
+	ldx #>8000
 	sta ls_vekta8
 	stx ls_vekta8+1
-	lda #<($2000)
-	ldx #>($2000)
+	lda #<$2000
+	ldx #>$2000
 	sta sc_texttab
 	stx sc_texttab+1
 wr0	ldy #0
@@ -451,12 +564,12 @@ wr0	ldy #0
 	jsr tcopy
 	lda #12
 	sta cntwert
-	lda #<(2001)	; 2001 bytes colors
-	ldx #>(2001)
+	lda #<2001	; 2001 bytes colors
+	ldx #>2001
 	sta ls_vekta8
 	stx ls_vekta8+1
-	lda #<(colors)
-	ldx #>(colors)
+	lda #<colors
+	ldx #>colors
 	sta sc_texttab
 	stx sc_texttab+1
 wr1	ldy #0
@@ -466,16 +579,15 @@ wr1	ldy #0
 	jsr cou5		; count
 	bne wr1
 
-	lda #<(vid1)	; recontruction of video ram 1 area
+	lda #<vid1	; recontruction of video ram 1 area
 	sta sc_texttab
 	lda #$0b
 	ldx #$ce
-	ldy #>(vid1)
+	ldy #>vid1
 	jsr move
 
-	jsr canc		; requester management
 	lda mode		; compressed?
-	beq wl3		; no, finished
+	beq fin		; no, finished
 
 	lda gbyte		; yes, flush data
 	eor #$ff
@@ -483,7 +595,7 @@ wr1	ldy #0
 ; ----------------------------------------- Compress
 
 pack	bit mode
-	bmi wl4
+	bmi wl4		; compress if flag $80
 	jmp bsout
 
 wl4	cmp gbyte
@@ -516,31 +628,50 @@ wl1	pla
 incr	inc cnt
 	lda cnt
 	cmp #$ff
-	bne wl3
+	bne fin
 	lda gbyte
 	jsr p255
 	dec cnt
-wl3	rts
+fin	rts
 
-; ----------------------------------------- Which Mode?
+; ----------------------------------------- Namen verlängern
 
-chkmode	lda mode		; compressed?
-	beq wl3		; no, leave
-
-	ldy wflen
+addsuffix	pha		; Länge merken
+	tay
 	dey
-cm00	lda ls_nambuf,y
-	sta ls_nambuf+2,y
+	ldx #0
+ag4	lda ls_nambuf,y	; endet auf ".koa"?
+	cmp suftx,x
+	bne ag2		; nein
 	dey
-	bpl cm00
-	lda #$47		; add "GG" to filename
-	sta ls_nambuf
-	sta ls_nambuf+1
-	pla		; don't return
-	pla
-	jmp wo6		; but open file from here
+	inx
+	cpx #4
+	bcc ag4
+	pla		; ja, fertig
+	rts
+	
+ag2	pla
+	tay		; Name länger als 12 Zeichen?
+	cpy #13
+	bcs ag0		; ja, behandeln
+
+ag5	ldx #3		; nein, ".koa" anhängen
+ag1	lda suftx,x
+ag3	sta ls_nambuf,y
+	lda suftxs,x	; auch für Image Info
+	sta ls_lastname,y
+	iny
+	dex
+	bpl ag1
+	sty wflen		; neue Länge merken, fertig
+	sty ls_flen
+	rts
+
+ag0	dey		; auf 12 verkürzen
+	cpy #12
+	bne ag0
+	beq ag5		; unbed. Sprung
 
 ; ----------------------------------------- 
 
 modend	!eof
-
