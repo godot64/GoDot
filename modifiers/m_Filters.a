@@ -10,6 +10,7 @@
 ;
 ; 1.00, 21.08.18, first release
 ; 1.01, 04.02.21, replaced RemIsoPixels by Negative
+; 1.02, 09.02.21, bugfix, could hang on Preview
 ;
 ; ------------------------------------------------ 
 
@@ -25,8 +26,6 @@
 	mrkx		= $3e
 	mrky		= $3f
 	finish		= $40	; /$41
-
-	gr_redisp		= $0fbd
 
 	bbase		= $2002
 	buf_o 		= bbase
@@ -61,8 +60,8 @@
 	!wo modend
 	!wo 0
 	!pet "Convolve Filters"
-	!pet "1.01"
-	!pet "04.02.21"
+	!pet "1.02"
+	!pet "09.02.21"
 	!pet "A.Dettke (+WK)  "
 
 ; ------------------------------------------------ Main
@@ -274,10 +273,12 @@ init_sa	lda #5		; 5 x 40 = 200
 
 ; ----------------------------------------- Event: Show Preview
 
-evpreview	lda gd_modswitch
+evpreview	lda gd_modswitch	; save memory manager
 	pha
+	lda #$f0		; force slot4
+	sta gd_modswitch
 	jsr ev_prviu
-	pla
+	pla		; restore memory manager
 	sta gd_modswitch
 
 ; ----------------------------------------- Event: Stay
@@ -339,7 +340,6 @@ maximum	ldx #<evmaximum
 	bne +
 median	ldx #<evmedian
 	ldy #>evmedian
-	
 	bne +
 minimum	ldx #<evminimum
 	ldy #>evminimum
@@ -349,7 +349,10 @@ minimum	ldx #<evminimum
 
 ; ----------------------------------------- Konvolution
 
-exec	jsr init_sa
+exec	lda gd_modswitch	; save memory manager
+	pha
+
+	jsr init_sa
 	lda #0		; ab Rasterzeile 0
 	sta lcnt
 	jsr puffern	; drei Zeilen puffern
@@ -374,7 +377,12 @@ exec	jsr init_sa
 	jsr konvol
 	jsr w_ergeb
 
-	jmp abschl	; fertig
+ex01	jsr abschl	; fertig
+
+	pla		; restore memory manager
+	sta gd_modswitch
+	clc
+	rts
 
 ; ----------------------------------------- Process
 
@@ -1115,7 +1123,10 @@ evsharp3	ldy #0
 
 ; ----------------------------------------- Event: Nagative
 
-evnegatv	lda #3
+evnegatv	lda gd_modswitch
+	pha
+
+	lda #3
 	sta isa1+1
 	jsr init_sa
 
@@ -1158,7 +1169,7 @@ evnegatv	lda #3
 
 	lda #5
 	sta isa1+1
-	jmp abschl	; fertig
+	jmp ex01		; fertig
 
 palette	!by $ff,$ee,$dd,$cc,$bb,$aa,$99,$88
 	!by $77,$66,$55,$44,$33,$22,$11,$00
