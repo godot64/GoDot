@@ -7,7 +7,8 @@
 ;
 ; mod.Antialiasing
 ;
-; 1.00, 31.07.2019, fist release
+; 1.00, 31.07.19, fist release
+; 1.01, 12.02.21, added: multicolor mode
 ;
 ; ------------------------------------------------ 
 
@@ -42,42 +43,54 @@
 
 	jmp start
 
-	!by $20		; Modifier
+	!by $20		; is a Modifier
 	!by 0
 	!by 0
 	!wo modend
 	!wo 0		; reserved
 	!pet "Antialiasing    "
-	!pet "1.00"
-	!pet "31.07.19"
+	!pet "1.01"
+	!pet "12.02.21"
 	!pet "A.Dettke        "
 
 ; ------------------------------------------------ Main
 
-start	jsr makechr
-	stx used		; .x=$ff
-	ldx #<aalst
+start	jsr makechr	; generate listbox char
+	ldx #<aalst	; show requester
 	ldy #>aalst
 	jsr gd_screen
-	jsr gd_eloop
-	lda gr_ctr
+	jsr gd_eloop	; wait...
+
+	lda gr_ctr	; then: balancing changed?
 	eor gr_brt
+	beq evleave	; no
+	lda rbalncng	; should balancing be resetted?
 	beq evleave
-	lda used
-	bmi evleave
-	jsr breset
+	jsr breset	; yes
 
 ; ------------------------------------------------ Event: Leave
 
-evleave	sec
+evleave	sec		; leave modifier
 	rts
 
 ; ------------------------------------------------ Events: Reset Balancing
 
-evbreset	ldx #0		; Reset after processing!
-	stx used
-stay	clc
-	rts
+evbreset	ldx rbalncng		; set flag: Reset after processing
+	beq +
+	ldx #$ff
++	inx
+	stx rbalncng
+
+	lda ynoffs,x
+	tax
+	ldy #2
+-	lda yesno,x
+	sta rsbaltx,y
+	dex
+	dey
+	bpl -
+	ldy #6
+	bne to0
 
 breset	ldy #16		; Balancing-Tabelle initialisieren
 	sty gr_ctr
@@ -90,9 +103,12 @@ breset	ldy #16		; Balancing-Tabelle initialisieren
 
 ; ------------------------------------------------ Event: Set Number of Grays
 
-evnumgray	ldx mode
-	bne stay
-	ldx howmany
+evnumgray	ldx mode		; mode: gray?
+	beq +
+stay	clc		; no, color (leave)
+	rts
+
++	ldx howmany	; internal (index to 5, 9, or 16)
 	cpx #2
 	bne +
 	ldx #$ff
@@ -101,7 +117,7 @@ evnumgray	ldx mode
 	lda grays,x
 	tax
 	ldy #15
--	lda qtabs,x
+-	lda qtabs,x	; activate appropriate qtab...
 	sta qtab,y
 	dex
 	dey
@@ -112,21 +128,40 @@ setgrays	lda grayoffs,x
 	tax
 
 setnum	ldy #2
--	lda graytxts,x
+-	lda graytxts,x	; show according text
 	sta graytx,y
 	dex
 	dey
 	bpl -
 	ldy #2
-	jmp txtout
+to0	bne txtout
 
-; -------------------------------------- Event: Set Mode
+; -------------------------------------- Event: Set Graphics Mode
 
-evmode	ldx mode
+evgmode	ldx gmode		; 0: Hires, 1: Multi
 	beq +
 	ldx #$ff
 +	inx
-	stx mode		; 0: Gray, 1: Color
+	stx gmode
+
+	lda gmodeoffs,x
+	tax
+	ldy #5
+-	lda gmodetxts,x	; show text
+	sta gmodetx,y
+	dex
+	dey
+	bne -
+	ldy #4
+	bne txtout
+
+; -------------------------------------- Event: Set Mode
+
+evmode	ldx mode		; 0: Gray, 1: Color
+	beq +
+	ldx #$ff
++	inx
+	stx mode
 	bne +
 
 	ldx howmany
@@ -137,8 +172,8 @@ evmode	ldx mode
 ++	ldx mode
 	lda modeoffs,x
 	tax
-	ldy #7
--	lda modetxts,x
+	ldy #6
+-	lda modetxts,x	; show text
 	sta modetx,y
 	dex
 	dey
@@ -149,7 +184,7 @@ txtout	jsr settext
 
 ; ------------------------------------------------ Event: Apply
 
-evapply	jsr init_sa
+evapply	jsr init_sa	; init activity display
 	lda #0		; ab Rasterzeile 0
 	sta lcnt
 	jsr puffern	; drei Zeilen puffern
@@ -174,7 +209,15 @@ evapply	jsr init_sa
 	jsr konvol
 	jsr w_ergeb
 
-	jmp abschl	; fertig
+	jsr abschl	; fertig
+
+	lda gmode		; Multi mode?
+	beq +
+	dec passes	; yes, apply once more
+	bne evapply
++	lda #2		; then reset # of passes
+	sta passes
+	rts		; .c=1
 
 ; ------------------------------------------------ 
 ; ------------------------------------------ Konvolution
@@ -454,6 +497,8 @@ makechr	ldx #7
 
 tabigad	!wo modegad	; 0
 	!wo graygad	; 2
+	!wo gmodegad	; 4
+	!wo rsbalgad	; 6
 
 settext	lda #<tabigad
 	sta ls_vekta8
@@ -478,28 +523,33 @@ gt0	jsr gd_setpos
 ; ------------------------------------------------ Screenlist
 
 aalst	!by 0
-	!by 10,10,16,10,$91
+	!by 8,10,16,12,$91
 	!wo 0
 	!scr "Antialiasing",0
-modegad	!by 13,10,10,3,$c8
+gmodegad	!by 11,18,8,3,$cf
+	!wo evgmode
+gmodetx	!scr $df,"Hires",0
+modegad	!by 13,10,9,3,$c8
 	!wo evmode
-modetx	!scr $df," Grays ",0
+modetx	!scr $df," Grays",0
 	!by 17,10,9,3,$c7
 	!wo evapply
 	!scr " Apply ",0
-graygad	!by 13,21,5,3,$cf
+graygad	!by 13,21,5,3,$ce
 	!wo evnumgray
-graytx	!scr $df," 5",0
-	!by 15,19,7,3,$ce
+graytx	!scr "  5",0
+rsbalgad	!by 15,21,5,3,$ce
 	!wo evbreset
-	!scr "Reset",0
+rsbaltx	!scr " no",0
 	!by 17,19,7,3,$ce
 	!wo evleave
 	!scr "Leave",0
-	!by $c0,15,10,8
-	!scr "Balncng:",0
+	!by $c0,11,10,5
+	!scr "Mode:",0
 	!by $c0,13,19,1
 	!scr ":",0
+	!by $c0,15,10,10
+	!scr "Reset Bal:",0
 	!by $80
 
 ; -------------------------------------------------------------- Data
@@ -511,14 +561,21 @@ hi_rows	!by $40, $45, $4a, $4f, $54, $59, $5e, $63
 
 chschr	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
 
-used	!by $ff
+rbalncng	!by 0
+gmode	!by 0
+passes	!by 2
+gmodetxts	!scr $df,"Hires",$df,"Multi"
+gmodeoffs	!by 5,11
 mode	!by 0
-modetxts	!scr $df," Grays ",$df," Color "
-modeoffs	!by 7,15
+modetxts	!scr $df," Grays",$df," Color"
+modeoffs	!by 6,13					; offsets in modetxts
 howmany	!by 0
-grays	!by 15,31,47
-graytxts	!scr $df," 5",$df," 9",$df,"16","---"
-grayoffs	!by 2,5,8,11
+grays	!by 15,31,47				; offsets in qtabs
+graytxts	!scr "  5  9 16---"
+grayoffs	!by 2,5,8,11				; offsets in grays
+yesno	!scr " noyes"
+ynoffs	!by 2,5
+
 qtab	!by 0,0,0,3,3,3,3,7,7,7,11,11,11,15,15,15
 qtabs	!by 0,0,0,3,3,3,3,7,7,7,11,11,11,15,15,15	; 5  (0)
 	!by 0,0,2,2,4,4,6,6,7,9, 9,11,11,13,13,15	; 9  (16)
