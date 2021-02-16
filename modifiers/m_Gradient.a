@@ -10,6 +10,7 @@
 ;   1.00, 06.04.93, first official release
 ;   2.00, 28.11.20, added: GUI
 ;   2.01, 27.12.20, bugfix: wrong implementation of balancing
+;   2.02, 16.02.21, slight changes in GUI
 ;
 ; ------------------------------------------------ 
 
@@ -17,6 +18,8 @@
 
 	adcnt		= $30
 	cmerk		= $31
+	lastindex		= $32
+	lastvalue		= $33
 	src		= $35
 	dst		= $37
 	lcnt		= $39
@@ -29,6 +32,7 @@
 	numcols		= $1ee9
 	invpalet		= sy_global
 	backupdth		= invpalet+16
+	distance		= invpalet+32
 	spr255		= $3fc0
 
 	balanced		= $c900
@@ -58,8 +62,8 @@
 	!wo modend
 	!wo 0
 	!tx "gradientbackdrop"
-	!tx "2.01"
-	!tx "27.12.20"
+	!tx "2.02"
+	!tx "16.02.21"
 	!tx "W.Kling/A.Dettke"
 
 ; ------------------------------------------------ 
@@ -268,15 +272,21 @@ overlay	sec
 	cpx #4
 	bcc -
 	rts
-	
-	
+
 ; ------------------------------------------------ 
 
-makecols	ldy gr_howmany	; aktuelle Palette holen
-	dey 
--	lda gr_palette,y
-	tax 
+makecols	ldy #15
+	lda gr_palette,y
+	tax
 	lda c64cols,x
+-	sta invpalet,y
+	dey
+	bpl -
+	ldy gr_howmany	; aktuelle Palette holen
+	dey 
+-	lda gr_palette,y	; GoDot-Anordnung der Farben...
+	tax 
+	lda c64cols,x	; ...umwandeln in Standardanordnung
 	sta invpalet,y
 	dey 
 	bpl -
@@ -288,27 +298,27 @@ makecols	ldy gr_howmany	; aktuelle Palette holen
 	inx 		; dann Index plus 1
 +	stx somany
 
-	lda spreads-2,x	; Faktoren bestimmen
-	sta vdist
+	lda spreads-2,x	; Faktoren bestimmen:
+	sta vdist		; senkrechter Raum pro Farbe
 	lda addfak-2,x
-	sta addit
+	sta addit		; Häufigkeit des Musterwechsels
 
 	lda #1		; durchführen:
-	sta passes	; zählt die Anzahl der Farbdurchgänge
+	sta passes	; zählt die Anzahl der Farbdurchgänge (somany)
 
 --	lda vdist
-	sta dcnt
+	sta dcnt		; Vertikalzähler
 	lda #0
 	sta lowsum
 	sta hisum
 
--	lda hisum
+-	lda hisum		; Hi-Wert: mal 2
 	clc 
-	bit lowsum
+	bit lowsum	; (aufrunden: plus 1, wenn Lo über 128)
 	bpl +
 	sec 
 +	rol
-	sta balanced,y	; Abstandstabelle erzeugen
+	sta balanced,y	; Farbindex-Tabelle erzeugen
 	lda lowsum
 	clc 
 	adc addit
@@ -753,7 +763,7 @@ datatype	!scr "Gray @"	; 41: Datatype
 
 gdntlst   !by 0		; no cls
 
-	!by 6,9,20,11,$91	; Requester
+	!by 6,9,20,11,$81	; Requester
 	!wo 0
 	!scr "Gradient",0
 
@@ -769,7 +779,7 @@ gdntlst   !by 0		; no cls
 	!wo evexit
 	!scr "Exit",0
 
-dithgad	!by 8,10,18,3,$a0	; Dither
+dithgad	!by 8,10,18,3,$b0	; Dither
 	!wo 0
 dithtx	!by $e0,$e1,$e2,$e3,$e4,$e5,$e6,$e7
 	!by $e8,$e9,$ea,$eb,$ec,$ed,$ee,$ef,0
