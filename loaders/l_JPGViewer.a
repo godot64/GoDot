@@ -1,6 +1,7 @@
-
 	!src "godotlib.lib"
-	*= $c000
+	*=$c000
+	!ct pet
+;	!sl "labels.txt"
 
 ; ------------------------------------------------------------ 
 ;
@@ -13,22 +14,25 @@
 ;   0.95, 91.11.03: 
 ;   1.00, 04.08.04: IFLI review added
 ;   1.01, 05.08.04: bugfix (bad output after STOP)
+;   1.02, 25.02.21: bugfix (didn't read error channel after fail on LOAD)
 ;
 ; ------------------------------------------------------------ 
 
 
 ; --------------------------------------- Equates
 
-	wordlo		= $07
-	int		= $14
-	status		= $90
-	jfallback		= sy_numbers+36	; $0124
-	jpzdialog		= $124e
-	into		= $1417
-	swap4096		= $1714
-	ibuff		= sy_global
-	stdirq		= $ea31
-	patchlen		= patch5-patch2
+	patchlen	= patch5-patch2
+
+	pport	= $01
+	wordlo	= $07
+	int	= $14
+
+	jfallback	= sy_numbers+36		; = $0124
+	jpzdialog	= $124e
+	into	= $1417
+	swap4096	= $1714
+	ibuff	= sy_global
+	stdirq	= $ea31
 
 ; --------------------------------------- Header
 
@@ -39,8 +43,8 @@ header	jmp start
 	!wo  modend
 	!wo  0
 	!pet "JPG as IFLI view"
-	!pet "1.01"
-	!pet "05.08.04"
+	!pet "1.02"
+	!pet "25.02.21"
 	!pet "Judd/Gonzales/AD"
 
 ; --------------------------------------- File Selection
@@ -151,12 +155,12 @@ con0	lda ls_nambuf,x
 	lda #3
 	sta ls_flen	; ###---v1.01
 	lda #0
-	sta used		; (used = 0)
+	sta used		; (set used = 0)
 	sta indents
 	sta indents+1
 
-	jsr jpzl		; set jmp to $01b0
-	jsr reqindents	; requester
+	jsr jpzl		; set JMP to $01b0
+	jsr reqindents	; build requester
 	jsr gd_eloop
 con1	sec		; ### v1.00: label
 	rts
@@ -249,9 +253,9 @@ continue
 
 	ldx #0		; search for JPZ on disk 8-11
 	stx storex
-skip1	lda ls_units,x
+skip1	lda ls_units,x	; get drive number
 	and #15
-	beq skip0
+	beq skip0		; skip if no drive w/ this number
 	sta found
 	tax		; OPEN 2,dr,2,"jpz*" for input
 	lda #2
@@ -267,33 +271,31 @@ skip1	lda ls_units,x
 	jsr basin		; get one byte to check
 	lda status
 	beq instjpz	; drive in FOUND if found
-	jsr closefile
-	
-skip0	inc storex	; 0 if not found
+
+	jsr closefile	; if not: close file
+skip0	inc storex	; try next drive
 	ldx storex
-	cpx #4
+	cpx #4		; until all 4 drives through
 	bne skip1
-	lda #0
+	lda #0		; if so: not found
 	sta found
 
-instjpz	
-	lda found
+instjpz	lda found
 	bne loadfile
-	jsr closefile	; message
+	jsr closefile	; message if not found
 	jmp nojpz
 	
-loadfile	
-	ldx #0		; all black
+loadfile	ldx #0		; otherwise: all black
 	stx $d020
 	stx $d021
-	jsr basin
+	jsr basin		; skip second byte of start address
 	lda #0
 	sta status
 
 	lda #$93		; CLR/Home
 	jsr bsout
 	sei
-	inc 1
+	inc pport
 	lda #<stdirq
 	ldx #>stdirq
 	sta $0314
@@ -304,9 +306,8 @@ loadfile
 	lda #8
 	sta prog+2
 	
-writejpz	
-	jsr basin		; write JPZ to BASIC
-prog	sta $0801		; (prog: self modifying)
+writejpz	jsr basin		; write JPZ to BASIC area
+prog	sta $0801		; (PROG: self modifying)
 	lda status
 	bne eof
 	inc prog+1
@@ -314,7 +315,7 @@ prog	sta $0801		; (prog: self modifying)
 	inc prog+2
 	bne writejpz
 
-eof	lda #2
+eof	lda #2		; then close file
 	jsr close
 	jsr clrch		; ### v1.00
 	
@@ -444,7 +445,7 @@ fb2	lda #$92		; (fb2: self modifying)
 	rts		; [17]
 
 fallback	
-	sei		; jump in here ($0124)
+	sei		; entry point ($0124)
 	ldx #$fe		; init stack
 	txs
 	lda #18		; activate character set
@@ -494,7 +495,7 @@ fb1	ldx sy_numbers+18	; swap slots 2 - 4
 	jmp into		; finally start GoDot
 			; [31; tot 137]
 
-patch5	lda #$60		; [at $10f7] RTS
+patch5	lda #$60		; [at $10f7:] RTS
 	sta $13ae
 	jsr $1389		; swap color mem
 	sei		; yes, graphics on
@@ -590,7 +591,7 @@ pt30	lda patch2,x
 	sta allover+6
 
 st6	lda #$30		; rest of the machine
-	sta 1
+	sta pport
 	lda ramreu,x
 	tax
 	stx allover+3
@@ -598,7 +599,7 @@ st6	lda #$30		; rest of the machine
 	sta allover+1
 	jsr swap4096
 	lda #$36
-	sta 1
+	sta pport
 	lda #$90
 	jsr stashc64	; stash to REU
 	lda #$90		; swap back in C64
@@ -628,7 +629,7 @@ getjpz	ldx #2
 	sta allover+6
 
 st9	lda #$30
-	sta 1
+	sta pport
 	lda ramreu,x
 	tax
 	stx allover+3
@@ -636,7 +637,7 @@ st9	lda #$30
 	sta allover+1
 	jsr swap4096
 	lda #$36
-	sta 1
+	sta pport
 	lda #$92
 	jsr stashc64	; swap from REU
 	lda #$90		; swap back in C64
@@ -713,9 +714,9 @@ ar1	lda ziff,x	; which are 0..9 and Space
 	sta ibuff,x	; create table
 	dex
 	bpl ar1
-	lda #<(ibuff)	; set address for table of valid chars
+	lda #<ibuff	; set address for table of valid chars
 	sta ls_vekta8
-	lda #>(ibuff)
+	lda #>ibuff
 	sta ls_vekta8+1
 	rts
 	
@@ -727,11 +728,13 @@ evinpleft
 evinptop	
 	ldx #1		; top indent
 	stx inmerk	; store as type
+	dex
+	stx wind
 	jsr setinput
 	jsr gd_xinput	; perform input (part of saver)
-	lda #>(ls_nambuf)	; get result
+	lda #>ls_nambuf	; get result
 	sta ls_vekta8+1
-	lda #<(ls_nambuf)
+	lda #<ls_nambuf
 	sta ls_vekta8
 
 	ldy #3		; delimit result buffer (.a=0)
@@ -779,14 +782,36 @@ getword	iny		; convert digits to integers
 
 gw0	ldx inmerk
 	lda int+1
-	beq gw1
-	jsr reqindents
-	beq gw2
+	bne gw2
 
 gw1	lda int
 	sta indents,x
-gw2	lda #0
+	lda #0
 	sta sc_iflag
+
+; --------------------------------------- Make Rightbound
+
+right	ldy #6		; search delimiter ($00)
+-	dey
+	lda ls_nambuf,y
+	bne -
+	dey
+	ldx #2		; now transfer digits
+-	lda ls_nambuf,y
+	cmp #$20
+	beq +++
+--	bit wind		; which input?
+	bpl +
+	sta leftval,x	; write accordingly
+	bmi ++
++	sta topval,x
+++	dex
++++	dey
+	bpl -
+	lda #$20
+	cpx #$ff
+	bne --
+gw2	jsr reqindents	; neue Werte ausgeben
 	clc
 	rts
 
@@ -825,7 +850,7 @@ pt34	lda $10b7,x	; [lda getname,x]
 	jmp $1000		; jpz starten, Bild laden
 
 getname	!by <ls_nambuf,>ls_nambuf,<imgname,>imgname,6,22,0
-						; [79]
+			; [79]
 ; --------------------------------------- patch 4 (at $1388)
 
 patch4	rts		; for safety
@@ -854,93 +879,93 @@ pt40	lda ($b0),y	; swap color ram with $0400
 
 ; --------------------------------------- Screenlists
 
-noreulst	
-	!by 0
+noreulst	!by 0
 	!by 06,11,18,11,$91,0,0	; No REU
-	!scr "ERROR!@"
+	!scr "ERROR!",0
 	!by 14,22,07,03,$cd
 	!wo  evexit
-	!scr "Leave@"
+	!scr "Leave",0
 	!by $c0,8,11,15
-	!scr "No REU attached@"
+	!scr "No REU attached",0
 	!by $c0,9,11,15
-	!scr "to your system!@"
+	!scr "to your system!",0
 	!by $c0,11,11,14
-	!scr "You can't view@"
+	!scr "You can't view",0
 	!by $c0,12,11,14
-	!scr " JPGs w/o REU.@"
+	!scr " JPGs w/o REU.",0
 	!by $80
 
-toolowlst
-	!by 0
+toolowlst	!by 0
 	!by 06,11,18,11,$91,0,0	; Not enough RAM
-	!scr "ERROR!@"
+	!scr "ERROR!",0
 	!by 14,22,07,03,$cd
 	!wo  evexit
-	!scr "Leave@"
+	!scr "Leave",0
 	!by $c0,8,11,14
-	!scr "Not enough RAM@"
+	!scr "Not enough RAM",0
 	!by $c0,9,11,14
-	!scr "to run module!@"
+	!scr "to run module!",0
 	!by $c0,11,11,15
-	!scr "Leaving viewer.@"
+	!scr "Leaving viewer.",0
 	!by $80
 
-nojpzlst	
-	!by 0
+nojpzlst	!by 0
 	!by 06,11,18,11,$91,0,0	; No JPZ
-	!scr "ERROR!@"
+	!scr "ERROR!",0
 	!by 14,22,07,03,$cd
 	!wo  evexit
-	!scr "Leave@"
+	!scr "Leave",0
 	!by $c0,8,11,14
-	!scr "JPZ viewer not@"
+	!scr "JPZ viewer not",0
 	!by $c0,9,11,14
-	!scr "found on disk!@"
+	!scr "found on disk!",0
 	!by $c0,11,11,15
-	!scr "Unable to view.@"
+	!scr "Unable to view.",0
 	!by $80
 
 indentslst	
 	!by 0
 	!by 06,11,17,10,$91,0,0	; Input indents
-	!scr "Indent Image@"
+	!scr "Indent Image",0
 	!by 9,23,5,3,$cf
 	!wo  evinpleft
-leftval	!scr "  0@"
+leftval	!scr "  0",0
 	!by 11,23,5,3,$ce
 	!wo  evinptop
-topval	!scr "  0@"
+topval	!scr "  0",0
 	!by 13,11,10,3,$c7
 	!wo  savec64
-	!scr "Continue@"
+	!scr "Continue",0
 	!by 13,21,7,3,$ce
-	!wo  evexit
-	!scr "Leave@"
-	!by $c0,9,12,5
-	!scr "Left:@"
-	!by $c0,11,12,5
-	!scr "Top :@"
+	!wo  cancel
+	!scr "Leave",0
+	!by $c0,9,11,5
+	!scr "Left:",0
+	!by $c0,11,11,5
+	!scr "Top :",0
+	!by $c0,10,14,8
+	!scr "in tiles",0
 	!by $80
 
-viewerlst	
-	!by 0
+viewerlst	!by 0
 	!by 06,11,17,10,$91,0,0	; mod requester
-	!scr "JPG Viewer@"
+	!scr "JPG Viewer",0
 	!by 9,11,17,3,$ca
 	!wo  evselect
-	!scr "Load a JPG@"
+	!scr "Load a JPG",0
 	!by 11,11,17,3,$cb
 	!wo  evviewjpg
-	!scr "View Img in Mem@"
+	!scr "View Img in Mem",0
 	!by 13,11,17,3,$cb
 	!wo  evexit
-	!scr "Leave@"
+	!scr "Leave",0
 	!by $80
 
 ; --------------------------------------- Data
+
 grayink1	!by 9,12,15,5
 used	!by $ff
+wind	!by $ff
 ziff	!pet " 1234567890"
 jpzname	!pet "jpz*"
 imgname	!pet "0123456789abcdef"	; dummy name
@@ -966,4 +991,3 @@ bank	!by 6			; in Bank x (default is 1750 = 6)
 
 
 modend	!eof
-
