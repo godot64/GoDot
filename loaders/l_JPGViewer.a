@@ -14,7 +14,8 @@
 ;   0.95, 91.11.03: 
 ;   1.00, 04.08.04: IFLI review added
 ;   1.01, 05.08.04: bugfix (bad output after STOP)
-;   1.02, 25.02.21: bugfix (didn't read error channel after fail on LOAD)
+;   1.02, 25.02.21: bugfix (formatting indent entries)
+;   1.03, 26.02.21: bugfix (of bugfix above)
 ;
 ; ------------------------------------------------------------ 
 
@@ -43,8 +44,8 @@ header	jmp start
 	!wo  modend
 	!wo  0
 	!pet "JPG as IFLI view"
-	!pet "1.02"
-	!pet "25.02.21"
+	!pet "1.03"
+	!pet "26.02.21"
 	!pet "Judd/Gonzales/AD"
 
 ; --------------------------------------- File Selection
@@ -700,10 +701,10 @@ reqindents
 ; --------------------------------------- Close file
 
 closefile	
+;	jsr gd_xmess
 	lda #2
 	jsr close
-	jsr clrch		; ### v1.00
-	jmp gd_xmess
+	jmp clrch		; ### v1.00
 
 ; --------------------------------------- Set parameters for Input 
 
@@ -784,7 +785,7 @@ gw0	ldx inmerk
 	lda int+1
 	bne gw2
 
-gw1	lda int
+	lda int
 	sta indents,x
 	lda #0
 	sta sc_iflag
@@ -799,20 +800,25 @@ right	ldy #6		; search delimiter ($00)
 	ldx #2		; now transfer digits
 -	lda ls_nambuf,y
 	cmp #$20
-	beq +++
---	bit wind		; which input?
+	beq +
+	jsr setvals
++	dey
+	bpl -
+	txa
+	bmi gw2
+	lda #$20		; fill leading spaces
+-	jsr setvals
+	bpl -
+gw2	jsr reqindents	; neue Werte ausgeben
+	clc
+	rts
+
+setvals	bit wind		; which input?
 	bpl +
 	sta leftval,x	; write accordingly
 	bmi ++
 +	sta topval,x
 ++	dex
-+++	dey
-	bpl -
-	lda #$20
-	cpx #$ff
-	bne --
-gw2	jsr reqindents	; neue Werte ausgeben
-	clc
 	rts
 
 ; --------------------------------------- patch 3 (at $1070)
