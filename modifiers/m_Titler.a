@@ -1,6 +1,7 @@
 
 	!src "godotlib.lib"
-	*= $c000
+	*=$c000
+	!ct pet
 ;	!sl "labels.txt"
 
 ; ------------------------------------------------------------ 
@@ -18,6 +19,7 @@
 ;    1.04: 25.02.18, bugfixes: chars smaller than 1 tile
 ;    1.05: 12.03.18, bugfix: letter narrower than 3 tiles
 ;    1.06: 14.04.18, bugfix: could crash when loading fnt-file
+;    1.07: 27.02.21, added positioning according to graphics mode
 ;
 ; ------------------------------------------------------------ 
 
@@ -91,10 +93,10 @@
 	!wo modend
 	!wo 0
 	!pet "GoDot Titler    "
-	!pet "1.06"
-	!pet "14.04.18"
+	!pet "1.07"
+	!pet "27.02.21"
 	!pet "A.Dettke        "
-;
+
 ; ----------------------------------------- Main
 
 start	lda #0
@@ -123,11 +125,11 @@ stt1	lda sc_screenvek	; save vector to main screenlist (to rebuild it)
 	ldx #3
 	stx sprreg
 stt2	rts 
-;
+
 ; ----------------------------------------- 
 
-build	ldx #<(tlist)	; create requester
-	ldy #>(tlist)
+build	ldx #<tlist	; create requester
+	ldy #>tlist
 	jsr gd_screen
 	jsr chooser	; build color chooser
 	lda #<chars1	; recolor char-pool
@@ -165,7 +167,7 @@ swp0	lda sc_undochar,x
 
 dummy	clc 		; stay in module
 	rts 
-;
+
 ; ----------------------------------------- 
 
 canc	jsr kringel
@@ -226,7 +228,8 @@ evs0	jsr preview	; Vorschau-Rendern
 	beq evs3
 	jsr restore
 	jsr crender
-evs3	jsr wait
+evs3	ldx pvreso	; ### 1.07
+	jsr wait
 	lda sc_stop	; Stop gedrückt?
 	bne evs1		; ja, Vorschau beenden
 	
@@ -511,6 +514,9 @@ wait2	iny		; Flags initialisieren
 	sty sc_keyprs
 
 wt0	lda sprpos	; x
+	and pvresomsk,x	; ### 1.07
+	sta sprpos
+	sta sprpos+2
 	sta sprxy
 	sta sprxy+2
 	sta sprxy+4
@@ -855,7 +861,7 @@ cm1	lda #$36
 	sta 1
 	cli
 	rts
-;
+
 nomod	jsr cm1
 	dec valid
 	ldx #<nottlst
@@ -1204,9 +1210,9 @@ ql8	rts
 
 ; ------------------------------------------------ Load Font File
 
-lddir	lda #<(fnt)
+lddir	lda #<fnt
 	pha 
-	lda #>(fnt)
+	lda #>fnt
 	pha 
 	lda #8
 	jmp gd_xloadm
@@ -1255,13 +1261,13 @@ tabigad	!wo whichpos	; 0
 	!wo chars1	; 12
 	!wo chars2	; 14
 	!wo resolut	; 16
-;
-settab	lda #<(tabigad)
+
+settab	lda #<tabigad
 	sta sc_texttab
-	lda #>(tabigad)
+	lda #>tabigad
 	sta sc_texttab+1
 	rts
-;
+
 gettab	lda (sc_texttab),y
 	sta sc_screentab
 	iny
@@ -1306,7 +1312,7 @@ signs	!by 0,58,70,78,64,64,60,0		; Kringel
 	!by $3c,$66,$6e,$6e,$60,$62,$3c,0	; @
 	!by 0,$66,0,$66,$66,$66,$3e,0		; ü
 	!by 0,0,$66,0,0,0,0,0		; Trema
-;
+
 sectoffs	!by 06,13,20
 seccoffs	!by 15,47,79
 fntoffs	!by 00,32,64
@@ -1329,6 +1335,7 @@ fnt	!pet "fnt.*"
 	!by 0
 pvresotx	!scr "HM"		; # 1.01
 pvreso	!by 1
+pvresomsk	!by $ff,$fe
 ident	!pet "god5"
 drive	!by 0
 cwidth	!by 0
@@ -1533,6 +1540,5 @@ nottlst	!by 0
 	!by $c0,15,13,11
 	!scr "on its own.@"
 	!by $80
-;
-	
+
 modend	!eof 
