@@ -16,6 +16,7 @@
 ;   1.01, 05.08.04: bugfix (bad output after STOP)
 ;   1.02, 25.02.21: bugfix (formatting indent entries)
 ;   1.03, 26.02.21: bugfix (of bugfix above)
+;   1.04, 27.02.21: bugfix (didn't close files when searching for JPZ)
 ;
 ; ------------------------------------------------------------ 
 
@@ -28,7 +29,7 @@
 	wordlo	= $07
 	int	= $14
 
-	jfallback	= sy_numbers+36		; = $0124
+	jfallback	= sy_numbers+36	; = $0124
 	jpzdialog	= $124e
 	into	= $1417
 	swap4096	= $1714
@@ -155,10 +156,7 @@ con0	lda ls_nambuf,x
 	sta flen
 	lda #3
 	sta ls_flen	; ###---v1.01
-	lda #0
-	sta used		; (set used = 0)
-	sta indents
-	sta indents+1
+	jsr initvals	; ###   v1.04
 
 	jsr jpzl		; set JMP to $01b0
 	jsr reqindents	; build requester
@@ -252,12 +250,15 @@ st7	stx bank
 continue	
 	jsr gd_sproff
 
+	lda ls_drive	; save current drive	### 1.04
+	pha
 	ldx #0		; search for JPZ on disk 8-11
 	stx storex
 skip1	lda ls_units,x	; get drive number
 	and #15
 	beq skip0		; skip if no drive w/ this number
 	sta found
+	sta ls_drive
 	tax		; OPEN 2,dr,2,"jpz*" for input
 	lda #2
 	tay
@@ -278,10 +279,13 @@ skip0	inc storex	; try next drive
 	ldx storex
 	cpx #4		; until all 4 drives through
 	bne skip1
+
 	lda #0		; if so: not found
 	sta found
 
-instjpz	lda found
+instjpz	pla		; restore current drive	### 1.04
+	sta ls_drive
+	lda found
 	bne loadfile
 	jsr closefile	; message if not found
 	jmp nojpz
@@ -701,10 +705,10 @@ reqindents
 ; --------------------------------------- Close file
 
 closefile	
-;	jsr gd_xmess
 	lda #2
 	jsr close
-	jmp clrch		; ### v1.00
+	jsr clrch		; ### v1.00
+	jmp gd_xmess
 
 ; --------------------------------------- Set parameters for Input 
 
@@ -820,6 +824,17 @@ setvals	bit wind		; which input?
 +	sta topval,x
 ++	dex
 	rts
+
+initvals	ldx #3		; ### 1.04
+-	lda vals-1,x	; restore indents (display)
+	sta leftval-1,x
+	sta topval-1,x
+	dex
+	bne -
+	stx indents
+	stx indents+1
+	stx used
+	rts		; ### ----
 
 ; --------------------------------------- patch 3 (at $1070)
 
@@ -972,6 +987,7 @@ viewerlst	!by 0
 grayink1	!by 9,12,15,5
 used	!by $ff
 wind	!by $ff
+vals	!scr "  0"
 ziff	!pet " 1234567890"
 jpzname	!pet "jpz*"
 imgname	!pet "0123456789abcdef"	; dummy name
