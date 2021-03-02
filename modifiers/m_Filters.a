@@ -11,6 +11,7 @@
 ; 1.00, 21.08.18, first release
 ; 1.01, 04.02.21, replaced RemIsoPixels by Negative
 ; 1.02, 09.02.21, bugfix, could hang on Preview
+; 1.03, 02.03.21, bugfix, didn't leave when it should leave
 ;
 ; ------------------------------------------------ 
 
@@ -60,8 +61,8 @@
 	!wo modend
 	!wo 0
 	!pet "Convolve Filters"
-	!pet "1.02"
-	!pet "09.02.21"
+	!pet "1.03"
+	!pet "02.03.21"
 	!pet "A.Dettke (+WK)  "
 
 ; ------------------------------------------------ Main
@@ -377,12 +378,10 @@ exec	lda gd_modswitch	; save memory manager
 	jsr konvol
 	jsr w_ergeb
 
-ex01	jsr abschl	; fertig
-
-	pla		; restore memory manager
+ex01	pla		; restore memory manager
 	sta gd_modswitch
-	clc
-	rts
+
+	jmp abschl	; fertig	### 1.03
 
 ; ----------------------------------------- Process
 
@@ -1556,14 +1555,14 @@ filtlist	!by 0
 	!wo gauss
 	!scr " Gauss @"
 	!by 10,2,9,3,$c8
-	!wo median
-	!scr "Median @"
-	!by 13,2,9,3,$c8
-	!wo evnegatv
-	!scr "Negativ@"
-	!by 16,2,9,3,$c8
 	!wo watrcol
 	!scr "WatrCol@"
+	!by 13,2,9,3,$c8
+	!wo emboss
+	!scr "Emboss @"
+	!by 16,2,9,3,$c8
+	!wo deeppr
+	!scr "DeepPrs@"
 	!by 19,2,9,3,$c7
 	!wo xhatch
 	!scr "X-Hatch@"
@@ -1578,8 +1577,8 @@ filtlist	!by 0
 	!wo speckle
 	!scr "Speckle@"
 	!by 13,11,9,3,$c0
-	!wo deeppr
-	!scr "DeepPrs@"
+	!wo laplace
+	!scr "LaPlace@"
 	!by 16,11,9,3,$c0
 	!wo sharp1
 	!scr "Sharpn1@"
@@ -1588,23 +1587,23 @@ filtlist	!by 0
 	!scr "Sharpn3@"
 
 	!by 4,20,9,3,$c5
-	!wo cartoon
-	!scr "Cartoon@"
-	!by 7,20,9,3,$c0
-	!wo emboss
-	!scr "Emboss @"
-	!by 10,20,9,3,$c0
-	!wo laplace
-	!scr "LaPlace@"
-	!by 13,20,9,3,$c0
 	!wo maximum
 	!scr "Maximum@"
-	!by 16,20,9,3,$c0
+	!by 7,20,9,3,$c0
+	!wo median
+	!scr "Median @"
+	!by 10,20,9,3,$c0
 	!wo minimum
 	!scr "Mimimum@"
-	!by 19,20,9,3,$cc
+	!by 13,20,9,3,$c0
+	!wo cartoon
+	!scr "Cartoon@"
+	!by 16,20,9,3,$c0
 	!wo outlnm
 	!scr "LineArt@"
+	!by 19,20,9,3,$cc
+	!wo evnegatv
+	!scr "Negativ@"
 
 modegad	!by 8,30,9,3,$c0
 	!wo evmode
