@@ -1,25 +1,26 @@
+	!src "godotlib.lib"
+	*=$c000
+	!ct pet
+;	!sl "labels.txt"
 
-!src "godotlib.lib"
-*	= $c000
-
-; ------------------------------------------------------------ 
+; ------------------------------------------------ 
 ;
 ; mod..ClipInfo
 ;
+;  outputs information about where the origin of a 4Bit
+;  image is and about its dimensions (in tiles)
+;
 ;    1.00, 02.02.01, first release
 ;    1.01, 04.07.17, added big clip awareness
+;    1.02, 04.03.21, bugfix, didn't initialize the output string
 ;
-; ------------------------------------------------------------ 
+; ------------------------------------------------ 
 
 ; ----------------------------------------- Equates
 
 	pport		= $01
 	my		= $30
-	status		= $90
-	fi1		= $111b
-	flength		= $bd20
-	filename		= $bd25
-	type		= $bd37
+
 	blockbuf		= $be00
 
 ; --------------------------------------------- Header
@@ -31,8 +32,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "Clip Information"
-	!pet "1.01"
-	!pet "04.07.17"
+	!pet "1.02"
+	!pet "04.03.21"
 	!pet "A.Dettke        "
 
 ; --------------------------------------------- Requester
@@ -110,8 +111,8 @@ stt2	jsr fileread	; ersten Fileblock puffern
 stt3	lda ls_flen	; Direintrag puffern
 	clc
 	adc #2
-	ldx #<(dollar)
-	ldy #>(dollar)
+	ldx #<dollar
+	ldy #>dollar
 	jsr $ffbd
 	lda #12
 	ldx ls_drive
@@ -125,8 +126,10 @@ stt3	lda ls_flen	; Direintrag puffern
 	cli
 
 	ldy #31		; Ausgabepuffer löschen
-	lda #32
-fr1	sta message,y
+fr1	lda #32
+	sta message,y
+	lda cgtemp,y	; Ausgabe vorbereiten ### 1.02
+	sta cgodot,y
 	dey
 	bpl fr1
 
@@ -141,8 +144,8 @@ sprite	jsr gd_spron	; Mauszeiger an
 ; --------------------------------------------- 
 
 filerr	jsr gd_clrms	; "Could not get Information"
-	ldx #<(ferr)
-	lda #>(ferr)
+	ldx #<ferr
+	lda #>ferr
 	jsr set
 	jsr messout
 	jmp sprite
@@ -169,14 +172,14 @@ err	php
 
 ; --------------------------------------------- 
 
-messout	ldx #<(message)	; Ergebnis anzeigen
-	ldy #>(message)
+messout	ldx #<message	; Ergebnis anzeigen
+	ldy #>message
 	jmp gd_xtxout2
 
 ; --------------------------------------------- 
 
 onebyte	jsr basin		; ein Byte einlesen
-	ldx $90
+	ldx status
 	rts
 
 ; --------------------------------------------- 
@@ -212,15 +215,15 @@ g1	inx
 	beq g21
 g2	cpx #4		; oder keins?
 	bne soth
-	ldx #<(godot)	; 0: GoDot Image
-	lda #>(godot)
+	ldx #<godot	; 0: GoDot Image
+	lda #>godot
 nd3	bne set
 g21	jsr laenge
-	ldx #<(cgodot)	; 1: GoDot Clip
-	lda #>(cgodot)
+	ldx #<cgodot	; 1: GoDot Clip
+	lda #>cgodot
 	bne set
-soth	ldx #<(nogod)	; sonst: kein GoDotbild
-	lda #>(nogod)
+soth	ldx #<nogod	; sonst: kein GoDotbild
+	lda #>nogod
 
 ; --------------------------------------------- 
 
@@ -305,6 +308,9 @@ wid	!scr "   x"			; offset 15
 hgt	!scr "    at "			; offset 19
 y	!scr "  ,"			; offset 26
 x	!scr "    @"			; offset 29
+
+cgtemp	!scr "  GoDot Clip:    x    at   ,    "	; template ### 1.02
+
 godot	!scr "  GoDot Standard: 40x25 at 0,0  @"
 nogod	!scr "       Not a GoDot Image.       @"
 ferr	!scr "   Could not get Information.   @"
