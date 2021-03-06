@@ -14,6 +14,8 @@
 ;                       : 'Warning' automatically off
 ; 1.02, 05.10.05: added Activity Display
 ; 1.03, 05.05.18: activity display generalized
+; 1.04, 06.03.21: bugfix, activity bar did exceed box on big clips
+;                 added: set cursor to Accept gadget after Input
 ;
 ; --------------------------------------- 
 
@@ -55,8 +57,8 @@
 	!wo modend
 	!wo 0
 	!tx "TurnClip 90 deg."
-	!tx "1.03"
-	!tx "05.05.18"
+	!tx "1.04"
+	!tx "06.03.21"
 	!tx "A.Dettke        "
 
 ; --------------------------------------- Main
@@ -191,7 +193,8 @@ ex4	sta (sc_texttab),y
 	dex
 	bne ex4
 
-ex3	lda dirflag	; direction to turn to?
+ex3	jsr initad
+	lda dirflag	; direction to turn to?
 	beq ex0
 	jsr backl24	; left
 	beq ex1
@@ -263,7 +266,7 @@ ar1	lda ziff,x
 
 ; --------------------------------------- 
 
-getword	iny		; convert to digits
+getword	iny		; convert word to digits
 	lda (ls_vekta8),y
 	cmp #32
 	beq getword
@@ -328,6 +331,7 @@ gw2	lda #0		; finish
 	jsr repairlst	; repair Exec-Gadget 
 	jsr setdata	; change digits in main requester
 	jsr setdata3	; accommodate secondary requester
+	jsr locate	; set cursor
 	clc
 	rts
 
@@ -873,7 +877,15 @@ bc0	lda (buf),y	; move 4 Bytes
 
 	dec hcnt		; at left border?
 	bne bc01
-	lda hoehe		; yes, start over right hand
+
+	dec adcnt		; display activity counter
+	bne s6
+	lda #5		; reset counter if down
+	sta adcnt
+	inc $d005		; then advance bar
+	inc $d005+2
+
+s6	lda hoehe		; yes, start over right hand
 	sta hcnt
 	clc		; target plus 4
 	lda sc_texttab
@@ -893,14 +905,7 @@ bc01	sec		; no, move left
 	bcs bc5
 	dec dst+1
 
-bc5	dec adcnt		; display activity counter
-	bne s6
-	lda #201		; reset counter if down
-	sta adcnt
-	inc $d005		; then advance bar
-	inc $d005+2
-
-s6	dex		; 32 Bytes per tile
+bc5	dex		; 32 Bytes per tile
 	bne bc1
 
 	clc		; next line then
@@ -971,7 +976,15 @@ rc0	lda (buf),y	; move 4 Bytes
 
 	dec hcnt		; at left border?
 	bne rc01
-	lda hoehe		; yes, start over right hand
+
+	dec adcnt		; display activity counter
+	bne s7
+	lda #5		; reset counter if down
+	sta adcnt
+	inc $d005		; then advance bar
+	inc $d005+2
+
+s7	lda hoehe		; yes, start over right hand
 	sta hcnt
 	clc		; target plus 4
 	lda sc_texttab
@@ -991,14 +1004,7 @@ rc01	sec		; no, move left
 	bcs rc5
 	dec dst+1
 
-rc5	dec adcnt		; display activity counter
-	bne s7
-	lda #201		; reset counter if down
-	sta adcnt
-	inc $d005		; then advance bar
-	inc $d005+2
-
-s7	dec cntbr		; 32 Bytes per tile
+rc5	dec cntbr		; 32 Bytes per tile
 	bne rc1
 
 	clc		; next line then
@@ -1329,6 +1335,20 @@ inv2	inx		; reached Clip height?
 	bne inv0
 inv3	rts
 
+; --------------------------------------- Locate Cursor
+
+locate	ldy #0
+	sty spritehi
+	ldy #188		; at "ACCEPT"
+	sty spritex
+	sty spritex-2
+	ldy #190
+	sty spritey
+	iny
+	iny
+	sty spritey-2
+	rts
+
 ; --------------------------------------- Variables
 
 exflag	!by 0
@@ -1424,7 +1444,9 @@ warntxt	!scr "NewClip@"
 
 execgad	!by 21,10,9,3,$c7
 	!wo evexec
-	!scr "Execute"
+	!scr "Execute"	; ! delimiter is start of new list !
+
+; --------------------------------------- 
 
 sublst	!by 0
 	!by 21,19,9,3,$cd
@@ -1487,7 +1509,7 @@ hotxt	!scr "00@"
 	!by $c0,13,6,3
 	!scr "Wid@"
 	!by $c0,13,13,3
-	!scr "Hgh@"
+	!scr "Hgt@"
 
 	!by $80
 
