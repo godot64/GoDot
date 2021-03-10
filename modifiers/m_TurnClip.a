@@ -179,6 +179,7 @@ evexec	jsr setstart	; Start address of Clip
 	jsr initad
 	jsr tobuf		; write clip to buffer
 
+	jsr initad
 	lda emptyflag	; erase 4Bit?
 	bne ex3
 	ldy #0		; yes
@@ -193,8 +194,7 @@ ex4	sta (sc_texttab),y
 	dex
 	bne ex4
 
-ex3	jsr initad
-	lda dirflag	; direction to turn to?
+ex3	lda dirflag	; direction to turn to?
 	beq ex0
 	jsr backl24	; left
 	beq ex1
