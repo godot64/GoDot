@@ -13,6 +13,7 @@
 ;    1.01, 17.10.19, update: SPD file version 2 (containing tiles)
 ;    1.02, 02.11.19, bugfix: now restores system sprite colors
 ;    1.03, 12.07.20, added: hires sprites get marked now
+;    1.04, 16.03.21, bugfix: prevent 1st access to drive 12 (RAM)
 ;
 ; ----------------------------------------- 
 
@@ -73,8 +74,8 @@
 	!wo modend
 	!wo 0
 	!pet "SpritePad Loader"
-	!pet "1.03"
-	!pet "12.07.20"
+	!pet "1.04"
+	!pet "16.03.21"
 	!pet "A.Dettke        "
 
 ; ----------------------------------------- Main
@@ -107,6 +108,7 @@ start	lda used		; first start? (builds requester)
 +	jsr screen2	; show requester
 	jsr sk11		; init preview
 -	jsr gd_eloop	; wait for clicks
+	jsr gd_spron	; mouse on	### 1.04
 	lda ls_flen	; cancel in filerequester?
 	bne +
 	jsr sk10		; yes, rebuild loader requester
@@ -118,8 +120,7 @@ start	lda used		; first start? (builds requester)
 
 ; --------------------------------------- Event: Exit
 
-evexit	jsr gd_spron	; mouse on
-	sta exited	; set re-enter flag
+evexit	sta exited	; set re-enter flag
 	lda spritehi
 	and #3
 	sta spritehi
@@ -216,6 +217,8 @@ loop	ldy #0		; retrieve file
 	jsr cou5
 	bne loop
 	jsr gd_xclose	; then close file
+	lda ls_drive	; remember successful access ### 1.04
+	sta ls_loadfrom
 
 ; --------------------------------------- Get Sprite Set
 
@@ -292,7 +295,12 @@ stay	clc		; file loaded, don't leave loader
 
 ; ----------------------------------------- Event: Open File Requester from Loader
 
-evload	jsr gd_sproff	; .a=0
+evload	lda ls_loadfrom	; prevent RAM	### 1.04
+	cmp #12
+	bne +
+	lda ls_bootdrive
+	sta ls_loadfrom
++	jsr gd_sproff	; .a=0
 	ldx #1		; (.x must be 1 for gd_xload)
 	stx used		; set start parameter to loaded (a bit early...)
 	jmp gd_xload
