@@ -30,6 +30,8 @@
 ;                            TAB didn't indent correctly
 ;    1.16: 19.06.20, bugfix: removed addtxt (shorten code to prevent crash)
 ;    1.17: 21.06.20, more code optimization
+;    1.18: 17.03.21, bugfix: would show error gadget after load
+;                    added inc/dec colors, display filename in filerequester
 ;
 ; --------------------------- 
 
@@ -38,6 +40,7 @@
 	prozport	= $01
 	int	= $14
 	status	= $90
+	column	= $b1
 	spalte	= $d3
 	chrcolor	= $286
 	plot	= $fff0
@@ -94,8 +97,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "basic text rem/?"
-	!pet "1.17"
-	!pet "21.06.20"
+	!pet "1.18"
+	!pet "17.03.21"
 	!pet "W.Kling/A.Dettke"
 
 ; --------------------------- 
@@ -110,11 +113,7 @@ start	lda sc_screenvek	; Zeiger auf Main-Liste retten für ShowFont
 	jsr setmcols
 st2	lda gr_redisp	; image has been rendered?
 	bne st0
-	ldx #15		; yes, reset message
-st1	lda nofont,x
-	sta nofnttx,x
-	dex
-	bpl st1
+	jsr setnofont
 st0	ldx #<btxlist	; Requester aufbauen
 	ldy #>btxlist
 	jsr gd_screen
@@ -159,6 +158,8 @@ getfile	jsr chgdrv
 	bne clrs
 
 	jsr clrdata	; bei Replace: 4Bit löschen
+	dey		; .y=0
+	sty loaded	; set flag: font not available anymore
 
 clrs	jsr getlines	; Basic-Programm einlesen
 
@@ -188,7 +189,7 @@ errnf	ldx mlist		; sonst: Main aufbauen ### 1.12
 +	ldx list		; Modul-Requester einblenden
 	ldy list+1
 	jsr gd_screen
-	jsr gm4	
+	jsr gm4		; Requester färben
 	lda gmode
 	beq finish
 	jsr tgmode
@@ -273,15 +274,21 @@ err1 	!scr "    ERROR: Not a BASIC file!    "	; 0
 err2	!scr "ERROR: No PRINT, missing quote? "	; 32
 err3	!scr "ERROR: Missing colon? Line >40? "	; 64
 err4	!scr " ERROR: REM-line# out of range! "	; 96
-err5	!scr "     ERROR: File corrupt!       "	; 128
+err5	!scr "ERROR: File corrupt, or missing."	; 128
 err6	!scr "  ERROR: File probably no Font. "	; 160
 
 ; --------------------------- Sub: Load Font
 
 sevldfont	jsr clrmssg
-	jsr chgdrv
+	lda loaded
+	bmi +
+	ldx #15
+-	lda nofnttx,x
+	sta mess,x
+	dex
+	bpl -
 
-	ldx #<display	; set target address
++	ldx #<display	; set target address
 	ldy #>display
 	stx ls_adrmisc
 	sty ls_adrmisc+1
@@ -289,10 +296,12 @@ sevldfont	jsr clrmssg
 	ldx #0
 	stx ls_flen
 	jsr fileslct	; select file 
-	jsr clrbuffer	; clear charset buffer
 	lda ls_flen	; nichts gewählt?
 	beq jnofile	; ja, Ende
 
+	ldx #$ff
+	stx loaded	; preset flag: font not loaded
+	jsr clrbuffer	; clear charset buffer
 	jsr gd_xopen	; sonst ab hier: laden
 	jsr gd_clrms
 
@@ -327,13 +336,21 @@ ldl0	jsr basin		; load until EOF or $0800 bytes
 jnofile	jmp nofile	; (no file selected)
 jfaila	jmp faila		; not a basic file
 
-jfaile	jsr errnf
+jfaile	jsr setnofont
+	jsr errnf
 	pha
 	jmp faile		; file corrupt
 
 ldl1	pla
 	sta (ls_adrmisc),y	; ### 1.09: write last byte from file
+	lda ls_flen	; Länge retten
+	pha
+	lda #0		; ### 1.18: Error-Gadget verhindern
+	sta ls_flen
+	sta loaded
 	jsr nofile
+	pla
+	lda ls_flen	; und Länge zurück
 	ldx #15		; activate filename:
 cf6	lda ls_lastname,x
 	sta nofnttx,x
@@ -909,7 +926,13 @@ sevfgr	ldx #3
 	clc
 	rts
 
-scc0	inc mcols,x
+scc0	lda column
+	cmp #27
+	beq scc2
+	dec mcols,x
+	jmp scc1
+scc2	inc mcols,x
+
 scc1	lda mcols,x
 	and #15
 	sta mcols,x
@@ -1132,6 +1155,15 @@ mk0	lda chschr,x
 	bpl mk0
 	rts
 
+; --------------------------- Anzeige: No Font
+
+setnofont	ldx #15		; yes, reset message
+st1	lda nofont,x
+	sta nofnttx,x
+	dex
+	bpl st1
+	rts
+
 ; --------------------------- Gadgetposition setzen
 
 setpos	sta sc_screentab
@@ -1253,6 +1285,7 @@ gw0
 
 ; --------------------------- Flags
 
+loaded	!by $ff		; Flag: font loaded (=0)
 whfont	!by 0		; which sysfont (toggle)
 fonts	!by $08,$d0,$d8	; sysfont base address (hi)
 fontadd	!by $08		; current sysfont base address (hi)
