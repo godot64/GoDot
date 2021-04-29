@@ -1,0 +1,496 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ----------------------------------------- 
+;
+;  ldr.4BitAnaglyph
+;   loader for red-green anaglyphs
+;   first loads red separation ("r."), then adds green one ("g.")
+;
+;  1.00, 26.04.21, first release
+;  1.01, 29.04.21, bugfix: crashed when no file selected
+;
+; ----------------------------------------- 
+
+; ----------------------------------------- Equates
+
+	packbyte	= $ad	; constant
+
+	dst	= $30	; /$31
+	src	= $32	; /$33
+	counter	= $34	; /$35
+	adcnt	= $36
+	gbyte	= $37
+	byte1	= $38
+	byte2	= $39
+	filetype	= $3a
+
+	offx	= ls_adrmisc
+	offy	= offx+1
+
+; ----------------------------------------- Header
+
+header	jmp start
+	!by $80
+	!by 0
+	!by 0		; 1: dirty
+	!wo modend
+	!wo 0
+	!tx "Anaglyph Loader "
+	!tx "1.01"
+	!tx "29.04.21"
+	!tx "A.Dettke        "
+
+; ----------------------------------------- Main
+
+start	jsr gd_sproff	; mouse pointer off
+	inc used		; recursion flag (starts /w $ff)
+
+	ldx used
+	beq st2		; load red
+	dex
+	beq st3		; load green
+	jmp ld07		; if fail
+
+; ----------------------------------------- 
+
+st2	lda gd_modswitch
+	pha
+
+	ldx #0
+	stx mflag		; flag for non-prepared filenames
+	stx pass		; init pass (=0)
+	jsr tcopy		; set 1st message (.x=0)
+
+	lda #<getred	; 1st file: load red separation
+	ldx #>getred
+	sta doit
+	stx doit+1
+	lda ls_flen
+	sta mflen
+
+	lda ls_nambuf+1	; filename prepared?
+	cmp #$2e		; dot (".") in name?
+	beq st0
+	sta mflag		; no, set flag
+	bne st1
+st0	lda #"r"		; force "red" file
+	sta ls_nambuf
+
+st1	jsr loadrgb	; load "red" file
+	jsr checkerr	; error?
+jcan1	bcs jcan		; yes, leave loader
+
+	ldx #8		; set 2nd message
+	jsr tcopy
+	lda #<addgrn	; prepare green separation
+	ldx #>addgrn
+	sta doit
+	stx doit+1
+	inc pass		; (now =1, 1st pass)
+	lda mflag		; filenames unprepared?
+	bne next		; yes, jump
+
+	lda #"g"		; force "green" file
+	sta ls_nambuf
+	jsr loadrgb2	; and load
+	bcs ld7		; if error: leave loader
+ld07	jsr setinfom	; publish filename
+
+ld7	pla
+	sta gd_modswitch
+ld8	ldx #$ff		; re-init USED
+	stx used
+	stx gr_redisp	; set re-render flag
+	jsr resetbal
+	jsr gd_spron	; mouse pointer on
+	sec		; leave loader
+	rts
+
+; ----------------------------------------- Pass 2 unprepared
+
+st3	pla		; drop RTS
+	pla
+	inc pass		; count passes (=2, 2nd pass)
+	lda ls_flen	; no file selected?
+	beq jcan		; yes, leave
+	jmp loadrgb3	; load second non-prepared file
+			; (returns below, after gd_eloop)
+
+next	jsr gd_spron
+	lda #0
+	sta ls_flen
+	jsr gd_eloop	; get name and load
+	lda pass		; 2nd pass?
+	cmp #2
+	beq ld07		; yes, publish name and leave
+	lda ls_flen	; no, 1st pass, no name selected?
+	beq ld7		; yes, leave leader
+	rts		; no, continue /w pass 2
+
+; ----------------------------------------- Reset Balancing
+
+jcan
+resetbal	ldy #16
+	sty gr_ctr
+	sty gr_brt
+xl0	dey
+	tya
+	sta gr_btab,y
+	bne xl0
+
+	sec
+	rts
+
+; ----------------------------------------- Check Read Error
+
+checkerr	lda ls_err2
+	and #15
+	bne +
+	clc
+	rts
+
++	jmp error2
+
+; ----------------------------------------- Load Separations
+
+
+loadrgb2	lda mflen
+	sta ls_flen
+	sta ls_temp
+
+loadrgb3	ldx #0
+	lda #2
+	stx ls_vekta8	; position of filename: $0200
+	sta ls_vekta8+1
+	stx sc_vekt20
+	lda #>sy_4bit	; target: $4000
+	sta sc_vekt20+1
+
+loadrgb	jsr gd_xopen	; open file requester
+	ldx sc_vekt20	; set target address
+	ldy sc_vekt20+1
+	stx sc_texttab
+	sty sc_texttab+1
+
+	jsr onebyte	; read first bytes
+	bne error
+	tay		; uncompressed 4bit?
+	beq ld60
+	jsr onebyte	; no: skip "GOD"
+	bne error
+	jsr onebyte
+	bne error
+
+ld60	jsr onebyte	; filetype ($30, $31 or $40)
+	bne error
+	sta filetype
+	tya
+	bne ld61
+	sta filetype	; uncompressed: $00
+ld61	asl filetype
+
+	jsr getname	; store filename
+ld6	jsr gd_clrms
+	jsr clrmess	; .y=0
+	sty counter
+	sty counter+1
+	sty ls_vekta8
+	ldy #$7d		; count 32000 bytes
+	sty ls_vekta8+1
+
+ld0	ldy #0
+	jsr readfile	; get byte from file
+	jsr readbytes	; convert to red/green
+	sta (sc_texttab),y	; store
+	inc sc_texttab
+	bne ld1
+	inc sc_texttab+1
+ld1	lda ls_vekta8	; now count 
+	bne ld2
+	dec ls_vekta8+1
+ld2	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	beq ld3
+
+	jsr action
+	lda status
+	beq ld0
+
+ld3	jsr gd_xclose	; close file
+	jsr gd_xmess	; reads floppy error channel
+	jsr clrmess
+	clc		; .c=0 returns success
+	rts
+
+; ----------------------------------------- Error
+
+error2	pla
+	pla
+error	jsr ld3
+	sty pass		; .y=0
+	jmp ld8		; returns .c=1
+
+; ----------------------------------------- 
+
+onebyte	jsr basin
+	ldx status
+	rts
+
+; ----------------------------------------- Convert Distributor
+
+readbytes	jmp (doit)
+
+; ----------------------------------------- Convert Red
+
+getred	pha
+	lsr		; isolate left pixel
+	lsr
+	lsr
+	lsr
+	tax
+	lda gr_btab,x	; regard balancing
+	tax
+	lda offp1,x	; get offset in tabcols
+	tax
+	lda offp2,x
+	tax
+	lda hinib,x
+	sta byte1		; and store
+
+	pla		; isolate right pixel
+	and #$0f
+	tax
+	lda gr_btab,x	; regard balancing
+	tax
+	lda offp1,x	; get offset in tabcols
+	tax
+	lda offp2,x
+	ora byte1		; and store
+	rts
+
+; ----------------------------------------- Convert Green
+
+addgrn	pha		; save current byte
+
+	lda (sc_texttab),y	; get pass1 (red) value (left)
+	lsr
+	lsr
+	lsr
+	lsr
+	cmp #1		; turn to offset in tabcols
+	bne +
+	lda #20
++	sta byte1
+	pla
+	pha		; re-get current byte (green value)
+	lsr
+	lsr
+	lsr
+	lsr
+	tax
+	lda gr_btab,x	; regard balancing
+	tax
+	lda offp1,x	; get offset in tabcols
+	clc
+	adc byte1
+	tax
+	lda tabcols,x	; get color value from tabcols
+	tax
+	lda hinib,x
+	sta byte1		; store
+
+	lda (sc_texttab),y	; re-get red value (right pixel)
+	and #$0f
+	cmp #1
+	bne +
+	lda #20
++	sta byte2
+
+	pla		; re-get green value
+	and #$0f
+	tax
+	lda gr_btab,x	; regard balancing
+	tax
+	lda offp1,x
+	clc
+	adc byte2		; offset in tabcols
+	tax
+	lda tabcols,x	; get color value
+	ora byte1		; and store (after leaving here)
+	rts
+
+; ----------------------------------------- Read 4Bit Data
+
+readfile	lda counter
+	ora counter+1
+	bne getit2
+	inc counter
+	jsr basin
+	cmp #packbyte
+	bne getit1
+	bit filetype	; compressed?
+	bvc getit1	; no
+	jsr basin
+	sta counter
+	beq rb2
+	lda #0
+	beq rb3
+rb2	lda #1
+rb3	sta counter+1
+	jsr basin
+getit1	sta gbyte
+getit2	lda counter
+	bne rb4
+	dec counter+1
+rb4	dec counter
+	lda gbyte
+	rts
+
+; --------------------------- Message Display Handler
+
+tcopy	ldy #0		; Select message
+tc0	lda txt,x		; in .x: offset to message
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+
+clrmess   ldx #21		; clear gauge bar
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldx #7		; init counters
+	ldy #0
+	sty offy
+	stx offx
+	rts
+
+messout   ldx #<message	; display message and gauge
+	ldy #>message
+	jmp gd_xtxout2
+
+; --------------------------- Activity Gauge
+
+action	dec adcnt		; decrement activity counter
+	bne ld4
+	lda cntwert	; reset when 0
+	sta adcnt
+	ldy offy		; bar at maximum?
+	cpy clrmess+1
+	bne act0
+	jsr clrmess	; yes, clear
+act0	ldx offx		; write bar to output
+	lda filltab,x	; add one pixel
+	sta mess,y
+	jsr messout
+	dec offx		; 8 pixels added?
+	bpl ld4
+	inc offy		; yes, advance to next block
+	lda #7
+	sta offx
+ld4	rts
+
+filltab   !by 160,93,103,127,126,124,105,109
+
+cntwert   !by 200		; activity counter (advance after cntwert passes)
+
+txt	!scr " Pass1 ",0	; 0 (to: .x)
+	!scr " Pass2 ",0	; 8
+
+message   !fill 10,32
+mess	!fill 22,32
+	!by 0
+
+; ----------------------------------------- Loader Data
+
+mflag	!by 0
+mflen	!by 0
+used	!by $ff
+doit	!by 0,0
+
+pass	!by 0
+offp1	!by 0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4
+offp2	!by 0,5,10,15,1
+
+hinib	!by $00,$10,$20,$30,$40,$50,$60,$70
+	!by $80,$90,$a0,$b0,$c0,$d0,$e0,$f0
+
+tabcols	!by $00,$07,$0c,$0c,$0c	; from black to...
+	!by $04,$03,$0c,$0c,$0c
+	!by $04,$04,$07,$0c,$0c
+	!by $09,$09,$07,$0b,$0c
+	!by $09,$09,$09,$0d,$0f	; ...white
+
+; ----------------------------------------- 
+; ----------------------------------------- Image Information Handler
+; ----------------------------------------- 
+
+getname	ldx #0
+si0	lda ls_lastname,x	; retrieve name of loaded picture
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+; ----------------------------------------- Publish Infomation
+
+setinfom	jsr setmulti
+	beq +
+setinfoh	jsr sethires
++	jsr setname	; propagate image name to system
+	jsr setloader	; set image information
+	jmp setdata
+
+; ----------------------------------------- Subroutines
+
+setname	lda #0
+	ldx #<ls_picname
+	ldy #>ls_picname
+	bne si3
+setloader	lda #17
+	ldx #<ls_iloader
+	ldy #>ls_iloader
+	bne si3
+setmulti	lda #25
+	ldx #<ls_imode
+	ldy #>ls_imode
+	bne si3
+sethires	lda #33
+	ldx #<ls_imode
+	ldy #>ls_imode
+	bne si3
+setdata	lda #41
+	ldx #<ls_idrive
+	ldy #>ls_idrive
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4 	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!fill 16,32	; 16 bytes buffer for filename
+	!by 0
+
+modname	!scr "Anaglph",0	; 17: signature
+multitx	!scr "160x200",0	; 25: Mode (Multi or Hires)
+dtextc	!scr "Color  ",0	; 33 (data types)
+datatype	!scr "Gray   ",0	; 41: Datatype: Gray
+
+; ----------------------------------------- 
+
+modend	!eof
