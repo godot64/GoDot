@@ -1,0 +1,263 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ------------------------------------------------ 
+;
+; mod.SplitRGB
+;
+; Module to extract any one of the RGB components from a 4bit image
+;
+; 1.00, 01.05.21, first release
+;
+; ------------------------------------------------ 
+
+
+; ------------------------------------------------ Equations
+
+	pport	= $01
+
+	adcnt	= $30
+	src	= $31		; /$32
+	which	= $33
+	byte	= $34
+
+	sprptr	= $07f8
+	spr255	= $3fc0
+
+	spr2x	= $d004
+	spr2y	= $d005
+	msbx	= $d010
+	spren	= $d015
+	sprxe	= $d01d
+	border	= $d020
+	sprcol2	= $d029
+
+; ------------------------------------------------ Header
+
+	jmp start
+	!by $20
+	!wo 0
+	!wo modend
+	!wo 0
+	!pet "SplitRGB values "
+	!pet "1.00"
+	!pet "01.05.21"
+	!pet "A.Dettke        "
+
+; ------------------------------------------------ Main
+
+start	lda gd_modswitch
+	pha 
+	lda sc_screenvek	; save position of requester
+	pha 
+	lda sc_screenvek+1
+	pha 
+
+	jsr makecols	; get GoDot's RGB color values
+	ldx #<rgblst	; display requester
+	ldy #>rgblst
+	jsr gd_screen
+
+	jsr gd_eloop	; wait for events
+
+	pla 
+	sta sc_screenvek+1	; restore old requester
+	pla 
+	sta sc_screenvek
+	pla 
+	sta gd_modswitch
+
+; ------------------------------------------------ Event: Leave
+
+evcancel	sec 
+	rts 
+
+; ------------------------------------------------ Events: Red/Green/Blue 
+
+evred	lda #1		; set flag
+	bne +
+
+evgrn	lda #0
+	beq +
+
+evblu	lda #$ff
++	sta which
+
+	jsr init
+
+	iny		; .y=0
+er0	lda (src),y	; extract color components
+	pha
+	lsr		; left pixel
+	lsr
+	lsr
+	lsr
+	tax
+	lda cpref,x	; regard order
+	tax
+	lda which		; which component?
+	bmi eblu1
+	beq egrn1
+ered1	lda tabred,x
+	jmp +
+egrn1	lda tabgrn,x
+	jmp +
+eblu1	lda tabblu,x
++	tax
+	lda dnibs,x
+	and #$f0		; store isolated left pixel
+	sta byte
+
+	pla
+	and #15		; right pixel
+	tax
+	lda cpref,x	; regard order
+	tax
+	lda which		; which component?
+	bmi eblu2
+	beq egrn2
+ered2	lda tabred,x
+	jmp +
+egrn2	lda tabgrn,x
+	jmp +
+eblu2	lda tabblu,x
++	ora byte		; combine left and right component pixels
+	sta (src),y	; store pixels
+
+	iny
+	bne er0		; pagewise
+
+	jsr adinc
+	inc src+1
+	lda src+1
+	cmp #>sy_bigbuffer	; until end of 4bit
+	bcc er0
+
+	jsr clearad
+	sec
+	rts
+
+; -------------------------------------- Palette RGB Splitting
+
+makecols	ldx #15		; get GoDot's RGB values for its standard colors
+stt01	lda gr_rgb+32,x
+	sta tabblu,x
+	lda gr_rgb+16,x
+	sta tabgrn,x
+	lda gr_rgb,x
+	sta tabred,x
+	dex
+	bpl stt01
+	rts
+
+; ------------------------------------------------ Init 
+
+init	jsr initad	; activity
+	jsr setadcnt
+	lda #<sy_4bit	; start address
+	ldx #>sy_4bit
+	sta src
+	stx src+1
+	rts
+
+; ------------------------------------------------ Activity
+
+adinc	dec adcnt		; advance after adcnt passes
+	bne +
+	inc spr2y
+	inc spr2y+2
+setadcnt	lda #3		; counter: 3
+	sta adcnt
++	rts
+
+; ------------------------------------------------ Abschluss Activity
+
+clearad	lda spren		; Wanderbalken aus
+	and #$f3
+	sta spren
+	lda msbx
+	and #$f3
+	sta msbx
+	lda #$ff		; Grafik verändert,
+	sta gr_redisp	; also Flag für System setzen
+	clc 		; fertig
+	rts 
+
+; ------------------------------------------------ Init Activity
+
+initad	ldy #60		; Spriteblock 255 vorbereiten
+	lda #0
+-	sta spr255+3,y
+	dey 
+	bpl -
+	sty spr255	; dünner Strich
+	sty spr255+1
+	sty spr255+2
+	lda #15		; Farbe hellgrau
+	sta sprcol2
+	sta sprcol2+1
+	lda sprxe		; doppelt breit
+	ora #$0c
+	sta sprxe
+
+	lda msbx		; x über 255
+	ora #$0c
+	sta msbx
+	lda #8		; x-Ordinate: 8 (plus 256)
+	sta spr2x
+	lda #$20
+	sta spr2x+2
+	lda #$92		; y-Ordinate: 146
+	sta spr2y		; (im Image Information Fenster)
+	sta spr2y+2
+
+	sty sprptr+2	; Sprite 255
+	sty sprptr+3
+	lda spren
+	ora #$0c		; Activity-Balken aktivieren
+	sta spren
+	rts
+
+; ------------------------------------------------ Tables
+
+tabred	!by $00,$00,$00,$00,$00,$00,$00,$00	; red component
+	!by $00,$00,$00,$00,$00,$00,$00,$00
+tabgrn	!by $00,$00,$00,$00,$00,$00,$00,$00	; green
+	!by $00,$00,$00,$00,$00,$00,$00,$00
+tabblu	!by $00,$00,$00,$00,$00,$00,$00,$00	; blue
+	!by $00,$00,$00,$00,$00,$00,$00,$00
+
+cpref	!by  3,12, 5, 2,10, 8, 7, 1		; to gain the correct order
+	!by 11, 6,13, 0, 9,15,14, 4
+
+dnibs	!by $00,$11,$22,$33			; to easily gain upper nibble
+	!by $44,$55,$66,$77
+	!by $88,$99,$aa,$bb
+	!by $cc,$dd,$ee,$ff
+
+; ------------------------------------------------ Screenlist
+
+rgblst	!by 0
+	!by 8,14,12,12,$91
+	!wo 0
+	!scr "SplitRGB",0
+	!by 11,14,12,3,$ca
+	!wo evred
+	!scr "Red",0
+	!by 13,14,12,3,$cb
+	!wo evgrn
+	!scr "Green",0
+	!by 15,14,12,3,$cb
+	!wo evblu
+	!scr "Blue",0
+	!by 17,14,12,3,$cb
+	!wo evcancel
+	!scr "Leave",0
+	!by $80
+
+; ------------------------------------------------ 
+
+modend	!eof
