@@ -1,0 +1,808 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ----------------------------------------- 
+;
+;  ldr.Backdrop
+;   Lader für Hintergrundbilder (Hires/Multi)
+;   (Default name: "Backdrop")
+;
+;  1.00, 13.05.21, first release
+;
+; ----------------------------------------- 
+
+; ----------------------------------------- Equates
+
+;	pport	= $01
+
+	dst	= $30
+	byte	= $32
+	ymrk	= $33
+	xmrk	= $34
+	cnt8	= $35
+	mask	= $36
+	build	= $37
+	zink	= $38
+	zpap	= $39
+	yindex	= $3a
+	adcnt	= $3b 	; (activity counter)
+
+	zeile	= sc_merk
+	spalte	= zeile+1
+
+	sprptr	= $07fa
+	spr2	= sy_global
+	spr255	= $3fc0
+	spr6x	= $d00c
+	spr6y	= spr6x+1
+	sprxy	= $d004
+	spritehi	= $d010
+	spren	= $d015
+	sprmulti	= $d01c
+	sprxe	= $d01d
+	sprcol2	= $d029
+	sprcol6	= $d02d
+
+; ----------------------------------------- Header
+
+header	jmp start
+	!by $80
+	!by 4		; 4: ldr has own requester
+	!by 0
+	!wo modend
+	!wo 0
+	!tx "Loader Backdrop "
+	!tx "1.00"
+	!tx "13.05.21"
+	!tx "A.Dettke        "
+
+; ----------------------------------------- Main
+
+start	jsr makechr	; generate listbox sign
+
+	ldx #<bdrlst
+	ldy #>bdrlst
+	jsr gd_screen
+
+	sta sc_loop	; care for text mode
+	lda #3		; start with Paper
+	sta cols
+	jsr evcolors
+	ldx palgad	; palette gadget values
+	inx
+	stx palzl
+	stx sc_zl
+	ldx palgad+1
+	inx
+	stx palsp
+	stx sc_sp
+	ldx #4		; 4x4 area (color chooser)
+	stx sc_br
+	stx sc_ho
+	jsr gd_esm3	; compute address and invert
+
+	lda paper		; get paper color to .x
+	and #15		; (will be marked by "+")
+	tax
+	jsr initpal	; and show colors
+	stx sprxe
+
+	jsr invpatgad	; show paper color
+	jsr setshcgad	; and show ink color(s)
+	dec sc_sp
+	inc sc_br
+	jsr gd_esm3
+	inc sc_sp
+	dec sc_br
+	jsr isg0
+	jsr fillpat	; pattern display
+
+	jmp gd_eloop	; now wait...
+
+; ----------------------------------------- Event: Apply Pattern
+
+evapply	jsr initad
+	ldy #<sy_4bit
+	lda #>sy_4bit
+	sty dst
+	sta dst+1
+	lda ink3
+	sta zink
+	lda paper
+	sta zpap
+
+	jsr whichpat	; get pattern number/index
+
+---	jsr adinc
+	lda #8		; count 8 lines
+	sta cnt8
+	ldy #0		; count 4bit double pixels (32)
+	sty yindex
+--	ldy ymrk
+	lda gr_pattern,y	; get pattern line
+	sta mask		; store pattern line
+	lda #4		; count 4 per line
+	sta xmrk
+
+-	lda mode
+	bne mapply
+
+happly	jsr onepixh	; get left pixel
+	tax
+	lda hnibs,x
+	sta build		; store
+	jsr onepixh	; get right pixel
+	ora build		; make double pixel
+	jmp +
+
+mapply	jsr onepixm
+
++	ldy yindex
+	sta (dst),y
+	inc yindex
+	dec xmrk		; count double pixels per line (4)
+	bne -
+
+	inc ymrk
+	dec cnt8		; count lines (until 8)
+	bne --
+
+	lda byte		; reset pattern
+	sta ymrk
+	clc
+	lda dst		; then: proceed to next tile
+	adc #32
+	sta dst
+	lda dst+1
+	adc #0
+	sta dst+1
+	cmp #>sy_bigbuffer	; until end of 4Bit
+	bne ---
+			; then finish:
+	inc bdrop
+	lda bdrop
+	jsr gd_xcnvdez	; create "filename"
+	stx lfdnr
+	sta lfdnr+1
+	lda mode
+	bne +
+	jsr setinfoh	; set image information
+	beq evcancel
++	jsr setinfom
+
+; ----------------------------------------- Event: Leave Module
+
+evcancel	jsr clearad	; reset sprites
+	jsr gd_spron	; only mousepointer stays active
+	sta gr_redisp
+	sec		; then leave loader
+	rts
+
+; ----------------------------------------- 
+
+onepixh	rol mask		; pixel set?
+	bcc +
+	ldx zink		; yes, get ink color
+	!by $2c
++	ldx zpap		; no, get paper color
+	lda c64pal,x
+	rts
+
+onepixm	rol mask		; isolate double pixel
+	rol
+	rol mask
+	rol
+	and #3
+	tax
+	lda capply,x
+	tax		; get its color
+	lda paper,x
+	tax
+	lda c64pal,x
+	tax
+	ora hnibs,x
+	rts
+
+; ----------------------------------------- Event: Choose Pattern
+
+evchpatt	ldy pattnum
+	lda spalte	; wo geklickt?
+	cmp #16
+	bcc ++
+
+	cpy #15		; right: forewards
+	bne +
+	ldy #$ff
++	iny
+	jmp +++
+
+++	tya		; left: backwards
+	bne +
+	ldy #16
++	dey
+
++++	sty pattnum
+	tya
+	jsr gd_xcnvdez
+	cpx #"0"
+	bne +
+	ldx #32
++	stx pattx
+	sta pattx+1
+
+	jsr fillpat	; prepare pattern display and show
+	ldy #0
+	jmp tout0
+
+; ----------------------------------------- Event: Choose Colors
+
+evcolors	ldy cols
+	lda spalte	; wo geklickt?
+	cmp #15
+	bcc +++
+
+	cpy #3		; rechte Hälfte: Maximum?
+	bne +
+-	ldy #$ff		; ja
+	bmi ++
+
++++	lda mode		; linke Hälfte, welcher Modus?
+	bne mul0
+
+	tya		; Hires: Paper aktiv?
+	bne -		; nein, Ink: toggeln zu Paper
+	ldy #3		; ja, toggeln zu Ink
+	sty cols
+
++	lda mode		; welcher Modus?
+	bne ++
+
+	dec colsoffs+3	; Hires
+	jsr txout1
+	jsr txout2
+	inc colsoffs+3
+	jmp txout1	; bei Hires: nur Paper & Ink(3)
+
+mul0	tya		; linke Hälfte, Multi: Paper aktiv?
+	beq txout2	; ja, toggeln zu Ink3
+	dey		; sonst: herunterzählen
+	dey
+	jmp ++
+
+txout2	ldy #2		; bei Multi: alle
+++	iny
+	sty cols
+
+	lda colsoffs,y
+	tay
+	ldx #4
+-	lda colstxts,y
+	sta colstx,x
+	dey
+	dex
+	bpl -
+
+	ldy #4
+	bne txout0
+
+; ----------------------------------------- Event: Set Mode
+
+evmode	ldy mode
+	cpy #1
+	bne +
+	ldy #$ff
++	iny		; toggle mode (hires/multi)
+	sty mode
+
+	lda modeoffs,y
+	tay
+	ldx #4
+-	lda modetxts,y
+	sta modetx,x
+	dey
+	dex
+	bpl -
+
+	ldy cols		; Paper?
+	beq +		; yes, just show
+	dey
+	jsr evcolors
++	jsr invshcgad	; show multi colors
+	jsr mdupdate	; and colorize sprites
+
+	ldy #2		; change text in requester
+txout0	jmp tout0		; returns .c=0
+
+txout1	lda #$13
+	eor colsoffs-2
+	sta colsoffs-2
+	rts
+
+; ------------------------------------------------ Event: Pick Color
+
+evgetcol	sec		; compute row where user clicked
+	lda zeile
+	sbc palzl
+	asl
+	asl
+	sta hold
+	sec		; compute column
+	lda spalte
+	sbc palsp
+	clc
+	adc hold
+	tax		; take as index into palette
+	lda gr_basepal,x
+	tax
+	ora #$80		; sign valid
+	sta gr_picked
+initpal	txa
+	ldy cols
+	sta paper,y
+	lda c64pal,x	; re-display palette
+	jsr makepal
+
+	jsr setpatgad	; set background color
+	jsr enc0
+	jsr enc1
+	jmp invshcgad
+
+; ----------------------------------------- Colorize Pattern Gadget
+
+setpatgad	lda inpatgad	; row
+	ldx inpatgad+1	; col
+	ldy inpatgad+2	; wid
+	jsr gd_setpar
+	lda inpatgad+3	; hgt
+	sta sc_ho
+	rts
+
+setshpgad	lda shpatgad	; row
+	ldx shpatgad+1	; col
+	ldy shpatgad+2	; wid
+	bne +
+
+setshcgad	lda inshcgad	; row
+	ldx inshcgad+1	; col
+	ldy inshcgad+2	; wid
++	jmp gd_setpar
+
+; ----------------------------------------- Colorize Pattern Gadget
+
+invpatgad	jsr setpatgad
+	jsr gd_esm3
+	jsr enc0
+enc1	jsr setshcgad
+	dec sc_sp
+	lda #1
+	sta sc_br
+enc0	lda paper		; /w paper color
+	jmp encolor
+
+; ----------------------------------------- Colorize Colors Gadget
+
+invshcgad	jsr setshcgad
+isg0	lda ink3		; /w Ink3 (both multi and hires)
+	jsr encolor
+	jsr colupdate
+	lda mode
+	beq +
+	lda #1
+	sta sc_br
+	lda ink1		; Ink1 (only multi)
+	jsr encolor
+	inc sc_sp
+	lda ink2		; Ink2
+	jsr encolor
++	clc
+	rts
+
+
+; ----------------------------------------- Get Pattern Data
+
+fillpat	jsr whichpat
+	ldx #0		; first fill sprites with pattern data
+	stx cnt8
+-	ldy ymrk
+	lda gr_pattern,y
+	sta sprite1,x
+	sta sprite1+1,x
+	sta sprite1+2,x
+	sta sprite2,x
+	sta sprite1+24,x
+	sta sprite1+25,x
+	sta sprite1+26,x
+	sta sprite2+24,x
+	inc cnt8
+	inc ymrk
+	lda cnt8
+	cmp #8
+	bcc +
+	lda #0
+	sta cnt8
+	lda byte
+	sta ymrk
++	inx
+	inx
+	inx
+	cpx #24
+	bcc -
+
+; ----------------------------------------- Show Pattern
+
+showpat	ldy #127		; then move data to sprite buffer
+-	lda sprite1,y
+	sta spr2,y	; (sprites 2 and 3)
+	dey
+	bpl -
+	ldy #7		; set positions
+-	lda sprposn,y
+	sta sprxy,y
+	dey
+	bpl -
+
+	ldx #$fd		; set block pointers to data
+	stx sprptr
+	stx sprptr+2
+	inx
+	stx sprptr+1
+	stx sprptr+3
+	lda spren		; activate sprites
+	ora #$3c
+	sta spren
+
+mdupdate	lda sprmulti	; set mode (hires/multi)
+	ldy mode
+	beq +
+	ora #$3c
+	!by $2c
++	and #$c3
+	sta sprmulti
+
+colupdate	ldy mode		; set color(s)
+	beq cud0
+
+	lda ink1		; multi: $d025+
+	sta $d025
+	lda ink3		; individual color like hires
+	jsr cud0
+	lda ink2
+	sta $d026
+	rts
+
+cud0	lda ink3		; hires: $d027+
+	sta sprcol2
+	sta sprcol2+1
+	sta sprcol2+2
+	sta sprcol2+3
+	rts
+
+whichpat	lda pattnum	; get pattern number
+	asl
+	asl
+	asl
+	sta byte
+	sta ymrk
+	rts
+
+; ----------------------------------------- Create Listbox Sign
+
+makechr	ldx #7
+-	lda chschr,x
+	sta sc_undochar,x
+	dex
+	bpl -
+	rts
+
+; ------------------------------------------------ Create Palette Chooser
+
+makepal	lda gr_picked	; get current color
+	and #15
+	sta plast		; and store
+
+	lda palsp		; create chooser, first column
+	sta sc_sp
+	pha
+	ldx #1		; width and height = 1
+	stx sc_br
+	stx sc_ho
+	dex
+	stx cnty		; counters = 0
+	stx hold
+
+mp1	stx cntx
+	ldy hold
+	jsr colorize	; colorize area (1x1)
+	sec		; is PICKED color?
+	lda sc_vekt20
+	sbc #40
+	sta sc_vekt20
+	lda sc_vekt20+1
+	sbc #$d4
+	sta sc_vekt20+1
+	ldy sc_chgcol
+	cpy plast
+	beq mp2
+	lda #160		; no, write shift space
+	bne mp3
+mp2	lda #171		; yes, write "+"
+mp3	ldy #0
+	sta (sc_vekt20),y
+	inc sc_sp		; next column
+	inc hold
+	ldx cntx
+	inx
+	cpx #4
+	bne mp1
+
+	pla		; re-get start column
+	pha
+	sta sc_sp
+	ldx #0
+	inc sc_zl		; next row
+	inc cnty
+	lda cnty
+	cmp #4
+	bne mp1
+
+	pla		; clear stack
+	rts		; finished
+
+colorize	lda gr_basepal,y	; get color
+encolor	sta sc_chgcol
+	ldx #4
+	jmp gd_fcol	; colorize area (1x1)
+
+; ------------------------------------------------ Activity
+
+adinc	dec adcnt		; advance after adcnt passes
+	bne +
+	inc spr6y
+	inc spr6y+2
+	jmp setadcnt	; reset adcnt
+
+; ------------------------------------------------ Abschluss Activity
+
+clearad	lda spren		; Wanderbalken aus
+	and #$3f
+	sta spren
+	lda sprmulti	; now Hires
+	and #$c3
+	sta sprmulti
+	lda spritehi	; reset positions...
+	and #3
+	sta spritehi
+	lda #0
+	sta sprxe		; ...expand...
+	ldx #5
+-	sta sprcol2,x	; ...and colors
+	dex
+	bpl -
+	clc 		; fertig
++	rts 
+
+; ------------------------------------------------ Init Activity
+
+initad	ldy #60		; Spriteblock 255 vorbereiten (§3fc0)
+	lda #0
+-	sta spr255+3,y
+	dey 
+	bpl -
+	sty spr255	; dünner Strich
+	sty spr255+1
+	sty spr255+2
+	lda sprmulti	; in Hires
+	and #$3c
+	sta sprmulti
+	lda #15		; Farbe hellgrau
+	sta sprcol6
+	sta sprcol6+1
+	lda sprxe		; doppelt breit
+	ora #$c0
+	sta sprxe
+
+	lda spritehi	; x über 255
+	ora #$c0
+	sta spritehi
+	lda #8		; x-Ordinate: 8 (plus 256)
+	sta spr6x
+	lda #$20
+	sta spr6x+2
+	lda #$92		; y-Ordinate: 146
+	sta spr6y		; (im Image Information Fenster)
+	sta spr6y+2
+
+	sty sprptr+4	; Sprite 255
+	sty sprptr+5
+	lda spren
+	ora #$c0		; Activity-Balken aktivieren
+	sta spren
+
+setadcnt	lda #25		; Startzähler (hier: 25 mal 40 = 1000)
+	sta adcnt
+	rts
+
+; ----------------------------------------- Backdrop Screenlist
+
+bdrlst	!by 0
+	!by 2,11,14,20,$81
+	!wo 0
+	!scr "Backdrop",0
+
+patgad	!by 6,14,5,3,$c0	; choose pattern
+	!wo evchpatt
+	!by 223
+pattx	!scr " 0",0
+
+	!by 6,19,6,6,$0f	; show pattern
+	!wo 0
+	!by 11,19,6,3,$0f	; show colors
+	!wo 0
+
+modegad	!by 11,11,8,3,$c8	; choose mode
+	!wo evmode
+	!by 223
+modetx	!scr "Hires",0
+
+colsgad	!by 16,11,8,3,$c8	; choose which color
+	!wo evcolors
+	!by 223
+colstx	!scr "Paper",0
+
+	!by 19,11,7,3,$c7	; apply backdrop
+	!wo evapply
+	!scr "Apply",0
+
+palgad	!by 13,19,6,6,$4f	; choose color
+	!wo evgetcol
+
+	!by 19,18,7,3,$cd	; Exit-Gadget
+	!wo evcancel
+	!scr "Leave",0
+
+	!by $c0,4,11,8	; captions
+	!scr "Pattern:",0
+	!by $c0,6,12,1
+	!scr "#",0
+	!by $c0,9,11,5
+	!scr "Mode:",0
+	!by $c0,14,11,7
+	!scr "Colors:",0
+	!by $80
+
+; ----------------------------------------- Data
+
+chschr	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
+inpatgad	!by 7,20,4,4
+inshcgad	!by 12,21,3
+mode	!by 0		; 0: hires, 1: multi
+modetxts	!scr "HiresMulti"
+modeoffs	!by 4,9
+colstxts	!scr "PaperInk1 Ink2 Ink3 "
+colsoffs	!by 4,9,14,19
+numc	!by 2,4		; Anzahl Farben (Hires: 2, Multi: 4)
+cols	!by 0		; welche Farbe:
+paper	!by 0		; %00 ($d021, hires and multi)
+ink1	!by 3		; %01 ($d025)
+ink2	!by 2		; %10 ($d027+; multi: ink3)
+ink3	!by 1		; %11 ($d026, multi: ink2, hires: $d027+)
+capply	!by 0,1,3,2
+pattnum	!by 0		; current pattern number
+bdrop	!by 0
+
+palzl	!by 0
+palsp	!by 0
+plast	!by 0
+hold	!by 0
+cntx	!by 0
+cnty	!by 0
+
+c64pal	!by $00,$0f,$04,$0c,$05,$0a,$01,$0d
+	!by $06,$02,$09,$03,$07,$0e,$08,$0b
+hnibs	!by $00,$10,$20,$30,$40,$50,$60,$70
+	!by $80,$90,$a0,$b0,$c0,$d0,$e0,$f0
+
+shpatgad	!by 7,20,4
+sprposn	!by 184,106,208,106,184,122,208,122
+
+sprite1	!fill 64		; sprites for pattern display
+sprite2	!fill 64
+
+; ----------------------------------------- 
+; ----------------------------------------- Text Output Handler
+; ----------------------------------------- 
+
+tabigad	!wo patgad	; .y:0
+	!wo modegad	; 2
+	!wo colsgad	; 4
+	!wo palgad	; 6
+	!wo shpatgad	; 8
+
+settab	lda #<tabigad	; point to gadget list
+	sta sc_texttab
+	lda #>tabigad
+	sta sc_texttab+1
+
+gettab	lda (sc_texttab),y	; then set gadget parameters
+	sta sc_screentab	; (where to output the text)
+	iny
+	lda (sc_texttab),y
+	sta sc_screentab+1
+
+	lda #0
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #4
+	bne gt0
+	jsr gd_trim
+	jmp gd_initmove	; compute address
+
+; ----------------------------------------- Output Text
+
+textout	ldy #0		; .y: index in tabigad
+tout0	jsr settab
+	ldy #6		; .y: offset to gadget text in screenlist
+	jmp gd_xtxout1	; show text
+
+; ----------------------------------------- 
+; ----------------------------------------- Image Information Handler
+; ----------------------------------------- 
+
+; ----------------------------------------- Publish Infomation
+
+setinfom	jsr setmulti
+	beq +
+setinfoh	jsr sethires
++	jsr setname	; propagate image name to system
+	jsr setloader	; set image information
+	jmp setdata
+
+; ----------------------------------------- Subroutines
+
+setname	lda #0
+	ldx #<ls_picname
+	ldy #>ls_picname
+	bne si3
+setloader	lda #17
+	ldx #<ls_iloader
+	ldy #>ls_iloader
+	bne si3
+setmulti	lda #25
+	ldx #<ls_imode
+	ldy #>ls_imode
+	bne si3
+sethires	lda #33
+	ldx #<ls_imode
+	ldy #>ls_imode
+	bne si3
+setdata	lda #41
+	ldx #<ls_idrive
+	ldy #>ls_idrive
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4 	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!scr "Backdrop"
+lfdnr	!scr "00      ",0
+
+
+modname	!scr "Bckdrop",0	; 17
+multitx	!scr "160x200",0	; 25: Multi
+hirestx	!scr "320x200",0	; 33: Hires
+datatype	!scr "Color@"	; 41
+
+; ----------------------------------------- 
+
+modend	!eof
