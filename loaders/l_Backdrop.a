@@ -11,6 +11,7 @@
 ;   (Default name: "Backdrop")
 ;
 ;  1.00, 13.05.21, first release
+;  1.01, 14.05.21, added option to use masks
 ;
 ; ----------------------------------------- 
 
@@ -20,20 +21,23 @@
 
 	dst	= $30
 	byte	= $32
-	ymrk	= $33
+	patindex	= $33
 	xmrk	= $34
 	cnt8	= $35
-	mask	= $36
+	pmask	= $36
 	build	= $37
 	zink	= $38
 	zpap	= $39
 	yindex	= $3a
 	adcnt	= $3b 	; (activity counter)
+	msksrc	= $3c
+	bmask	= $3e
 
 	zeile	= sc_merk
 	spalte	= zeile+1
 
 	sprptr	= $07fa
+	bitmap	= $2000
 	spr2	= sy_global
 	spr255	= $3fc0
 	spr6x	= $d00c
@@ -55,51 +59,21 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "Loader Backdrop "
-	!tx "1.00"
-	!tx "13.05.21"
+	!tx "1.01"
+	!tx "14.05.21"
 	!tx "A.Dettke        "
 
 ; ----------------------------------------- Main
 
-start	jsr makechr	; generate listbox sign
+start 	ldx sc_screenvek	; save current screenlist (mainlst)
+	stx list
+	ldx sc_screenvek+1
+	stx list+1
 
-	ldx #<bdrlst
-	ldy #>bdrlst
-	jsr gd_screen
-
-	sta sc_loop	; care for text mode
-	lda #3		; start with Paper
-	sta cols
-	jsr evcolors
-	ldx palgad	; palette gadget values
-	inx
-	stx palzl
-	stx sc_zl
-	ldx palgad+1
-	inx
-	stx palsp
-	stx sc_sp
-	ldx #4		; 4x4 area (color chooser)
-	stx sc_br
-	stx sc_ho
-	jsr gd_esm3	; compute address and invert
-
-	lda paper		; get paper color to .x
-	and #15		; (will be marked by "+")
-	tax
-	jsr initpal	; and show colors
-	stx sprxe
-
-	jsr invpatgad	; show paper color
-	jsr setshcgad	; and show ink color(s)
-	dec sc_sp
-	inc sc_br
-	jsr gd_esm3
-	inc sc_sp
-	dec sc_br
-	jsr isg0
-	jsr fillpat	; pattern display
-
+	jsr makechr	; generate listbox sign
+	lda #25		; init activity counter
+	sta cntwert
+	jsr showreq	; show requester
 	jmp gd_eloop	; now wait...
 
 ; ----------------------------------------- Event: Apply Pattern
@@ -109,6 +83,9 @@ evapply	jsr initad
 	lda #>sy_4bit
 	sty dst
 	sta dst+1
+	lda #>bitmap
+	sty msksrc
+	sta msksrc+1
 	lda ink3
 	sta zink
 	lda paper
@@ -119,39 +96,63 @@ evapply	jsr initad
 ---	jsr adinc
 	lda #8		; count 8 lines
 	sta cnt8
-	ldy #0		; count 4bit double pixels (32)
-	sty yindex
---	ldy ymrk
+	ldy #0
+	sty yindex	; count 4bit double pixels (32)
+
+--	ldy patindex
 	lda gr_pattern,y	; get pattern line
-	sta mask		; store pattern line
+	sta pmask		; store pattern line
+	ldy #0
+	lda mskflg
+	beq +
+	lda (msksrc),y
++	sta bmask
 	lda #4		; count 4 per line
 	sta xmrk
 
--	lda mode
+-	lda #0
+	sta build
+	ldy yindex
+	lda mode
 	bne mapply
 
 happly	jsr onepixh	; get left pixel
 	tax
-	lda hnibs,x
-	sta build		; store
-	jsr onepixh	; get right pixel
+	rol bmask		; store
+	bcs +
+	lda (dst),y
+	and #$0f
+	ora hnibs,x
+	sta (dst),y
++	jsr onepixh	; get right pixel
+	sta build
+	rol bmask
+	bcs +
+	lda (dst),y
+	and #$f0
 	ora build		; make double pixel
-	jmp +
+	sta (dst),y
++	jmp +
 
 mapply	jsr onepixm
-
-+	ldy yindex
+	rol bmask
+	bcs +
+	rol bmask
+	bcs +
 	sta (dst),y
-	inc yindex
++	inc yindex
 	dec xmrk		; count double pixels per line (4)
 	bne -
 
-	inc ymrk
-	dec cnt8		; count lines (until 8)
+	inc patindex
+	inc msksrc
+	bne +
+	inc msksrc+1
++	dec cnt8		; count lines (until 8)
 	bne --
 
-	lda byte		; reset pattern
-	sta ymrk
+	lda byte		; reset pattern index
+	sta patindex
 	clc
 	lda dst		; then: proceed to next tile
 	adc #32
@@ -160,9 +161,10 @@ mapply	jsr onepixm
 	adc #0
 	sta dst+1
 	cmp #>sy_bigbuffer	; until end of 4Bit
-	bne ---
+	bcs +
+	jmp ---
 			; then finish:
-	inc bdrop
++	inc bdrop
 	lda bdrop
 	jsr gd_xcnvdez	; create "filename"
 	stx lfdnr
@@ -183,7 +185,7 @@ evcancel	jsr clearad	; reset sprites
 
 ; ----------------------------------------- 
 
-onepixh	rol mask		; pixel set?
+onepixh	rol pmask		; pixel set?
 	bcc +
 	ldx zink		; yes, get ink color
 	!by $2c
@@ -191,9 +193,9 @@ onepixh	rol mask		; pixel set?
 	lda c64pal,x
 	rts
 
-onepixm	rol mask		; isolate double pixel
+onepixm	rol pmask		; isolate double pixel
 	rol
-	rol mask
+	rol pmask
 	rol
 	and #3
 	tax
@@ -236,6 +238,27 @@ evchpatt	ldy pattnum
 	jsr fillpat	; prepare pattern display and show
 	ldy #0
 	jmp tout0
+
+; ----------------------------------------- Event: Use Mask 
+
+evusemask	ldy mskflg
+	cpy #1
+	bne +
+	ldy #$ff
++	iny		; toggle use (deny/use)
+	sty mskflg
+
+	lda colsoffs,y
+	tay
+	ldx #4
+-	lda masktxts,y
+	sta umsktx,x
+	dey
+	dex
+	bpl -
+
+	ldy #10		; change text in requester
+	bne txo0
 
 ; ----------------------------------------- Event: Choose Colors
 
@@ -286,7 +309,7 @@ txout2	ldy #2		; bei Multi: alle
 	bpl -
 
 	ldy #4
-	bne txout0
+txo0	bne txout0
 
 ; ----------------------------------------- Event: Set Mode
 
@@ -297,7 +320,7 @@ evmode	ldy mode
 +	iny		; toggle mode (hires/multi)
 	sty mode
 
-	lda modeoffs,y
+	lda colsoffs,y
 	tay
 	ldx #4
 -	lda modetxts,y
@@ -319,6 +342,89 @@ txout0	jmp tout0		; returns .c=0
 txout1	lda #$13
 	eor colsoffs-2
 	sta colsoffs-2
+	rts
+
+; ------------------------------------------ Switch Graphics/Text
+
+evdisplay	lda spren
+	pha
+	jsr gd_spron
+	lda gr_redisp
+	pha
+	ldx #1
+	stx gr_redisp
+	dex
+	stx sc_stop
+	jsr redis
+	jsr rp1
+	pla
+	sta gr_redisp 	; auto render on
+	pla
+	sta spren
+	rts
+
+redis:	ldy #251
+	lda #$f0		; ink: lgrey, paper: black
+red0	sta $03ff,y
+	sta $04f9,y
+	sta $05f3,y
+	sta $06ed,y
+	dey
+	bne red0
+	sty sc_keyprs
+rp4:	lda #$1b		; hires graphics on
+	sta $d018
+	lda #$3b
+	sta $d011
+	lda gr_redisp 	; leave if flag set
+	bne rp3
+
+rp1: 	lda sc_keyprs 	; wait for stop key
+	ora sc_stop
+	beq rp1
+rp2: 	jsr tmode
+	ldx list
+	ldy list+1
+	jsr gd_screen
+	jsr showreq
+rp3: 	clc
+	rts
+
+tmode:	ldx #$13		; back to text mode (graphics off)
+	lda #$1b
+	stx $d018
+	sta $d011
+	lda #$08
+	sta $d016
+	rts
+
+; ----------------------------------------- Event: Invert Mask
+
+evinvert	lda spren
+	pha
+ 	lda #200
+	sta cntwert
+	jsr initad
+	ldy #0
+	lda #<$2000
+	ldx #>$2000
+	sta sc_vekt20
+	stx sc_vekt20+1
+	lda #<8000
+	ldx #>8000
+	sta ls_vekta8
+	stx ls_vekta8+1
+sin0  	lda (sc_vekt20),y
+	eor #$ff
+	sta (sc_vekt20),y
+	jsr adinc		; activity 
+ 	jsr count
+	bne sin0
+ 	lda #25
+	sta cntwert
+	pla
+	sta spren
+	clc
 	rts
 
 ; ------------------------------------------------ Event: Pick Color
@@ -397,16 +503,56 @@ isg0	lda ink3		; /w Ink3 (both multi and hires)
 	inc sc_sp
 	lda ink2		; Ink2
 	jsr encolor
-+	clc
++
+stay	clc
 	rts
 
+
+; ----------------------------------------- Show Requester
+
+showreq	ldx #<bdrlst
+	ldy #>bdrlst
+	jsr gd_screen
+
+	sta sc_loop	; care for text mode
+	lda #3		; start with Paper
+	sta cols
+	jsr evcolors
+	ldx palgad	; palette gadget values
+	inx
+	stx palzl
+	stx sc_zl
+	ldx palgad+1
+	inx
+	stx palsp
+	stx sc_sp
+	ldx #4		; 4x4 area (color chooser)
+	stx sc_br
+	stx sc_ho
+	jsr gd_esm3	; compute address and invert
+
+	lda paper		; get paper color to .x
+	and #15		; (will be marked by "+")
+	tax
+	jsr initpal	; and show colors
+	stx sprxe
+
+	jsr invpatgad	; show paper color
+	jsr setshcgad	; and show ink color(s)
+	dec sc_sp
+	inc sc_br
+	jsr gd_esm3
+	inc sc_sp
+	dec sc_br
+	jsr isg0
+	jmp fillpat	; pattern display
 
 ; ----------------------------------------- Get Pattern Data
 
 fillpat	jsr whichpat
 	ldx #0		; first fill sprites with pattern data
 	stx cnt8
--	ldy ymrk
+-	ldy patindex
 	lda gr_pattern,y
 	sta sprite1,x
 	sta sprite1+1,x
@@ -417,14 +563,14 @@ fillpat	jsr whichpat
 	sta sprite1+26,x
 	sta sprite2+24,x
 	inc cnt8
-	inc ymrk
+	inc patindex
 	lda cnt8
 	cmp #8
 	bcc +
 	lda #0
 	sta cnt8
 	lda byte
-	sta ymrk
+	sta patindex
 +	inx
 	inx
 	inx
@@ -485,7 +631,7 @@ whichpat	lda pattnum	; get pattern number
 	asl
 	asl
 	sta byte
-	sta ymrk
+	sta patindex
 	rts
 
 ; ----------------------------------------- Create Listbox Sign
@@ -556,6 +702,19 @@ encolor	sta sc_chgcol
 	ldx #4
 	jmp gd_fcol	; colorize area (1x1)
 
+; ----------------------------------------- Counters
+
+count 	inc sc_vekt20
+	bne cou6
+	inc sc_vekt20+1
+cou6 	lda ls_vekta8
+	bne cou7
+	dec ls_vekta8+1
+cou7 	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	rts
+
 ; ------------------------------------------------ Activity
 
 adinc	dec adcnt		; advance after adcnt passes
@@ -621,68 +780,89 @@ initad	ldy #60		; Spriteblock 255 vorbereiten (§3fc0)
 	ora #$c0		; Activity-Balken aktivieren
 	sta spren
 
-setadcnt	lda #25		; Startzähler (hier: 25 mal 40 = 1000)
+setadcnt	lda cntwert	; Startzähler (hier: 25 mal 40 = 1000)
 	sta adcnt
 	rts
 
 ; ----------------------------------------- Backdrop Screenlist
 
 bdrlst	!by 0
-	!by 2,11,14,20,$81
+	!by 1,11,14,23,$81
 	!wo 0
 	!scr "Backdrop",0
 
-patgad	!by 6,14,5,3,$c0	; choose pattern
+patgad	!by 5,14,5,3,$c0	; choose pattern
 	!wo evchpatt
 	!by 223
 pattx	!scr " 0",0
 
-	!by 6,19,6,6,$0f	; show pattern
+	!by 5,19,6,6,$0f	; show pattern
 	!wo 0
-	!by 11,19,6,3,$0f	; show colors
+	!by 10,19,6,3,$0f	; show colors
 	!wo 0
 
-modegad	!by 11,11,8,3,$c8	; choose mode
+modegad	!by 9,11,8,3,$c8	; choose mode
 	!wo evmode
 	!by 223
 modetx	!scr "Hires",0
 
-colsgad	!by 16,11,8,3,$c8	; choose which color
+colsgad	!by 13,11,8,3,$c8	; choose which color
 	!wo evcolors
 	!by 223
 colstx	!scr "Paper",0
 
-	!by 19,11,7,3,$c7	; apply backdrop
-	!wo evapply
-	!scr "Apply",0
+umskgad	!by 17,11,8,3,$c8	; use mask
+	!wo evusemask
+	!by 223
+umsktx	!scr " deny",0
 
 palgad	!by 13,19,6,6,$4f	; choose color
 	!wo evgetcol
 
-	!by 19,18,7,3,$cd	; Exit-Gadget
+	!by 19,11,6,3,$c8	; view mask
+	!wo evdisplay
+	!scr "View",0
+
+	!by 19,17,8,3,$cf	; invert mask
+	!wo evinvert
+	!scr "Invert",0
+
+	!by 21,11,7,3,$c7	; apply backdrop
+	!wo evapply
+	!scr "Apply",0
+
+	!by 21,18,7,3,$ce	; Exit-Gadget
 	!wo evcancel
 	!scr "Leave",0
 
-	!by $c0,4,11,8	; captions
+	!by $c0,3,11,8	; captions
 	!scr "Pattern:",0
-	!by $c0,6,12,1
+	!by $c0,5,12,1
 	!scr "#",0
-	!by $c0,9,11,5
+	!by $c0,7,11,5
 	!scr "Mode:",0
-	!by $c0,14,11,7
+	!by $c0,11,11,7
 	!scr "Colors:",0
+	!by $c0,15,11,5
+	!scr "Mask:",0
 	!by $80
 
 ; ----------------------------------------- Data
 
 chschr	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
-inpatgad	!by 7,20,4,4
-inshcgad	!by 12,21,3
+inpatgad	!by 6,20,4,4
+inshcgad	!by 11,21,3
+shpatgad	!by 6,20,4
+
 mode	!by 0		; 0: hires, 1: multi
 modetxts	!scr "HiresMulti"
-modeoffs	!by 4,9
 colstxts	!scr "PaperInk1 Ink2 Ink3 "
 colsoffs	!by 4,9,14,19
+masktxts	!scr " deny use "
+mskflg	!by 0
+list	!wo 0
+cntwert	!by 25
+
 numc	!by 2,4		; Anzahl Farben (Hires: 2, Multi: 4)
 cols	!by 0		; welche Farbe:
 paper	!by 0		; %00 ($d021, hires and multi)
@@ -705,8 +885,7 @@ c64pal	!by $00,$0f,$04,$0c,$05,$0a,$01,$0d
 hnibs	!by $00,$10,$20,$30,$40,$50,$60,$70
 	!by $80,$90,$a0,$b0,$c0,$d0,$e0,$f0
 
-shpatgad	!by 7,20,4
-sprposn	!by 184,106,208,106,184,122,208,122
+sprposn	!by 184,98,208,98,184,114,208,114
 
 sprite1	!fill 64		; sprites for pattern display
 sprite2	!fill 64
@@ -720,6 +899,7 @@ tabigad	!wo patgad	; .y:0
 	!wo colsgad	; 4
 	!wo palgad	; 6
 	!wo shpatgad	; 8
+	!wo umskgad	; 10
 
 settab	lda #<tabigad	; point to gadget list
 	sta sc_texttab
