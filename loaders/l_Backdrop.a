@@ -12,6 +12,7 @@
 ;
 ;  1.00, 13.05.21, first release
 ;  1.01, 14.05.21, added option to use masks
+;  1.02, 16.05.21, added option to load Undo Rendered 
 ;
 ; ----------------------------------------- 
 
@@ -59,8 +60,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "Loader Backdrop "
-	!tx "1.01"
-	!tx "14.05.21"
+	!tx "1.02"
+	!tx "16.05.21"
 	!tx "A.Dettke        "
 
 ; ----------------------------------------- Main
@@ -70,7 +71,22 @@ start 	ldx sc_screenvek	; save current screenlist (mainlst)
 	ldx sc_screenvek+1
 	stx list+1
 
-	jsr makechr	; generate listbox sign
+	lda rm_ramundo
+	and #2
+	beq +
+	lda #$80		; check for REU presence
+	sta ifreu
+	lda ls_ramdrive
+	and #15
+	cmp #6
+	bcs +
+	cmp #4
+	bcc +
+	lda #$c0		; and activate it
+	sta ifreu
+	lda #$40
+	sta reuactive
++	jsr makechr	; generate listbox sign
 	lda #25		; init activity counter
 	sta cntwert
 	jsr showreq	; show requester
@@ -113,12 +129,12 @@ evapply	jsr initad
 -	lda #0
 	sta build
 	ldy yindex
-	lda mode
+	ldx mode
 	bne mapply
 
 happly	jsr onepixh	; get left pixel
 	tax
-	rol bmask		; store
+	asl bmask		; store
 	bcs +
 	lda (dst),y
 	and #$0f
@@ -126,21 +142,51 @@ happly	jsr onepixh	; get left pixel
 	sta (dst),y
 +	jsr onepixh	; get right pixel
 	sta build
-	rol bmask
+	asl bmask
 	bcs +
 	lda (dst),y
 	and #$f0
 	ora build		; make double pixel
 	sta (dst),y
-+	jmp +
++	jmp +++
 
 mapply	jsr onepixm
-	rol bmask
-	bcs +
-	rol bmask
-	bcs +
+	tax
+
+	asl bmask		; left to block?
+	rol build		; yes, if 1
++	asl bmask		; right to block?
+	rol build		; yes, if 1
+
++	lda build		; any pixel blocked?
+	beq ++		; no, none
+
+	cmp #3		; all blocked?
+	beq +++		; deny
+
+	cmp #2		; left blocked?
+	bne +
+	txa		; yes, isolate left
+	and #$0f
+	sta build
+	lda (dst),y
+	and #$f0
+	ora build
+	tax
+	jmp ++
+
++	txa		; right blocked
+	and #$f0
+	sta build
+	lda (dst),y
+	and #$0f
+	ora build
+	tax
+
+++	txa		; write back pixels
 	sta (dst),y
-+	inc yindex
+
++++	inc yindex
 	dec xmrk		; count double pixels per line (4)
 	bne -
 
@@ -149,9 +195,10 @@ mapply	jsr onepixm
 	bne +
 	inc msksrc+1
 +	dec cnt8		; count lines (until 8)
-	bne --
+	beq +
+	jmp --
 
-	lda byte		; reset pattern index
++	lda byte		; reset pattern index
 	sta patindex
 	clc
 	lda dst		; then: proceed to next tile
@@ -205,7 +252,7 @@ onepixm	rol pmask		; isolate double pixel
 	tax
 	lda c64pal,x
 	tax
-	ora hnibs,x
+	ora hnibs,x	; make double pixels
 	rts
 
 ; ----------------------------------------- Event: Choose Pattern
@@ -313,7 +360,7 @@ txo0	bne txout0
 
 ; ----------------------------------------- Event: Set Mode
 
-evmode	ldy mode
+evmode	ldy mode		; 0: hires, 1: multi
 	cpy #1
 	bne +
 	ldy #$ff
@@ -329,9 +376,9 @@ evmode	ldy mode
 	dex
 	bpl -
 
-	ldy cols		; Paper?
-	beq +		; yes, just show
-	dey
+	stx spalte
+	ldy #3
+	sty cols
 	jsr evcolors
 +	jsr invshcgad	; show multi colors
 	jsr mdupdate	; and colorize sprites
@@ -383,7 +430,7 @@ rp1: 	lda sc_keyprs 	; wait for stop key
 	ora sc_stop
 	beq rp1
 rp2: 	jsr tmode
-	ldx list
+rp5	ldx list
 	ldy list+1
 	jsr gd_screen
 	jsr showreq
@@ -507,6 +554,43 @@ isg0	lda ink3		; /w Ink3 (both multi and hires)
 stay	clc
 	rts
 
+; ----------------------------------------- Get UndoRendered
+
+undorend	ldx #(showreq-in00-1)	; Aufrufroutine umkopieren, weil
+in01	lda in00,x	; sie durch das RAM-Device
+	sta sc_movetab,x	; ausgeblendet wird
+	dex
+	bpl in01
+	lda spren
+	pha
+	jsr sc_movetab	; und dort ausführen
+	pla
+	sta spren
+
+srt4 	ldx #6		; dann: re-init REU
+	ldy #6
+srt5 	lda reuinit,x
+	sta rm_werte,y
+	dex
+	dey
+	bpl srt5
+	clc
+	rts
+
+in00	jsr gd_swapd	; RAM einblenden
+	inx		; .x=0
+	stx rm_werte+2	; Rendered low
+	stx rm_werte+4	; Bank
+	ldx #$8d		; Rendered high
+	stx rm_werte+3
+	ldx #10		; set .x=10: FirstInit
+	jsr rm_ramvec
+	lda #2		; fake: so tun, als ob
+	sta rm_nextentry	; Undo Rendered geklickt wäre
+	ldx #8		; FetchUndo
+	jsr rm_ramvec
+	ldx #1		; ForceOff, RAM ausblenden
+	jmp rm_ramvec
 
 ; ----------------------------------------- Show Requester
 
@@ -517,6 +601,8 @@ showreq	ldx #<bdrlst
 	sta sc_loop	; care for text mode
 	lda #3		; start with Paper
 	sta cols
+	lda #15		; fake: click in column #15
+	sta spalte
 	jsr evcolors
 	ldx palgad	; palette gadget values
 	inx
@@ -787,6 +873,11 @@ setadcnt	lda cntwert	; Startzähler (hier: 25 mal 40 = 1000)
 ; ----------------------------------------- Backdrop Screenlist
 
 bdrlst	!by 0
+
+	!by 15,17,3,3	; fake gadget
+reuactive	!by $00
+	!wo undorend
+
 	!by 1,11,14,23,$81
 	!wo 0
 	!scr "Backdrop",0
@@ -845,6 +936,9 @@ palgad	!by 13,19,6,6,$4f	; choose color
 	!scr "Colors:",0
 	!by $c0,15,11,5
 	!scr "Mask:",0
+ifreu	!by $80
+	!by 15,17,1
+	!scr "U",0
 	!by $80
 
 ; ----------------------------------------- Data
@@ -886,6 +980,7 @@ hnibs	!by $00,$10,$20,$30,$40,$50,$60,$70
 	!by $80,$90,$a0,$b0,$c0,$d0,$e0,$f0
 
 sprposn	!by 184,98,208,98,184,114,208,114
+reuinit 	!by 0,$c0,0,0,0,0,$10
 
 sprite1	!fill 64		; sprites for pattern display
 sprite2	!fill 64
