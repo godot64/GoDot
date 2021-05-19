@@ -1,0 +1,499 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ----------------------------------------- 
+;
+;  mod.Undo
+;   Module to store and restore data to and from REUs
+;
+;  1.00, 18.05.21, first release
+;  1.01, 19.05.21, bugfix, didn't reset pattern correctly
+;
+; ----------------------------------------- 
+
+; ----------------------------------------- Equates
+
+	pport		= $01
+
+	rmcommand		= $30
+	flen		= $31
+
+	zeile		= sc_merk
+
+	ldcan		= $18f0
+	stempflg		= $d008
+	border		= $d020
+
+; ----------------------------------------- Header
+
+header	jmp start
+	!by $20		; = this is a modifier
+	!by 0
+	!by 1		; = it is dirty
+	!wo modend
+	!wo 0
+	!tx "Undo Service REU"
+	!tx "1.01"
+	!tx "19.05.21"
+	!tx "A.Dettke        "
+
+; ----------------------------------------- Main 
+
+start	jsr check4reu
+	beq +
+	jmp noreu
++	lda gd_modswitch
+	pha
+	lda ls_drive	; save current drive#
+	sta drive
+	lda #12		; fake drive to RAM
+	sta ls_drive
+	jsr makechr
+	inx		; .x=0
+	stx ls_dirmask	; set filetype to graphics
+
+	ldx #<undolst	; build requester
+	ldy #>undolst
+	jsr gd_screen
+	jsr colorize
+	ldy stayactv
+	beq +
+	jsr dostay
++	jsr gd_eloop	; now wait for gadget clicks
+	pla		; .c=1
+	sta gd_modswitch
+	sec
+	rts
+
+; ----------------------------------------- Event: Leave Module
+
+evleave	jsr repairchr
+	lda drive
+	sta ls_drive
+canc	sec
+	rts
+
+; ----------------------------------------- Event: 4Bit
+
+evfour	lda tempactv
+	beq +
+	jsr evtemp
+
++	ldy fouractv
+	beq +
+	ldy #$ff
++	iny		; toggle
+	sty fouractv
+
+	lda gadtxts,y
+	sta fourtx
+	jmp textout
+
+; ----------------------------------------- Event: Stay
+
+evstay	ldy stayactv
+	beq +
+	ldy #$ff
++	iny		; toggle
+	sty stayactv
+
+dostay	lda gadtxts,y
+	sta staytx
+
+	ldy #8
+	bne txout
+
+; ----------------------------------------- Event: Rendered
+
+evrend	ldy rendactv	; Undo Rendered
+	beq +
+	ldy #$ff
++	iny		; toggle
+	sty rendactv
+
+	lda gadtxts,y
+	sta rendtx
+
+	ldy #2
+	bne txout
+
+; ----------------------------------------- Event: Temp
+
+evtemp	lda fouractv
+	beq +
+	jsr evfour
+
++	ldy tempactv	; Undo 4Bit
+	beq +
+	ldy #$ff
++	iny		; toggle
+	sty tempactv
+
+	lda gadtxts,y
+	sta temptx
+	ldy #4
+	bne txout
+
+stay	clc
+	rts
+
+; ----------------------------------------- Gadget for Message
+
+msgout	lda sc_screenvek
+	pha
+	lda sc_screenvek+1
+	pha
+	ldx #<msglst
+	ldy #>msglst
+	jsr gd_screen
+	pla
+	sta sc_screenvek+1
+	sta gr_redisp
+	pla
+	sta sc_screenvek
+	rts
+
+; ----------------------------------------- Output Text
+
+textout	ldy #0		; .y: index in tabigad
+txout	jsr settxt
+	ldy #6		; offset to gadget text area
+	jmp gd_xtxout1	; show text
+
+; ----------------------------------------- Event: Store to REU
+
+evstore	lda #0		; set mode (SAVE)
+	ldx #9		; perform "GetUndo"
+	bne store
+
+; ----------------------------------------- Event: Store to REU
+
+evrestore	lda #1		; set mode (LOAD)
+	ldx #8		; perform "DoUndo"
+store	sta ls_loadsave
+	stx rmcommand
+	lda #17		; fake click to LOAD
+	sta zeile
+
+	ldy fouractv	; 4Bit activated?
+	beq ++++		; no, skip to Undo Rendered
+
+	lda rm_ramundo	; any 4Bit data?
+	ldx ls_loadsave	; want to store?
+	beq +++		; yes
+	and #1
+	bne +		; no, skip to deactivate 4Bit
+	jsr graphon	; no, skip to deactivate toggle
+	bcc ++		; uncond. branch
++++	lda #1
++	sta rm_nextentry	; select Undo 4Bit
+	ldx u4blen	; set name ("Undo 4Bit")
+	stx flen
+	dex
+-	lda undo4bit,x
+	sta ls_nambuf,x
+	dex
+	bpl -
+	inx
+	stx rm_werte+2	; set address: $001000
+	stx rm_werte+4
+	lda #$10
+	sta rm_werte+3
+	lda fbtpatch	; set correct dev routine
+	ldx fbtpatch+1
+	sta patchit+1
+	stx patchit+2
+	jsr transfer	; get data
+++	jsr evfour	; then deactivate toggle
+
+++++	ldy rendactv	; Rendered activated?
+	beq ++++		; no, skip to Temp
+
+	lda rm_ramundo
+	ldx ls_loadsave	; want to store?
+	beq +++		; yes
+	and #2		; no, any Rendered data?
+	bne +
+	jsr graphon	; no, skip to deactivate toggle
+	bcc ++		; uncond. branch
++++	lda #2
++	sta rm_nextentry	; yes, select Undo Rendered
+	ldx urdlen	; set name ("Undo Rendered")
+	stx flen
+	dex
+-	lda undorend,x
+	sta ls_nambuf,x
+	dex
+	bpl -
+	inx
+	stx rm_werte+2	; set address: $008d00
+	stx rm_werte+4
+	lda #$8d
+	sta rm_werte+3
+	lda fbtpatch	; set correct dev routine
+	ldx fbtpatch+1
+	sta patchit+1
+	stx patchit+2
+	jsr transfer	; get data
+++	jsr evrend	; then deactivate toggle
+
+++++	ldy tempactv	; select Temp00
+	beq +++		; if not active: skip
+
+	lda ls_loadsave	; want to store?
+	bne +		; no
+	jsr chk4stemp	; yes, is svr.Temp installed?
+	bvs msg		; yes
+	jsr graphon	; no, skip to deactivate toggle
+	bcc ++
+msg	jsr msgout
++	ldx tmplen	; set name ("temp00")
+	stx flen
+	dex
+-	lda temp00,x
+	sta ls_nambuf,x
+	dex
+	bpl -
+	lda tmppatch	; set correct dev routine
+	ldx tmppatch+1
+	sta patchit+1
+	stx patchit+2
+	ldx #10		; perform "First Init"
+	stx rmcommand
+	jsr transfer	; get data
+++	jsr evtemp	; finish transfer
+
++++	lda stayactv	; select stay
+	bne +
+	jsr repairchr
+	sec
+	!by $24
++	clc
+	rts
+
+; ----------------------------------------- 
+
+transfer	ldx #(colorize-ramcall-1)
+-	lda ramcall,x
+	sta sy_global,x
+	dex
+	bpl -
+	jmp sy_global
+
+ramcall	jsr gd_swapd
+	ldx flen
+	stx ls_flen
+	ldx rmcommand
+	jsr rm_ramvec
+patchit	jmp se_load
+	
+; ----------------------------------------- 
+
+colorize	ldy #6
+	jsr settxt
+	lda #7
+	sta sc_ho
+recolor	lda sc_normtext
+rc2	sta sc_chgcol
+	ldx #4
+	jmp gd_fcol	; colorize area
+
+; --------------------------- Define Checkboxes
+
+makechr	ldx #7
+-	lda gr_pattern,x
+	sta repair,x
+	dex
+	bpl -
+	ldx #15
+-	lda chschr,x
+	sta sc_undochar,x
+	dex
+	bpl -
+	rts
+
+repairchr	ldx #7
+-	lda repair,x
+	sta gr_pattern,x
+	dex
+	bpl -
+	rts
+
+; -------------------------------------- Check for Saver TEMP
+
+chk4stemp	lda #$34
+	sta pport
+	bit stempflg
+	php
+	lda #$36
+	sta pport
+	plp
+	rts
+
+; -------------------------------------- Check for REU
+
+check4reu	lda ls_ramdrive	; welcher Ramdrive? (detected by system)
+	and #15
+	ldx #6
+	cmp #8		; 1700?
+	beq graphon	; is too small
+	cmp #4		; 1764?
+	bne st2
+	ldx #2
+	bne st7
+st2	cmp #5		; 1750?
+	bne graphon
+st7	stx bank
+
+	lda rm_ramvec	; Device eingebunden?
+	cmp #$4c		; equal, wenn ja
+	rts
+
+; ----------------------------------------------------- Blink the Border
+
+graphon	ldy #2		; red
+	lda border	; save border color
+	pha
+	sty border	; set new color (in .y, here: 2 for red)
+	ldx #$40
+	jsr gd_dl2	; delay (.x=0)
+	pla
+	sta border	; reset old border color
+	stx sy_tbuffer	; clear key strokes
+	clc
+	rts
+
+; ----------------------------------------- Text Output Handler
+
+tabigad	!wo fourgad	; .y:0
+	!wo rendgad	; 2
+	!wo tempgad	; 4
+	!wo txtarea	; 6
+	!wo staygad	; 8
+
+settxt	lda #<tabigad
+	sta sc_texttab
+	lda #>tabigad
+	sta sc_texttab+1
+
+gettab	lda (sc_texttab),y
+	sta sc_screentab
+	iny
+	lda (sc_texttab),y
+	sta sc_screentab+1
+
+	lda #0
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #4
+	bne gt0
+	jsr gd_trim
+	jmp gd_initmove
+
+; ----------------------------------------- Data
+
+chschr	!by $ff,$81,$81,$81,$81,$81,$81,$ff
+	!by $ff,$81,$bd,$bd,$bd,$bd,$81,$ff
+repair	!fill 8
+
+gadtxts	!by $df,$e0
+bank	!by 0
+
+drive	!by 0
+undo4bit	!tx "Undo 4Bit"
+u4blen	!by 9
+undorend	!tx "Undo Rendered"
+urdlen	!by 13
+temp00	!tx "temp00"
+tmplen	!by 6
+fbtpatch	!by <ldcan,>ldcan
+tmppatch	!by <se_load,>se_load
+
+fouractv	!by 0
+rendactv	!by 0
+tempactv	!by 0
+stayactv	!by 0
+
+; ----------------------------------------- Screenlist
+
+undolst	!by 0
+
+fourgad	!by 6,24,3,3,$c0
+	!wo evfour
+fourtx	!by 223,0
+rendgad	!by 8,24,3,3,$c0
+	!wo evrend
+rendtx	!by 223,0
+tempgad	!by 10,24,3,3,$c0
+	!wo evtemp
+temptx	!by 223,0
+staygad	!by 12,24,3,3,$c0
+	!wo evstay
+staytx	!by 223,0	
+	
+txtarea	!by 6,12,16,13,$01
+	!wo 0
+
+	!by 14,12,7,3,$c8
+	!wo evstore
+	!scr "Store",0
+	!by 14,19,9,3,$cf
+	!wo evrestore
+	!scr "Restore",0
+	!by 16,21,7,3,$ce
+	!wo evleave
+	!scr "Leave",0
+
+	!by $c0,16,13,4
+	!scr "Undo",0
+	!by $c0,6,12,4
+	!scr "4Bit",0
+	!by $c0,8,12,8
+	!scr "Rendered",0
+	!by $c0,10,12,4
+	!scr "Temp",0
+	!by $c0,12,12,4
+	!scr "Stay",0
+	!by $c0,6,24,1
+	!by 223,0
+	!by $c0,8,24,1
+	!by 223,0
+	!by $c0,10,24,1
+	!by 223,0
+	!by $c0,12,24,1
+	!by 223,0
+
+	!by $80		; end of screenlist
+
+; ----------------------------------------------------- Screenlist für NO REU
+
+noreu	ldx #<warnlst
+	ldy #>warnlst
+	jmp gd_xmloop
+
+; ----------------------------------------------------- 
+
+warnlst	!by 0
+	!by 8,9,21,9,$81
+	!wo 0
+	!scr "MESSAGE@"
+	!by 14,23,7,3,$cd
+	!wo canc
+	!scr "Leave@"
+	!by $c0,10,10,16
+	!scr "No REU detected.@"
+	!by $c0,12,11,15
+	!scr "You can't save.@"
+	!by $80
+
+; ----------------------------------------- Screenlist for svr.Temp-Message
+
+msglst	!by 0,22,3,34,3,$02,0,0,$80
+
+; ----------------------------------------- 
+
+modend	!eof
