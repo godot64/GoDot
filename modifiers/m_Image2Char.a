@@ -1,0 +1,703 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ----------------------------------------- 
+;
+;  mod.Image2Char
+;   Module to convert a hires image to a charset
+;   (first render to hires, 2 colors)
+;   uses code from "DT Char Konverter 3" by Dr. Zoom
+;
+;  1.00, 04.06.21, first release
+;
+; ----------------------------------------- 
+
+; ----------------------------------------- Equates
+
+	pport		= $01
+
+	charcnt		= $30	; /$31
+	full		= $32
+	current		= $33
+	done		= $34
+
+	imgsrc		= $35	; /$36
+	testsrc		= $37	; /$38
+	bufsrc		= $39	; /$3a
+
+	saveend		= $ae	; /$af
+	savebegin		= $c1	; /$c2
+
+	video		= $0288
+	save		= $0332
+	colors		= $0400
+	godfont		= $0800
+	charbuf		= $4000
+	testscrn		= $4800
+	screengap		= testscrn+1000
+	image		= $2000
+
+	intfac		= $bc49
+	facasc		= $bddf
+
+	vicd018		= $d018
+	border		= $d020
+	backgrnd		= $d021
+	colorram		= $d800
+	vicbank		= $dd00
+
+; ----------------------------------------- Header
+
+header	jmp start
+	!by $20
+	!by 0
+	!by 0
+	!wo modend
+	!wo 0
+	!tx "Image to Charset"
+version	!tx "1.00"
+	!tx "04.06.21"
+	!tx "A.Dettke/Dr.Zoom"
+
+; ----------------------------------------- Main 
+
+start	lda gd_modswitch
+	sta switch
+	jsr initreu
+	stx done		; .x=$ff
+	jsr check4reu
+	bcs +
+	jmp noreu
+
++	ldx sc_screenvek
+	ldy sc_screenvek+1
+	stx list
+	sty list+1
+	lda #0
+	sta charcnt
+	sta charcnt+1
+	jsr digits
+	jsr screen	; build requester
+	ldx #3		; publish version number
+-	lda version,x
+	sta mversion,x
+	dex
+	bpl -
+	jmp gd_eloop	; now wait for gadget clicks
+
+; ----------------------------------------- Event: Leave Module
+
+evcancel	lda switch
+	sta gd_modswitch
+	lda done
+	bmi +
+	jsr initreu
+	lda #8		; ja, Funktion "Undo aus der REU" setzen
+	sta getundo+1
+	jsr doundo	; und ausführen
+	jsr initreu	; fertig
+	jsr gd_spron
++	sec		; SEC lets you leave a modifier
+	rts
+
+; ----------------------------------------- Event: View Image
+
+evview	lda #$1b		; hires graphics on
+	sta $d018
+	lda #$3b
+	sta $d011
+	lda #$f0		; light grey on black
+	ldy #250
+vw0	sta colors-1,y
+	sta colors+249,y
+	sta colors+499,y
+	sta colors+749,y
+	dey
+	bne vw0
+	sty sc_stop
+	sty sc_keyprs
+
+	jsr wait		; wait for click
+
+voff	ldx #$13		; graphics off
+	lda #$1b
+	stx $d018
+	sta $d011
+vw2	jsr rebuild	; show requester again
+stay	clc
+	rts
+
+; ------------------------------------------------ Event: Store Data
+
+evstore	lda full
+	bne ++
+	lda done
+	beq +
+++	jmp graphon
+
++	ldx #7		; enter godot char :)
+-	lda godot,x
+	sta charbuf,x
+	dex
+	bpl -
+	ldx #23		; enter godot footprint :)
+-	lda footprint,x
+	sta screengap,x
+	dex
+	bpl -
+
+	jsr saveparsf	; save two files:
+	ldx current
+	inx
+	bne +
+	inc saveend+1
++	clc
+	txa
+	asl
+	rol saveend+1
+	asl
+	rol saveend+1
+	asl
+	rol saveend+1
+	sta saveend
+	clc
+	lda saveend+1
+	adc savebegin+1
+	sta saveend+1
+
+	lda num		; generate current number
+	jsr gd_xcnvdez
+	stx fnnum
+	stx snnum
+	sta fnnum+1
+	sta snnum+1
+	inc num
+
+	jsr gd_sproff
+	inc pport
+	jsr savefont	; file 1
+	bcs ++
+	jsr saveparss
+	lda #>(testscrn+$0400)
+	sta saveend+1
+	jsr savescrn	; file 2
+	bcc +
+++	jsr graphon
++	dec pport
+	jsr gd_spron
+	clc
+	rts
+
+; ----------------------------------------- 
+
+saveparsf	lda #>charbuf	; set start/end address of charset
+	!by $2c
+saveparss	lda #>testscrn
+	sta savebegin+1
+	ldy #0
+	sty savebegin
+	sty saveend
+	sty saveend+1
+	rts
+
+savefont	lda fnlen
+	ldx #<fontname
+	ldy #>fontname
+	bne +
+savescrn	lda snlen
+	ldx #<scrnname
+	ldy #>scrnname
++	jsr filnam
+	ldx ls_loadfrom	; set save parameters
+	lda #8
+	tay
+	jsr filpar
+	jmp (save)	; and CBM save
+
+; ------------------------------------------------ Event: Test
+
+evtest	lda done
+	beq +
+	jmp graphon
+
++	jsr gd_sproff	; data in VIC bank 1 ($4000)
+	lda vicbank
+	and #$fc
+	ora #2
+	sta vicbank
+	lda #$48
+	sta video
+	lda #$20
+	sta vicd018
+	jsr clrcolors
+	jsr wait		; wait for click
+	lda sc_maincolor	; back to GoDot standard
+	sta backgrnd
+	lda #$13
+	sta vicd018
+	lda #4
+	sta video
+	inc vicbank
+	jsr rebuild
+	jsr gd_spron
+	clc
+	rts
+
+; ------------------------------------------------ Event: Convert
+
+evconvert	lda #9		; Funktion "Undo in die REU" setzen
+	sta getundo+1
+	jsr doundo	; automatisches Undo ausführen
+	sta done		; .a=0
+
+	ldx #0		; charbuf löschen
+-	lda #0
+	sta charbuf,x
+	sta charbuf+$100,x
+	sta charbuf+$200,x
+	sta charbuf+$300,x
+	sta charbuf+$400,x
+	sta charbuf+$500,x
+	sta charbuf+$600,x
+	sta charbuf+$700,x
+	lda #$20		; testanzeige vorbereiten
+	sta testscrn,x
+	sta testscrn+$100,x
+	sta testscrn+$200,x
+	sta testscrn+$300,x
+	inx
+	bne -
+
+	lda #>image	; image an $2000
+	sta imgsrc+1
+	lda #$00
+	sta full
+	sta charcnt
+	sta charcnt+1
+	sta imgsrc
+	sta testsrc
+	sta current
+	lda #>testscrn	; testscreen an $4800
+	sta testsrc+1
+
+mainloop	jsr proceed	; weiter voran
+
+	lda pattern	; alle bytes im char ver-odern
+	ora pattern+1
+	ora pattern+2
+	ora pattern+3
+	ora pattern+4
+	ora pattern+5
+	ora pattern+6
+	ora pattern+7
+	beq isspace	; kein inhalt: set space
+
+	jsr which		; vergleich/neues muster
+	bcc loop		; war drin?
+
+outerloop	inc current	; nein, current erhöhen
+	jsr charcnter	; chars zählen
+
+	lda current	; check current charnum
+	cmp #$20		; wenn 32: skip (space)
+	beq outerloop
+
+; --- special chars?
+;	cmp #$40		; wenn 64: loop 
+;	beq tooloop
+;	cmp #$60		; wenn 96: loop
+;	beq tooloop
+;	cmp #$5c		; wenn 92: loop
+;	beq tooloop
+;	cmp #$66		; wenn 102: loop
+;	beq tooloop
+;	cmp #$68		; wenn 104: loop
+;	beq tooloop
+;	cmp #$80
+;	beq loop
+; ---
+	cmp #0		; wenn 0: make space
+	beq empty
+
+loop	jsr foundone	; eintragen
+	lda testsrc	; 1000 bytes?
+	cmp #<(testscrn+1000)
+	bne tomain
+	lda testsrc+1
+	cmp #>(testscrn+1000)
+	bne tomain
+
+	lda charcnt+1
+	cmp #1
+	bcc +
+	sta full
+	jsr graphon
++	jsr gd_spron	; maus an
+	clc		; fertig
+	rts
+
+tomain	jmp mainloop	; nein, mainloop
+
+tooloop	inc current	; current+1
+	jmp outerloop
+
+empty	dec current	; current-1
+isspace	lda #$20		; .a auf space
+toloop	jmp loop
+
+; ------------------------------------------------ 
+
+charcnter	inc charcnt	; count and
+	bne +
+	inc charcnt+1
++	jmp digits	; output digits
+
+; ------------------------------------------------ 
+
+proceed	ldy #7		; 8 bytes aus image puffern
+-	lda (imgsrc),y
+	sta pattern,y
+	dey
+	bpl -
+
+	lda imgsrc	; nächstes byte in image ansteuern
+	clc
+	adc #8
+	sta imgsrc
+	lda imgsrc+1
+	adc #0
+	sta imgsrc+1
+	rts
+
+; ------------------------------------------------ 
+
+foundone	pha
+	ldy #0		; eintragen im charset
+	sta (testsrc),y
+	inc testsrc
+	bne +
+	inc testsrc+1
++	pla
+	pha
+	lsr
+	lsr
+	lsr
+	lsr
+	lsr
+	clc
+	adc #>charbuf
+	sta bufsrc+1
+	pla
+	asl
+	asl
+	asl
+	sta bufsrc
+	ldy #7
+-	lda pattern,y
+	sta (bufsrc),y
+	dey
+	bpl -
+	rts
+
+; ------------------------------------------------ 
+
+which	lda #>charbuf	; zeichenspeicher an $4000
+	sta bufsrc+1
+	lda #<charbuf
+	sta bufsrc
+
+compare	ldy #7		; check:
+-	lda (bufsrc),y	; letzter char bereits vorhanden?
+	cmp pattern,y
+	bne isnotin
+	dey
+	bpl -
+
+isin	lsr bufsrc+1	; war gleich, dann durch 8 (screencode)
+	ror bufsrc
+	lsr bufsrc+1
+	ror bufsrc
+	lsr bufsrc+1
+	ror bufsrc
+	lda bufsrc	; result in .a
+	clc		; carry als flag
+	rts
+
+isnotin	lda bufsrc	; war nicht gleich: bufsrc+8
+	clc		; (neues muster)
+	adc #8
+	sta bufsrc
+	lda bufsrc+1
+	adc #0
+	sta bufsrc+1
+	cmp #>testscrn	; bufferende?
+	bne compare	; nein, nächster check
+	sec		; ja, carry als flag (full)
+	rts
+
+; ----------------------------------------- Wait for Clicks
+
+wait	lda joy		; wait for click, fire, or STOP
+	eor #$ff
+	and #$10
+	ora sc_keyprs
+	ora sc_stop
+	beq wait
+	rts
+
+; ----------------------------------------- Build Screen
+
+rebuild	ldx list		; restore main screen
+	ldy list+1
+	jsr gd_screen
+
+screen	ldx #<i2clst	; and then requester
+	ldy #>i2clst
+	jmp gd_screen
+
+; ----------------------------------------- Clear Color Ram
+
+clrcolors	lda #$0f		; ink: hellgrau
+	ldy #0
+-	sta colorram,y	; clear color ram
+	sta colorram+$f9,y
+	sta colorram+$1f3,y
+	sta colorram+$2ed,y
+	iny
+	cpy #$fb
+	bne -
+	lda #$0b		; back: dunkelgrau
+	sta backgrnd
+	rts
+
+; -------------------------------------- Check for REU
+
+check4reu	lda ls_ramdrive	; welcher Ramdrive? (detected by system)
+	and #15
+	ldx #6
+	cmp #8		; 1700
+	beq graphon	; too small
+	cmp #4		; 1764
+	bne st2
+	cpy #2		; MODs in bank 2?
+	bcs graphon	; too small
+	ldx #2
+	bne st7
+st2	cmp #5		; 1750
+	bne graphon
+	cpy #6		; MODs in bank 6?
+	bcs graphon	; too small
+st7	stx bank
+
+	lda rm_ramvec	; Device eingebunden?
+	cmp #$4c		; equal, wenn ja
+	rts
+
+; ----------------------------------------------------- Blink the Border
+
+graphon	ldy #2		; red
+	lda border	; save border color
+	pha
+	sty border	; set new color (in .y, here: 2 for red)
+	ldx #$40
+	jsr gd_dl2	; delay (.x=0)
+	pla
+	sta border	; reset old border color
+	stx sy_tbuffer	; clear key strokes
+	clc
+	rts
+
+; ----------------------------------------------------- 
+
+doundo	lda #<undo	; eigentliche Routine verschieben
+	ldx #>undo	; (weil das Modul ausgeblendet wird)
+	sta ls_vekta8
+	stx ls_vekta8+1
+	ldy #noreu-undo-1
+sloop	lda (ls_vekta8),y
+	sta sy_global,y	; nach GLOBAL
+	dey
+	bpl sloop
+	jmp sy_global	; und dann ausführen
+
+undo 	jsr gd_swapd	; Ram einblenden
+	ldx #10		; FirstInit
+	jsr rm_ramvec
+
+	ldx #6		; Parameter setzen
+	lda #0
+md0	sta rm_werte,x	; zuerst löschen
+	dex
+	bpl md0
+	lda #>sy_4bit	; 4Bit-Bereich im C64
+	sta rm_werte+1
+	lda #$10		; nach Undo4Bit im Ram
+	sta rm_werte+3	; ($8d für Undo Rendered)
+	lda #$7d		; 32000 Bytes
+	sta rm_werte+6
+
+	lda #1		; Flag für 4Bit-Undo setzen
+	sta rm_nextentry	; (#2 für Undo Rendered!)
+
+getundo	ldx #9		; und DoUndo
+	jsr rm_ramvec
+	ldx #1		; danach ForceOff (Ram ausblenden)
+	jsr rm_ramvec	
+	jmp gd_sproff	; und Sprite wieder aus, zurück
+
+; ---------------------------------------- Init rm_werte
+
+initreu	ldx #6
+	lda #0		; RM_WERTE (am Ende): 
+sl0	sta rm_werte,x	; $00, $c0, $00, $00, 0, 0, 0
+	dex		; - C64 - | -  REU   - | Anzahl 
+	bpl sl0
+	lda #$c0
+	sta rm_werte+1
+	rts
+
+; ----------------------------------------------------- Screenlist für NO REU
+
+noreu	ldx #<warnlst
+	ldy #>warnlst
+	jmp gd_xmloop
+
+; ----------------------------------------------------- 
+
+warnlst	!by 0
+	!by 8,9,21,9,$81
+	!wo 0
+	!scr "MESSAGE@"
+	!by 14,23,7,3,$cd
+	!wo evcancel
+	!scr "Leave@"
+	!by $c0,10,10,16
+	!scr "No REU detected.@"
+	!by $c0,12,11,15
+	!scr "You can't work.@"
+	!by $80
+
+; ----------------------------------------- Text Output Handler
+
+tabigad	!wo numgad	; .y:0
+
+settxt	lda #<tabigad
+	sta sc_texttab
+	lda #>tabigad
+	sta sc_texttab+1
+
+gettab	lda (sc_texttab),y	; set gadget parameters (where to output)
+	sta sc_screentab
+	iny
+	lda (sc_texttab),y
+	sta sc_screentab+1
+
+	lda #0
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #4
+	bne gt0
+	jsr gd_trim
+	jmp gd_initmove
+
+; ----------------------------------------- Output Digits
+
+digits	ldx #6
+	lda #32
+-	sta sy_numbers,x
+	dex
+	bpl -
+	inc pport
+	lda charcnt+1
+	ldx charcnt
+	jsr cnvwa
+	dec pport
+	ldx #6
+-	dex
+	lda sy_numbers,x
+	bne -
+	ldy #2
+-	dex
+	bmi +
+	lda sy_numbers,x
+	!by $2c
++	lda #32
+	sta numtx,y
+	dey
+	bpl -
+
+; ----------------------------------------- Output Text
+
+textout	ldy #0		; .y: index in tabigad
+	jsr settxt
+	ldy #6		; offset to gadget text area
+	jmp gd_xtxout1	; show text
+	
+; ----------------------------------------- Convert 16Bit to Digits
+
+cnvwa	sta $62		; hi
+	stx $63		; lo
+	ldx #$90
+	sec
+	jsr intfac	; .y=0
+	jmp facasc	; result in ls_nambuf,0
+
+; ----------------------------------------- Data
+; variables within a modifier survive leaving it
+
+list	!wo 0
+bank	!by 0		; used by CHECK4REU
+pattern	!by 0,0,0,0,0,0,0,0
+fontname	!tx "f.charset"
+fnnum	!tx "01"
+fnlen	!by 11
+scrnname	!tx "s.screen"
+snnum	!tx "01"
+snlen	!by 10
+num	!by 1
+switch	!by 0
+godot	!by $00,$1c,$22,$20,$2e,$22,$1c,$00
+footprint	!tx " GoDot CharConvert v"
+mversion	!tx "1.00"
+
+; ----------------------------------------- Screenlist
+
+i2clst	!by 0
+	!by 8,13,14,12,$91
+	!wo 0
+	!scr "Convert to",0
+
+numgad	!by 14,15,5,3,$a0
+	!wo 0
+numtx	!scr "  0",0
+
+	!by 11,18,9,3,$cf
+	!wo evconvert
+	!scr "Convert",0
+	!by 13,21,6,3,$ce
+	!wo evview
+	!scr "View",0
+	!by 15,21,6,3,$ce
+	!wo evtest
+	!scr "Test",0
+	!by 17,20,7,3,$ce
+	!wo evcancel
+	!scr "Leave",0
+	!by 17,13,7,3,$c7
+	!wo evstore
+	!scr "Store",0
+
+	!by $c0,9,14,5
+	!scr "Chars",0
+	!by $c0,14,13,1
+	!scr "#",0
+
+	!by $80
+
+; ----------------------------------------- 
+
+modend	!eof
