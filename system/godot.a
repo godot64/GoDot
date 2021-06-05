@@ -30,6 +30,7 @@
 ;   1.47, 07.11.20 ; bugfix: mouse pointer wouldn't click at the correct position
 ;   1.48, 21.12.20 ; added: propagate release date from booter to system files
 ;   1.49, 25.12.20 ; changed due to altered locations in god.main
+;   1.50, 05.06.21 ; bugfix: new pointer format hadn't been adapted
 ;
 ; ------------------------------------------------------------ 
 
@@ -40,7 +41,7 @@
 	!word $0814	; Basic-Line: SYS 2070
 	!word 100
 	!byte $9e
-	!pet " 2070 : ad 20"
+	!pet " 2070 : ad 21"
 	!byte 0,0,0
 
 	lda #$35		; transfer 20 blocks of data to $2000...
@@ -99,6 +100,7 @@ b2	sta booter,y
 	numcols		= $1ee9
 	
 	booter		= $2000	; target of launcher code
+	pbuffer		= $3700	; buffer for new pointer
 	godinit		= $3800	; target address of god.ini
 	mal19		= $bd8c	; part of dev.REU
 
@@ -228,8 +230,8 @@ mkt0	lda tabs-$40,x
 
 ; --------------------------------------- 
 
-version	!byte $01,$49	; Versionsnummer in SED-Format (1.49)
-release	!byte 25,12,20	; Kernel Release Date in Byte-Format (25.12.20)
+version	!byte $01,$50	; Versionsnummer in SED-Format (1.49)
+release	!byte 05,06,21	; Kernel Release Date in Byte-Format (25.12.20)
 
 ; --------------------------------------- 
 
@@ -396,7 +398,7 @@ godlst	!byte $93
 	!byte $c0,15,8,20
 	!scr "A. Dettke & W. Kling",0
 	!byte $c0,17,14,9
-	!scr "1991-2020",0
+	!scr "1991-2021",0
 
 	!byte $c0,19,8,20
 	!scr "C64 Image Processing",0
@@ -1829,17 +1831,26 @@ rm2	pla
 ; ---------------------------------------
 
 befptr	jsr getname	; POINTER "ptr.xy"
-	beq ptr2
-	sta ls_temp
+	beq ptr2		; kein Name übergeben worden
+
+	sta ls_temp	; doch, länge setzen
 	lda #0
 	sta bytes+1
-	ldx #65
-	lda #<sprdata
-	ldy #>sprdata
-	jsr fileread
-	txa
+	ldx #81		; anzahl zu lesender bytes
+	lda #<pbuffer	; ziel
+	ldy #>pbuffer
+	jsr fileread	; einlesen
+	txa		; vorzeitig beendet?
+	bne ptr2		; ja, ende
+
+	lda pbuffer	; korrektes format?
+	cmp #$44
 	bne ptr2
-	lda sprdata+$3f
+	lda pbuffer+1
+	cmp #$33
+	bne ptr2		; nein, ende
+
+	lda pbuffer+5	; hotspot x setzen
 	cmp #16
 	bcs ptr2
 	sta soffx
@@ -1847,7 +1858,7 @@ befptr	jsr getname	; POINTER "ptr.xy"
 	lda #24
 	sbc soffx
 	sta soffx
-	lda sprdata+$40
+	lda pbuffer+9	; hotspot y setzen
 	cmp #16
 	bcs ptr2
 	sta soffy
@@ -1855,6 +1866,13 @@ befptr	jsr getname	; POINTER "ptr.xy"
 	lda #50
 	sbc soffy
 	sta soffy
+
+	ldx #62		; zeiger aktivieren
+-	lda pbuffer+17,x
+	sta sprdata,x
+	dex
+	bpl -
+
 ptr2	rts
 
 ; ---------------------------------------
