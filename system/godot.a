@@ -31,6 +31,7 @@
 ;   1.48, 21.12.20 ; added: propagate release date from booter to system files
 ;   1.49, 25.12.20 ; changed due to altered locations in god.main
 ;   1.50, 05.06.21 ; bugfix: new pointer format hadn't been adapted
+;   1.51, 05.06.21 ; added: set default colors for howmany less than 16
 ;
 ; ------------------------------------------------------------ 
 
@@ -198,6 +199,7 @@ m1	lda paldef,x
 	bne m2
 	ldx #32
 m2	stx numcols+1
+	jsr setdefpal	; activate default colors for gr_howmany
 	jsr gd_makeqtab	; create Quantisation table 
 	lda tickcnt	; define Doubleclick 
 	sta sc_ticks
@@ -230,8 +232,46 @@ mkt0	lda tabs-$40,x
 
 ; --------------------------------------- 
 
-version	!byte $01,$50	; Versionsnummer in SED-Format (1.49)
-release	!byte 05,06,21	; Kernel Release Date in Byte-Format (25.12.20)
+version	!byte $01,$51	; Versionsnummer in SED-Format (1.51)
+release	!byte 05,06,21	; Kernel Release Date in Byte-Format (05.06.21)
+
+; --------------------------------------- 
+
+setdefpal	lda #<palhi
+	sta bytes
+	lda #>palhi
+	sta bytes+1
+	ldx #0
+	stx int+1
+	jsr setdefs
+
+	lda #<pallo
+	sta bytes
+	lda #>pallo
+	sta bytes+1
+	ldx #8
+
+setdefs	lda #8
+	sta int
+	ldy gr_howmany
+	dey
+	dey
+	lda (bytes),y
+-	asl
+	bcc +
+	pha
+	jsr setit
+	pla
++	inx
+	dec int
+	bne -
+	rts
+
+setit	lda paldef,x
+	ldy int+1
+	sta gr_palette,y
+	inc int+1
+	rts
 
 ; --------------------------------------- 
 
