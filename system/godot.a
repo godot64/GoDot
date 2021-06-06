@@ -32,6 +32,7 @@
 ;   1.49, 25.12.20 ; changed due to altered locations in god.main
 ;   1.50, 05.06.21 ; bugfix: new pointer format hadn't been adapted
 ;   1.51, 05.06.21 ; added: set default colors for howmany less than 16
+;   1.52, 06.06.21 ; bugfix: prevent trouble in POINTER, and in default palette 16 
 ;
 ; ------------------------------------------------------------ 
 
@@ -232,12 +233,15 @@ mkt0	lda tabs-$40,x
 
 ; --------------------------------------- 
 
-version	!byte $01,$51	; Versionsnummer in SED-Format (1.51)
-release	!byte 05,06,21	; Kernel Release Date in Byte-Format (05.06.21)
+version	!byte $01,$52	; Versionsnummer in SED-Format (1.52)
+release	!byte 06,06,21	; Kernel Release Date in Byte-Format (06.06.21)
 
 ; --------------------------------------- 
 
-setdefpal	lda #<palhi
+setdefpal	lda gr_howmany
+	cmp #16
+	bcs ++
+	lda #<palhi
 	sta bytes
 	lda #>palhi
 	sta bytes+1
@@ -249,7 +253,6 @@ setdefpal	lda #<palhi
 	sta bytes
 	lda #>pallo
 	sta bytes+1
-	ldx #8
 
 setdefs	lda #8
 	sta int
@@ -265,7 +268,7 @@ setdefs	lda #8
 +	inx
 	dec int
 	bne -
-	rts
+++	rts
 
 setit	lda paldef,x
 	ldy int+1
@@ -1871,7 +1874,7 @@ rm2	pla
 ; ---------------------------------------
 
 befptr	jsr getname	; POINTER "ptr.xy"
-	beq ptr2		; kein Name übergeben worden
+	beq ptr3		; kein name übergeben worden
 
 	sta ls_temp	; doch, länge setzen
 	lda #0
@@ -1881,31 +1884,37 @@ befptr	jsr getname	; POINTER "ptr.xy"
 	ldy #>pbuffer
 	jsr fileread	; einlesen
 	txa		; vorzeitig beendet?
-	bne ptr2		; ja, ende
+	bne ptr3		; ja, ende
 
 	lda pbuffer	; korrektes format?
 	cmp #$44
 	bne ptr2
 	lda pbuffer+1
 	cmp #$33
-	bne ptr2		; nein, ende
+	bne ptr3		; nein, ende
+
+	ldx soffx		; default retten
+	ldy soffy
 
 	lda pbuffer+5	; hotspot x setzen
-	cmp #16
+	cmp #24		; max: 23
 	bcs ptr2
 	sta soffx
 	sec
-	lda #24
+	lda #24		; ok, subtract screen offset
 	sbc soffx
-	sta soffx
+	tax		; result in .x
+
 	lda pbuffer+9	; hotspot y setzen
-	cmp #16
+	cmp #21		; max: 20
 	bcs ptr2
 	sta soffy
 	sec
-	lda #50
+	lda #50		; ok, subtract screen offset
 	sbc soffy
-	sta soffy
+	tay		; result in .y
+	txa
+	pha
 
 	ldx #62		; zeiger aktivieren
 -	lda pbuffer+17,x
@@ -1913,7 +1922,12 @@ befptr	jsr getname	; POINTER "ptr.xy"
 	dex
 	bpl -
 
-ptr2	rts
+	pla
+	tax
+
+ptr2	stx soffx
+	sty soffy
+ptr3	rts
 
 ; ---------------------------------------
 
