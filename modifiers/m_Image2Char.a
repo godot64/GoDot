@@ -12,6 +12,7 @@
 ;   uses code from "DT Char Konverter 3" by Dr. Zoom
 ;
 ;  1.00, 04.06.21, first release
+;  1.01, 07.06.21, added reverting the image
 ;
 ; ----------------------------------------- 
 
@@ -58,8 +59,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "Image to Charset"
-version	!tx "1.00"
-	!tx "04.06.21"
+version	!tx "1.01"
+	!tx "07.06.21"
 	!tx "A.Dettke/Dr.Zoom"
 
 ; ----------------------------------------- Main 
@@ -216,6 +217,31 @@ savescrn	lda snlen
 	tay
 	jsr filpar
 	jmp (save)	; and CBM save
+
+; ------------------------------------------------ Event: Revert
+
+evrevert	lda #>image
+	ldy #<image		; .y=0
+	sta imgsrc+1
+	sty imgsrc
+
+	ldx #31
+-	lda (imgsrc),y
+	eor #$ff
+	sta (imgsrc),y
+	iny
+	bne -
+	inc imgsrc+1
+	dex
+	bne -
+-	lda (imgsrc),y
+	eor #$ff
+	sta (imgsrc),y
+	iny
+	cpy #64
+	bne -
+	clc
+	rts
 
 ; ------------------------------------------------ Event: Test
 
@@ -671,19 +697,22 @@ i2clst	!by 0
 	!wo 0
 	!scr "Convert to",0
 
-numgad	!by 14,15,5,3,$a0
+numgad	!by 12,15,5,3,$a0
 	!wo 0
 numtx	!scr "  0",0
 
-	!by 11,18,9,3,$cf
-	!wo evconvert
-	!scr "Convert",0
-	!by 13,21,6,3,$ce
+	!by 11,21,6,3,$cf
 	!wo evview
 	!scr "View",0
-	!by 15,21,6,3,$ce
+	!by 13,21,6,3,$ce
 	!wo evtest
 	!scr "Test",0
+	!by 15,20,7,3,$ce
+	!wo evrevert
+	!scr "Revrt",0
+	!by 15,13,7,3,$c8
+	!wo evconvert
+	!scr "Cnvrt",0
 	!by 17,20,7,3,$ce
 	!wo evcancel
 	!scr "Leave",0
@@ -693,7 +722,7 @@ numtx	!scr "  0",0
 
 	!by $c0,9,14,5
 	!scr "Chars",0
-	!by $c0,14,13,1
+	!by $c0,12,13,1
 	!scr "#",0
 
 	!by $80
