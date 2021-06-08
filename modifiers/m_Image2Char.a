@@ -13,6 +13,7 @@
 ;
 ;  1.00, 04.06.21, first release
 ;  1.01, 07.06.21, added reverting the image
+;  1.02, 08.06.21, added warning after REVRT
 ;
 ; ----------------------------------------- 
 
@@ -59,8 +60,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "Image to Charset"
-version	!tx "1.01"
-	!tx "07.06.21"
+version	!tx "1.02"
+	!tx "08.06.21"
 	!tx "A.Dettke/Dr.Zoom"
 
 ; ----------------------------------------- Main 
@@ -69,6 +70,7 @@ start	lda gd_modswitch
 	sta switch
 	jsr initreu
 	stx done		; .x=$ff
+	stx stashed
 	jsr check4reu
 	bcs +
 	jmp noreu
@@ -93,7 +95,7 @@ start	lda gd_modswitch
 
 evcancel	lda switch
 	sta gd_modswitch
-	lda done
+	lda stashed	; wurde REU benutzt?
 	bmi +
 	jsr initreu
 	lda #8		; ja, Funktion "Undo aus der REU" setzen
@@ -220,12 +222,12 @@ savescrn	lda snlen
 
 ; ------------------------------------------------ Event: Revert
 
-evrevert	lda #>image
-	ldy #<image		; .y=0
+evrevert	lda #>image	; address the image data
+	ldy #<image	; .y=0
 	sta imgsrc+1
 	sty imgsrc
 
-	ldx #31
+	ldx #31		; revert 31 pages
 -	lda (imgsrc),y
 	eor #$ff
 	sta (imgsrc),y
@@ -234,10 +236,12 @@ evrevert	lda #>image
 	inc imgsrc+1
 	dex
 	bne -
--	lda (imgsrc),y
+	dey		; .y=$ff
+	sty done		; (activate warning on STORE)
+-	iny
+	lda (imgsrc),y	; plus 64 bytes (8000 bytes)
 	eor #$ff
 	sta (imgsrc),y
-	iny
 	cpy #64
 	bne -
 	clc
@@ -274,12 +278,15 @@ evtest	lda done
 
 ; ------------------------------------------------ Event: Convert
 
-evconvert	lda #9		; Funktion "Undo in die REU" setzen
+evconvert	lda stashed	; 4bit schon gerettet?
+	beq +
+
+	lda #9		; nein, Funktion "Undo in die REU" setzen
 	sta getundo+1
 	jsr doundo	; automatisches Undo ausführen
-	sta done		; .a=0
+	sta stashed	; .a=0
 
-	ldx #0		; charbuf löschen
++	ldx #0		; charbuf löschen
 -	lda #0
 	sta charbuf,x
 	sta charbuf+$100,x
@@ -300,6 +307,7 @@ evconvert	lda #9		; Funktion "Undo in die REU" setzen
 	lda #>image	; image an $2000
 	sta imgsrc+1
 	lda #$00
+	sta done		; wurde bearbeitet
 	sta full
 	sta charcnt
 	sta charcnt+1
@@ -330,21 +338,6 @@ outerloop	inc current	; nein, current erhöhen
 	lda current	; check current charnum
 	cmp #$20		; wenn 32: skip (space)
 	beq outerloop
-
-; --- special chars?
-;	cmp #$40		; wenn 64: loop 
-;	beq tooloop
-;	cmp #$60		; wenn 96: loop
-;	beq tooloop
-;	cmp #$5c		; wenn 92: loop
-;	beq tooloop
-;	cmp #$66		; wenn 102: loop
-;	beq tooloop
-;	cmp #$68		; wenn 104: loop
-;	beq tooloop
-;	cmp #$80
-;	beq loop
-; ---
 	cmp #0		; wenn 0: make space
 	beq empty
 
@@ -677,6 +670,7 @@ cnvwa	sta $62		; hi
 
 list	!wo 0
 bank	!by 0		; used by CHECK4REU
+stashed	!by $ff
 pattern	!by 0,0,0,0,0,0,0,0
 fontname	!tx "f.charset"
 fnnum	!tx "01"
