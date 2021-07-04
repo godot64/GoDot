@@ -1,0 +1,1148 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ----------------------------------------- 
+;
+;  mod.Chisel
+;   Module to apply a chiselling effect to rectangles
+;
+;  1.00, 04.07.21: first release
+;
+; ----------------------------------------- 
+
+; ----------------------------------------- Equates
+
+	pport		= $01
+
+	togg		= $30
+	bufline		= $31	; 0..7 (*4)
+	src1		= $32	; /$33
+	src2		= $34	; /$35
+	cnt		= $36	; /$37
+	byte		= $37
+	mrkx		= $38
+	fbline		= $39
+	maskindex		= $3a
+	src01		= $3b	; /$3c
+	src02		= $3d	; /$3e
+	src03		= $3f	; /$40
+	numtrans		= $41
+	wing		= $42
+	help		= $43
+
+	slot		= $45	; /$46
+	src04		= slot
+	v1buf		= $47
+	v2buf		= $48
+	cbuf		= $49
+
+	zeile		= sc_merk
+	spalte		= zeile+1
+
+	vram2		= $ce0b	; color buffers (standard addrs)
+	vram1		= $de0b
+	cstart		= $ee0b
+
+	grafreg		= $d011	; vic regs
+	multreg		= $d016
+	charreg		= $d018
+	border		= $d020
+	backgr		= $d021
+
+; ----------------------------------------- Header
+
+header	jmp start
+	!by $20
+	!by 0
+	!by 0
+	!wo modend
+	!wo 0
+	!tx "ChiselaRectangle"
+	!tx "1.00"
+	!tx "04.07.21"
+	!tx "A.Dettke        "
+
+; ----------------------------------------- Main 
+
+start	ldx sc_screenvek	; save vector to previous list (if not mainlist)
+	stx list
+	ldx sc_screenvek+1
+	stx list+1
+	ldx #3
+-	lda sc_lastclpzl,x
+	sta lastclip,x
+	dex
+	bpl -
+	jsr checkcols	; where is which module? (for re-display)
+	jsr showrequ	; build requester
+	jsr showclips	; show clip data
+	jmp gd_eloop	; now wait for gadget clicks
+
+; ----------------------------------------- Event: Leave Module
+
+evcancel	sec		; SEC lets you leave a modifier
+	rts		; CLC lets you stay here
+
+; ------------------------------------------ Event: View Clip
+
+evview	lda rm_swapw+6	; REU-Management checken
+	cmp #$10		; Modul läuft aus dem RAM heraus?
+	bne donot		; ja, View nicht ausführen
+
+	lda gr_redisp
+	pha
+	ldx #1
+	stx gr_redisp
+	dex
+	stx sc_stop
+	stx sc_keyprs
+	jsr redisplay
+	jsr blink
+	jsr dp2
+	pla
+	sta gr_redisp	; restore auto render 
+
+; --------------------------------------- 
+
+showrequ	ldx #<chilst	; build requester
+	ldy #>chilst
+	jsr gd_screen	; .a=0
+	beq stay
+
+; --------------------------------------- Blink the Border
+
+donot	ldy #2
+graphon	lda border
+	pha
+	sty border
+	ldx #$40
+	jsr gd_dl2
+	pla
+	sta border
+	stx sy_tbuffer
+stay	clc
+	rts
+
+; ------------------------------------------ Event: Change Distance
+
+evdepth	ldy depth
+	ldx spalte
+	cpx #24
+	bcc +
+	iny
+	cpy maxdepth	; max. depth: 4 (*2)
+	beq ++
+	bcc ++
+	ldy #1		; min. depth: 1 (*2)
+	bne ++
++	dey
+	bne ++
+	ldy maxdepth
+++	tya
+	sta depth
+	asl
+	jsr convert
+	sta deptx+1
+	stx deptx
+	ldy #8		; out to screen
+	jmp txout2
+
+; ------------------------------------------ Event: Change Displacement
+
+evdisplce	ldy displace
+	ldx spalte
+	cpx #24
+	bcc +
+	iny
+	cpy maxdisplc	; max. displace: 5
+	beq ++
+	bcc ++
+	ldy #1		; min. displace: 1
+	bne ++
++	dey
+	bne ++
+	ldy maxdisplc
+++	sty displace
+	jmp dsplout
+
+; ------------------------------------------ Event: Apply Chisel
+
+evapply	jsr fetchtl
+	lda src1		; save top left address
+	ldy src1+1
+	sta src01
+	sty src01+1
+	ldy lastclip+3	; ho minus 1...
+	dey		; if 1: error (blink)
+	beq donot
+	sty cnt		; ...is amount of tiles down
+	ldx #$fe
+	stx togg
+	inx
+	inx
+
+---	jsr storetop	; save top left
+	stx bufline
+--	stx fbline
+	ldx depth
+	dex
+	lda dindex,x
+	sta maskindex
+-	ldy #0		; left edge:
+	lda src2+1
+	cmp #>sy_bigbuffer
+	tya
+	bcs +
+	ldx maskindex
+	lda maskl,x
+	sta mrkx
+	lda (src2),y	; get byte from below
+	and mrkx		; get rid of bits
+	sta byte		; store
+	lda mrkx
+	eor #$ff
+	sta mrkx
+	lda (src1),y	; get byte from above
+	and mrkx		; get rid of remaining bits
+	ora byte		; combine
++	sta (src1),y	; and store above
+
+	inc maskindex
+	inc src1		; proceed in tile line
+	bne +
+	inc src1+1
++	inc src2
+	bne +
+	inc src2+1
++	inc fbline	; count to 4
+	ldy fbline
+	cpy #4
+	bcc -
+
+	inc bufline	; count tile lines
+	ldx #0
+	lda bufline
+	cmp #8
+	bcc --
+
+	clc
+	lda src1
+	adc #$e0
+	sta src1
+	lda src1+1
+	adc #4
+	sta src1+1
++ 	clc
+	lda src2
+	adc #$e0
+	sta src2
+	lda src2+1
+	adc #4
+	sta src2+1
+	
++	dec cnt		; count number of tiles down
+	bne ---
+
+	lda src1		; save bottom left address
+	ldy src1+1
+	sta src02
+	sty src02+1
+
+	jsr fetchtr	; right edge:
+	ldy lastclip+3	; ho - 1...
+	dey
+	sty cnt		; ...is amount of tiles up
+	ldx #$fe
+	stx togg
+	inx
+	inx
+
+---	jsr storebot	; save bottom left
+	stx bufline	; .x=0
+--	stx fbline
+	ldx depth
+	dex
+	lda dindex,x
+	sta maskindex
+-	ldy #0		; right edge:
+	lda src2+1
+	cmp #>sy_4bit
+	tya
+	bcc +
+	ldx maskindex
+	lda maskr,x
+	sta mrkx
+	lda (src2),y	; get byte from below
+	and mrkx		; get rid of bits
+	sta byte		; store
+	lda mrkx
+	eor #$ff
+	sta mrkx
+	lda (src1),y	; get byte from above
+	and mrkx		; get rid of remaining bits
+	ora byte		; combine
++	sta (src1),y	; and store above
+
+	inc maskindex
+	inc src1		; proceed in tile line
+	bne +
+	inc src1+1
++	inc src2
+	bne +
+	inc src2+1
++	inc fbline	; count to 4
+	ldy fbline
+	cpy #4
+	bcc -
+
+	inc bufline	; count tile lines
+	ldx #0
+	lda bufline
+	cmp #8
+	bcc --
+
+	sec
+	lda src1
+	sbc #$20
+	sta src1
+	lda src1+1
+	sbc #5
+	sta src1+1
++	lda src2
+	sbc #$20
+	sta src2
+	lda src2+1
+	sbc #5
+	sta src2+1
+	
++	dec cnt		; count number of tiles up
+	bne ---
+
+; --------------------------------------- Top and Bottom Edges
+
+	lda #<tiletop	; then prepare top row:
+	ldy #>tiletop
+	sta src03		; right one in src2
+	sty src03+1
+	clc
+	lda src01
+	ldy src01+1
+	adc #32
+	sta src1
+	bcc +
+	iny
++	sty src1+1
+	jsr transfer	; and transfer
+
+	lda src1		; save top right
+	ldy src1+1
+	sta src04
+	sty src04+1
+
+	lda #<tilebot	; then prepare bottom row:
+	ldy #>tilebot
+	sta src03
+	sty src03+1
+	lda src02
+	ldy src02+1
+	sta src1
+	sty src1+1
+	jsr transfer
+
+	lda src1		; save bottom right
+	ldy src1+1
+	sta src03
+	sty src03+1
+
+; --------------------------------------- Corners
+
+	ldy #0
+	sty togg
+	sty wing
+	sec		; get top right address to src1
+	lda src04
+	sbc #32
+	sta src1
+	sta src2		; one tile below to src2
+	lda src04+1
+	sbc #0
+	sta src1+1
+	clc
+	adc #5
+	sta src2+1
+	jsr corners
+
+	dec togg
+	lda src02		; get bottom left address to src1
+	sta src1
+	sta src2		; one tile above to src2
+	lda src02+1
+	sta src1+1
+	sec
+	sbc #5
+	sta src2+1
+	jsr corners
+
+	dec wing
+	inc togg
+	lda src01		; get top left address to src1
+	sta src1
+	lda src01+1
+	sta src1+1
+	lda #<tiletop
+	sta src2		; and content of buffer to src2
+	lda #>tiletop
+	sta src2+1
+	jsr corners
+
+	dec togg
+	lda src03		; get bottom right address to src1
+	sta src1
+	sec
+	sbc #32		; one tile to the left to src2
+	sta src2
+	lda src03+1
+	sta src1+1
+	sbc #0
+	sta src2+1
+	jsr corners
+
+	dey		; finished
+	sty gr_redisp
+	sec
+	rts
+
+; ------------------------------------------------ Blink clip area
+
+blink	ldx #0		; clear key buffer
+	stx sy_tbuffer
+	lda lastclip	; set clip values
+	sta sc_zl
+	lda lastclip+1
+	sta sc_sp
+	lda lastclip+2
+	beq ready
+	lda lastclip+3
+	beq ready
+	lda #0		; clear toggle flag
+	sta togg
+sh0	jsr invertcl	; blink clip
+	ldx #250
+	jsr gd_dl2
+	lda togg
+	eor #1
+	sta togg
+	lda $dc00		; fire?
+	and #16
+	beq sh1		; yes, finish
+	lda sy_tbuffer	; any key?
+	beq sh0		; no, loop
+sh1	lda togg		; finish
+	and #1		; clip in blink phase?
+	beq sh0		; no, add one blink
+
+; ------------------------------------------------ Invert clip area
+
+invertcl	ldx #0		; care for text mode
+	stx sc_loop
+	jsr gd_initmove	; compute address
+inv0	ldy #0		; .y index for width
+inv1	cpy lastclip+2
+	beq inv2
+	lda sc_vekt20+1
+	pha
+	lda (sc_vekt20),y	; first invert video ram
+	eor #$ff
+	sta (sc_vekt20),y
+	lda sc_vekt20+1
+	clc
+	adc #$d4		; then color ram
+	sta sc_vekt20+1
+	lda (sc_vekt20),y
+	eor #$ff
+	sta (sc_vekt20),y
+	pla
+	sta sc_vekt20+1
+	iny
+	bne inv1		; one row
+inv2	inx		; next one
+	cpx lastclip+3
+	beq ready		; finished if height
+	jsr gd_plus40	; else add 40 for next
+	bne inv0
+ready	rts
+
+; --------------------------------------- Display Clip Data
+
+showclips	lda lastclip
+	jsr convert
+	sta rtx+1
+	stx rtx
+	ldy #0
+	jsr textout
+	lda lastclip+1
+	jsr convert
+	sta ctx+1
+	stx ctx
+	ldy #2
+	jsr txout2
+	lda lastclip+2
+	jsr convert
+	sta wtx+1
+	stx wtx
+	ldy #4
+	jsr txout2
+	lda lastclip+3
+	jsr convert
+	sta htx+1
+	stx htx
+	ldy #6
+	jsr txout2	; .c=0
+dsplout	lda displace
+	jsr convert
+	sta dsptx+1
+	stx dsptx
+	ldy #10
+	jmp txout2
+
+convert	jsr gd_xcnvdez
+	cpx #$30
+	bne +
+	ldx #32
++	rts
+
+; ------------------------------------------------ Check Color Buffers
+
+checkcols	sei 		; GoDot off
+	ldx #4
+	lda #$fe		; preset values (in case of execute it from REU)
+-	sta slot,x
+	dex
+	bne -
+	stx pport
+
+	ldy #$03		; set lobyte of...
+	sty slot
+
+	lda #$f0		; ...Slot4, check for types of module there
+	sta slot+1	; (may be cram when input is active)
+	jsr sethicol	; (otherwise unchanged)
+
+	lda #$c0		; ...Slot1 and check
+	sta slot+1
+	jsr sethicol
+
+	lda #$d0		; ...Slot2 and check
+	sta slot+1
+	jsr sethicol
+
+	lda #$e0		; ...Slot3 and check
+	sta slot+1
+	jsr sethicol
+
+	lda #$36		; GoDot on again
+	sta pport
+	cli 
+	rts 
+
+; ------------------------------------------------ 
+
+sethicol	lda (slot,x)	; get type of module (at $c003): $20, $40, $80
+	tay 
+	and #$40		; is saver there? (contains vram1)
+	beq +		; no, next type
+
+	jsr c147		; yes, set color buffer 
+	sta v1buf
+	bne ++
+
++	tya 		; loader? ($80, contains cram)
+	bpl +		; no, next type
+
+	jsr c147		; yes, set accordingly
+	sta cbuf
+	bne ++
+
++	jsr c147		; so, it's a modifier (contains vram2)
+	sta v2buf
+
+++	rts 
+
+c147 	lda slot+1	; get hibyte...
+	ora #$0e		; ...and OR %00001110 to it (ie $ce)
+	rts 		; thus: get correct hi address of color buffers
+
+; ------------------------------------------------ Show Clip
+
+redisplay	ldx gr_palette	; set border to color 0 (normally black)
+	stx border
+	jsr setcolors	; get colors from their buffers
+
+	lda gr_cmode	; which mode?
+	beq dp4
+	lda #$18		; multicolor
+	sta multreg
+dp4	lda #$1b		; hires
+	sta charreg
+	lda #$3b
+	sta grafreg
+	lda gr_redisp	; Flag: display graphics set?
+	bne dp3		; yes, branch and leave
+
+; ----------------------------------------- Wait for Clicks
+
+wait	lda joy		; wait for click or STOP
+	eor #$ff
+	and #$10
+	ora sc_keyprs
+	ora sc_stop
+	beq wait
+	rts
+
+; ------------------------------------------------ End display
+
+dp2	jsr getcolors	; no, end display: save colors
+	jsr tmode
+	ldx list
+	ldy list+1
+	jsr gd_screen
+dp3	clc
+	rts
+
+; ------------------------------------------------ Switch textmode on
+
+tmode	ldx #$13
+	lda #$1b
+	stx charreg
+	sta grafreg
+	lda #$08
+	sta multreg
+	lda sc_maincolor
+	sta border
+	sta backgr
+	rts
+
+; ------------------------------------------ 
+
+setcveks	sei
+	lda #$35
+	sta pport
+	lda cbuf 		; color ram
+	ldx #$d8
+	bne scv0
+
+; ------------------------------------------ 
+
+setbveks	lda v1buf 	; vram1
+	ldx #4
+	dec pport
+scv0	stx ls_adrmisc+1
+	ldy #0
+	sty sc_merk
+	sty ls_adrmisc
+	dey
+
+; ------------------------------------------ 
+
+setlast	sty gr_bkcol
+	ldy #<cstart
+	sty sc_vekt20
+	sta sc_vekt20+1
+	lda #<500
+	sta ls_vekta8
+	lda #>500
+	sta ls_vekta8+1
+	ldy #0
+	rts
+
+; ------------------------------------------ 
+
+getcolors	jsr setcveks
+stco	lda (ls_adrmisc),y
+	sta sc_merk
+	inc ls_adrmisc
+	bne stc0
+	inc ls_adrmisc+1
+stc0	lda (ls_adrmisc),y
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	lda sc_merk
+	sta (sc_vekt20),y
+	jsr count
+	bne stco
+	jsr setbveks
+stc1	lda (ls_adrmisc),y
+	sta (sc_vekt20),y
+	jsr count
+	bne stc1
+	ldy gr_bkcol
+	bpl scv1
+	ldy #0
+	lda v2buf 	; vram2
+	jsr setlast
+	beq stc1
+scv1	lda #$36
+	sta pport
+	cli
+	lda backgr
+	and #15
+	sta gr_bkcol
+	rts
+
+; ------------------------------------------ 
+
+setcolors	lda gr_bkcol
+	sta backgr
+	pha
+	jsr setcveks
+stc2	sty sc_merk
+	lda (sc_vekt20),y
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	sta (ls_adrmisc),y
+	inc ls_adrmisc
+	bne stc3
+	inc ls_adrmisc+1
+stc3	lda sc_merk
+	sta (ls_adrmisc),y
+	jsr count
+	bne stc2
+	jsr setbveks
+stc4	lda (sc_vekt20),y
+	sta (ls_adrmisc),y
+	jsr count
+	bne stc4
+	ldy gr_bkcol
+	bpl scv1
+	pla
+	tay
+	lda v2buf 	; vram2
+	jsr setlast
+	beq stc4
+
+; ------------------------------------------ Fetch Tiles
+
+fetchtl	ldx lastclip	; left border: zl
+	ldy #0
+	sty wing
+	beq fetch
+
+fetchtr	ldy #$ff		; flag for right border
+	sty wing
+	clc
+	lda lastclip	; right border:
+	adc lastclip+3	; zl+ho-1
+	tax
+	dex
+	cpx #25		; max height: 24
+	bcc fetch
+	ldx #24
+
+fetch	ldy lastclip+2	; br-1
+	dey
+	tya
+	sta numtrans	; store as amount
+	clc
+	adc lastclip+1
+	cmp #40		; max column: 39
+	bcc +
+	lda #39
++	bit wing
+	bmi +
+	lda lastclip+1	; sp
++	sta mrkx		; merken
+	txa		; zl=0?
+	beq +		; yes, skip down offset
+	jsr mal1280	; no, compute *down* offset
+-
++	clc
+	adc #>sy_4bit	; add base address (hi)
+	sta src1+1
+
+	lda mrkx		; sp
+	jsr mal32
+	clc
+	lda cnt
+	adc #<sy_4bit
+	sta src1		; address of above tile
+	lda src1+1
+	adc cnt+1
+	sta src1+1
+
++	ldx displace
+	bit wing
+	beq ++
+
+	lda src1+1	; clip at top of screen?
+	tay
+	cmp #>sy_4bit
+	beq +		; yes, skip down offset
+	jsr mal1280
+	sta mrkx
+	tya
+	sec
+	sbc mrkx
++	sta src2+1	; address of below tile (hi)
+	txa		; .x=0
+	beq +		; (branch if not at top)
+
+++	jsr mal1280
+	clc
+	adc src1+1
+	sta src2+1	; address of below tile
+	bcc +
+	inc src2+1
+
++	lda src1		; address of below tile (lo)
+	sta src2
+	
+	rts
+
+; ------------------------------------------------ .x times 1280
+
+mal1280	clc
+	lda #0
+-	adc #5
+	dex
+	bne -
+	rts
+
+; ------------------------------------------------ .a times 32
+
+mal32	ldx #0
+	stx cnt+1
+	sta cnt
+	asl cnt
+	rol cnt+1
+	asl cnt
+	rol cnt+1
+	asl cnt
+	rol cnt+1
+	asl cnt
+	rol cnt+1
+	asl cnt
+	rol cnt+1
+	rts
+
+; ------------------------------------------------ Transfer Data
+
+transfer	ldx depth
+	lda src03
+	cmp #<tiletop
+	bne +
+	lda masktop,x
+	jmp ++
++	lda maskbot,x
+++	sta help
+	sta wing
+	lda numtrans
+	jsr mal32		; .x=0
+	lda cnt
+	ldy cnt+1
+	sta ls_vekta8
+	sty ls_vekta8+1
+	txa
+	beq tf4		; uncond. branch
+
+tf3	stx fbline	; (counts bytes in tile line: 4)
+	stx bufline	; (counts tile lines: 8)
+	stx cbuf
+
+tf2	asl help		; get mask
+	bcc tf1
+	dec cbuf		; set mask flag
+tf1	lda (src1),y	; take image
+	bit cbuf		; check mask flag
+	bmi tf0
+	lda (src2,x)	; if mask: take buffer instead
+tf0	sta (src1),y
+	jsr cou6
+	inc src1
+	bne +
+	inc src1+1
++	inc src2
+	bne +
+	inc src2+1
++	inc fbline
+	lda fbline
+	cmp #4
+	bcc tf1
+
+	stx fbline
+	stx cbuf
+	inc bufline
+	lda bufline
+	cmp #8
+	bcc tf2
+
+tf4	lda src03		; (re)set address to tile buffer
+	ldy src03+1
+	sta src2
+	sty src2+1
+	lda wing
+	sta help
+	ldy #0
+	jsr cou8
+	bne tf3
+	rts
+
+; ------------------------------------------------ Build Corners
+; not yet finished!
+
+corners	sty fbline	; reset counters (.y=0)
+	sty bufline
+	bit togg		; top (0) or bottom ($ff)?
+	beq +
+
+	lda #8		; bottom
+	sta byte		; max
+	pha
+	lda depth
+	asl
+	sta help
+	pla
+	sec
+	sbc help
+	tax
+	stx bufline	; min
+	jmp ++
+
+;	beq ++		; include depth (not finished!)
+;	ldx #0
+;cor2	sty fbline
+;	bit wing
+;	bmi cor3
+;	lda maskcorn2,x
+;	eor #$ff
+;	jmp cor4
+;cor3	lda maskcorn1,x
+;cor4	jsr mskcorn
+;	inx
+;	cpx bufline
+;	bcc cor2
+;	beq ++
+
++	lda depth		; top
+	asl
+	sta byte
+++	ldx bufline
+
+--	bit wing
+	bmi cor0
+
+cor1	bit togg
+	bmi +
+	lda maskcorn1,x
+	jmp ++
++	lda maskcorn1,x
+	eor #$ff
+	jmp ++
+
+cor0	bit togg
+	bmi +
+	lda maskcorn2,x
+	jmp ++
++	lda maskcorn2,x
+	eor #$ff
+
+++	jsr mskcorn
+	sty fbline
+	inc bufline	; counts tile lines (8)
+	ldx bufline
+	cpx byte
+	bcc --
+	rts
+
+mskcorn	sta help
+-	asl help
+	asl help
+	bcs +
+	lda (src1),y
+	!by $2c
++	lda (src2),y
+	sta (src1),y
+	inc src1
+	bne +
+	inc src1+1
++	inc src2
+	bne +
+	inc src2+1
++	inc fbline	; counts bytes per tile line (4)
+	lda fbline
+	cmp #4
+	bcc -
+	rts
+
+; ------------------------------------------------ Save Top&Bottom Row Tiles
+
+storetop	inc togg
+	bne +
+	ldy #0
+-	lda (src2),y
+	sta tiletop,y
+	iny
+	cpy #32
+	bcc -
++	rts
+
+storebot	inc togg
+	bne +
+	ldy #0
+-	lda (src2),y
+	sta tilebot,y
+	iny
+	cpy #32
+	bcc -
++	rts
+
+; ------------------------------------------------ Counters
+
+count	inc sc_vekt20
+	bne cou5
+	inc sc_vekt20+1
+cou5	inc ls_adrmisc
+	bne cou6
+	inc ls_adrmisc+1
+cou6	lda ls_vekta8
+	bne cou7
+	dec ls_vekta8+1
+cou7	dec ls_vekta8
+cou8	lda ls_vekta8
+	ora ls_vekta8+1
+	rts
+
+; ----------------------------------------- Text Output Handler
+
+tabigad	!wo rgad		; 0
+	!wo cgad		; 2
+	!wo wgad		; 4
+	!wo hgad		; 6
+	!wo depgad	; 8
+	!wo dspgad	; 10
+
+settxt	lda #<tabigad
+	sta sc_texttab
+	lda #>tabigad
+	sta sc_texttab+1
+
+gettab	lda (sc_texttab),y	; set gadget parameters (where to output)
+	sta sc_screentab
+	iny
+	lda (sc_texttab),y
+	sta sc_screentab+1
+
+	lda #0
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #4
+	bne gt0
+	jsr gd_trim
+	jmp gd_initmove
+
+; ----------------------------------------- Output Text
+
+textout	ldy #0		; .y: index in tabigad
+txout2	jsr settxt
+	ldy #6		; offset to gadget text area
+	jmp gd_xtxout1	; show text
+
+; ----------------------------------------- Data
+
+list	!wo 0		; must be filled on start of module!
+lastclip	!by 0,0,0,0	; save current clip
+maxdisplc	!by 5
+maxdepth	!by 4
+displace	!by 1		; 1..5
+
+depth	!by 2		; 1..4 (*2)
+dindex	!by 0,4,8,12
+bindex	!by 12,8,4,0
+maskl	!by $ff,$00,$00,$00
+	!by $ff,$ff,$00,$00
+	!by $ff,$ff,$ff,$00
+	!by $ff,$ff,$ff,$ff
+maskr	!by $00,$00,$00,$ff
+	!by $00,$00,$ff,$ff
+	!by $00,$ff,$ff,$ff
+	!by $ff,$ff,$ff,$ff
+
+masktop	!by $ff,$3f,$0f,$03,$00
+maskbot	!by $ff,$fc,$f0,$c0,$00
+
+maskcorn1	!by $00,$03,$03,$0f,$0f,$3f,$3f,$ff
+maskcorn2	!by $ff,$3f,$3f,$0f,$0f,$03,$03,$00
+
+tiletop	!fill 32		; buffer for top row tile
+tilebot	!fill 32		; buffer for bottom row tile
+
+; ----------------------------------------- Screenlist
+
+chilst	!by 0
+	!by 4,13,13,15,$81
+	!wo 0
+	!scr "Chisel",0
+
+rgad	!by 6,15,4,3,$a0
+	!wo 0
+rtx	!scr " 0",0
+cgad	!by 6,21,4,3,$a0
+	!wo 0
+ctx	!scr " 0",0
+wgad	!by 9,15,4,3,$a0
+	!wo 0
+wtx	!scr " 0",0
+hgad	!by 9,21,4,3,$a0
+	!wo 0
+htx	!scr " 0",0
+
+depgad	!by 12,22,4,3,$cf
+	!wo evdepth
+deptx	!scr " 4",0
+dspgad	!by 14,22,4,3,$ce
+	!wo evdisplce
+dsptx	!scr " 1",0
+
+	!by 16,20,6,3,$ce
+	!wo evview
+	!scr "View",0
+	!by 18,13,7,3,$c7
+	!wo evapply
+	!scr "Apply",0
+	!by 18,20,6,3,$ce
+	!wo evcancel
+	!scr "Exit",0
+
+	!by $c0,6,13,1
+	!scr "R",0
+	!by $c0,6,19,1
+	!scr "C",0
+	!by $c0,9,13,1
+	!scr "W",0
+	!by $c0,9,19,1
+	!scr "H",0
+	!by $c0,12,13,8
+	!scr "Depth px",0
+	!by $c0,14,13,8
+	!scr "Displace",0
+
+	!by $80		; end of screen list
+
+; ----------------------------------------- 
+
+modend	!eof
