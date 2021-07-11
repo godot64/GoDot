@@ -1,10 +1,11 @@
 ; ----------------------------------------- Re-Color Area
 
-recolor	ldx #3		; get first area
-recolor2	ldy #3		; .x=index to area (3,7,11..)
+recolor	ldx #3		; get first carea (7, 11...)
+
+recolor2	ldy #3		; .x=index in carea (3,7,11..)
 ;	sta sc_chgcol	; if you want to set your individual color, pass it over in .a
 -	lda carea,x
-	sta sc_zl,y
+	sta sc_descriptor,y
 	dex
 	dey
 	bpl -

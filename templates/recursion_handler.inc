@@ -17,19 +17,19 @@ st12	jsr cancel	; yes:
 
 ; ----------------------------------------- Startup requester
 
-requ 	inc used		; set to: requester was displayed
+requ 	inc used		; set to: requester was displayed (0)
 	ldx #<sgiflst	; open (sample) requester
 	ldy #>sgiflst
 	jsr gd_xmloop	; wait for clicks
-			; after leaving check USED status:
+			; after leaving, check USED status:
 
 ; ----------------------------------------- Requester management
 
 requester	ldx used		; is negative? (first start?)
 	bmi requ		; yes, open requester
-	rts		; otherwise: leave module
+	rts		; otherwise: leave module (via st12)
 
-; ----------------------------------------- Leave saver
+; ----------------------------------------- Leave Module
 
 cn2 	lda #3		; set (after completing your function): all things done
 	!by $2c

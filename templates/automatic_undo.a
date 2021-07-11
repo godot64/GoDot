@@ -33,7 +33,7 @@ doundo	lda #<undo	; eigentliche Routine verschieben
 	ldx #>undo	; (weil das Modul ausgeblendet wird)
 	sta ls_vekta8
 	stx ls_vekta8+1
-	ldy #noreu-undo
+	ldy #noreu-undo-1
 sloop	lda (ls_vekta8),y
 	sta sy_global,y	; nach GLOBAL
 	dey

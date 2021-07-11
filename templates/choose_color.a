@@ -1,12 +1,16 @@
 
 ; excerpted from mod.ClipWorks
 ;
-; ------------------------------------------------ Event
 
+	col	= $33	; sample location
+	zeile	= sc_merk
+	spalte	= zeile+1
+
+; ------------------------------------------------ Event
 ; 	...
 ;	ldx #<scrnlst	; show screenlist
 ;	ldy #>scrnlst
-;	jsr gd_screen
+;	jsr gd_screen	; returns .a=0
 
 	sta sc_loop	; care for text mode
 	ldx palgad	; palette gadget values
@@ -27,21 +31,21 @@
 	tax
 	jsr initpal	; and show colors
 
-;	jmp gd_eloop	; wait for clicks
+;	jmp gd_eloop	; wait for clicks (from palgad)
 ;	...
 
 ; ------------------------------------------------
 
-; ------------------------------------------------ Event: Pick Color
+; ------------------------------------------------ palgad-Event: Pick Color
 
 evgetcol	sec		; compute row where user clicked
-	lda sc_merk
+	lda zeile
 	sbc palzl
 	asl
 	asl
 	sta hold
 	sec		; compute column
-	lda sc_merk+1
+	lda spalte
 	sbc palsp
 	clc
 	adc hold
@@ -90,7 +94,7 @@ mp1	stx cntx
 mp2	lda #171		; yes, write "+"
 mp3	ldy #0
 	sta (sc_vekt20),y
-	inc sc_sp	; next column
+	inc sc_sp		; next column
 	inc hold
 	ldx cntx
 	inx
@@ -115,18 +119,16 @@ colorize	lda gr_basepal,y	; get color
 	ldx #4
 	jmp gd_fcol	; colorize area (1x1)
 
-; ------------------------------------------------ Add to Screenlist 
+; ------------------------------------------------ Add to scrnlst:
 
 ;	...
 
-palgad	!by 15,2,6,6,$40
+palgad	!by 15,2,6,6,$40	; sample location
 	!wo evgetcol
 
 ;	...
 
 ; ------------------------------------------------ Data
-
-	col		= $33	; sample location
 
 palzl	!by 0
 palsp	!by 0

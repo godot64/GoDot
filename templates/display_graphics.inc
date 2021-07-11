@@ -43,7 +43,7 @@
 checkcols	sei 		; GoDot off
 	ldx #4
 	lda #$fe		; preset values (in case of execute it from REU)
--	sta where,x
+-	sta slot,x
 	dex
 	bne -
 	stx pport
@@ -67,7 +67,7 @@ checkcols	sei 		; GoDot off
 	sta slot+1
 	jsr sethicol
 
-	lda #$36		; GoDot on again
+	lda #$36		; switch GoDot on again
 	sta pport
 	cli 
 	rts 
@@ -130,40 +130,6 @@ wait	lda joy		; wait for click or STOP
 	beq wait
 	rts
 
-; ------------------------------------------------ 
-
-; ------------------------------------------------ End display
-
-dp2	jsr getcolors	; no, end display: save colors
-dp20	jsr tmode		; activate textmode
-
-; ------------------------------------------------ 
-; ------------------------------------------------ Individual: Rebuild Requesters
-; ------------------------------------------------ 
-;
-;oldreq	lda sc_screenvek	; save vector to current screenlist
-;	pha
-;	lda sc_screenvek+1
-;	pha
-;	ldx list		; yes, re-build main screen
-;	ldy list+1
-;	jsr gd_screen
-;dp5	pla		; and then re-build this module's requester
-;	tay
-;	pla
-;	tax
-;	jsr gd_screen
-:
-;	(jsr colrize	; if necessary: recolor requester)
-
-dp3	clc		; leave
-	rts
-
-;list	!wo 0		; must be filled on start of module!
-;dispmk	!by 0		; gr_redisp gets affected, so save it
-;
-; ------------------------------------------------ 
-; ------------------------------------------------ 
 ; ------------------------------------------------ 
 
 ; ------------------------------------------------ Switch textmode on
