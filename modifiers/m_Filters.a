@@ -12,6 +12,8 @@
 ; 1.01, 04.02.21, replaced RemIsoPixels by Negative
 ; 1.02, 09.02.21, bugfix, could hang on Preview
 ; 1.03, 02.03.21, bugfix, didn't leave when it should leave
+; 1.04, 12.07.21, added hilite of gadgets
+;                 bugfix, doesn't crash anymore on Preview if launched from REU
 ;
 ; ------------------------------------------------ 
 
@@ -27,6 +29,7 @@
 	mrkx		= $3e
 	mrky		= $3f
 	finish		= $40	; /$41
+	mrka		= $42
 
 	bbase		= $2002
 	buf_o 		= bbase
@@ -61,8 +64,8 @@
 	!wo modend
 	!wo 0
 	!pet "Convolve Filters"
-	!pet "1.03"
-	!pet "02.03.21"
+	!pet "1.04"
+	!pet "12.07.21"
 	!pet "A.Dettke (+WK)  "
 
 ; ------------------------------------------------ Main
@@ -213,6 +216,27 @@ hi_rows
 	!by $68, $6d, $72, $77, $7c, $81, $86, $8b
 	!by $90, $95, $9a, $9f, $a4, $a9, $ae, $b3, $b8 
 
+; ------------------------------------------------ Table of Gadgets (Hilite)
+
+tabofgads	!by 5,3,7,1	; 3  blurgad
+	!by 8,3,7,1	; 7  gaussgad
+	!by 11,3,7,1	; 11 watrgad
+	!by 14,3,7,1	; 15 embossgad
+	!by 17,3,7,1	; 19 deepprgad
+	!by 20,3,7,1	; 23 xhatchgad
+	!by 5,12,7,1	; 27 randomgad
+	!by 8,12,7,1	; 31 smeargad
+	!by 11,12,7,1	; 35 speckgad
+	!by 14,12,7,1	; 39 laplcgad
+	!by 17,12,7,1	; 43 sharp1gad
+	!by 20,12,7,1	; 47 sharp3gad
+	!by 5,21,7,1	; 51 maxgad
+	!by 8,21,7,1	; 55 medgad
+	!by 11,21,7,1	; 59 mingad
+	!by 14,21,7,1	; 63 cartgad
+	!by 17,21,7,1	; 67 outlgad
+	!by 20,21,7,1	; 71 negagad
+
 ; ------------------------------------------------ Activity
 
 adinc	dec adcnt
@@ -274,7 +298,10 @@ init_sa	lda #5		; 5 x 40 = 200
 
 ; ----------------------------------------- Event: Show Preview
 
-evpreview	lda gd_modswitch	; save memory manager
+evpreview	lda rm_swapw+3	; Modul läuft aus dem RAM heraus?
+	bne donot		; ja, Preview nicht ausführen
+
+	lda gd_modswitch	; save memory manager
 	pha
 	lda #$f0		; force slot4
 	sta gd_modswitch
@@ -290,6 +317,21 @@ evstay	clc
 ; ----------------------------------------- Event: Cancel
 
 evcancel	sec
+	rts
+
+; --------------------------------------- Blink the Border
+
+donot	ldy #2
+
+graphon	lda border
+	pha
+	sty border
+	ldx #$40
+	jsr gd_dl2
+	pla
+	sta border
+	stx sy_tbuffer
+	clc
 	rts
 
 ; ----------------------------------------- Execute Gadget
@@ -381,6 +423,7 @@ exec	lda gd_modswitch	; save memory manager
 ex01	pla		; restore memory manager
 	sta gd_modswitch
 
+	jsr unhilite
 	jmp abschl	; fertig	### 1.03
 
 ; ----------------------------------------- Process
@@ -409,6 +452,27 @@ colrize	ldy #0
 	sta sc_chgcol
 	ldx #4
 	jmp gd_fcol
+
+; ------------------------------------------ (Un)Hilight Gadgets
+
+hilite	jsr sethilite	; .y= offset in gadlist
+	ldx #3		; .x= offset in syscolors
+	jmp gd_fcol
+
+unhilite	ldy mrka
+	jsr sethilite
+	ldx #2
+	jmp gd_fcol	; .c=0
+
+; ------------------------------------------ 
+
+sethilite	ldx #3		; set data to (un)hilite gadgets
+-	lda tabofgads,y
+	sta sc_zl,x
+	dey
+	dex
+	bpl -
+	rts
 
 ; ----------------------------------------- Display Gadget Texts
 
@@ -479,7 +543,11 @@ modes	!scr " Stay  Leave"
 
 ; ------------------------------------------------ CrossHatch
 
-evxhatch	ldy #0
+evxhatch	ldy #23
+	sty mrka
+	jsr hilite
+
+	ldy #0
 
 -	lda buf_o-1,y
 	clc 
@@ -506,7 +574,11 @@ evxhatch	ldy #0
 
 ; ------------------------------------------------ LaPlacian
 
-evlaplace	ldy #0
+evlaplace	ldy #39
+	sty mrka
+	jsr hilite
+
+	ldy #0
 
 -	lda buf_m,y
 	asl
@@ -545,7 +617,11 @@ evlaplace	ldy #0
 
 ; ------------------------------------------------ Sharpen 1
 
-evsharp1	ldy #0
+evsharp1	ldy #43
+	sty mrka
+	jsr hilite
+
+	ldy #0
 
 -	lda buf_o-1,y
 	clc 
@@ -604,7 +680,11 @@ evsharp1	ldy #0
 
 ; ------------------------------------------------ Random
 
-evrandom	ldy #0
+evrandom	ldy #27
+	sty mrka
+	jsr hilite
+
+	ldy #0
 
 -	lda rausch
 	lsr
@@ -665,7 +745,11 @@ evrandom	ldy #0
 
 ; ------------------------------------------------ Smear
 
-evsmear	ldy #0		; erste Hälfte bearbeiten
+evsmear	ldy #31
+	sty mrka
+	jsr hilite
+
+	ldy #0		; erste Hälfte bearbeiten
 
 -	lda rausch	; Zufallswerte 0..3
 	and #3
@@ -730,7 +814,11 @@ kon3	sta buf_r+160,y	; und als Ergebnis speichern
 
 ; ------------------------------------------------ WaterColor
 
-evwatrcol	ldy #0		; erste Hälfte bearbeiten
+evwatrcol	ldy #11
+	sty mrka
+	jsr hilite
+
+	ldy #0		; erste Hälfte bearbeiten
 
 kon4	lda #0
 	sta bbuf
@@ -858,7 +946,11 @@ kon4	lda #0
 
 ; ------------------------------------------------ Median
 
-evmedian	ldy #0
+evmedian	ldy #55
+	sty mrka
+	jsr hilite
+
+	ldy #0
 
 kon5	lda buf_o-1,y	; aktuelle Matrix puffern
 	sta wbuf
@@ -938,7 +1030,11 @@ auswerten	ldx #4
 
 ; ------------------------------------------------ Emboss
 
-evemboss	ldy #0
+evemboss	ldy #15
+	sty mrka
+	jsr hilite
+
+	ldy #0
 
 -	lda buf_u+1,y
 	eor #$0f
@@ -961,7 +1057,11 @@ evemboss	ldy #0
 
 ; ------------------------------------------------ DeepPress
 
-evdeeppr	ldy #0
+evdeeppr	ldy #19
+	sty mrka
+	jsr hilite
+
+	ldy #0
 
 -	lda buf_m+1,y
 	clc 
@@ -1012,7 +1112,11 @@ evdeeppr	ldy #0
 
 ; ------------------------------------------------ Gaussian
 
-evgauss	ldy #0
+evgauss	ldy #7
+	sty mrka
+	jsr hilite
+
+	ldy #0
 
 -	lda buf_m,y
 	asl 
@@ -1057,7 +1161,11 @@ evgauss	ldy #0
 
 ; ------------------------------------------------ Sharpen 3
 
-evsharp3	ldy #0
+evsharp3	ldy #47
+	sty mrka
+	jsr hilite
+
+	ldy #0
 
 -	lda buf_o,y
 	clc 
@@ -1122,7 +1230,11 @@ evsharp3	ldy #0
 
 ; ----------------------------------------- Event: Nagative
 
-evnegatv	lda gd_modswitch
+evnegatv	ldy #71
+	sty mrka
+	jsr hilite
+
+	lda gd_modswitch
 	pha
 
 	lda #3
@@ -1175,7 +1287,11 @@ palette	!by $ff,$ee,$dd,$cc,$bb,$aa,$99,$88
 
 ; ------------------------------------------------ Cartoon
 
-evcartoon	ldy #0		; erste Hälfte bearbeiten
+evcartoon	ldy #63
+	sty mrka
+	jsr hilite
+
+	ldy #0		; erste Hälfte bearbeiten
 -	lda buf_m,y	; Zentrum der Matrix mal 4
 	asl
 	asl
@@ -1213,7 +1329,11 @@ evcartoon	ldy #0		; erste Hälfte bearbeiten
 
 ; ------------------------------------------------ Blur High
 
-evblurhi 	ldy #0
+evblurhi	ldy #3
+	sty mrka
+	jsr hilite
+
+ 	ldy #0
 -	lda buf_m,y	; matrixzentrum*2 (linke Hälfte)
 	asl 
 	adc buf_o-2,y	; Drumherum addieren
@@ -1264,7 +1384,11 @@ evblurhi 	ldy #0
 
 ; ------------------------------------------------ OutlineMono (LineArt)
 
-evoutlnm	ldy #0		; erste Hälfte bearbeiten
+evoutlnm	ldy #67
+	sty mrka
+	jsr hilite
+
+	ldy #0		; erste Hälfte bearbeiten
 
 -	lda buf_m,y	; Zentrum der Matrix mal 4
 	asl
@@ -1303,7 +1427,11 @@ evoutlnm	ldy #0		; erste Hälfte bearbeiten
 
 ; ------------------------------------------------ Minimum
 
-evminimum	ldy #0		; minimum unter dem konvolutionskern suchen (linke hälfte, 160 bytes)
+evminimum	ldy #59
+	sty mrka
+	jsr hilite
+
+	ldy #0		; minimum unter dem konvolutionskern suchen (linke hälfte, 160 bytes)
 
 loop 	lda buf_m,y	; matrixzentrum (in der mittleren rasterzeile) testen
 	beq ++		; wenn bereits minimum, in den ergebnispuffer, keine bearbeitung erforderlich
@@ -1389,7 +1517,11 @@ loop 	lda buf_m,y	; matrixzentrum (in der mittleren rasterzeile) testen
 
 ; ------------------------------------------------ Maximum
 
-evmaximum	ldy #0
+evmaximum	ldy #51
+	sty mrka
+	jsr hilite
+
+	ldy #0
 
 loop2 	lda buf_m,y
 	cmp #15
@@ -1481,7 +1613,11 @@ loop2 	lda buf_m,y
 
 ; ------------------------------------------------ Speckle
 
-evspeckle	ldy #0		; erste Hälfte bearbeiten
+evspeckle	ldy #35
+	sty mrka
+	jsr hilite
+
+	ldy #0		; erste Hälfte bearbeiten
 
 -	lda buf_o,y	; Kreuz aufaddieren
 	clc 
