@@ -21,6 +21,7 @@
 ;    1.06, 19.09.19, added: show amount of colors in image
 ;                    bugfix: avoid crash after executing it from REU and have a View at first time
 ;    1.07, 06.02.20, added: hilite gadget on Join or Swap
+;    1.08, 12.07.21, bugfix: crash if run from REU and exec View (finally)
 ;
 ; ------------------------------------------------------------ 
 
@@ -72,8 +73,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "4BitHistogram   "
-	!pet "1.07"
-	!pet "06.02.20"
+	!pet "1.08"
+	!pet "12.07.21"
 	!pet "A. Dettke       "
 
 ; --------------------------------------- Main
@@ -1075,8 +1076,7 @@ sethilite	ldx #3		; set data to (un)hilite gadgets
 
 ; ------------------------------------------ Switch Graphics/Text
 
-evview	lda rm_swapw+6	; REU-Management checken
-	cmp #$10		; Modul läuft aus dem RAM heraus?
+evview	lda rm_swapw+3	; Modul läuft aus dem RAM heraus?
 	bne donot		; ja, View nicht ausführen
 
 	lda gr_redisp
@@ -1092,9 +1092,9 @@ evview	lda rm_swapw+6	; REU-Management checken
 	sta gr_redisp	; restore auto render 
 	jmp showrequester	; redisplay color chooser
 
-donot	ldy #2
+; --------------------------------------- Blink the Border
 
-; --------------------------------------- 
+donot	ldy #2		; red
 
 graphon	lda border
 	pha
