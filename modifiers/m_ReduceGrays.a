@@ -19,6 +19,7 @@
 ;
 ; 1.03, 10.07.17, combined with EDmono
 ; 1.04, 11.11.18, added y2.20, all values corrected
+; 1.05, 13.07.21, better UI
 ;
 ; ------------------------------------------------ 
 
@@ -65,16 +66,18 @@
 	!wo modend 
 	!wo 0
 	!pet "reduce ed gray  "
-	!pet "1.04"
-	!pet "11.11.18"
+	!pet "1.05"
+	!pet "13.07.21"
 	!pet "W.Kling/AD      "
 
 ; -------------------------------------- Main
 
-start	jsr makechar
+start	jsr makechar	; create gamma char
 	ldx #<edlst
 	ldy #>edlst
-	jmp gd_xmloop
+	jsr gd_screen	; show requester
+	jsr shownum	; show # of colors
+	jmp gd_eloop	; wait for clicks
 
 ; ------------------------------------------------ Event: Set Gamma Values
 
@@ -98,24 +101,17 @@ evg0	inc gamma
 
 ; ------------------------------------------------ Event: Reduce to Monochrome
 
-evmono	ldy #1
+evmono	ldy #1		; flag for MONO
 	bne +
 
 ; ------------------------------------------------ Event: Reduce Hires
 
-evhires	ldy #0
+evhires	ldy #0		; flag for HIRES
 +	sty mode
-	jsr init
+	jsr init		; clear buffer, start activity display
 
-	ldy #15		; prepare palette
--	ldx gr_qtab,y
-	lda gr_palette,x
-	tax 
-	lda godcols,x
-	sta cpalette,y
-	dey 
-	bpl -
-	sta mono1
+	jsr buildhpal
+	sta mono1		; 1st and last values for mono
 	lda cpalette+15
 	sta mono2
 
@@ -238,10 +234,21 @@ hr0	ldy ymrk
 
 +	jmp -
 
+
+buildhpal	ldy #15		; prepare palette
+-	ldx gr_qtab,y	; regard quantization
+	lda gr_palette,x	; take GoDot palette
+	tax 
+	lda godcols,x
+	sta cpalette,y	; build C64 palette
+	dey 
+	bpl -
+	rts
+
 ; ------------------------------------------------ Event: Reduce Multicolor
 
 evmcolor	jsr init
-	sty mode		; .y=$ff
+	sty mode		; .y=$ff, flag for MULTI
 	jsr makepal
 
 --	jsr getlinem
@@ -299,11 +306,6 @@ evmcolor	jsr init
 
 	jsr lloop
 	jmp --
-
-; ------------------------------------------------ 
-
-godcols	!by $00,$0f,$04,$0c,$05,$0a,$01,$0d
-	!by $06,$02,$09,$03,$07,$0e,$08,$0b
 
 ; ------------------------------------------------ 
 
@@ -522,6 +524,18 @@ makepal	ldy #0
 	bpl --
 	rts 
 
+; ------------------------------------------------ Show # of Colors
+
+shownum	lda gr_howmany
+	jsr gd_xcnvdez	; make digits
+	cpx #$30
+	bne +
+	ldx #$20
++	stx colstx
+	sta colstx+1
+	ldx #<colsgad		; and output
+	ldy #>colsgad+1
+
 ; ------------------------------------------------ Text output
 
 settext	stx sc_screentab
@@ -539,8 +553,16 @@ stt	jsr gd_setpos
 
 ; ------------------------------------------------ 
 
-makechar	ldx #7
+makechar	ldx #15
 -	lda gammach,x
+	sta sc_undochar,x
+	dex
+	bpl -
+stay	clc
+	rts
+
+unmake	ldx #15
+-	lda repair,x
 	sta sc_undochar,x
 	dex
 	bpl -
@@ -563,10 +585,13 @@ fbhigh	!by $40,$45,$4a,$4f,$54
 screenpos	!wo 0
 mode	!by 0
 gammach	!by $00,$0c,$6e,$6d,$38,$7c,$c6,$7c
+chschr	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
+repair	!fill 16
 gamma	!by 0
 gammavals	!scr "1.000.351.802.20"
 goffs	!by 3,7,11,15
 gray	!scr "Gray "
+
 g035	!by $00,$2f,$3b,$44,$4c,$52,$57,$5c	; 1
 	!by $60,$64,$68,$6c,$6f,$72,$75,$78
 g180	!by $00,$01,$03,$07,$0b,$11,$17,$1e	; 2
@@ -574,28 +599,43 @@ g180	!by $00,$01,$03,$07,$0b,$11,$17,$1e	; 2
 g220	!by $00,$00,$01,$03,$07,$0b,$10,$16	; 3
 	!by $1e,$27,$31,$3d,$49,$58,$67,$78 
 
+godcols	!by $00,$0f,$04,$0c,$05,$0a,$01,$0d
+	!by $06,$02,$09,$03,$07,$0e,$08,$0b
+
 ; -------------------------------------- Requester
 
 edlst	!by 0
 	!by 8,12,17,11,$81,0,0
 	!scr "Reduce Grays@"
-sgamma	!by 12,22,7,3,$cf,<evgamma,>evgamma
-	!by 223
-gammatx	!scr "1.00@"
-	!by 12,12,10,3,$c8,<evmono,>evmono
-	!scr "Mono@"
-shires	!by 14,17,12,3,$cf,<evhires,>evhires
-hirestx	!scr "Hires@"
-smcol	!by 16,17,12,3,$ce,<evmcolor,>evmcolor
-mcoltx	!scr "Multicolor@"
-	!by 18,12,17,3,$cb,<evcan,>evcan
+
+sgamma	!by 12,15,7,3,$c0
+	!wo evgamma
+	!by 224
+gammatx	!scr "1.00",0
+colsgad	!by 15,18,4,3,$a0
+	!wo 0
+colstx	!scr "16",0
+	!by 12,22,7,3,$cf
+	!wo evmono
+	!scr "Mono ",0
+shires	!by 14,22,7,3,$ce
+	!wo evhires
+hirestx	!scr "Hires",0
+smcol	!by 16,22,7,3,$ce
+	!wo evmcolor
+mcoltx	!scr "Multi",0
+	!by 18,12,17,3,$cb
+	!wo evcan
 	!scr "Cancel@"
-	!by $c0,14,13,2
-	!scr "or@"
-	!by $c0,16,13,2
-	!scr "or@"
-	!by $c0,10,13,12
-	!scr "Choose Mode:@"
+
+	!by $c0,12,13,1
+	!by 223,0
+	!by $c0,15,12,5
+	!scr "Grays",0
+	!by $c0,10,22,5
+	!scr "Mode:",0
+	!by $c0,10,13,7
+	!scr "Params:",0
 	!by $80
 
 ; ------------------------------------------------ adinc
@@ -664,7 +704,8 @@ clearad	lda #$ff
 
 ; ------------------------------------------------ Event: Cancel
 
-evcan	sec 
+evcan	jsr unmake
+	sec 
 	rts
 
 ; ------------------------------------------------ Init
