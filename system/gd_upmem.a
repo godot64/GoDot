@@ -18,6 +18,7 @@
 ; ***        01.11.00, complete comment revision        ***
 ; ***  1.15, 04.12.17, optimized code to gain space,    ***
 ; ***                  added: set amnt of colors in pal ***
+; ***  1.16, 14.07.21, added: automatic default pals    ***
 ; ***                                                   ***
 ;    ---------------------------------------------------   
 ;
@@ -129,12 +130,14 @@
 ; -------------------------------------------------- Header
 
 	jmp start
-	!by $20,$00,$00
+	!by $20
+list	!wo 0
 	!wo modend
-	!wo 0
+breit1	!by $12
+breit2	!by $24
 	!pet "GoDot f000 slot4"
-created	!pet "1.15"
-	!pet "04.12.17"		; date changed to 18.02.96 (start of NA distribution)
+created	!pet "1.16"
+	!pet "14.07.21"		; date changed to 18.02.96 (start of NA distribution)
 				; date changed again to 22.11.16 (re-start of GoDot-ing)
 	!pet "A.Dettke/W.Kling"
 ;
@@ -415,16 +418,15 @@ ep1	jsr setcol
 	dec sc_merk+1	; count colors
 	bpl ep1
 
-	jsr gettab	; now lower palette gadget
-	ldy #2
-	sty sc_br
-	ldx #$00		; index into GoDot palette
-ep2	lda gr_palette,x	; get color entry
+	jsr gettab	; now lower palette gadget (.y=0)
+	ldx #2
+	stx sc_br
+ep2	lda gr_palette,y	; get color entry
 	sta sc_chgcol
 	jsr setcol
 	inc sc_merk+1	; increment color index (GoDot palette)
-	ldx sc_merk+1	; last valid entry?
-	cpx gr_howmany
+	ldy sc_merk+1	; last valid entry?
+	cpy gr_howmany
 	bcc ep2		; no, loop
 
 ep3	ldx gr_picked	; color selected?
@@ -434,15 +436,31 @@ ep3	ldx gr_picked	; color selected?
 ep9	lda #$00		; care for textmode
 	sta sc_loop
 	jmp eps7		; continue there
-;
-ep44	clc
-	rts
 
 setcol	ldx #$04		; index to color
-	jsr gd_fcol	; colorize
+	jsr gd_fcol	; colorize (.x=0)
 	inc sc_sp		; increment tile offset
 	inc sc_sp
 	rts
+
+; -------------------------------------------------- Event: Palette Requester
+
+evpal	jsr gd_savescvek	; save vector to main screenlist
+	sta pdis		; set Flag: rebuild Palette requester
+
+	jsr buildreq
+	ldx #$0f		; initialize palette buffers
+ep5	lda gr_palette,x	; get 16 current palette values
+	sta palundo,x	; store to undo area
+	sta palcanc,x	; store to nothing changed area
+	lda gr_basepal,x	; get base palette values
+	sta paldflt,x	; store to default palette area
+	dex
+	bpl ep5
+	ldx gr_howmany	; store for undo
+	dex
+	stx sy_soffy+1
+	jmp gd_eloop	; wait for further events
 
 ; -------------------------------------------------- Subevent: More Colors
 
@@ -453,20 +471,13 @@ se_morec			; (different places on screen!)
 se_lessc	lda #$4c		; JMP
 	sta patch2
 	jsr chgcols
-	lda #$20		; JSR
+	jsr shiftprs	; ### 1.16
+	beq +
+	jsr se_pdeft
++	lda #$20		; JSR
 	sta patch2
-	bne buildreq
 
-; -------------------------------------------------- Event: Palette Requester
-
-evpal	jsr gd_savescvek	; save vector to main screenlist
-	sta pdis		; set Flag: rebuild Palette requester
-
-	jsr buildreq
-	ldx gr_howmany	; store for undo
-	dex
-	stx sy_soffy+1
-	jmp gd_eloop	; wait for further events
+; -------------------------------------------------- 
 
 buildreq	lda gr_howmany	; compute width of GoDot palette gadget
 	asl
@@ -475,33 +486,23 @@ buildreq	lda gr_howmany	; compute width of GoDot palette gadget
 	inx
 	stx palbox+2
 
-	ldx #<(pallst)	; show requester
-	ldy #>(pallst)
+	ldx #<pallst	; show requester
+	ldy #>pallst
 	jsr gd_screen
 
 	ror		; .a=$80
 	sta gr_picked	; set Picked invalid
 	jsr palcols	; show palettes
 
-	ldx #$0f		; initialize palette buffers
-ep5	lda gr_palette,x	; get 16 current palette values
-	sta palundo,x	; store to undo area
-	sta palcanc,x	; store to nothing changed area
-	lda gr_basepal,x	; get base palette values
-	sta paldflt,x	; store to default palette area
-	dex
-	bpl ep5
-	clc
+ep44	clc
 	rts
 
 ; -------------------------------------------------- Subevent: Cancel Palette Requester
 
-se_pcanc	lda #$00		; flag: don't re-render
-	sta gr_redisp
-
-	lda sy_soffy+1	; re-set # of colors
+se_pcanc	lda sy_soffy+1	; re-set # of colors
 	sta gr_howmany
-	jsr chgcols
+	jsr chgcols	; .x=0
+	stx gr_redisp	; flag: don't re-render
 
 	ldx #$1f		; get PALCANC
 ep7	ldy #$0f
@@ -553,9 +554,7 @@ dps	inx		; increment index
 
 dpok	ldx #$2f		; move palettes
 ep8	jsr ep7
-	jsr eps8		; show new (default) palette
-ep4	clc		; finished
-	rts
+	jmp eps8		; show new (default) palette
 
 ; -------------------------------------------------- Subevent: Undo Change to Palette
 
@@ -594,7 +593,8 @@ ep91	ldx sc_merk+1	; yes, get picked color
 	jsr gettab
 	lda sc_merk+1	; get color
 	jsr gd_fi0	; show color
-	beq ep4		; unconditional branch; finished
+ep4	clc		; finished
+	rts
 
 ; -------------------------------------------------- Subevent: Change GoDot Palette
 
@@ -1260,7 +1260,7 @@ s6	dey		; within 64 pixels
 	sta hist1,x
 	sta nr0
 s7	ldx #$03
-l7	 ldy #$00
+l7	ldy #$00
 	sty max
 	lda bits,x
 	sta nr0,x
@@ -1865,7 +1865,6 @@ mbloop2	lda bttab,x
 
 ; -------------------------------------------------- 
 
-list	!by $00,$00
 bktmp	!by 0
 pdis	!by 0
 ctrtab	!by $26,$00,$30,$00,$48,$00,$60,$00
@@ -2098,12 +2097,8 @@ skip	ror brttmp	; loop for next two passes across
 	rol lflag		; loop for second pass within tile
 	bcc dzloop
 
-	lda sc_pos	; add $500 (1280): next row of tiles
-	clc
-	adc #$00
-	sta sc_pos
-	lda sc_pos+1
-	adc #$05
+	lda sc_pos+1	; add $500 (1280): next row of tiles
+	adc #$04
 	sta sc_pos+1
 
 	pla		; count 20 times
@@ -2111,6 +2106,16 @@ skip	ror brttmp	; loop for next two passes across
 	dey
 	bpl prloop
 	rts		; until finished
+
+;-------------------------------------------------------------
+
+shiftprs	sei
+	lda #$fd		; col %11111101
+	sta $dc00
+	lda $dc01		; row %10000000
+	and #$80		; if .z: shift pressed
+	cli
+	rts
 
 ;-------------------------------------------------------------
 ; Data (screen positions and so on)
@@ -2333,11 +2338,9 @@ txloop2	lda line2,y
 gurubox	!by $7d,$40,$6d,$5d,$20,$5d,$6e,$40
 	!by $70
 line1	!scr "A.Dettke & W.Kling"
-line2	!scr "GoDot Creation Nr. "
+line2	!scr "GoDot Creation No. "
 vermain	!scr "00000"
 versn	!scr "000.00000000"
-breit1	!by $12
-breit2	!by $24
 
 ; -------------------------------------------------- Blink Box Border
 
