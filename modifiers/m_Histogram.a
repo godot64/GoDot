@@ -22,6 +22,7 @@
 ;                    bugfix: avoid crash after executing it from REU and have a View at first time
 ;    1.07, 06.02.20, added: hilite gadget on Join or Swap
 ;    1.08, 12.07.21, bugfix: crash if run from REU and exec View (finally)
+;    1.09, 17.07.21, removed: rejecting View if launched from REU
 ;
 ; ------------------------------------------------------------ 
 
@@ -73,8 +74,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "4BitHistogram   "
-	!pet "1.08"
-	!pet "12.07.21"
+	!pet "1.09"
+	!pet "17.07.21"
 	!pet "A. Dettke       "
 
 ; --------------------------------------- Main
@@ -1076,10 +1077,10 @@ sethilite	ldx #3		; set data to (un)hilite gadgets
 
 ; ------------------------------------------ Switch Graphics/Text
 
-evview	lda rm_swapw+3	; Modul läuft aus dem RAM heraus?
+	lda rm_swapw+3	; Modul läuft aus dem RAM heraus?
 	bne donot		; ja, View nicht ausführen
 
-	lda gr_redisp
+evview	lda gr_redisp
 	pha
 	ldx #1
 	stx gr_redisp
