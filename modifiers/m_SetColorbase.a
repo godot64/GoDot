@@ -18,6 +18,8 @@
 ;   1.00, 14.03.18, first release
 ;   1.01, 25.08.18, added palette of c64pixels.com previews
 ;   1.02, 24.11.19, propagating chosen palette to system
+;   1.03, 31.07.21, replaced c64pixels by Ptoing palette
+;                   added backward choosing
 ;
 ; ------------------------------------------------ 
 
@@ -25,6 +27,8 @@
 ; ------------------------------------------------ Equates
 
 	src	= $30	; /$31
+
+	spalte	= sc_merk+1	; get cursor position in gadget
 
 ; ------------------------------------------------ Header
 
@@ -35,8 +39,8 @@
 	!wo modend 
 	!wo 0
 	!pet "Set new RGB vals"
-	!pet "1.02"
-	!pet "24.11.19"
+	!pet "1.03"
+	!pet "31.07.21"
 	!pet "A.Dettke        "
 
 ; ------------------------------------------------ Main
@@ -52,13 +56,27 @@ start	jsr makech	; Kringel
 
 ; ------------------------------------------------ Event: Set New RGB Values
 
-evsetpal	lda palnr
-	cmp #6
-	bcc +
-	lda #$ff
-	sta palnr
-+	inc palnr
-	ldy palnr
+evsetpal	ldy palnr		; 6 is max, 0 is min (7 is undefined palette)
+	cpy #7
+	beq ++++		; in undefined set "GoDot" as default choice
+
+	lda spalte	; clicked where in gadget?
+	cmp #22		; 21 is center of gadget text
+	bcc ++
+
+	cpy #6		; right: count pattern number forewards
+	bne +
+++++	ldy #$ff
++	iny
+	bpl +++		; uncond. branch
+
+++	tya		; left: count pattern number backwards
+	bne +
+	ldy #7
++	dey
+
++++	sty palnr
+
 	sty gr_colorbase	; Palette dem System bekannt machen
 	jsr chngepal	; Namen eintragen und anzeigen
 	jsr movepal	; neue RGB-Werte aktivieren
@@ -74,7 +92,8 @@ checkpals	ldx #<gr_rgb	; check which palette is active
 
 ; ------------------------------------------------ 
 
-	ldy #7		; if none or unknown ("other")
+	ldy #7		; 7 if none or unknown ("other")
+
 chngepal	sty palnr
 	ldx paloffs,y
 	ldy #6
@@ -87,7 +106,7 @@ chngepal	sty palnr
 
 ; ------------------------------------------------ 
 
-movepal	lda palnr		; (#7 ist "other")
+movepal	lda palnr		; (#7 is "other": don't activate)
 	cmp #7
 	beq +
 	asl
@@ -104,9 +123,9 @@ movepal	lda palnr		; (#7 ist "other")
 	bpl -
 +	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------ Build Checksum
 
-addrgb	stx src
+addrgb	stx src		; build checksum to recognize palette
 	sta src+1
 	ldy #5
 	clc
@@ -121,6 +140,8 @@ addrgb	stx src
 	bcs +
 	cmp palrefs,y
 	bne -
+
+; ------------------------------------------------ 
 
 stay	clc
 +	rts
@@ -172,14 +193,14 @@ char	!by $00,$5c,$62,$72,$02,$02,$3c,$00
 palnr	!by 0		; Vorgabepalette ist "GoDot"
 palrefs	!by 64,49,56,66,57,59,60
 paloffs	!by 6,13,20,27,34,41,48,55
-paladds	!wo godot,pepto,deekay,vice,colodore,coco,c64pix
+paladds	!wo godot,pepto,deekay,vice,colodore,coco,ptoing
 palette	!scr "GoDot  "	; 0
 	!scr "Pepto  "	; 7
 	!scr "Deekay "	; 14
 	!scr "Vice   "	; 21
 	!scr "Colodor"	; 28
 	!scr "CoCo   "	; 35
-	!scr "c64pxls"	; 42
+	!scr "Ptoing "	; 42
 	!scr "other  "	; 49
 
 cprefs	!by  15, 12, 11,  0,  1,  9, 10,  8,  4,  3,  2, 14,  6,  5, 13,  7	; C64 color index
@@ -205,9 +226,12 @@ colodore	!by $0b,$08,$05,$00,$0f,$05,$0c,$09,$09,$07,$08,$07,$03,$05,$0b,$0f
 coco	!by $0b,$08,$05,$00,$0f,$07,$0c,$09,$09,$07,$08,$07,$03,$05,$0b,$0f
 	!by $0b,$08,$05,$00,$0f,$04,$07,$05,$04,$0d,$03,$07,$03,$0b,$0f,$0f
 	!by $0b,$08,$05,$00,$0f,$01,$07,$03,$09,$0d,$03,$0f,$0a,$05,$0a,$07
-c64pix	!by $0b,$08,$05,$00,$0f,$06,$0c,$09,$09,$07,$09,$08,$04,$07,$0a,$0d	; ### 1.01
-	!by $0b,$08,$05,$00,$0f,$04,$07,$06,$04,$0c,$05,$07,$03,$0b,$0e,$0e
-	!by $0b,$08,$05,$00,$0f,$00,$07,$01,$0b,$0c,$03,$0e,$0a,$04,$08,$07
+;c64pix	!by $0b,$08,$05,$00,$0f,$06,$0c,$09,$09,$07,$09,$08,$04,$07,$0a,$0d	; ### 1.01
+;	!by $0b,$08,$05,$00,$0f,$04,$07,$06,$04,$0c,$05,$07,$03,$0b,$0e,$0e
+;	!by $0b,$08,$05,$00,$0f,$00,$07,$01,$0b,$0c,$03,$0e,$0a,$04,$08,$07
+ptoing	!by $0b,$08,$05,$00,$0f,$05,$0c,$09,$09,$08,$09,$08,$04,$07,$0b,$0d	; ### 1.03
+	!by $0b,$08,$05,$00,$0f,$04,$07,$06,$04,$0c,$04,$07,$03,$0b,$0f,$0e
+	!by $0b,$08,$05,$00,$0f,$00,$07,$02,$0b,$0c,$03,$0e,$0a,$04,$08,$07
 
 ; ------------------------------------------------ Screenlist
 
