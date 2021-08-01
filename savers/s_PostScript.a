@@ -21,6 +21,7 @@
 ; 1.06: 23.11.16, changed: - palettes "Pepto" and "Coco" added
 ; 1.07: 06.04.17, changed: - palette "Colodore" added
 ; 1.08: 29.05.19, changed: - palette "Brix" removed (module too long!)
+; 1.09: 01.08.21, changed: - palette "VICE" replaced by "Ptoing"
 ;
 ; ----------------------------------------- 
 
@@ -49,8 +50,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "Encapsulated PS "
-version	!pet "1.08"
-	!pet "29.05.19"
+version	!pet "1.09"
+	!pet "01.08.21"
 	!pet "A.Dettke        "
 
 ; ----------------------------------------- 
@@ -420,10 +421,10 @@ spl2	dex		; 4: Deekay
 	lda #<paldeekay
 	ldx #>paldeekay
 	bne spl5
-spl3	dex		; 5: Vice
+spl3	dex		; 5: Ptoing    # -- 1.09
 	bne spl0
-	lda #<palvice
-	ldx #>palvice
+	lda #<palptoing
+	ldx #>palptoing
 	bne spl5
 spl0	lda #<palgray	; 6: Gray16
 	ldx #>palgray
@@ -785,13 +786,13 @@ palgodot	!tx "000000 0000aa 664400 333333"
 	!tx "0088ff ff7777 00cc55 bbbbbb"
 	!by 13,10,32,32
 	!tx "aaffee eeee77 aaff66 ffffff"	; 120
-palvice	!tx "000000 211bae 6a3304 424540"	; # 1.04 ---
+palptoing	!tx "000000 3e31a2 574200 545454"	; # 1.04/1.09 ---
 	!by 13,10,32,32
-	!tx "be1a24 b41ae2 b84104 70746f"
+	!tx "8c3e34 8d47b3 905f25 808080"
 	!by 13,10,32,32
-	!tx "5f53fe fe4a57 1fd21e a4a7a2"
+	!tx "7c70da bb776d 68a941 ababab"
 	!by 13,10,32,32
-	!tx "30e6c6 dfd60a 59fe59 fdfefc"	; # 1.04 ---
+	!tx "7abfc7 d0dc71 acea88 ffffff"	; # 1.04/1.09 ---
 paldeekay	!tx "000000 1a0c92 441e00 464646"	; # 1.05 ---
 	!by 13,10,32,32
 	!tx "68372b a73b9f a94b02 8b8b8b"
@@ -841,7 +842,7 @@ paltxts	!scr "  GoDot   "	; 0
 	!scr " Colodore "	; 20
 	!scr "  Pepto   "	; 30
 	!scr "  Deekay  "	; 40
-	!scr "   VICE   "	; 50
+	!scr "  Ptoing  "	; 50
 	!scr "  Gray16  "	; 60
 
 areatxts	!scr "Full" 	; 0
