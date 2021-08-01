@@ -1,6 +1,8 @@
 
-!src "godotlib.lib"
-*	= $c000
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
 
 ; ----------------------------------------- 
 ;
@@ -10,6 +12,7 @@
 ; 1.00: 08.12.01, first release
 ; 1.01: 28.11.16, korrektes Anfügen des Namenskürzels ".bmp"
 ;                 drei Paletten eingefügt, eine weitere korrigiert
+; 1.02: 01.08.21, eine Palette ausgetauscht (Brix - Ptoing)
 ;
 ; ----------------------------------------- 
 
@@ -39,8 +42,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "Windows Bitmap  "
-version	!pet "1.01"
-	!pet "28.11.16"
+version	!pet "1.02"
+	!pet "01.08.21"
 	!pet "A.Dettke        "
 ;
 ; ----------------------------------------- Input
@@ -131,14 +134,14 @@ wo1	lda pw,x
 	ldx ls_drive
 	jsr filpar
 	lda wflen
-	ldx #<(ls_nambuf)
-	ldy #>(ls_nambuf)
+	ldx #<ls_nambuf
+	ldy #>ls_nambuf
 	jsr filnam
 	jsr copen
 	jmp err9
 ;
-inull	ldx #<(drinit)
-	ldy #>(drinit)
+inull	ldx #<drinit
+	ldy #>drinit
 	lda #2
 	jsr gd_sendcom
 err9	jsr gd_xmess
@@ -189,8 +192,8 @@ ag0	dey		; auf 12 verkürzen
 
 ; ----------------------------------------- Activity gauge
 
-messout	ldx #<(message)
-	ldy #>(message)
+messout	ldx #<message
+	ldy #>message
 	jmp gd_xtxout2
 ;
 tcopy	ldy #0
@@ -205,8 +208,11 @@ action	dec adcnt
 	bne ld4
 	lda cntwert
 	sta adcnt
-	ldy offy
-	ldx offx
+	ldy offy		; bar at maximum?
+	cpy clrmess+1
+	bne act0
+	jsr clrmess	; yes, clear
+act0	ldx offx		; write bar to output
 	lda filltab,x
 	sta mess,y
 	jsr messout
@@ -252,8 +258,8 @@ si1	rts
 ; ----------------------------------------- Publish new filename
 
 setname	lda #0
-	ldx #<(ls_picname)
-	ldy #>(ls_picname)
+	ldx #<ls_picname
+	ldy #>ls_picname
 si3	stx sc_texttab
 	sty sc_texttab+1
 	tax
@@ -272,8 +278,8 @@ nbuf	!fill 16,32
 ; ----------------------------------------- Startup requester
 
 requ	inc used
-	ldx #<(bmplst)
-	ldy #>(bmplst)
+	ldx #<bmplst
+	ldy #>bmplst
 	jsr gd_xmloop
 
 ; ----------------------------------------- Requester management
@@ -383,10 +389,10 @@ spl2	dex		; 3: Deekay
 	lda #<paldeekay
 	ldx #>paldeekay
 	bne spl5
-spl3	dex		; 4: Brix
+spl3	dex		; 4: Ptoing
 	bne spl31
-	lda #<palbrix
-	ldx #>palbrix
+	lda #<palptoing
+	ldx #>palptoing
 	bne spl5
 spl31	dex		; 5: Vice
 	bne spl0
@@ -530,13 +536,17 @@ convert	sta sc_pos	; value times 8
 bmplst	!by 0
 	!by 4,11,18,13,$81,0,0
 	!scr "Save BMP@"
-palgad	!by 9,11,18,3,$ca,<(evpalette),>(evpalette)
+palgad	!by 9,11,18,3,$ca
+	!wo evpalette
 paltx	!scr "  GoDot   @"
-areagad	!by 11,23,6,3,$ce,<evarea,>evarea
+areagad	!by 11,23,6,3,$ce
+	!wo evarea
 areatx	!scr "Full@"
-	!by 13,11,18,3,$cb,<(evsavbmp),>(evsavbmp)
+	!by 13,11,18,3,$cb
+	!wo evsavbmp
 	!scr "Save Image@"
-	!by 15,11,18,3,$cb,<(cn2),>(cn2)
+	!by 15,11,18,3,$cb
+	!wo cn2
 	!scr "Cancel Save@"
 	!by $c0,7,12,15
 	!scr "Select Palette:@"
@@ -679,10 +689,10 @@ paldeekay	!by $00,$00,$00,$00, $92,$0c,$1a,$00, $00,$1e,$44,$00, $46,$46,$46,$00
 	!by $d1,$91,$4d,$00, $74,$80,$d2,$00, $19,$ab,$4d,$00, $ba,$ba,$ba,$00
 	!by $a8,$cd,$65,$00, $53,$e3,$eb,$00, $8e,$f6,$8e,$00, $ff,$ff,$ff,$00	; # 1.01 ---
 
-palbrix	!by $00,$00,$00,$00, $c6,$42,$42,$00, $39,$63,$84,$00, $7b,$7b,$7b,$00
-	!by $4a,$52,$ad,$00, $bd,$6b,$bd,$00, $2f,$8e,$c8,$00, $94,$94,$94,$00
-	!by $f7,$9c,$9c,$00, $9c,$9c,$ff,$00, $73,$e7,$73,$00, $ce,$ce,$ce,$00
-	!by $f7,$f7,$73,$00, $7b,$ff,$ff,$00, $a5,$ff,$a5,$00, $ff,$ff,$ff,$00
+palptoing	!by $00,$00,$00,$00, $a2,$31,$3e,$00, $00,$42,$57,$00, $54,$54,$54,$00	; # 1.02 --- ausgetauscht
+	!by $34,$3e,$8c,$00, $b3,$47,$8d,$00, $25,$5f,$90,$00, $80,$80,$80,$00
+	!by $da,$70,$7c,$00, $6d,$77,$bb,$00, $41,$a9,$68,$00, $ab,$ab,$ab,$00
+	!by $c7,$bf,$7a,$00, $71,$dc,$d0,$00, $88,$ea,$ac,$00, $ff,$ff,$ff,$00
 
 palgray	!by $00,$00,$00,$00, $11,$11,$11,$00, $22,$22,$22,$00, $33,$33,$33,$00
 	!by $44,$44,$44,$00, $55,$55,$55,$00, $66,$66,$66,$00, $77,$77,$77,$00
@@ -708,7 +718,7 @@ paltxts	!scr "  GoDot   "	; 0
 	!scr "   CoCo   "	; 10	# 1.01 Community Colors
 	!scr "  Pepto   "	; 20
 	!scr "  Deekay  "	; 30
-	!scr "   Brix   "	; 40
+	!scr "  Ptoing  "	; 40	# 1.02
 	!scr "   VICE   "	; 50	# 1.01
 	!scr "  Wheels  "	; 60	# 1.01
 	!scr "  Gray16  "	; 70
@@ -732,4 +742,3 @@ wrh1	lda (src),y
 ; ----------------------------------------- 
 
 modend	!eof
-
