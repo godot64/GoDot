@@ -1,0 +1,222 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ------------------------------------------------ 
+;
+; mod.AutoBalance
+;
+; ------------------------------------------------ 
+;
+; Modifier to find the least and most frequent colors
+; and *build a ramp* between those two. The result can 
+; be viewed in the upper status gadget of mod.Gradient.
+; AutoBalance is s/t like a special histogram builder.
+;
+; - There's no particular use in this modifier.
+;
+; ------------------------------------------------ 
+;
+; 1.00, 30.10.91, first release
+; 1.01, 07.10.18, changed everything
+; 1.02, 05.08.21, debugged, activity display still missing
+;
+; ------------------------------------------------ 
+
+; ------------------------------------------------ Declarations
+
+	data		= $30
+	sum		= $32
+	maxc		= $34
+	minc		= $35
+	max		= $36
+	min		= $38
+
+
+	histlo		= sy_bigbuffer
+	histhi		= histlo+16
+
+; ------------------------------------------------ Header
+
+	jmp start
+	!by $20
+	!wo 0
+	!wo modend
+	!wo 0
+	!tx "Auto Balancing  "
+	!tx "1.02"
+	!tx "05.08.21"
+	!tx "W.Kling/A.Dettke"
+
+; ------------------------------------------------ 
+
+start	lda #0
+	ldx #31
+iloop	sta histlo,x
+	dex 
+	bpl iloop
+
+histo	lda #<sy_4bit
+	sta data
+	lda #>sy_4bit
+	sta data+1
+
+	ldy #0
+hloop	lda (data),y	; color value / 16 (left pixel)
+	pha 
+	lsr 
+	lsr 
+	lsr
+	lsr
+	tax 
+	inc histlo,x	; count 
+	bne skip1
+	inc histhi,x
+skip1	pla 
+	and #$0f		; color value (right pixel)
+	tax 
+	inc histlo,x	; count 
+	bne skip2
+	inc histhi,x
+skip2	inc data		; advance
+	bne hloop
+	inc data+1
+	lda data+1
+	cmp #>sy_bigbuffer	; until end of 4bit
+	bne hloop
+
+; ------------------------------------------------ 
+
+findmax	ldx #0		; find most frequent value
+	stx max
+	stx max+1
+	stx maxc
+
+floop1	lda histhi,x	; get hi, not counted?
+	tay
+	ora histlo,x
+	beq next1		; yes, skip
+
+	tya
+	cmp max+1		; hi already there?
+	beq fskip1	; then check lo
+	bmi next1		; current max greater?
+	bcs jau1		; current max less?
+
+fskip1	lda histlo,x	; get lo
+	cmp max		; is current max?
+	beq next1		; yes, skip
+	bmi next1		; current max greater?
+
+jau1	lda histhi,x	; store current max
+	sta max+1
+	lda histlo,x
+	sta max
+	txa 
+	sta maxc		; and store palette index of max
+
+next1	inx 
+	cpx #16
+	bne floop1
+
+; ------------------------------------------------ 
+
+findmin	ldx #$ff		; find least frequent value
+	stx min
+	stx min+1
+	ldx #15
+	stx minc
+
+floop2	lda histhi,x	; not counted?
+	tay
+	ora histlo,x
+	beq next2		; yes, skip
+
+	tya
+	cmp min+1		; hi already there?
+	bcc jau2		; current min less?
+	beq fskip2	; no, equal? then check lo
+	bcs next2		; no, current min greater, skip
+
+fskip2	lda histlo,x	; lo
+	cmp min		; is current min?
+	beq next2		; yes, skip
+	bcs next2		; current max greater?
+
+jau2	lda histhi,x	; store current min
+	sta min+1
+	lda histlo,x
+	sta min
+	txa 
+	sta minc		; and store palette index of min 
+
+next2	dex 
+	bpl floop2
+
+maketab	lda maxc		; generate new quantization table
+	cmp minc
+	bpl +
+	tay
+	lda minc
+	sta maxc
+	tya
+	sta minc
+	sec 
++	lda maxc
+	sbc minc		; distance between max and min in .a
+	beq nix
+	cmp #15
+	beq nix
+
+	tay 		; distance to .y
+	lda #0
+	sta sum
+	ldx minc		; start at min
+
+tloop	lda sum		; add 8, divide by 8
+	clc 
+	adc #8
+	lsr 
+	lsr 
+	lsr
+	cmp #16
+	bcc +
+	lda #15		; if gt 128 (16) set 15
++	sta gr_btab,x
+	clc 		; add distance value from table
+	adc distab,y
+	dey		; decrement distance
+	sta sum		; store as sum
+	inx 		; proceed until max
+	cpx maxc
+	bne tloop
+
+	lda #15		; fill endings (15 at max..)
+tloop1	sta gr_btab,x
+	inx
+	cpx #16
+	bne tloop1
+	lda #0		; (...0 at min)
+	ldx minc
+	dex
+tloop2	sta gr_btab,x
+	dex 
+	bpl tloop2
+
+nix	lda #$ff		; set redisplay flag
+	sta gr_redisp
+	clc 		; finished
+	rts 
+
+; ------------------------------------------------ 
+
+distab	!by 255,240,120,80
+	!by 60,48,40,34
+	!by 30,27,24,22
+	!by 20,18,17,16
+;
+; ------------------------------------------------ 
+
+modend	!eof
