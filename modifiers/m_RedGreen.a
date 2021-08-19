@@ -11,6 +11,7 @@
 ; Module to turn a greyscale image into red or green scaled
 ;
 ; 1.00, 22.04.21, first release
+; 1.01, 19.08.21, added CYA option
 ;
 ; ------------------------------------------------ 
 
@@ -43,10 +44,10 @@
 	!wo 0
 	!wo modend
 	!wo 0
-	!pet "Make RED or GRN"
-	!pet "1.00"
-	!pet "22.04.21"
-	!pet "A.Dettke       "
+	!pet "RED, GRN or CYA "
+	!pet "1.01"
+	!pet "19.08.21"
+	!pet "A.Dettke        "
 
 ; ------------------------------------------------ Main
 
@@ -61,8 +62,8 @@ start	lda gd_modswitch
 	lda failed
 	bmi ++
 
-	ldx #<rglst	; display requester
-	ldy #>rglst
+	ldx #<rgclst	; display requester
+	ldy #>rgclst
 	bne +
 ++	ldx #<faillst	; display alert
 	ldy #>faillst
@@ -84,13 +85,16 @@ evcancel	sec
 
 ; ------------------------------------------------ Events: Red/Green
 
+evcya	lda #1
+	bne +
+
 evred	lda #0
 	beq +
 
 evgrn	lda #$ff
 +	sta which
 
-	jsr init
+	jsr init		; returns .a=0
 
 	tay
 er0	lda (src),y	; exchange colors
@@ -98,7 +102,11 @@ er0	lda (src),y	; exchange colors
 	tax
 	bit which
 	bmi +
+	lda which
+	bne +++
 	lda tabred,x
+	jmp ++
++++	lda tabcya,x
 	jmp ++
 +	lda tabgrn,x
 ++	sta (src),y
@@ -271,28 +279,37 @@ initad	ldy #60		; Spriteblock 255 vorbereiten
 ; ------------------------------------------------ 
 
 failed	!by 0
-tabred	!by $00,$12,$03,$12,$14,$34,$22,$24
+
+tabred	!by $00,$01,$03,$12,$14,$34,$22,$24
 	!by $44,$39,$54,$64,$49,$b9,$6d,$ff
-tabgrn	!by $00,$31,$03,$33,$08,$38,$3a,$7a
+
+tabgrn	!by $00,$31,$03,$33,$08,$38,$3a,$7a	; 7a=4a?
 	!by $5a,$6a,$8a,$7e,$aa,$de,$ca,$ff
+
+tabcya	!by $00,$31,$41,$33,$18,$38,$4a,$6a
+	!by $5a,$8a,$6c,$bc,$dc,$ee,$fe,$ff
 
 ; ------------------------------------------------ Screenlists
 
-rglst	!by 0
+rgclst	!by 0
 	!by 9,14,12,10,$91
 	!wo 0
 	!scr "Color",0
 	!by 12,14,12,3,$ca
 	!wo evred
 	!scr "Red",0
-	!by 14,14,12,3,$cb
+	!by 14,14,6,3,$40
+	!wo evcya
+	!by 14,19,7,3,$40
 	!wo evgrn
-	!scr "Green",0
+	!by 14,14,12,3,$8b
+	!wo stay
+	!scr "Cyan",$65,"Green",0
 	!by 16,14,12,3,$cb
 	!wo evcancel
 	!scr "Leave",0
-	!by $c0,10,14,9
-	!scr " Gradient",0
+	!by $c0,10,15,8
+	!scr "Gradient",0
 	!by $80
 
 faillst	!by 0
