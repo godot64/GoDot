@@ -11,6 +11,7 @@
 ;   nicht akzeptabel konvertiert werden. 
 ;
 ; 1.00, 23.09.20 : first release
+; 1.01, 03.09.21 : added decrementing values by click
 ; 
 ; -------------------------------------- 
 
@@ -20,6 +21,9 @@
 	valcol	= $31
 	valrow	= $32
 	dst	= $35	; /$36
+
+	zeile	= sc_merk
+	spalte	= zeile+1
 
 	colorbase	= $0380
 
@@ -31,8 +35,8 @@
 	!wo modend
 	!wo 0
 	!pet "Map Image Colors"
-	!pet "1.00"
-	!pet "23.09.20"
+	!pet "1.01"
+	!pet "03.09.21"
 	!pet "A.Dettke        "
 
 ; -------------------------------------- Main
@@ -59,23 +63,23 @@ start	ldx #<rgblst	; Screenliste ausgeben
 	ldx #1		; Einzelfärbung
 	stx sc_ho
 	dex 
-	stx sc_merk
+	stx zeile
 -	lda gr_basepal,x	; Farbe holen
 	sta sc_chgcol
 	ldx #4		; Index auf geholte Farbe
 	jsr gd_fcol	; färben (ganze Palette durch)
 	inc sc_zl		; nächste Zeile
-	inc sc_merk
-	ldx sc_merk	; nächste Farbe
+	inc zeile
+	ldx zeile	; nächste Farbe
 	cpx #16
 	bcc -
 
 	ldy #34		; Hilighting der Graus
--	sty sc_merk
+-	sty zeile
 	jsr gettab
 	ldx #3		; Index auf Hilite-Farbe
 	jsr gd_fcol	; färben
-	ldy sc_merk	; nächstes Grau
+	ldy zeile	; nächstes Grau
 	iny 
 	iny 
 	cpy #44		; bis alle durch
@@ -85,12 +89,12 @@ start	ldx #<rgblst	; Screenliste ausgeben
 
 ; -------------------------------------- Event: Edit RGB Data
 
-evshow	lda sc_merk	; wo geklickt? (Zeile)
+evshow	lda zeile		; wo geklickt? (Zeile)
 	clc 
 	sbc valrow	; Wert in valrow wurde in copyrgb gesetzt
 	tax 		; als Index in die rgb-Palette
 
-	lda sc_merk+1	; wo geklickt? (Spalte)
+	lda spalte	; wo geklickt? (Spalte)
 	clc 
 	sbc valcol	; als Distributor:
 
@@ -100,7 +104,16 @@ evshow	lda sc_merk	; wo geklickt? (Zeile)
 	cmp #6		; war Klick auf die Zahlen, dann...
 	bcc +
 
-	inc bvalues,x	; ganz rechts: B
+	bne esh0		; in Spalte 11: INC
+
+	dec bvalues,x	; in Spalte 10: DEC
+	lda bvalues,x	; ganz rechts: B
+	bpl showvals
+	lda #15
+	sta bvalues,x
+	bne showvals
+
+esh0	inc bvalues,x	; INC
 	lda bvalues,x
 	cmp #16
 	bcc showvals
@@ -108,9 +121,19 @@ evshow	lda sc_merk	; wo geklickt? (Zeile)
 	sta bvalues,x
 	beq showvals
 
-+	cmp #$03		; Mitte: G
++	cmp #3
 	bcc +
-	inc gvalues,x
+
+	bne esh1		; in Spalte 8: INC
+
+	dec gvalues,x	; in Spalte 7: DEC
+	lda gvalues,x	; Mitte: G
+	bpl showvals
+	lda #15
+	sta gvalues,x
+	bne showvals
+
+esh1	inc gvalues,x	; INC
 	lda gvalues,x
 	cmp #16
 	bcc showvals
@@ -118,7 +141,17 @@ evshow	lda sc_merk	; wo geklickt? (Zeile)
 	sta gvalues,x
 	beq showvals
 
-+	inc rvalues,x	; sonst: R
++	cmp #1
+	beq esh2		; in Spalte 5: INC
+
+	dec rvalues,x	; in Spalte 4: DEC
+	lda rvalues,x	; ganz links: R
+	bpl showvals
+	lda #15
+	sta rvalues,x
+	bne showvals
+
+esh2	inc rvalues,x	; INC
 	lda rvalues,x
 	cmp #16
 	bcc showvals
@@ -183,7 +216,7 @@ spr0	sta dst		; eintragen
 firsttime	ldy #0		; dreimal 16 Werte holen
 -	lda (dst),y
 	ldx cpref,y
-	sta rvalues,x	; und geordnet speichern
+	sta rvalues,x	; R geordnet speichern
 	iny
 	cpy #16
 	bcc -
@@ -194,7 +227,7 @@ firsttime	ldy #0		; dreimal 16 Werte holen
 	ldy #0
 -	lda (dst),y
 	ldx cpref,y
-	sta gvalues,x	; und geordnet speichern
+	sta gvalues,x	; G geordnet speichern
 	iny
 	cpy #16
 	bcc -
@@ -205,7 +238,7 @@ firsttime	ldy #0		; dreimal 16 Werte holen
 	ldy #0
 -	lda (dst),y
 	ldx cpref,y
-	sta bvalues,x	; und geordnet speichern
+	sta bvalues,x	; B geordnet speichern
 	iny
 	cpy #16
 	bcc -
