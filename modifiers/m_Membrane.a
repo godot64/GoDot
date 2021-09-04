@@ -10,6 +10,7 @@
 ; Module to fill a mask with patterns which can be used as filters to affect colors
 ;
 ;   1.00, 24.07.19: first release
+;   1.01, 04.09.21: added option to create "scanlines"
 ;
 ; ------------------------------------------ 
 
@@ -19,8 +20,8 @@
 	!wo modend
 	!wo 0
 	!pet "Make Membranes  "
-	!pet "1.00"
-	!pet "24.07.19"
+	!pet "1.01"
+	!pet "04.09.21"
 	!pet "A. Dettke       "
 
 ; ------------------------------------------ 
@@ -53,7 +54,7 @@ evexit	jsr makepats
 
 ; ----------------------------------------- Event: Revert
 
-evrevert	ldx #63
+evrevert	ldx #79
 -	lda gr_pattern,x
 	eor #$ff
 	sta gr_pattern,x
@@ -99,17 +100,21 @@ md1	lda modetxt,y
 	bpl md1
 
 	ldx #7
--	lda mod0,x
-	eor #4
+-	lda mode
+	beq +
+	ldy #4
+	!by $2c
++	ldy #0
+	lda mdpats,y
 	sta mod0,x
-	lda mod1,x
-	eor #4
+	iny
+	lda mdpats,y
 	sta mod1,x
-	lda mod2,x
-	eor #4
+	iny
+	lda mdpats,y
 	sta mod2,x
-	lda mod3,x
-	eor #4
+	iny
+	lda mdpats,y
 	sta mod3,x
 	dex
 	bpl -
@@ -128,14 +133,14 @@ evapply	lda strength
 	ldx mode
 	beq +
 	clc
-	adc #32
+	adc #40
 +	sta xbuf
 
-	lda #<1000
+	lda #<1000	; 1000 Bytes ändern
 	sta ls_vekta8
 	lda #>1000
 	sta ls_vekta8+1
-	lda #<rendered
+	lda #<rendered	; ab $2000
 	sta dst
 	lda #>rendered
 	sta dst+1
@@ -168,6 +173,8 @@ eveighth	ldy #1
 evquarter	ldy #2
 	!by $2c
 evhalf	ldy #3
+	!by $2c
+evscnlne	ldy #4
 	sty strength
 	jmp indicate
 
@@ -256,8 +263,8 @@ cou7 	dec ls_vekta8
 
 ; ------------------------------------------ Toggle to new navi icons
 
-makepats:	ldx #63
-mn0:	lda gr_pattern,x	; buffer syspattern (chars 224 to 227)
+makepats:	ldx #79
+mn0:	lda gr_pattern,x	; buffer syspattern (chars 224 to 228)
 	ldy membpats,x
 	sta membpats,x
 	tya
@@ -268,19 +275,19 @@ mn0:	lda gr_pattern,x	; buffer syspattern (chars 224 to 227)
 
 ; ------------------------------------------ Show Indicator Arrow
 
-indicate	lda #32
+indicate	lda #32		; statt Pfeil: Leerzeichen
 	sta indicator
-	sty ybuf
-	ldx #3
+	sty ybuf		; .y: aktuelle Position (merken)
+	ldx #4
 	stx xbuf
--	lda xbuf
+-	lda xbuf		; löschen (alle Positionen)
 	jsr rep
 	dec xbuf
 	bpl -
 
-showind	lda #$5e
+showind	lda #$5e		; Pfeil holen
 	sta indicator
-	lda ybuf
+	lda ybuf		; Position holen
 
 rep	asl
 	sta merk
@@ -291,7 +298,7 @@ rep	asl
 	ldy #1
 	jsr gd_setpar
 	jsr gd_initmove
-	ldx #<indicator
+	ldx #<indicator	; Pfeil ausgeben
 	ldy #>indicator
 	jmp gd_xtxout2
 
@@ -301,26 +308,30 @@ chschr	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
 
 list	!wo 0
 redisp 	!by 0
-indicator	!by $5e,0
+indicator	!by $5e,0				; r-arrow
 mode	!by 0
 modetxt	!scr $df," Hires",$df," Multi"
 mdoffs	!by 6,13
+mdpats	!by $e0,$e1,$e2,$e3
+	!by $e5,$e6,$e7,$e8
 strength	!by 3
 reverted	!by 0
 
-membpats	!by $00,$00,$00,$00,$00,$00,$00,$00
+membpats	!by $00,$00,$00,$00,$00,$00,$00,$00	; hires
 	!by $88,$00,$22,$00,$88,$00,$22,$00
 	!by $88,$22,$88,$22,$88,$22,$88,$22
 	!by $aa,$55,$aa,$55,$aa,$55,$aa,$55
-	!by $00,$00,$00,$00,$00,$00,$00,$00
+	!by $00,$ff,$00,$ff,$00,$ff,$00,$ff	; scanline
+	!by $00,$00,$00,$00,$00,$00,$00,$00	; multi
 	!by $cc,$00,$00,$00,$cc,$00,$00,$00
 	!by $cc,$00,$33,$00,$cc,$00,$33,$00
 	!by $cc,$33,$cc,$33,$cc,$33,$cc,$33
+	!by $00,$ff,$00,$ff,$00,$ff,$00,$ff	; scanline
 
 ; --------------------------------------- Screenlist 
 
 memblst	!by 0
-	!by 3,11,19,17,$81
+	!by 3,11,19,19,$81
 	!wo 0
 	!scr "Generate Membrane@"
 	!by 7,20,10,3,$cd
@@ -335,33 +346,39 @@ mod2	!by $e2,$e2,$e2,$e2,$e2,$e2,$e2,$e2,0
 	!by 13,20,10,3,$ce
 	!wo evhalf
 mod3	!by $e3,$e3,$e3,$e3,$e3,$e3,$e3,$e3,0
-	!by 15,11,6,3,$c7
+	!by 15,20,10,3,$ce
+	!wo evscnlne
+	!by $e9,$e9,$e9,$e9,$e9,$e9,$e9,$e9,0
+	!by 17,11,6,3,$c7
 	!wo evrevert
-	!scr "Revt@"
-	!by 15,17,6,3,$c0
+	!scr "Rvrt",0
+	!by 17,17,6,3,$c0
 	!wo evview
-	!scr "View@"
-	!by 15,23,7,3,$ce
+	!scr "View",0
+	!by 17,23,7,3,$ce
 	!wo evapply
-	!scr "Apply@"
-	!by 17,11,10,3,$c7
+	!scr "Apply",0
+	!by 19,11,10,3,$c7
 	!wo evmode
-mdtx	!scr $df," Hires @"
-	!by 17,21,9,3,$ce
+mdtx	!scr $df," Hires ",0
+	!by 19,21,9,3,$ce
 	!wo evexit
-	!scr " Leave @"
+	!scr " Leave ",0
+
 	!by $c0,5,11,8
-	!scr "Opacity:@"
+	!scr "Opacity:",0
 	!by $c0,5,20,8
-	!scr "Pattern:@"
+	!scr "Pattern:",0
 	!by $c0,7,13,4
-all	!scr "  0%@"
+all	!scr "  0%",0
 	!by $c0,9,12,5
-eight	!scr "12.5%@"
+eight	!scr "12.5%",0
 	!by $c0,11,14,3
-four	!scr "25%@"
+four	!scr "25%",0
 	!by $c0,13,14,3
-	!scr "50%@"
+	!scr "50%",0
+	!by $c0,15,11,6
+	!scr "Scnlns",0
 	!by $80
 
 ; --------------------------------------- 
