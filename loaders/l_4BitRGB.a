@@ -12,6 +12,7 @@
 ; 1.01: 02.01.02, added balancing feature
 ; 1.02: 03.01.02, bugfix:  mouse wasn't switched off
 ;                 changed: color level set to 3 (instead of 5)
+; 1.03: 11.09.21, added: break loading process with STOP key
 ;
 ; ----------------------------------------- 
 
@@ -49,8 +50,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "Join RGB-Digis  "
-	!tx "1.02"
-	!tx "03.01.02"
+	!tx "1.03"
+	!tx "11.09.21"
 	!tx "A.Dettke/W.Kling"
 
 ; ----------------------------------------- 
@@ -67,6 +68,7 @@ start	jsr gd_sproff
 
 st2	jsr getrgb
 	jsr maketabs
+	stx sc_stop	; init break by STOP	### 1.03
 	stx mflag
 	jsr tcopy
 	lda #<getred
@@ -210,6 +212,8 @@ ld6	jsr gd_clrms
 
 ld0	ldy #0
 	jsr readfile
+	ldx sc_stop	; STOP pressed?	### 1.03
+	bne ld7		; yes, break
 	tax
 	lda avrtab,x
 	jsr readbytes
@@ -304,7 +308,7 @@ action	dec adcnt
 	lda cntwert
 	sta adcnt
 	ldy offy
-	cpy #20		; !!! this value must be the same as at CLRMESS
+	cpy clrmess+1
 	bne act0
 	jsr clrmess
 act0	ldx offx
