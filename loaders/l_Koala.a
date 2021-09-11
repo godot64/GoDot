@@ -12,6 +12,7 @@
 ;  1.06, 15.08.05:  bugfix, correct background color
 ;  1.07, 30.10.05:  added storage of original file background color
 ;  1.08, 16.08.08:  bugfix, filenames of 16 chars get retrieved now
+;  1.09, 11.09.21:  added: break loading process with STOP key
 ;
 ; ----------------------------------------- 
 
@@ -45,8 +46,8 @@
 	!by <(modend),>(modend)
 	!by $00,$00
 	!pet "Koala (even GG) "
-	!pet "1.08"
-	!pet "16.08.08"
+	!pet "1.09"
+	!pet "11.09.21"
 	!pet "W.Kling/A.Dettke"
 
 ; ----------------------------------------- Main
@@ -57,6 +58,8 @@ start	lda #50		; activity counter
 	sta cntwert
 	ldx #1
 	stx adcnt
+	dex		; init break by STOP	### 1.09
+	stx sc_stop
 
 	ldx sc_vekt20	; set destination address ($4000)
 	stx ftype		; .x is $00
@@ -103,6 +106,8 @@ stt3	jsr gd_xopen	; open file
 
 loop	jsr onebyte	; read bitmap
 l1	bne jerror
+	ldx sc_stop	; STOP pressed?	### 1.09
+	bne jerror
 	sta byte
 	jsr action	; activity
 	ldy #0
@@ -149,6 +154,9 @@ sk2	lda #<(2000)	; 2000 bytes
 	jsr tcopy
 
 loop1	jsr onebyte	; store bytes
+	bne l1
+	ldx sc_stop	; STOP pressed?	### 1.09
+	bne l1
 	sta (sc_texttab),y
 	jsr action	; activity
 	ldy #0
