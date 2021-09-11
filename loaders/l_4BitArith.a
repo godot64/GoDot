@@ -19,6 +19,7 @@
 ;                    when accessing bad files
 ;    1.07, 24.04.18, bugfix: couldn't change Source after Preview anymore
 ;    1.08, 14.02.20, bugfix: displaced distributor
+;    1.09, 11.09.21, added: break loading process with STOP key
 ;
 ; ---------------------------
 
@@ -59,8 +60,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "4Bit&sub/mul/dif"
-	!pet "1.08"
-	!pet "14.02.20"
+	!pet "1.09"
+	!pet "11.09.21"
 	!pet "A.Dettke/W.Kling"
 ;
 ; ----------------------------------------- Main
@@ -85,6 +86,7 @@ st0	ldy #0
 	sty bbreite
 	sty bbreite+1
 	sty filetype
+	sty sc_stop	; init break by STOP	### 1.21
 	jsr setfull	; Startadressen setzen
 	jsr gd_sproff	; Sprites aus
 ;
@@ -168,6 +170,8 @@ ld01	ldy #0
 	jsr readfile
 	ldx status	; Floppyfehler?
 	bne ld5		; ja, abbrechen
+	ldx sc_stop	; STOP pressed?	### 1.09
+	bne ld5		; yes, break
 	jsr readbytes
 	tax
 	lda skip		; Skip?
