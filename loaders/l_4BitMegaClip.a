@@ -12,6 +12,7 @@
 ;                        adjusting clip failed above 128, fixed
 ;   1.02, 29.11.17: bug: crash if only height was mega
 ;                        garbage if only width was mega
+;   1.03, 11.09.21, added: break loading process with STOP key
 ;
 ; ----------------------------------- 
 
@@ -64,8 +65,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "MegaClip Select "
-	!pet "1.02"
-	!pet "29.11.17"
+	!pet "1.03"
+	!pet "11.09.21"
 	!pet "A.Dettke        "
 ;
 ; ----------------------------------- Main
@@ -93,6 +94,7 @@ readhd  	inc used
 	stx xpos
 	stx ypos
 	stx viceshot	; VICE-Screenshot: vorbereiten
+	stx sc_stop	; init break by STOP	### 1.03
 	lda #$80
 	sta vicepos+4
 	ldx #31
@@ -144,8 +146,8 @@ ld11	jsr setfullscr	; set parameters for full 4bit
 jerror	jsr error
 ld12	jsr requ		; prepare requester
 
-	ldx #<(mcliplst)	; display
-	ldy #>(mcliplst)
+	ldx #<mcliplst	; display
+	ldy #>mcliplst
 	jsr gd_xmloop	; wait...
 	jmp start
 ;
@@ -316,18 +318,23 @@ fx4 	lda #40		; 4Bit: max width = 40, right skip = 0
 fx5 	sta pbr
 
 fx0	jsr readdumy	; and top skip (zstart und pbr)
+	bne jbreak
 ;
  	ldx #0
 	jsr tcopy
+	jsr clrmess
 	lda pho		; (Standard: 25)
 	sta lcnt8
 loop8 	jsr readdumx1
+	bne jbreak
 	lda rbr		; (Standard: 40)
 	sta bcnt
 bloop 	jsr readblock	; Bytes einlesen
+	bne jbreak
 	dec bcnt
 	bne bloop
 	jsr readdumx2
+	bne jbreak
 	clc		; nächste Blockzeile
 	lda dst0+1
 	adc #5
@@ -338,6 +345,8 @@ bloop 	jsr readblock	; Bytes einlesen
 	dec lcnt8
 	bne loop8
 	jmp ld3
+
+jbreak	jmp break
 
 ; ----------------------------------- Adjust X or Y
 
@@ -399,10 +408,12 @@ nloop	jsr read
 	inc dst+1
 skip0	dec nibcnt
 	bne nloop
+	ldy sc_stop
+	bne +
 	jsr action
 	dec bycnt
 	bne byloop
-	rts
++	rts
 
 ; ----------------------------------- Gauge Bar Activity
 
@@ -432,11 +443,18 @@ ld5 	jsr gd_xclose
 	sec
 	rts
 ;
-; ----------------------------------- File Error
+; ----------------------------------- Break or File Error
+
+break	jsr rd2
+	jsr gd_clrms
+	ldx #66
+	jsr tcopy		; returns .a=0
+	sta sc_stop
+	jmp messout
 
 error	jsr ld5
 	ldx #33
-	ldy #0
+err2	ldy #0
 err1	lda txt,x
 	beq err0
 	sta statline,y
@@ -447,13 +465,13 @@ err0	rts
 
 ; ----------------------------------- Messages
 
-messout 	ldx #<(message)
-	ldy #>(message)
+messout 	ldx #<message
+	ldy #>message
 	jmp gd_xtxout2
 ;
 tcopy 	ldy #0
 tc0 	lda txt,x
-	beq clrmess
+	beq cl1
 	sta message,y
 	inx
 	iny
@@ -468,10 +486,10 @@ cl0 	sta mess,x
 	ldx #7
 	sty offy
 	stx offx
-	rts
+cl1	rts
 ;
 onebyte 	jsr basin
-	ldx $90
+	ldx status
 	rts
 ;
 filltab 	!by 160,93,103,127,126,124,105,109
@@ -479,6 +497,7 @@ txt 	!scr " Reading  @"	; 0
 	!scr " Skipping @"	; 11
 	!scr " Moving   @"	; 22
  	!scr "  This is no GoDot image file!  @" ; 33
+ 	!scr "   Loading terminated by STOP.  @" ; 66
 message 	!scr ".........."
 mess 	!scr "......................@"
 
@@ -489,11 +508,14 @@ readdumy	ldx zstart
 	stx mho
 	ldx #11		; "Skipping"
 	jsr tcopy
+	jsr clrmess
 ys0 	lda pbr
 	sta mbr
 yl1 	jsr read
 	dec cntr
 	bne yl1
+	ldx sc_stop	; STOP pressed?	### 1.21
+	bne nixy		; yes, break
 	lda #32
 	sta cntr
 	jsr action
@@ -507,31 +529,37 @@ nixy 	rts
 
 readdumx1	lda pbr
 	cmp #41
-	bcc nixx1
+	bcc nixx3
 	lda sstart
 	beq nixx1
 	sta msp
 xl10 	jsr read
 	dec cntr
 	bne xl10
+	ldx sc_stop	; STOP pressed?	### 1.21
+	bne nixx1		; yes, break
 	lda #32
 	sta cntr
 	dec msp
 	bne xl10
+nixx3	ldx #0
 nixx1 	rts
 ;
 ; -----------------------------------
 
 readdumx2	lda mro
-	beq nixx2
+	beq nixx4
 	sta mrc
 xl20 	jsr read
 	dec cntr
 	bne xl20
+	ldx sc_stop	; STOP pressed?	### 1.21
+	bne nixx2		; yes, break
 	lda #32
 	sta cntr
 	dec mrc
 	bne xl20
+nixx4	ldx #0
 nixx2 	rts
 ;
 ; ------------------------------------ Zeilenadresse berechnen
@@ -556,6 +584,7 @@ getladd	tya		; durch 8 (wird Index in Hibyte-Tabelle)
 moveline	jsr gd_clrms
 	ldx #22
 	jsr tcopy
+	jsr clrmess
 	ldy #202		; Quellzeile
 	sty lcnt8
 
@@ -715,20 +744,20 @@ setinfo 	jsr getdatac
 	jmp setdata
 ;
 setname 	lda #0
-	ldx #<(ls_picname)
-	ldy #>(ls_picname)
+	ldx #<ls_picname
+	ldy #>ls_picname
 	bne si3
 setloader	lda #17
-	ldx #<(ls_iloader)
-	ldy #>(ls_iloader)
+	ldx #<ls_iloader
+	ldy #>ls_iloader
 	bne si3
 setmode 	lda #25
-	ldx #<(ls_imode)
-	ldy #>(ls_imode)
+	ldx #<ls_imode
+	ldy #>ls_imode
 	bne si3
 setdata 	lda #33
-	ldx #<(ls_idrive)
-	ldy #>(ls_idrive)
+	ldx #<ls_idrive
+	ldy #>ls_idrive
 si3 	stx dst
 	sty dst+1
 	tax
@@ -785,9 +814,9 @@ f13 	sta (vekt40),y
 ;
 ; -----------------------------------
 
-requ 	lda #<(string1)	; first output line
+requ 	lda #<string1	; first output line
 	sta vekt40
-	lda #>(string1)
+	lda #>string1
 	sta vekt40+1
 	lda ftype		; Filetype: 4Bit?
 	and #2
@@ -1228,9 +1257,9 @@ tabigad 	!wo xpostxt	; 0
 	!wo ypostxt	; 2
 	!wo vicepos	; 4
 
-settab 	lda #<(tabigad)
+settab 	lda #<tabigad
 	sta vekt40
-	lda #>(tabigad)
+	lda #>tabigad
 	sta vekt40+1
 	rts
 ;
