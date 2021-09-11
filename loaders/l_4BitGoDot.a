@@ -26,6 +26,7 @@
 ;    1.18, 24.04.18, bugfix: couldn't change Source after Preview anymore
 ;    1.19, 17.06.18, bugfix: couldn't compose anymore
 ;    1.20, 08.05.20, correct image info on REPLACE
+;    1.21, 11.09.21, added: break loading process with STOP key
 ;
 ; ------------------------------------------------------------ 
 
@@ -62,8 +63,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "native 4Bit ldr "
-	!pet "1.20"
-	!pet "08.05.20"
+	!pet "1.21"
+	!pet "11.09.21"
 	!pet "A.Dettke/W.Kling"
 ; ----------------------------------------- Leave Module
 cancel	ldx #$ff
@@ -92,6 +93,7 @@ st0	ldy #0		; init width and copy of
 	sty bbreite
 	sty bbreite+1
 	sty filetype	; init filetype
+	sty sc_stop	; init break by STOP	### 1.21
 	jsr setfull	; init addresses
 	jsr gd_sproff	; Sprites off
 
@@ -175,6 +177,8 @@ ld0	ldx breite	; Bytecounter for 1 true row
 ld01	ldy #0
 	jsr readfile	; get data byte 
 	ldx status	; Floppy error?
+	bne ld50		; yes, break
+	ldx sc_stop	; STOP pressed?	### 1.21
 	bne ld50		; yes, break
 	jsr readbytes	; process data byte
 	tax
