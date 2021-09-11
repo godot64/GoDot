@@ -12,6 +12,7 @@
 ;
 ;  1.00, 26.04.21, first release
 ;  1.01, 29.04.21, bugfix: crashed when no file selected
+;  1.02, 11.09.21: added: break loading process with STOP key
 ;
 ; ----------------------------------------- 
 
@@ -40,8 +41,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "Anaglyph Loader "
-	!tx "1.01"
-	!tx "29.04.21"
+	!tx "1.02"
+	!tx "11.09.21"
 	!tx "A.Dettke        "
 
 ; ----------------------------------------- Main
@@ -61,6 +62,7 @@ st2	lda gd_modswitch
 	pha
 
 	ldx #0
+	stx sc_stop	; init break by STOP	### 1.02
 	stx mflag		; flag for non-prepared filenames
 	stx pass		; init pass (=0)
 	jsr tcopy		; set 1st message (.x=0)
@@ -204,6 +206,8 @@ ld6	jsr gd_clrms
 
 ld0	ldy #0
 	jsr readfile	; get byte from file
+	ldx sc_stop	; STOP pressed?	### 1.02
+	bne ld3		; yes, break
 	jsr readbytes	; convert to red/green
 	sta (sc_texttab),y	; store
 	inc sc_texttab
