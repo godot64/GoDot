@@ -20,6 +20,7 @@
 ;    1.11, 07.09.16, added: get mask from undo
 ;    1.12, 18.01.18, added: merge mask from undo
 ;    1.13, 21.06.19, added init keyboard for SuperCPU
+;    1.14, 11.09.21, added: break loading process with STOP key
 ;
 ; ------------------------------------------------------------ 
 
@@ -60,8 +61,8 @@ header 	jmp start
 	!wo modend
 	!wo 0
 	!pet "4Bit+BmMask+Clip"
-	!pet "1.13"
-	!pet "21.06.19"
+	!pet "1.14"
+	!pet "11.09.21"
 	!pet "A.Dettke/W.Kling"
 
 ; ----------------------------------------- Leave Loader
@@ -99,6 +100,7 @@ st0 	lda #200
 	stx bbreite+1
 	stx brmerk
 	stx filetype
+	stx sc_stop	; init break by STOP	### 1.21
 	jsr tcopy
 
 	jsr setfull
@@ -244,8 +246,10 @@ ld03 	sta mask
 	inc masksrcw+1
 
 ld1 	jsr readfile	; get byte from image
-	ldx $90
+	ldx status
 	bne ld5
+	ldx sc_stop	; STOP pressed?	### 1.14
+	bne ld5		; yes, break
 
 	tax
 	lda skip		; must be skipped?
