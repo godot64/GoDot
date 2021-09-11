@@ -1,6 +1,8 @@
 
-!src "godotlib.lib"
-*	= $c000
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
 
 ; ----------------------------------------- 
 ; ldr.4BitRGBd
@@ -11,8 +13,9 @@
 ; 1.01: 03.01.02, bugfix:  lgray and white were exchanged
 ;                          mouse wasn't switched off
 ;                 changed: color level set to 3 (instead of 5)
-; 1.02: 09.11.26, changed: dither of gray in color mode
+; 1.02: 09.11.16, changed: dither of gray in color mode
 ;                          (was: no dither if pure gray, fixed)
+; 1.03: 11.09.21, added: break loading process with STOP key
 ;
 ; ----------------------------------------- 
 
@@ -52,8 +55,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "RGBmerge+dither "
-	!pet "1.02"
-	!pet "09.11.26"
+	!pet "1.03"
+	!pet "11.09.21"
 	!pet "A.Dettke/W.Kling"
 ;
 ; ----------------------------------------- 
@@ -70,6 +73,7 @@ start	jsr gd_sproff
 
 st2	jsr getrgb
 	jsr maketabs
+	stx sc_stop	; init break by STOP	### 1.03
 	stx mflag
 	jsr tcopy
 	lda #<(getred)
@@ -83,7 +87,7 @@ st2	jsr getrgb
 	beq st0
 	sta mflag
 	bne st1
-st0	lda #"R"
+st0	lda #"r"
 	sta ls_nambuf
 st1	jsr loadrgb
 	jsr checkerr
@@ -96,12 +100,12 @@ st1	jsr loadrgb
 	stx doit+1
 	lda mflag
 	bne next
-	lda #"G"
+	lda #"g"
 	sta ls_nambuf
 	jsr loadrgb2
 	jsr checkerr
 	bne jcan
-	lda #"B"
+	lda #"b"
 	sta ls_nambuf
 last	ldx #14
 	jsr tcopy
@@ -207,6 +211,8 @@ ld6	jsr gd_clrms
 ;
 ld0	ldy #0
 	jsr readfile
+	ldx sc_stop	; STOP pressed?	### 1.03
+	bne ld7		; yes, break
 	tax
 	lda avrtab,x
 	jsr readbytes
@@ -230,7 +236,7 @@ ld2	dec ls_vekta8
 ld3	jsr setinfo
 ld7	jsr gd_xclose
 	jsr gd_xmess
-	jsr clrms
+	jsr clrmess
 cn2	sec
 	rts
 ;
@@ -279,13 +285,13 @@ messout	ldx #<(message)
 ;
 tcopy	ldy #0
 tc0	lda txt,x
-	beq clrms
+	beq clrmess
 	sta message,y
 	inx
 	iny
 	bne tc0
 ;
-clrms	ldx #21
+clrmess	ldx #21
 	lda #32
 cl0	sta mess,x
 	dex
@@ -301,7 +307,10 @@ action	dec adcnt
 	lda cntwert
 	sta adcnt
 	ldy offy
-	ldx offx
+	cpy clrmess+1
+	bne act0
+	jsr clrmess
+act0	ldx offx
 	lda filltab,x
 	sta mess,y
 	jsr messout
