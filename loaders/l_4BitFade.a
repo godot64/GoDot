@@ -6,7 +6,9 @@
 
 ; ----------------------------------------- 
 ;
-; ldr.4Bit&Fade (formerly: ldr.4Bit&Bevel)
+; ldr.4Bit&Fade
+; (formerly: ldr.4Bit&Bevel)
+;
 ; Lader zum Aufhellen oder Abdunkeln
 ; (derived from ldr.4Bit&Map)
 ;
@@ -14,6 +16,7 @@
 ; 1.01, 18.02.20: added brightening
 ; 1.02, 20.02.20: changed gui
 ; 1.03, 22.02.20: changed name of loader
+; 1.04, 11.09.21: added: break loading process with STOP key
 ;
 ; ----------------------------------------- 
 
@@ -38,8 +41,6 @@
 	byte	= $44
 	fbyte	= $45
 
-	status	= $90
-
 	offx	= $b2
 	offy	= offx+1
 
@@ -56,8 +57,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "4Bit&Fade       "
-	!pet "1.03"
-	!pet "22.02.20"
+	!pet "1.04"
+	!pet "11.09.21"
 	!pet "A.Dettke        "
 
 ; ----------------------------------------- Main
@@ -136,6 +137,7 @@ st0	ldy #0
 	sty bbreite
 	sty bbreite+1
 	sty filetype
+	sty sc_stop	; init break by STOP	### 1.04
 	jsr setfull	; Startadressen setzen
 	jsr gd_sproff	; Sprites aus
 
@@ -210,6 +212,9 @@ ld01	ldy #0
 	jsr readfile	; read byte
 	ldx status	; Floppyfehler?
 	bne ld5		; ja, abbrechen
+	ldx sc_stop	; STOP pressed?	### 1.04
+	bne ld5		; yes, break
+
 	jsr readbytes	; process byte (via doit)
 	tax
 	lda skip		; Skip?
