@@ -1,4 +1,9 @@
 
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
 ; ------------------------------------------------------------ 
 ;
 ; ldr.IFLI
@@ -10,11 +15,9 @@
 ;    1.01, 07.07.05, added X-Ray format
 ;    1.02, 29.10.16, added warning of X-Ray FLI files
 ;    1.03, 23.04.17, added Pixel Perfect format (pp and ppp)
+;    1.04, 12.09.21, added: break loading process with STOP key
 ;
 ; ----------------------------------------- Equates
-;
-*= $c000
-!src "godotlib.lib"
 
 	sprite		= $d015
 
@@ -30,8 +33,6 @@
 	mx		= $3c
 	my		= $3d
 	adcnt		= $3e
-
-	status		= $90
 
 	offx		= $b2
 	offy		= offx+1
@@ -50,8 +51,8 @@
 	!wo modend
 	!by $00,$00
 	!pet "loader for IFLIs"
-	!pet "1.03"
-	!pet "23.04.17"
+	!pet "1.04"
+	!pet "12.09.21"
 	!pet "W.Kling/A.Dettke"
 
 ; ----------------------------------------- Main
@@ -67,8 +68,9 @@ start	jsr getname
 	lda #200
 	jsr setcnt
 
-	jsr onebyte
+	jsr onebyte	; returns .x=0 if no error
 	bne jerror
+	stx sc_stop	; init break by STOP	### 1.04
 	sta ptype		; first byte $00, $01, $fc, $fe or $f0?
 	sta packed
 
@@ -108,6 +110,8 @@ gm7	jsr basin		; skip border color
 	jsr basin		; get background color/pack indicator PP
 	jmp gm3
 	
+jfailc	jmp failc
+
 gmb	jsr basin
 	jsr basin
 	jmp gm7
@@ -129,22 +133,25 @@ readifli	lda ptype		; PP? 				# 1.03
 	cmp #$3c		; nein, ungepackt?
 	bne gm9
 gm8	jsr getcolorram	; ja, PP-Color-Ram holen
+gfc0	bne jfailc
 
 gm9	ldx #0
 	jsr tcopy
 	lda #52		; set counter
 	jsr setcnt
-	lda #<($4000)	; get video rams 1
-	ldy #>($4000)
+	lda #<$4000	; get video rams 1
+	ldy #>$4000
 	jsr getvr
+	bne gfc0
 	
 	ldx #12
 	jsr tcopy
 	jsr scnt0		; prepare counter
 	
-	lda #<($4001)	; get bitmap 1
-	ldx #>($4001)
+	lda #<$4001	; get bitmap 1
+	ldx #>$4001
 	jsr getbm
+	bne gfc0
 	
 	ldx #36
 	jsr tcopy
@@ -160,23 +167,26 @@ gm9	ldx #0
 	beq gma		; ja, ColorRam schon eingelesen, skip it
 
 	jsr getcolorram
+	bne gfc0
 	
 gma	ldx #0
 	jsr tcopy
 	lda #52
 	jsr setcnt
 	
-	lda #<($4002)	; get video rams 2
-	ldy #>($4002)
+	lda #<$4002	; get video rams 2
+	ldy #>$4002
 	jsr getvr
+	bne gfc0
 	
 	ldx #12
 	jsr tcopy
 	jsr scnt0
 	
-	lda #<($4003)	; get bitmap 2
-	ldx #>($4003)
+	lda #<$4003	; get bitmap 2
+	ldx #>$4003
 	jsr getbm
+	bne gfc0
 	
 	jsr getc02	; get background colors 2
 	
@@ -205,6 +215,8 @@ l1	sta dst
 	ldy #0
 l0	jsr unpack
 	sta (dst),y
+	ldy sc_stop	; STOP pressed?	### 1.04
+	bne je2
 	jsr action
 	lda dst
 	clc
@@ -238,7 +250,7 @@ skip1	pla
 	ldy dst0+1
 	dex
 	bne l1
-	rts
+je2	rts
 
 ; ----------------------------------------- Get Bitmap
 
@@ -247,6 +259,8 @@ getbm	sta dst
 	ldy #0
 l3	jsr unpack
 	sta (dst),y
+	ldx sc_stop	; STOP pressed?	### 1.04
+	bne je1
 	jsr action
 	lda dst
 	clc
@@ -257,7 +271,7 @@ l3	jsr unpack
 	lda dst+1
 	cmp #$bd
 	bcc l3
-	rts
+je1	rts
 
 ; ----------------------------------------- Get BG colors 1
 
@@ -324,6 +338,8 @@ gc3	sta ls_vekta8
 l5	jsr unpack
 	and #$0f
 	sta (dst),y
+	ldx sc_stop	; STOP pressed?	### 1.04
+	bne je0
 	jsr action
 	inc dst
 	bne gc5
@@ -335,7 +351,7 @@ gc4	dec ls_vekta8
 	lda ls_vekta8
 	ora ls_vekta8+1
 	bne l5
-	rts
+je0	rts
 
 ; ----------------------------------------- Get BG colors 2
 
@@ -480,6 +496,8 @@ getit2	dec count		; and count repetitions
 
 ; ----------------------------------------- Messages
 
+failc	ldx #136		; Message: terminated by STOP
+	!by $2c
 failb	ldx #104		; Error message: file is XRay FLI
 	!by $2c
 faila	ldx #72		; Error message: No IFLI file
@@ -599,7 +617,7 @@ scnt0	lda #1
 	rts
 
 onebyte   jsr basin		; retrieve one byte from disk
-	ldx $90
+	ldx status
 	rts
 
 skipxray  lda #$d2		; skip 466 bytes of executable
@@ -643,7 +661,7 @@ action	stx mx		; gauge handler
 	lda cntwert
 	sta adcnt
 	ldy offy
-	cpy #22		; #1.03: Fensterrand erreicht?
+	cpy clrmess+1	; #1.03/1.04: Fensterrand erreicht?
 	bne act0
 	jsr clrmess	; ja, re-Init
 act0	ldx offx
@@ -680,6 +698,7 @@ txt	!scr " VRams     @"			; vrams 0
 	!scr " Colors    @"			; colors 60
 	!scr "   ERROR: Not an IFLI file.     "	; Error1 72
 	!scr " ERROR: This XRay is a FLI file."	; Error2 104
+	!scr "   Loading terminated by STOP.  "	; Error2 136
 message   !fill 11,32	; 11 spaces
 mess	!fill 21,32 	; 21 chars (sum up to 32)
 	!by 0
@@ -753,7 +772,7 @@ si5	rts
 nbuf	!fill 16,32
 	!by 0
 loader	!scr "IFLI   @"
-modetx	!scr "296x200@"
+modetx	!scr "160x200@"		; ### 1.04
 datatype  !scr "Color@"
 dtextc	!scr "FP2    "
 	!scr "GunP   "
