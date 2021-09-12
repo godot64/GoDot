@@ -10,6 +10,7 @@
 ;  Loader for pictures of Scanntronik P-Fox
 ;
 ;    1.00: 08.11.92, first release
+;    1.01: 12.09.21, added: break loading process with STOP key
 ;
 ; ------------------------------------------------ 
 
@@ -53,8 +54,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "PFoxSelect&Cut  "
-	!tx "1.00"
-	!tx "08.11.92"
+	!tx "1.01"
+	!tx "12.09.21"
 	!tx "A.Dettke/W.Kling"
 
 ; ------------------------------------------------ 
@@ -76,6 +77,7 @@ readhd	inc used
 	inx
 	stx xpos
 	stx ypos
+	stx sc_stop	; init break by STOP	### 1.01
 	jsr gd_xopen
 	jsr onebyte	; read first byte
 	bne rdende
@@ -157,6 +159,7 @@ fx2	cmp #$50		; type "p"? (Pagefox "pg" image)
 	bne fx3
 
 fx6	jsr readdumy	; skip at top (if necessary)
+je0	bne rd2
 	sec
 	lda #40
 	sbc sstart
@@ -195,10 +198,11 @@ fx9	lda #0
 	sta mro
 	sty rbr
 fx7	jsr onebyte	; skip pagefox "pg" header
-fx3	bne error
+fx3	bne je0
 	tax
 	bne fx7
 	jsr readdumy	; skip at top
+	bne je0
 
 fx0	ldx #0		; activate gauge
 	jsr tcopy
@@ -209,6 +213,7 @@ loop8	jsr readdumx1	; skip at left
 	lda rbr
 	sta bcnt
 bloop	jsr convblock	; read image
+	bne je0
 	dec bcnt
 	bne bloop
 	jsr readdumx2	; skip at right
@@ -225,17 +230,13 @@ bloop	jsr convblock	; read image
 
 	beq ld3		; finished
 
-; ------------------------------------------------ 
-
-error	jsr ld5
-	clc
-	rts
-
 ; ------------------------------------------------ Read Image Data
 
 convblock	lda #8
 	sta bycnt		; get one tile:
 byloop	jsr load		; get byte from disk
+	ldx sc_stop	; STOP pressed?	### 1.01
+	bne je1
 	sta byte
 	lda #4
 	sta nibcnt	; convert to 4Bit
@@ -256,7 +257,7 @@ skip0	dec nibcnt
 	jsr action	; activity
 	dec bycnt
 	bne byloop
-	rts
+je1	rts
 
 ; ------------------------------------------------ End Sequence
 
@@ -344,6 +345,8 @@ ys0	lda pbr
 yl1	jsr load		; skip
 	dec cntr
 	bne yl1
+	ldy sc_stop	; STOP pressed?	### 1.01
+	bne nixy
 	lda #8
 	sta cntr
 	jsr action	; activity
