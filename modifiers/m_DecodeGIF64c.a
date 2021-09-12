@@ -13,6 +13,7 @@
 ;   1.02, 18.04.17, changed some RGBs and length of RGB tables
 ;   1.03, 26.11.18, bugfix: wrong start of line after topskip
 ;   1.04, 08.11.19, added more colors (now 64)
+;   1.05, 12.09.21, added: break loading process with STOP key
 ; 
 ; -------------------------------------- 
 
@@ -96,8 +97,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "gif: LoadSection"
-	!pet "1.04"
-	!pet "08.11.19"
+	!pet "1.05"
+	!pet "12.09.21"
 	!pet "A.Dettke/W.Kling"
 addtxt	!pet "viva D. Jansen!!"
 	!by 0
@@ -260,6 +261,8 @@ getpal	ldy #$bd		; palette buffers:
 	sty palbuf2
 	sty palbuf3
 gpl4	sty gpy
+	ldx sc_stop	; STOP pressed?		### 1.05
+	bne je3
 	lda (palbuf1),y
 	jsr pconv		; care for balancing
 	sta red
@@ -275,7 +278,7 @@ gpl4	sty gpy
 	iny
 	cpy numcols	; convert all GIF colors
 	bne gpl4
-	rts
+je3	rts
 
 ; -------------------------------------- Convert RGB color to C64 color
 
@@ -576,6 +579,7 @@ dc0	lda #<assigncol
 dc1	sta convmode	; set routine entries accordingly
 	stx convmode+1
 	ldx #0
+	stx sc_stop	; init break by STOP  ### 1.05
 	jsr tcopy
 	jsr gd_clrms
 	inx
@@ -590,10 +594,12 @@ dc1	sta convmode	; set routine entries accordingly
 	jsr init		; init vectors and counters
 	jsr initread	; init skip counters
 	jsr readgif	; retrieve GIF data (image)
+	ldx sc_stop	; STOP pressed?		### 1.05
+	bne je2
 	jsr makeitab	; compute interleave table
 	jsr decrunch	; decrunch 6bit to 4bit
 
-	ldy #16		; finished, reset Balancing
+je2	ldy #16		; finished, reset Balancing
 	sty gr_ctr
 	sty gr_brt
 dc8	dey
@@ -642,6 +648,8 @@ gg5	jsr maketabs
 	bcs decode
 	lda code
 	jsr render
+	ldx sc_stop	; STOP pressed?	### 1.05
+	bne gg6
 	jmp decdloop
 
 gg1	sec
@@ -680,12 +688,16 @@ gg7	lda (tabaddhi),y
 	bcs decode
 gg8	lda code
 	jsr render
+	ldx sc_stop	; STOP pressed?	### 1.05
+	bne gg6
 	jmp inloop
 
 readbuf	ldy #$00
 	dec buffer
 	lda (buffer),y
 	jsr render
+	ldx sc_stop	; STOP pressed?	### 1.05
+	bne gg6
 inloop	lda buffer
 	bne readbuf
 	lda buffer+1
