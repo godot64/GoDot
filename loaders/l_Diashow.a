@@ -1,7 +1,8 @@
 
-	*= $c000
 	!src "godotlib.lib"
+	*= $c000
 	!ct pet
+;	!sl "labels.txt"
 
 ; ----------------------------------------- 
 ;
@@ -13,6 +14,7 @@
 ; 
 ; 1.04, 13.02.92, latest release
 ; 1.05: 30.07.08, added storage of original bg color
+; 1.06, 12.09.21: added: break loading process with STOP key
 ;
 ; ----------------------------------------- 
 
@@ -28,7 +30,6 @@
 	merk	= $3a
 	vv	= $3b	; /$3c
 
-	status	= $90
 	offx	= $b2
 	offy	= $b3
 
@@ -48,9 +49,9 @@
 	!by 0,0
 	!wo modend
 	!wo 0
-	!tx "Diashow	"
-	!tx "1.05"
-	!tx "30.07.08"
+	!tx "Diashow         "
+	!tx "1.06"
+	!tx "12.09.21"
 	!tx "W.Kling/A.Dettke"
 	
 ; ------------------------------------------------------------ 
@@ -81,6 +82,7 @@ stt1	sta nambuf
 	inc $a7
 
 stt2	lda #$00
+	sta sc_stop	; init break by STOP	### 1.06
 	sta counter
 	sta counter+1
 	jsr gd_xopen
@@ -105,6 +107,8 @@ read	lda #$40		; 13632 Bytes einlesen (und dabei entpacken)
 	sta ls_vekta8+1
 rloop	jsr unpack
 	sta (sc_texttab),y
+	ldy sc_stop	; STOP pressed?	### 1.06
+	bne jerror
 	txa 
 	and #$bf
 	bne jerror
