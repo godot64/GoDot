@@ -13,6 +13,7 @@
 ;  1.01, 15.08.18, reorganized loader
 ;                  bugfixes: in merge and in getcols
 ;  1.02, 07.05.20, added: stop read on EOF
+;  1.03, 12.09.21, added: break loading process with STOP key
 ;
 ; ----------------------------------------- 
 
@@ -39,8 +40,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "HiBitmapSpecial!"
-	!tx "1.02"
-	!tx "07.05.20"
+	!tx "1.03"
+	!tx "12.09.21"
 	!tx "A.Dettke/W.Kling"
 
 ; ----------------------------------------- 
@@ -72,8 +73,9 @@ start	ldx used
 	sty sc_texttab+1
 	jsr onebyte	; skip start address in file
 	bne jerror
-	jsr onebyte
+	jsr onebyte	; returns .x=0 if no error
 	bne jerror
+	stx sc_stop	; init break by STOP	### 1.03
 
 	ldx which		; Replace or Compose?
 	bne ld6
@@ -96,12 +98,16 @@ ld6	jsr gd_clrms	; don't save filename on Compose
 
 ld01	jsr count		; last byte (after EOF)
 	jsr process
+	ldx sc_stop	; STOP pressed?	### 1.03
+	bne jerror
 	lda btcnt
 	cmp #4		; if bitcounter=4: finished
 	bne ld01
 	beq ld3
 	
 ld0	jsr process	; retrieve and convert bytes
+	ldx sc_stop	; STOP pressed?	### 1.03
+	bne jerror
 	jsr action	; move gauge
 	bit status	; until EOF
 	bvs ld01
