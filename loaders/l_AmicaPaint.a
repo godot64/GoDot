@@ -1,11 +1,12 @@
 
-	*= $c000
 	!src "godotlib.lib"
+	*= $c000
 	!ct pet
+;	!sl "labels.txt"
 
 ; ---------------------------
 ;
-;  ldr.amicapaint
+;  ldr.AmicaPaint
 ;  loader for amica paint multicolor images
 ;
 ;    1.00: 03.10.91, first release
@@ -14,43 +15,42 @@
 ;    1.03: ?       , bugfix because of jiffy dos (don't use $a3)
 ;    1.04: 27.04.95 
 ;    1.05: 04.09.05, added file background color storage
+;    1.06: 12.09.21, added: break loading process with STOP key
 ;
 ; ---------------------------
 
 
 ; ----------------------------------- equates
 
-            comprfl		= $30
-            counter		= $31
-            adcnt		= $32
-            gbyte		= $33
-            byte		= $34
-            cnt		= byte
-            gmode		= $35
-            vr		= $36
-            cr		= $38
-            vv		= $3a
+	comprfl		= $30
+	counter		= $31
+	adcnt		= $32
+	gbyte		= $33
+	byte		= $34
+	cnt		= byte
+	gmode		= $35
+	vr		= $36
+	cr		= $38
+	vv		= $3a
 
-            status		= $90
+	offx		= $b2
+	offy		= offx+1
 
-            offx		= $b2
-            offy		= offx+1
-
-            vrbuf		= $c600
-            crbuf		= vrbuf+1000
-            col0		= vrbuf+2000
+	vrbuf		= $c600
+	crbuf		= vrbuf+1000
+	col0		= vrbuf+2000
 
 ; --------------------------- header
 
-         jmp start
-         !by $80
-         !by $00,$00
-         !by <(modend),>(modend)
-         !by $00,$00
-         !tx "Amica Paint ldr "
-         !tx "1.05"
-         !tx "04.09.05"
-         !tx "W.Kling/A.Dettke"
+	jmp start
+	!by $80
+	!by $00,$00
+	!wo modend
+	!by $00,$00
+	!tx "Amica Paint ldr "
+	!tx "1.06"
+	!tx "12.09.21"
+	!tx "W.Kling/A.Dettke"
 
 ; --------------------------- main
 
@@ -65,6 +65,7 @@ start	jsr getname	; init counters, flags and vectors
 	stx sc_texttab
 	sty sc_texttab+1
 stt2	lda #0
+	sta sc_stop	; init break by STOP	### 1.06
 	sta counter
 	lda #$c2
 	sta comprfl
@@ -86,6 +87,8 @@ stt2	lda #0
 
 loop	jsr unpack
 je1	bne jerror
+	ldx sc_stop	; STOP pressed?	### 1.09
+	bne jerror
 	sta byte
 	jsr action
 
@@ -129,6 +132,8 @@ sk2	lda #<(2000)	; read color rams, 2000 bytes
 	jsr tcopy
 
 loop1	jsr unpack	; store to buffers
+	bne je1
+	ldx sc_stop	; STOP pressed?	### 1.09
 	bne je1
 	sta (sc_texttab),y
 	jsr action
