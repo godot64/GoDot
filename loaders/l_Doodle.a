@@ -1,6 +1,8 @@
 
-!src "godotlib.lib"
-*= $c000
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
 
 ; -------------------------------------------------- 
 ;
@@ -13,6 +15,7 @@
 ;  1.03
 ;  1.04, 16.07.98:
 ;  1.05, 28.05.17: re-organized, some minor changes
+;  1.06, 12.09.21: added: break loading process with STOP key
 ;
 ; -------------------------------------------------- 
 
@@ -28,8 +31,6 @@
 	vv		= $43
 	vr		= $45
 	cr		= $47
-
-	status		= $90
 
 	offx		= ls_adrmisc
 	offy		= offx+1
@@ -47,8 +48,8 @@
 	!wo modend
 	!wo $00
 	!pet "Doodle (even JJ)"
-	!pet "1.05"
-	!pet "28.05.17"
+	!pet "1.06"
+	!pet "12.09.21"
 	!pet "A.Dettke        "
 
 ; ----------------------------------------- Main
@@ -58,6 +59,7 @@ jerror	jmp error
 start	lda #7		; Activity: Init
 	sta cntwert
 	ldx #0
+	stx sc_stop	; init break by STOP	### 1.06
 	stx ftype		; Kompressionsflag auf 0
 	stx counter
 	inx
@@ -164,6 +166,8 @@ rloop	jsr onebyte	; ein Byte einlesen
 	txa		; .x enthält den Status
 	and #$bf		; Fehler?
 	bne rl3		; dann Abbruch
+	ldx sc_stop	; STOP pressed?	### 1.06
+	bne rl3
 	jsr action	; Activity
 	ldy #0		; .y wieder herstellen
 	inc sc_texttab	; Zielzeiger erhöhen
