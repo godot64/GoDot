@@ -12,6 +12,7 @@
 ;  1.00, 25.09.91, first release
 ;  ...
 ;  1.04, 15.07.95, changed substitution colors to grays
+;  1.05, 12.09.21, added: break loading process with STOP key
 ;
 ; ----------------------------------------- 
 
@@ -32,8 +33,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "MulticolorBitmap"
-	!tx "1.04"
-	!tx "15.07.95"
+	!tx "1.05"
+	!tx "12.09.21"
 	!tx "W.Kling (AD)    "
 
 ; ----------------------------------------- 
@@ -64,6 +65,7 @@ stt2	jsr gd_xopen	; open file to read
 	bne error
 	jsr onebyte
 	bne error
+	stx sc_stop	; init break by STOP	### 1.05
 
 	jsr gd_clrms	; init gauge
 	ldx #18		; out: "Bitmap"
@@ -80,6 +82,8 @@ loop	jsr onebyte
 	sta byte
 	txa
 	and #$bf
+	bne error
+	ldx sc_stop	; STOP pressed?	### 1.05
 	bne error
 
 	jsr action	; activity
@@ -119,6 +123,7 @@ sk2	ldx #18
 
 ld7	jsr gd_xclose	; close file
 	jsr gd_spron	; mouse pointer on
+	jsr gd_xmess	; show disk message
 	sec
 	rts
 
@@ -153,7 +158,7 @@ action	dec adcnt
 	lda cntwert
 	sta adcnt
 	ldy offy
-	cpy #20		; this value must be the same as at CLRMESS
+	cpy clrmess+1
 	bne act0
 	jsr clrmess
 act0	ldx offx
