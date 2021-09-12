@@ -1,13 +1,16 @@
 
-*= $c000
-!src "godotlib.lib"
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
 
 ; ----------------------------------------- 
 ;
 ; ldr.AFLI
 ; loader for Hires FLI (AFLI) Images
 ;
-;    1.00, 30.11.95, first release
+; 1.00, 30.11.95, first release
+; 1.01, 12.09.21, added: break loading process with STOP key
 ;
 ; ----------------------------------------- 
 
@@ -23,7 +26,6 @@
 	cntwert		= $3a
 	vrcnt		= $3b
 
-	status		= $90
 	offx		= ls_adrmisc
 	offy		= offx+1
 
@@ -34,11 +36,11 @@
 	jmp start
 	!by $80
 	!by $00,$01
-	!by <(modend),>(modend)
+	!wo modend
 	!by $00,$00
 	!pet "HiRes FLI (AFLI)"
-	!pet "1.00"
-	!pet "30.11.95"
+	!pet "1.01"
+	!pet "12.09.21"
 	!pet "W.Kling/A.Dettke"
 ;
 ; ----------------------------------------- Main
@@ -47,7 +49,8 @@ jerror	jmp error
 ;
 start	lda #50		; init
 	sta cntwert
-	jsr setdst0
+	jsr setdst0	; returns .a=0
+	sta sc_stop	; init break by STOP	### 1.06
 	sta adcnt
 	inc adcnt
 	jsr getname
@@ -74,7 +77,8 @@ vloop	lda dst0
 	sty dst+1
 vloop0	jsr action	; Activity
 	jsr basin		; Byte holen (Farbe)
-;         and #15
+	ldx sc_stop	; STOP pressed?	### 1.06
+je0	bne jerror
 	tax 
 	lda colbuf,x
 	ldy #3
@@ -111,6 +115,8 @@ vskip0	lda dst+1		; bis 4Bit-Ende erreicht
 	jsr setdst0	; Zeiger wird auf Start 4Bit
 bloop0	jsr basin		; Bitmap-Byte holen
 	sta byte		; merken
+	ldx sc_stop	; STOP pressed?	### 1.06
+	bne je0
 	jsr action	; Activity
 	ldy #0
 bloop1	lda #0		; je zwei Pixel in 4Bit-Farbe wandeln
@@ -252,7 +258,10 @@ action	dec adcnt		; Gauge-Bar bewegen
 	lda cntwert
 	sta adcnt
 	ldy offy
-	ldx offx
+	cpy #22
+	bne act0
+	jsr clrmess
+act0	ldx offx
 	lda filltab,x
 	sta mess,y
 	jsr messout
