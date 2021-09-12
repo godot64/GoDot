@@ -1,6 +1,8 @@
 
-!src "godotlib.lib"
-*= $c000
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
 
 ; -------------------------------------------------- 
 ;
@@ -14,6 +16,7 @@
 ;    1.03: 30.05.17, bugfix for mod.DecodeGIFhir
 ;                    (pass over address for resolution string)
 ;    1.04: 31.05.17, bugfix: wrong level numbers
+;    1.05, 12.09.21, added: break loading process with STOP key
 ;
 ; -------------------------------------------------- 
 
@@ -63,8 +66,8 @@ header	jmp start
 	!wo modend
 	!wo modetx
 	!pet "gif:ParamSection"
-	!pet "1.04"
-	!pet "31.05.17"
+	!pet "1.05"
+	!pet "12.09.21"
 	!pet "A.Dettke/W.Kling"
 
 ; ----------------------------------------- Main
@@ -96,6 +99,7 @@ readhd	jsr first		; zuerst: Zeichen umdefinieren
 	stx zflg
 	stx yskip
 	stx dbl
+	stx sc_stop	; ### 1.05
 	lda maxhotab,x
 	sta maxho
 	lda ynum,x
@@ -938,6 +942,8 @@ eld1	jsr onebyte
 	jsr gd_clrms
 	jsr tcopy
 	jsr getpal	; Palette nach $bd00
+	ldx sc_stop	; STOP pressed?	### 1.05
+	bne je1		; ### 1.05
 	jsr transvar	; Daten übertragen an mod
 	ldx #10
 eld4	lda switch,x	; Swap Module
@@ -954,6 +960,8 @@ eld4	lda switch,x	; Swap Module
 eld2	jsr getdatag
 eld3	sty gr_redisp
 	jmp cn4
+
+je1	jmp ld7		; ### 1.05
 
 ; ----------------------------------------- Swapper
 
@@ -1228,6 +1236,7 @@ bitshi	!by $00,$00,$00,$00,$00,$00,$00,$00,$01,$02,$04,$08,$10
 getpal	lda colorbyte
 	bpl jggif
 	jsr getpal1
+	bne je0
 jggif	jmp getgif
 
 getpal1	ldy #$bd		; Palette einlesen (Splitten der Werte)
@@ -1241,6 +1250,8 @@ getpal1	ldy #$bd		; Palette einlesen (Splitten der Werte)
 	sty palbuf2
 	sty palbuf3
 gpl4	sty gpy
+	ldx sc_stop	; STOP pressed?	### 1.05
+	bne je0
 	jsr gpalet
 	sta (palbuf1),y
 	jsr gpalet
@@ -1250,7 +1261,7 @@ gpl4	sty gpy
 	iny
 	cpy numcols
 	bne gpl4
-	rts
+je0	rts
 
 gpalet	jsr action
 	ldy gpy
