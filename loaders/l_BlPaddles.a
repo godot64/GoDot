@@ -14,6 +14,7 @@
 ;  1.02: 09.01.17, 
 ;  1.03: 13.02.92,
 ;  1.04: 05.10.18, optimized code
+;  1.05: 12.09.21, added: break loading process with STOP key
 ;
 ; ---------------------------
 
@@ -42,8 +43,8 @@
 	!wo modend
 	!wo 0
 	!tx "Blazing Paddles "
-	!tx "1.04"
-	!tx "05.10.18"
+	!tx "1.05"
+	!tx "12.09.21"
 	!tx "W.Kling/A.Dettke"
 
 ; --------------------------- Main
@@ -64,7 +65,10 @@ stt3	jsr gd_clrms	; clear message bar
 
 	lda #50		; activity counter to 50
 	sta cntwert
-	sta adcnt
+	ldx #1
+	stx adcnt
+	dex
+	stx sc_stop	; init break by STOP	### 1.05
 	ldx #30		; "Bitmap"
 	jsr tcopy
 
@@ -79,6 +83,8 @@ stt3	jsr gd_clrms	; clear message bar
 
 loop	jsr basin		; get bitmap
 jerr2	bcs jerror
+	ldx sc_stop	; STOP pressed?	### 1.05
+	bne jerror
 	sta byte
 	jsr action
 	ldy #0
@@ -136,6 +142,8 @@ sk2	lda #7		; get multi mode colors
 
 loop1	jsr basin		; get color RAM (no conversion)
 jerr3	bcs jerr2
+	ldx sc_stop	; STOP pressed?	### 1.05
+	bne jerr2
 	sta (sc_texttab),y
 	jsr action
 	ldy #0
@@ -165,6 +173,8 @@ sk21	lda #7		; out: "Colors 2"
 
 loop2	jsr basin		; get color RAM (no conversion)
 	bcs jerr3
+	ldx sc_stop	; STOP pressed?	### 1.05
+	bne jerr3
 	sta (sc_texttab),y
 	jsr action
 	ldy #0
