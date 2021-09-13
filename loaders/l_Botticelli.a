@@ -11,12 +11,12 @@
 ;
 ;  1.00, 19.12.19: pre release
 ;  1.01, 20.12.19, changed IFLI palette
+;  1.02, 13.09.21, added: break loading process with STOP key
 ;
 ; ----------------------------------------- 
 
 ; ----------------------------------------- Equates
 
-	status		= $90
 	offx		= ls_adrmisc
 	offy		= offx+1
 
@@ -47,8 +47,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "Plus4 Botticelli"
-	!tx "1.01"
-	!tx "20.12.19"
+	!tx "1.02"
+	!tx "13.09.21"
 	!tx "A.Dettke/W.Kling"
 
 ; ----------------------------------------- Main
@@ -66,7 +66,8 @@ start	lda gd_modswitch
 	jsr onebyte	; skip start address $1800 (RAM dump) or $7800 (Botticelli)
 	bne error
 	jsr onebyte
-	bne error
+	bne error		; returns .x=0 if no error
+	stx sc_stop	; init break by STOP	### 1.05
 
 	ldx #19		; first: get colors
 	stx cntwert
@@ -75,6 +76,7 @@ start	lda gd_modswitch
 	iny
 	sty adcnt
  	jsr readvideo
+ 	bne error
 
 	ldx #50		; then: get bitmap
 	stx cntwert
@@ -83,6 +85,7 @@ start	lda gd_modswitch
 	iny
 	sty adcnt
  	jsr readbmap
+ 	bne error
 
 	ldx #200		; then: deflicker
 	stx cntwert
@@ -107,6 +110,8 @@ error	jsr gd_xclose
 
 readvideo	ldy #0		; get luma and chroma
 	jsr basin
+	ldx sc_stop	; STOP pressed?	### 1.02
+	bne je0
 	sta (dst),y
 	jsr action
 	jsr cou5
@@ -177,7 +182,7 @@ readvideo	ldy #0		; get luma and chroma
 	jsr action
 	jsr count
 	bne -
-	rts
+je0	rts
 
 ; ----------------------------------------- Read Bitmap
 
@@ -205,6 +210,8 @@ bmloop	lda #8
 	sta col2
 
 --	jsr basin		; get bitmap
+	ldx sc_stop	; STOP pressed?	### 1.02
+	bne je0
 	sta bbuf		; isolate 2 bits (4 times):
 -	asl bbuf
 	rol
