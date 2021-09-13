@@ -12,6 +12,7 @@
 ;
 ; 1.00, 16.01.99, first release
 ; 1.01, 17.08.18, reorganized
+; 1.02, 13.09.21, added: break loading process with STOP key
 ;
 ; ----------------------------------- 
 
@@ -39,8 +40,8 @@
 	!wo modend
 	!wo 0
 	!tx "Hi-Eddi Scanntr."
-	!tx "1.01"
-	!tx "17.08.18"
+	!tx "1.02"
+	!tx "13.09.21"
 	!tx "A.Dettke        "
 
 ; ----------------------------------- 
@@ -62,6 +63,7 @@ stt2	jsr gd_xopen	; open file
 	bne jerror
 	jsr onebyte
 	bne jerror
+	stx sc_stop	; init break by STOP ### 1.02
 
 ; ----------------------------------- Get Bitmap
 
@@ -102,6 +104,7 @@ read2	lda #0
 
 	jsr gd_xclose	; close file
 	jsr conhir
+	bne sk11
 	jsr hires
 
 ; ----------------------------------- 
@@ -135,6 +138,8 @@ rloop	ldy #0
 	sta (sc_texttab),y	; store
 	txa		; disk error?
 	and #$bf
+	bne rl3
+	ldx sc_stop	; STOP pressed?	### 1.02
 	bne rl3
 	jsr action	; no, activity
 	inc sc_texttab	; proceed
@@ -241,6 +246,8 @@ hloop1	ldx #8
 hilp	lda (cr),y	; Bitmap holen
 	sta byte
 	jsr action	; Activity
+	ldx sc_stop	; STOP pressed?	### 1.02
+	bne je1
 	ldy #0
 
 	ldx #4		; isolate pixels
@@ -296,7 +303,7 @@ hl9	lda ls_vekta8	; finished?
 	ora ls_vekta8+1
 	bne hloop1
 
-	rts		; yes
+je1	rts		; yes
 
 ; ----------------------------------- Move Colors
 
@@ -335,13 +342,15 @@ ml2	lda (ls_vekta8),y	; get colors, .y: 0..255
 	jsr action	; activity
 	pla
 	tay
+	ldx sc_stop	; STOP pressed?	### 1.02
+	bne je0
 	iny
 	bne ml2		; one page
 	inc ls_vekta8+1
 	inc sc_texttab+1
 	dec cntmerk	; count pages
 	bne ml2
-	rts
+je0	rts
 
 ; ----------------------------------------- C64 Colors in GoDot Order
 
