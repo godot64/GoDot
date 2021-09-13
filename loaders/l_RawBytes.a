@@ -12,6 +12,7 @@
 ;  1.00, 05.03.94, first release
 ;  1.01, 09.09.18, added requester to choose mode
 ;  1.02, 28.11.18, changed GUI
+;  1.03, 13.09.21, added: break loading process with STOP key
 ;
 ; ------------------------------------------------ 
 
@@ -32,8 +33,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "RawData to $4000"
-	!tx "1.02"
-	!tx "28.11.18"
+	!tx "1.03"
+	!tx "13.09.21"
 	!tx "A.Dettke/W.Kling"
 ;
 ; ------------------------------------------------ 
@@ -41,6 +42,8 @@ header	jmp start
 start	lda ls_temp
 	sta flen
 	jsr makechr
+	inx
+	stx sc_stop	; init break by STOP ### 1.03
 	ldx #<rawlst
 	ldy #>rawlst
 	jsr gd_xmloop
@@ -53,6 +56,7 @@ start	lda ls_temp
 ; ------------------------------------------------ 
 
 evload	jsr clearram
+	bne error
 	jsr setdst
 	jsr getname	; Namen sichern
 	ldx flen
@@ -84,6 +88,8 @@ readfile	ldy #0
 	sta (sc_texttab),y	; write to 4Bit
 	jsr count
 	beq ld3
+	ldx sc_stop	; STOP pressed?	### 1.03
+	bne error
 	jsr action
 	lda status
 	beq readfile
@@ -292,9 +298,11 @@ clearram	jsr gd_clrms
 	lda #$aa
 	sta (sc_texttab),y
 	jsr action
+	ldx sc_stop	; STOP pressed?	### 1.03
+	bne je0
 	jsr count
 	bne -
-	rts
+je0	rts
 
 ; ------------------------------------------------ 
 
