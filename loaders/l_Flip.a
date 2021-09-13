@@ -13,6 +13,7 @@
 ;  0.99, 03.05.93, pre-release (only unpacked images)
 ;  1.00, 31.05.18, now reading packed FLIPs as well
 ;  1.01, 01.06.18, minor changes and some bugfixes
+;  1.02, 13.09.21, added: break loading process with STOP key
 ;
 ; --------------------------------------
 
@@ -51,8 +52,8 @@
 	!wo modend
 	!wo 0
 	!tx "FLIPainter FLI  "
-	!tx "1.01"
-	!tx "01.06.18"
+	!tx "1.02"
+	!tx "13.09.21"
 	!tx "W.Kling/A.Dettke"
 
 ; ------------------------------------ 
@@ -82,6 +83,7 @@ start	ldx #<fromiec	; set default read vector
 	jsr gd_clrms	; initialize gauge output
 	jsr onebyte	; read start address:
 	bne jerror
+	stx sc_stop	; init break by STOP	### 1.05
 	sta fstart
 	tax		; if $00: unpacked ($3c00) ?
 	beq +
@@ -95,6 +97,8 @@ start	ldx #<fromiec	; set default read vector
 	sta passes	; init pass flag
 	bne +		; if bit=1: unpacked!
 	jsr readpack	; if 0: init packed file reading
+	ldx sc_stop	; STOP pressed?	### 1.02
+	bne jerror
 
 ; ------------------------------------ Retrieve Image File
 
@@ -106,6 +110,7 @@ start	ldx #<fromiec	; set default read vector
 	sty adcnt
 
 	jsr getcram	; get *color ram* ($d800 area) to buffer CBUF
+je6	bne jerror
 
 ; ------------------------------------ 
 
@@ -130,6 +135,8 @@ vloop	lda dst0
 	sty dst+1
 vloop0	jsr action	; activity display (increment gauge)
 	jsr readbyte	; get 1 byte
+	ldx sc_stop	; STOP pressed?	### 1.02
+je3	bne je6
 	ldy #3		; spread to 4 bytes (4Bit!)
 vloop1	sta (dst),y
 	dey
@@ -169,6 +176,8 @@ vskip0	lda dst+1
 bloop0	jsr readbyte	; get pixel byte
 	sta byte
 	jsr action	; (gauge again)
+	ldx sc_stop	; STOP pressed?	### 1.02
+je4	bne je3
 	ldy #0
 bloop1	lda #0		; convert pixels to 4Bit
 	asl byte		; (isolate 2 pixels)
@@ -239,6 +248,8 @@ cskip00	and #$0f		; be sure to have correct color value (lower nibble)
 	ora #$30
 	sta byte
 	jsr action	; (gauge again)
+	ldx sc_stop	; STOP pressed?	### 1.02
+je5	bne je4
 
 	ldy #31		; process *one* tile
 cloop1	lda (dst0),y	; get 4Bit value
@@ -274,6 +285,8 @@ cskip1	lda dst0+1	; until end of 4Bit area
 	ldx #0		; convert processed bytes to colors:
 	stx byte		; first: background color (black)
 nloop0	jsr action
+	ldx sc_stop	; STOP pressed?	### 1.02
+	bne je5
 	ldy #0
 	lda (dst0),y
 	beq nskip0	; ($00 is background color)
@@ -323,13 +336,15 @@ gcl	jsr readbyte
 	sta (dst),y
 	sty merky
 	jsr action
+	ldx sc_stop	; STOP pressed?	### 1.02
+	bne je2
 	ldy merky
 	iny
 	bne gcl
 	inc dst+1
 	dec merka
 	bne gcl
-	rts
+je2	rts
 
 ; ------------------------------------ read packed file
 
@@ -380,6 +395,8 @@ readpack	jsr onebyte
 -	ldy #0		; reset .y
 	jsr onebyte	; retrieve packed file
 	sta (fstart),y
+	ldy sc_stop	; STOP pressed?	### 1.02
+	bne je0
 	cpx #64
 	beq +
 	cpx #0
@@ -397,6 +414,7 @@ readpack	jsr onebyte
 	iny
 	sty adcnt
 	jsr deflate	; decompress file to $5900 (End: $9f3f)
+	bne je0
 
 	lda #9		; GetUndo (save to Undo)
 	sta undotype
@@ -407,7 +425,7 @@ readpack	jsr onebyte
 	stx read
 	sty read+1
 	inc passes	; set passes to 1
-	rts
+je0	rts
 
 noreu	ldx #93		; text 8 ("Packed images...")
 	!by $2c
@@ -426,10 +444,12 @@ deflate	ldy #0
 	jsr zminus1	; proceed
 --	jsr qminus1
 	jsr action
+	ldy sc_stop	; STOP pressed?	### 1.02
+	bne je1
 	lda dst+1		; at end?
 	cmp #$5a
 	bne deflate	; no, next byte
-	rts
+je1	rts
 
 unpack	jsr qminus1	; get counter to merkx
 	lda (src),y
