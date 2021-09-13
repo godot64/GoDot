@@ -1,6 +1,6 @@
 
-	!src "godotlib.lib"
 	*= $c000
+	!src "godotlib.lib"
 	!ct pet
 ;	!sl "labels.txt"
 
@@ -12,6 +12,7 @@
 ;
 ;    1.00, 27.09.00, first release
 ;    1.01, 13.10.16, bugfix, section deint didn't display activity
+;    1.02, 13.09.21, added: break loading process with STOP key
 ;
 ; --------------------------------------
 
@@ -52,8 +53,8 @@
 	!wo modend
 	!by $00,$00
 	!tx "ZX-Spectrum.scr "
-	!tx "1.01"
-	!tx "13.10.16"
+	!tx "1.02"
+	!tx "13.09.21"
 	!tx "A.Dettke        "
 
 ; -------------------------------------- Main
@@ -76,6 +77,7 @@ stt2	jsr gd_xopen	; File öffnen
 	jsr tcopy
 
 read1	lda #0		; $1800 nach ls_vekta8 (Zähler=6144)
+	sta sc_stop	; init break by STOP ### 1.02
 	sta sc_texttab
 	sta ls_vekta8
 	lda #$18
@@ -108,7 +110,9 @@ read2	lda #0		; neuen Zähler setzen ($300=768)
 	jsr gd_xclose	; File schließen
 	jsr prepcols	; prepare for color conversion
 	jsr deint		; Daten de-interleaven
+	bne sk11
 	jsr conhir	; GoDot-Hires vorbereiten (Nibbles tauschen)
+	bne sk11
 	jsr hires		; in Hires wandeln
 
 ; -------------------------------------- Abschluss
@@ -136,6 +140,8 @@ rloop	jsr basin		; 1 Byte einlesen
 	lda status	; Statusbyte:
 	and #$bf		; was anderes als EOF?
 	bne rl3		; ja, skip den Rest
+	ldx sc_stop	; STOP pressed?	### 1.02
+	bne rl3
 	jsr action	; Activity (ändert .y)
 
 	ldy #0		; .y wieder auf 0
@@ -198,6 +204,8 @@ lp0	lda (src),y
 	jsr action
 	pla
 	tax
+	ldy sc_stop	; STOP pressed?	### 1.02
+	bne rl3
 	ldy #0
 	inc src
 	bne lp4
@@ -456,6 +464,8 @@ hloop1	ldx #8		; 8 Mal (eine Kachel)
 hilp	lda (cr),y	; hol Byte aus Bitmap
 	sta byte
 	jsr action
+	ldx sc_stop	; STOP pressed?	### 1.02
+	bne je0
 
 	ldy #0		; wandeln nach 4Bit
 	ldx #4
@@ -509,7 +519,7 @@ hl9	lda ls_vekta8	; 8000 Bytes durch?
 	ora ls_vekta8+1
 	bne hloop1	; nein, von vorn
 
-	rts
+je0	rts
 
 ; -------------------------------------- 
 
@@ -546,6 +556,8 @@ ml2	lda (ls_vekta8),y	; Videoram holen
 	jsr action	; Activity
 	pla
 	tay
+	ldx sc_stop	; STOP pressed?	### 1.02
+	bne je0
 	iny
 	bne ml2
 
