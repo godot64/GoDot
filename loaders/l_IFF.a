@@ -1,6 +1,8 @@
 
-!src "godotlib.lib"
-*	= $c000
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
 
 ; ---------------------------
 ;
@@ -12,13 +14,13 @@
 ;    1.00: 23.03.93, first release
 ;    1.01: 22.05.93, bugfix: Füllbytes im Chunk abfangen
 ;    1.02: 10.10.16, added: Balancing
+;    1.03: 14.09.21, added: break loading process with STOP key
 ;
 ;
 ; ---------------------------
 
 ; --------------------------- Equates
 
-	status		= $90
 	shift		= $028d
 ;
 	red		= $35
@@ -56,9 +58,8 @@
 	hamnib		= plmask
 	bytes		= $fe
 ;
-;
 	pal		= $3f40
-	hdbuf		= $cb00
+	hdbuf		= modend
 	planes		= hdbuf+8
 	rbk		= $cc00
 	gbk		= rbk+64
@@ -82,8 +83,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "AMIGA ILBM (OCS)"
-	!pet "1.02"
-	!pet "10.10.16"
+	!pet "1.03"
+	!pet "14.09.21"
 	!pet "W.Kling/A.Dettke"
 ;
 ; ---------------------------
@@ -93,6 +94,8 @@ stt0	lda gr_rgb,x
 	sta cred,x
 	dex
 	bpl stt0
+	inx
+	stx sc_stop	; init break by STOP ### 1.03
 
 stt1	ldx used
 	bmi requ
@@ -127,7 +130,7 @@ clbl	sta p0,y
 	sta p4,y
 	iny
 	bne clbl
-	jsr getbody
+	jsr getbody	; retrieve image
 
 	lda which
 	beq cl01
@@ -137,8 +140,7 @@ cl01	jsr getdatag
 
 cl02	jsr cancel
 err	jsr gd_xclose
-	lda #$03
-	sta $d015
+	jsr gd_spron
 	jsr gd_xmess
 	bcc cn2
 
@@ -177,7 +179,7 @@ sevgray   inc used
 	dex
 	stx which
 	ldx #1
-	jsr gd_xload
+	jsr gd_xload	; open file requester
 	lda #3
 	sta used
 	sec
@@ -215,6 +217,7 @@ err1	!scr "ERROR: Width must be <1024 pxls."
 err2	!scr "    ERROR: Not an IFF file.     "
 err3	!scr "  ERROR: No valid IFF picture.  "
 err4	!scr "    ERROR: Too many colors.     "
+err5	!scr "  Loading terminated by STOP.   "
 
 ; ---------------------------
 
@@ -267,13 +270,15 @@ ghs2	lda #<(cmap)
 ;
 ; ---------------------------
 
-faila	ldx #32
+faila	ldx #32		; no IFF
 	!by $2c
-failb	ldx #64
+failb	ldx #64		; not valid
 	!by $2c
-failc	ldx #0
+failc	ldx #0		; width >1024
 	!by $2c
-faild	ldx #96
+faild	ldx #96		; too many colors
+	!by $2c
+faile	ldx #128		; break by STOP
 	ldy #0
 fl0	lda err1,x
 	sta message,y
@@ -284,9 +289,23 @@ fl0	lda err1,x
 	jsr err
 	jsr gd_clrms
 	jsr messout
+	jsr wait
 	clc
 	jmp fail3
 ;
+; ----------------------------------------- Wait for Clicks
+
+wait	lda #0
+	sta sc_stop
+	sta sc_keyprs
+waiton	lda joy		; wait for click or STOP
+	eor #$ff
+	and #$10
+	ora sc_keyprs
+	ora sc_stop
+	beq waiton
+	rts
+
 ; ---------------------------
 
 chkcols   lda gpy+1
@@ -749,6 +768,8 @@ readline  lda #<(p0)
 	lda planes
 	sta pcnt
 nline	ldy #0
+	ldx sc_stop	; STOP pressed?	### 1.03
+	bne jfaile
 	lda comp
 	beq uncomp
 next	jsr basin
@@ -792,8 +813,8 @@ rls2	dec pcnt
 ;
 ; ---------------------------
 
-fail2	pla
-	pla
+jfaile	jmp faile
+
 fail3	pla
 	pla
 	inc used
@@ -1319,7 +1340,8 @@ si4	lda nbuf,x
 	bne si4
 si5	rts
 ;
-nbuf	!by 32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,0
+nbuf	!fill 16,32
+	!by 0
 viewmode  !scr "IFF    @"
 modetx	!scr "320x200@"
 datatype  !scr "Color@"
