@@ -1,6 +1,8 @@
 
-!src "godotlib.lib"
-*	= $c000
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
 
 ; ---------------------------
 ;
@@ -13,12 +15,12 @@
 ;    0.99: 17.09.93, first release
 ;    1.00: 06.11.16, added Balancing and Level
 ;                    improved dithering tables at grey1 and grey2
+;    1.01: 14.09.21, added: break loading process with STOP key
 ;
 ; ---------------------------
 
 ; --------------------------- Equates
 
-	status		= $90
 	shift		= $028d
 	screen		= $0400
 
@@ -62,7 +64,7 @@
 	bytes		= $fe
 ;
 	pal		= $3f40
-	hdbuf		= $cc00
+	hdbuf		= modend
 	planes		= hdbuf+8
 	rbk		= hdbuf+64
 	gbk		= rbk+64
@@ -87,8 +89,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "AMIGA ILBM (OCS)"
-	!pet "1.00"
-	!pet "06.11.16"
+	!pet "1.01"
+	!pet "14.09.21"
 	!pet "W.Kling/A.Dettke"
 
 	!pet "MaxPlanes = 6   "
@@ -105,6 +107,8 @@ stt0	lda gr_rgb,x
 	sta cred,x
 	dex
 	bpl stt0
+	inx
+	stx sc_stop	; init break by STOP ### 1.01
 
 stt1	ldx used
 	bmi requ
@@ -228,6 +232,7 @@ err1	!scr "ERROR: Width must be <1024 pxls."
 err2	!scr "    ERROR: Not an IFF file.     "
 err3	!scr "  ERROR: No valid IFF picture.  "
 err4	!scr "    ERROR: Too many colors.     "
+err5	!scr "  Loading terminated by STOP.   "
 
 ; ---------------------------
 
@@ -287,6 +292,8 @@ failb	ldx #64
 failc	ldx #0
 	!by $2c
 faild	ldx #96
+	!by $2c
+faile	ldx #128		; break by STOP
 	ldy #0
 fl0	lda err1,x
 	sta message,y
@@ -297,9 +304,23 @@ fl0	lda err1,x
 	jsr err
 	jsr gd_clrms
 	jsr messout
+	jsr wait
 	clc
 	jmp fail3
 ;
+; ----------------------------------------- Wait for Clicks
+
+wait	lda #0
+	sta sc_stop
+	sta sc_keyprs
+waiton	lda joy		; wait for click or STOP
+	eor #$ff
+	and #$10
+	ora sc_keyprs
+	ora sc_stop
+	beq waiton
+	rts
+
 ; ---------------------------
 
 chkcols   lda gpy+1
@@ -735,8 +756,8 @@ cpref	!by 11,7,3,0,15
 	!by 2,9,6,5,12,4
 	!by 8,1,10,14,13
 
-gray1	!by 3,3,3,2,2,2,2,1,1,1,1,0,0,0,0,4,4
-gray2	!by 2,2,2,2,1,1,1,1,0,0,0,0,4,4,4,4,4
+gray1	!by 3,3,2,2,2,2,1,1,1,1,0,0,0,0,4,4
+gray2	!by 2,2,2,1,1,1,1,0,0,0,0,4,4,4,4,4
 
 pats	!by $00,$04,$07,$0b,$00,$04,$07,$0b
 	!by $00,$04,$07,$0b,$00,$05,$0a,$10 
@@ -837,6 +858,8 @@ readline  lda #<(p0)
 	lda planes
 	sta pcnt
 nline	ldy #0
+	ldx sc_stop	; STOP pressed?	### 1.01
+	bne jfaile
 	lda comp
 	beq uncomp
 next	jsr basin
@@ -880,6 +903,8 @@ rls2	dec pcnt
 	rts
 ;
 ; ---------------------------
+
+jfaile	jmp faile
 
 fail2	pla
 	pla
