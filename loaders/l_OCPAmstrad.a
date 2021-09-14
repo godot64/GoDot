@@ -11,6 +11,7 @@
 ;
 ;  1.00, 14.09.20, first release
 ;  1.01, 26.09.20, IFLI colors slightly changed
+;  1.02, 14.09.21, added: break loading process with STOP key
 ;
 ; ----------------------------------------- 
 
@@ -45,8 +46,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "Amstrad OCP SCR "
-	!tx "1.01"
-	!tx "26.09.20"
+	!tx "1.02"
+	!tx "14.09.21"
 	!tx "A.Dettke        "
 
 ; ----------------------------------------- Main
@@ -54,6 +55,7 @@ header	jmp start
 jfaila	jmp faila
 jfailb	jmp failb
 jfailc	jmp failc
+jfaild	jmp faild
 
 start	lda ls_flen	; save len of filename
 	sta flen
@@ -66,6 +68,7 @@ start	lda ls_flen	; save len of filename
 	stx counter
 	stx counter+1
 	stx status
+	stx sc_stop	; init break by STOP ### 1.02
 
 	lda gd_modswitch
 	pha
@@ -76,6 +79,7 @@ start	lda ls_flen	; save len of filename
 	jsr gd_xopen	; open palette file
 	lda #128		; skip header
 	jsr skip
+	bne jfaild
 	lda status
 	bne jfaila
 
@@ -92,6 +96,7 @@ start	lda ls_flen	; save len of filename
 	and #$1f		; decode 16 colors
 	sta palette,y	; store 
 	jsr skipit
+je1	bne jfaild
 	iny
 	cpy #16
 	bcc -
@@ -122,6 +127,7 @@ start	lda ls_flen	; save len of filename
 	jsr gd_xopen	; and re-open it
 	lda #128
 	jsr skip		; this time just skip header
+je0	bne je1
 
 ; ------------ then: load image
 
@@ -150,6 +156,8 @@ ldloop	dec rcnt
 	sta tcnt
 
 tloop	jsr action
+	ldx sc_stop	; STOP pressed?	### 1.02
+	bne je0
 	dec tcnt		; count 40 tiles
 	bmi nextrow
 	lda #0		; inner tile loop
@@ -339,6 +347,7 @@ txt	!scr " Screen    ",0	; 0 (to: .x)
 err1	!scr "   ERROR: No PAL file found.    "	; each message: 32 bytes
 err2	!scr "   ERROR: Not a Mode 0 file.    "
 err3	!scr "  ERROR: Not an OCP SCR file.   "
+err4	!scr "  Loading terminated by STOP.   "
 
 message   !fill 11,32	; gauge bar: 32 bytes screencode
 mess	!fill 21,32
@@ -351,6 +360,8 @@ faila	ldx #0		; err1
 failb	ldx #32		; err2
 	!by $2c
 failc	ldx #64		; err3
+	!by $2c
+faild	ldx #96		; err4
 	ldy #0
 fl0	lda err1,x
 	sta message,y
@@ -392,9 +403,11 @@ ld4	rts
 
 skip	sta skipcnt	; amount in .a
 skipit	jsr readbyte
+	ldx sc_stop	; STOP pressed?	### 1.02
+	bne +
 	dec skipcnt
 	bne skipit
-	rts
++	rts
 
 ; ----------------------------------------- Skip Bytes
 
