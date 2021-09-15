@@ -1,0 +1,669 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ---------------------------
+;
+;    ldr.PFoxResample
+;    Lader für Printfox GB und Pagefox, 
+;    bis zu einer Größe von 640x400
+;
+;    0.99, 13.05.92, first release
+;    1.00, 12.08.93, minor bugfixes
+;    1.01, 15.09.21, restored, reorganized and renewed code
+;
+; ---------------------------
+
+; --------------------------- Equates
+
+	dst		= $30	; /$31
+	dst0		= $32	; /$33
+	bcnt1		= $34
+	gbyte		= $35
+	bbuf		= $36
+	adcnt		= $37
+	buf16		= $38	; /$39
+	lcnt8		= $3a
+	lcnt		= $3b
+	bcnt		= $3c
+	resmode		= $3d	; /$3e
+	counter		= $3f	; /$40
+	xmrk		= $41
+
+	offy		= ls_adrmisc
+	offx		= offy+1
+
+	z01		= $c600
+	z02		= z01+80
+	z03		= z02+80
+	z04		= z03+80
+	z05		= z04+80
+	z06		= z05+80
+	z07		= z06+80
+	z08		= z07+80
+	z09		= z08+80
+	z10		= z09+80
+	z11		= z10+80
+	z12		= z11+80
+	z13		= z12+80
+	z14		= z13+80
+	z15		= z14+80
+	z16		= z15+80
+
+; ----------------------------------------- Header
+
+header	jmp start
+	!by $80
+	!by 4		; has requester
+	!by 0
+	!wo modend
+	!by 0,0
+	!tx "Pagefox.Resample"
+	!tx "1.00"
+	!tx "12.08.93"
+	!tx "W.Kling/A.Dettke"
+
+; ----------------------------------------- 
+
+start	ldx used
+	bmi requ
+	beq cancel
+	cpx #$03
+	bcs cancel
+
+	lda #42
+	sta cntwert
+	jsr gd_clrms
+	ldx #0
+	stx sc_stop
+	jsr tcopy
+	iny
+	sty adcnt
+
+	dec used
+	jsr getname
+	jsr gd_xopen
+
+	jsr initpfx
+	jsr initbuf
+	ldx used
+	beq dl2
+	jsr setlo
+	bne dl3
+dl2	jsr sethi
+dl3	jsr getplane
+	jsr setinfo
+
+	jsr cancel
+err	jsr gd_xclose
+	jsr gd_spron
+	jsr gd_xmess
+	bcc cn2
+
+cancel	lda #$ff
+	sta used
+cn2	sec
+	rts
+
+; ----------------------------------------- 
+
+requ	inc used
+	ldx #<pfxlst
+	ldy #>pfxlst
+	jsr gd_xmloop
+	jmp start
+
+; ----------------------------------------- 
+
+logrey	inc used
+higrey	inc used
+	ldx #1
+	jsr gd_xload
+	lda #3
+	sta used
+	sec
+	rts
+
+; --------------------------- Activity Gauge
+
+action	dec adcnt		; decrement activity counter
+	bne ld4
+	lda cntwert	; reset when 0
+	sta adcnt
+	ldy offy		; bar at maximum?
+	cpy clrmess+1
+	bne act0
+	jsr clrmess	; yes, clear
+act0	ldx offx		; write bar to output
+	lda filltab,x	; add one pixel
+	sta mess,y
+	jsr messout
+	dec offx		; 8 pixels added?
+	bpl ld4
+	inc offy		; yes, advance to next block
+	lda #7
+	sta offx
+ld4	rts
+
+tcopy	ldy #0		; Select message
+tc0	lda txt,x		; in .x: offset to message
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+
+clrmess   ldx #24		; clear gauge bar
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0		; init counters
+	ldx #7	
+	sty offy
+	stx offx
+	rts
+
+messout	ldx #<message
+	ldy #>message
+	jmp gd_xtxout2
+
+filltab	!by $a0,$5d,$67,$7f,$7e,$7c,$69,$6d
+cntwert   !by 50
+
+txt	!scr " PFox  ",0
+message	!scr " PFox  "
+mess	!fill 25,32
+	!by 0
+
+err1	!scr " ERROR: Not a valid PFox image. "
+err2	!scr "ERROR: Filename must be corrupt."
+err3	!scr "  Loading terminated by STOP.   "
+err4	!scr "     Untimely end of Image.     "
+
+; ----------------------------------------- 
+
+foxtype	!by 0
+hbytes	!by 0
+lbytes	!by 0
+vbytes	!by 0
+hbytes2	!by 0
+
+; ----------------------------------------- 
+
+initpfx	lda #80		; set default: width 80
+	sta hbytes
+	lda #25		; height 25
+	sta vbytes
+	lda #0		; init compression counter
+	sta counter
+	sta counter+1
+
+	jsr basin		; get data:
+	ldx status
+	bne jfailb	; fail: must be file name error
+	sta foxtype	; first byte in image (type: G,B,P, or $00)
+	tax
+	bne fx2		; was $00? (standard bitmap)
+	jsr basin		; yes, skip start address
+	tax
+	bne fx01		; uncond. branch
+
+fx2	cmp #$50		; was "P"? (Pagefox)
+	bne fx0
+	jsr basin		; yes, get height
+	lsr
+	bne fx22
+	lda #1		; height at least 1
+fx22	cmp #25
+	bpl fx21
+	sta vbytes
+fx21	jsr basin		; get width
+	sta hbytes
+fx1	jsr basin		; then skip layout data until $00
+	tax
+	bne fx1
+	beq fx02
+
+fx0	cmp #$42		; was "B"? (BS: Bildschirm)
+	beq fx01
+	cmp #$47		; was "G"? (GB: Großbild)
+	beq fx02
+
+	jmp faila		; no, file error
+
+fx01	lsr hbytes	; yes, halve dimensions
+	lsr vbytes	; as counters
+fx02	lda hbytes
+	lsr
+	adc #0
+	asl
+	sta lbytes
+	rts
+
+; ----------------------------------------- 
+
+jfailb	jmp failb
+
+; ----------------------------------------- 
+
+initbuf	ldy hbytes
+	lda #0
+	sta sy_bigbuffer,y
+	tya
+	clc
+	adc #80
+	tay
+	lda #0
+	sta sy_bigbuffer,y
+	sty hbytes2
+	rts
+
+; ----------------------------------------- 
+
+faild	ldx #96
+	!by $2c
+failc	ldx #64
+	!by $2c
+failb	ldx #32
+	!by $2c
+faila	ldx #0
+	ldy #0
+fl0	lda err1,x
+	sta message,y
+	inx
+	iny
+	cpy #32
+	bne fl0
+	jsr err
+	jsr gd_clrms
+	jsr messout
+	clc
+	jmp fail3
+
+; ----------------------------------------- 
+
+getplane	lda #<sy_4bit
+	ldx #>sy_4bit
+	sta dst0
+	sta dst
+	stx dst0+1
+	stx dst+1
+	lda vbytes
+	sta lcnt8
+
+lnloop8	jsr fillbuf
+	lda #8
+	sta lcnt
+
+lnloop	jsr readline
+	ldx #0
+
+zloop	stx xmrk
+	jsr action
+	ldx sc_stop
+	bne failc
+	ldx status
+	bne faild
+	ldx xmrk
+	lda #2
+	sta bcnt1
+
+byloop	lda #2
+	sta bcnt
+
+btloop	jsr makebyte
+	ldy #0
+	sta (dst),y
+	inc dst
+	bne s3
+	inc dst+1
+s3	dec bcnt
+	bne btloop
+
+	inx
+	dec bcnt1
+	bne byloop
+
+	lda dst
+	clc
+	adc #28
+	sta dst
+	bcc s4
+	inc dst+1
+s4	cpx lbytes
+	bne zloop
+
+	lda dst0
+	clc
+	adc #4
+	sta dst0
+	sta dst
+	bcc s5
+	inc dst0+1
+s5	lda dst0+1
+	sta dst+1
+	dec lcnt
+	bne lnloop
+
+	lda dst0
+	clc
+	adc #<1248
+	sta dst0
+	sta dst
+	lda dst0+1
+	adc #>1248
+	sta dst0+1
+	sta dst+1
+	dec lcnt8
+	bne lnloop8
+	rts
+
+; ----------------------------------------- 
+
+readline	ldy #0
+rll	lda (buf16),y
+	sta sy_bigbuffer,y
+	iny
+	cpy hbytes
+	bne rll
+	ldy #80
+rll2	lda (buf16),y
+	sta sy_bigbuffer,y
+	iny
+	cpy hbytes2
+	bne rll2
+	lda buf16
+	clc
+	adc #160
+	sta buf16
+	bcc rls
+	inc buf16+1
+rls	rts
+
+; ----------------------------------------- 
+
+fail2	pla
+	pla
+fail3	pla
+	pla
+	inc used
+	rts
+
+; ----------------------------------------- 
+
+fillbuf	ldy #0
+spbl1	jsr decode
+	sta z01,y
+	jsr decode
+	sta z02,y
+	jsr decode
+	sta z03,y
+	jsr decode
+	sta z04,y
+	jsr decode
+	sta z05,y
+	jsr decode
+	sta z06,y
+	jsr decode
+	sta z07,y
+	jsr decode
+	sta z08,y
+	iny
+	cpy hbytes
+	bne spbl1
+
+	ldy #0
+spbl2	jsr decode
+	sta z09,y
+	jsr decode
+	sta z10,y
+	jsr decode
+	sta z11,y
+	jsr decode
+	sta z12,y
+	jsr decode
+	sta z13,y
+	jsr decode
+	sta z14,y
+	jsr decode
+	sta z15,y
+	jsr decode
+	sta z16,y
+	iny
+	cpy hbytes
+	bne spbl2
+
+	lda #<z01
+	ldy #>z01
+	sta buf16
+	sty buf16+1
+	rts
+
+; ----------------------------------------- 
+
+decode	lda counter
+	ora counter+1
+	bne getit2
+	inc counter
+	jsr basin
+	cmp #$9b
+	bne getit1
+	bit foxtype	; pfox or standard?
+	bvc getit1	; no .v: standard
+	jsr basin
+	sta counter
+	lda foxtype
+	and #2
+	bne fxl1
+	lda counter
+	beq fxl2
+	lda #0
+	beq fxl3
+fxl2	lda #1
+	bne fxl3
+fxl1	jsr basin
+fxl3	sta counter+1
+	jsr basin
+getit1	sta gbyte
+getit2	lda counter
+	bne fxl4
+	dec counter+1
+fxl4	dec counter
+	lda gbyte
+	rts
+
+; ----------------------------------------- 
+
+makebyte	jmp (resmode)
+
+; ----------------------------------------- 
+
+reshi	asl sy_bigbuffer,x
+	rol
+	asl sy_bigbuffer,x
+	rol
+	asl sy_bigbuffer+80,x
+	rol
+	asl sy_bigbuffer+80,x
+	rol
+	and #$0f
+	tay
+	lda px,y
+	and #$f0
+	sta bbuf
+	asl sy_bigbuffer,x
+	rol
+	asl sy_bigbuffer,x
+	rol
+	asl sy_bigbuffer+80,x
+	rol
+	asl sy_bigbuffer+80,x
+	rol
+	and #$0f
+	tay
+	lda px,y
+	and #$0f
+	ora bbuf
+	rts
+
+; ----------------------------------------- Gray
+
+px	!by $ff,$bb,$bb,$77,$bb,$77,$77,$33
+	!by $bb,$77,$77,$33,$77,$33,$33,$00
+
+; ----------------------------------------- 
+
+reslo	lda #0
+	sta bbuf
+	ldy #4
+bbloop	asl sy_bigbuffer,x
+	bcc bb0
+	inc bbuf
+bb0	asl sy_bigbuffer+80,x
+	bcc bb1
+	inc bbuf
+bb1	dey
+	bne bbloop
+	ldy bbuf
+	lda dpx,y
+	rts
+
+; ----------------------------------------- Color
+
+dpx	!by $ff,$dd,$bb,$99,$77,$66,$44,$22,$00
+
+; ----------------------------------------- 
+
+setlo	lda #<reslo
+	sta resmode
+	lda #>reslo
+	sta resmode+1
+	ldy #0
+sl1	lda mtext,y
+	sta rsmode,y
+	iny
+	cpy #7
+	bne sl1
+	tya
+	rts
+
+; ----------------------------------------- 
+
+sethi	lda #<reshi
+	sta resmode
+	lda #>reshi
+	sta resmode+1
+	ldy #0
+sh1	lda htext,y
+	sta rsmode,y
+	iny
+	cpy #7
+	bne sh1
+	rts
+
+; ----------------------------------------- 
+
+used	!by $ff
+
+; ----------------------------------------- Screenlist
+
+pfxlst	!by 0
+	!by 4,11,18,16,$81
+	!wo 0
+	!scr " PFox 640x400",0
+	!by 9,11,18,3,$ca
+	!wo higrey
+	!scr "Hires",0
+	!by 12,11,18,3,$ca
+	!wo logrey
+	!scr "Multi",0
+	!by 15,11,18,3,$ca
+	!wo cn2
+	!scr "Cancel Load",0
+	!by $c0,6,14,11
+	!scr "Resample to",0
+	!by $80
+
+; ----------------------------------------- Image Information
+
+getname	ldx #$00
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+; ----------------------------------------- 
+
+getdatac	ldx #4
+	!by $2c
+getdatag	ldx #9
+	ldy #4
+sinfo0	lda dtextc,x
+	sta datatype,y
+	dex
+	dey
+	bpl sinfo0
+	rts
+
+; ----------------------------------------- 
+
+setinfo	jsr getdatac
+	jsr setname
+	jsr setloader
+	jsr setmode
+	jmp setdata
+
+; ----------------------------------------- 
+
+setname	lda #0
+	ldx #<ls_picname
+	ldy #>ls_picname
+	bne si3
+setloader	lda #17
+	ldx #<ls_iloader
+	ldy #>ls_iloader
+	bne si3
+setmode	lda #25
+	ldx #<ls_imode
+	ldy #>ls_imode
+	bne si3
+setdata	lda #33
+	ldx #<ls_idrive
+	ldy #>ls_idrive
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+; ----------------------------------------- 
+
+nbuf	!fill 16,32
+	!by 0
+
+; ----------------------------------------- 
+
+	!scr "PFox   ",0
+rsmode	!fill 7,32
+	!by 0
+datatype	!scr "Color",0
+htext	!scr "320x200"
+mtext	!scr "160x200"
+dtextc	!scr "Color"
+dtextg	!scr "Gray "
+
+; ----------------------------------------- 
+
+modend	!eof
