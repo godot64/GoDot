@@ -14,6 +14,7 @@
 ;  1.00, 04.06.21, first release
 ;  1.01, 07.06.21, added reverting the image
 ;  1.02, 08.06.21, added warning after REVRT
+;  1.03, 20.09.21, changed result filenames
 ;
 ; ----------------------------------------- 
 
@@ -60,8 +61,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "Image to Charset"
-version	!tx "1.02"
-	!tx "08.06.21"
+version	!tx "1.03"
+	!tx "20.09.21"
 	!tx "A.Dettke/Dr.Zoom"
 
 ; ----------------------------------------- Main 
@@ -672,12 +673,12 @@ list	!wo 0
 bank	!by 0		; used by CHECK4REU
 stashed	!by $ff
 pattern	!by 0,0,0,0,0,0,0,0
-fontname	!tx "f.charset"
+fontname	!tx "f.img2char"
 fnnum	!tx "01"
-fnlen	!by 11
-scrnname	!tx "s.screen"
+fnlen	!by 12
+scrnname	!tx "s.img2char"
 snnum	!tx "01"
-snlen	!by 10
+snlen	!by 12
 num	!by 1
 switch	!by 0
 godot	!by $00,$1c,$22,$20,$2e,$22,$1c,$00
