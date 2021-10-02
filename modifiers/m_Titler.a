@@ -20,14 +20,18 @@
 ;    1.05: 12.03.18, bugfix: letter narrower than 3 tiles
 ;    1.06: 14.04.18, bugfix: could crash when loading fnt-file
 ;    1.07: 27.02.21, added positioning according to graphics mode
+;    1.08, 02.10.21, added grid to preview
 ;
 ; ------------------------------------------------------------ 
 
 ; ----------------------------------------- Equates
 
+	packbyte		= $ad		; Konstante
+
 	posho		= $30
 	col		= $31
 	src		= $32		; /$33
+	dst0		= src
 	dst		= $34		; /$35
 	bcnt		= $36
 	byte		= $37
@@ -40,8 +44,6 @@
 	xceed		= $40
 	bbline		= $41
 
-	status		= $90
-	packbyte		= $ad		; Konstante
 	fntbuf		= $cd96		; ### 1.02: statt $cd98
 	fntwidth		= fntbuf+4
 	fntheight		= fntbuf+5
@@ -93,8 +95,8 @@
 	!wo modend
 	!wo 0
 	!pet "GoDot Titler    "
-	!pet "1.07"
-	!pet "27.02.21"
+	!pet "1.08"
+	!pet "02.10.21"
 	!pet "A.Dettke        "
 
 ; ----------------------------------------- Main
@@ -1202,11 +1204,48 @@ qs1	dec bcnt		; count
 ql7	inc src+1		; next page
 	lda src+1
 	cmp #>sy_bigbuffer	; up to end of 4bit
-	beq ql8
+	beq grid
 	jmp ql40
 
-ql8	rts 
+; ----------------------------------------- Grid
+; ### 1.08
 
+grid	lda #23		; 23 rows down
+	sta lines
+	lda #<bscreen+15	; set startadresses for grid
+	ldx #>bscreen
+
+lloop	sta dst0
+	stx dst0+1
+	sta dst
+	stx dst+1
+	ldy #0
+	lda #39		; 39 tiles across
+	sta bcnt
+
+tloop	lda (dst),y	; create grid (1 row)
+	ora #$c0
+	sta (dst),y
+	clc
+	lda dst
+	adc #8
+	sta dst
+	bcc +
+	inc dst+1
++	dec bcnt
+	bne tloop
+
+	clc		; next row
+	lda dst0
+	adc #<320
+	tay
+	lda dst0+1
+	adc #>320
+	tax
+	tya
+	dec lines		; until finished
+	bpl lloop
+	rts
 
 ; ------------------------------------------------ Load Font File
 
