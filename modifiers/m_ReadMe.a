@@ -13,6 +13,7 @@
 ;
 ;  0.99, 03.09.94: pre-release
 ;  1.00, 25.10.98: added control codes, line padding
+;  1.01, 22.10.21: bugfix in convert to screencode 
 ;
 ; ----------------------------------------- 
 
@@ -31,8 +32,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "GoDot Read Me   "
-	!tx "1.00"
-	!tx "25.10.98"
+	!tx "1.01"
+	!tx "22.10.21"
 	!tx "A.Dettke/W.Kling"
 
 ; ----------------------------------------- Main
@@ -206,30 +207,35 @@ convasc	ldy #0
 	ldx #>text
 	sta ls_vekta8
 	stx ls_vekta8+1
-cvloop	lda (ls_vekta8),y	; first: Control Chars:
-	cmp #95		; convert "<-" (left arrow)...
-	bne cnvs01
-	lda #0		; ...to "end of line" ($00)
-	beq cnvs2
-cnvs01	cmp #94		; convert "^" (up arrow)...
-	bne cnvs0
-	lda #223		; ...to "@" (assigned to undochar)
-	bne cnvs2
-cnvs0	cmp #$80		; end flag?
+cvloop	lda (ls_vekta8),y	; first: uppercase umlauts:
+cnvs0	cmp #$b0		; is "Ä"? 
+	beq ccc1
+	cmp #$ba		; is "Ü"? 
+	beq ccc1
+	cmp #$b9		; is "Ö"?
+	beq ccc1		; yes, convert
+cnvs04	cmp #95		; then control chars:
+	beq cnvs01	; convert "<-" (left arrow)...
+	cmp #94		; convert "^" (up arrow)...
+	beq cnvs02
+	cmp #$80		; and: end flag?
 	beq cnvok		; yes, leave
 
-	cmp #128		; then: Upper PETSCII char?
-	bcs cnvs1		; yes, subtract 128
-	cmp #64		; Digit?
-	bcc cnvs3		; leave unchanged
-	bne ccc1		; otherwise, is Lower PETSCII, so subtract 64
-	lda #192		; if 64, then convert to $c0 (is "ü")
+	bcs cnvs1		; Upper PETSCII char? yes, subtract 128
+	cmp #$40
+	beq cnvs03	; convert "@"...
+	bcc cnvs3		; if digit, leave unchanged
+ccc1	sbc #$40		; otherwise, is Lower PETSCII, so subtract 64
 	bne cnvs2
 
-ccc1	sbc #64
-	bne cnvs2
-cnvs1	sec
-	sbc #128
+cnvs1	sbc #$80
+	!by $2c
+cnvs01	lda #0		; ...to "end of line" ($00)
+	!by $2c
+cnvs03	lda #$c0		; ...to $c0 (is "ü")
+	!by $2c
+cnvs02	lda #223		; ...to "@" (assigned to undochar)
+
 cnvs2	sta (ls_vekta8),y	; write back
 cnvs3	iny		; and proceed
 	bne cvloop
@@ -293,23 +299,36 @@ textgad	!by 4,3,34,16,$20	; Text Window
 ; ----------------------------------------- Text Buffer
 
 ;             "         1         2         3  _"
-;             "12345678901234567890123456789012_" 
+;             "12345678901234567890123456789012_" ; 32 = max width
 
-text	!tx "Dummy text on just 3 lines.__"	; 1 empty line!
-	!tx "  Lines are indented by spaces._"
+text	!tx "Dummy text on just 3 lines.__"	; two Underscores: 1 empty line!
+	!tx "  Lines are indented by spaces.__"
+	!tx "  Umlauts: "
+	!by $5d,$5b,$40,$b0,$b9,$ba,$5c
+	!tx " ^_"
 
 ; Info:
-; Text must be hardcoded into the module, there's no user disk access implemented.
-; length of line: up to 32 chars
-; length of text: up to 3000 chars
-; control codes:  $5e (up arrow)   - "@"
+;
+; You enter your texts with GoDot's "Read Me Generator" tool.
+;
+; If you want to "hardcode" your Text instead into this module source,
+; you have to care for some things:
+;
+; length of line: max. 32 chars
+; length of text: max. 3000 chars
+; control codes:  $5e (up arrow)   - "@" (at sign)
 ;                 $5f (left arrow) - end of line
 ;
-; $5f is "_" (Underscore) on PC   (shift minus)
+; $5e (on C64) is "^" (powerto sign) on PC (left to key "1")
+; $5f (on C64) is "_" (Underscore) on PC   (shift minus)
 ; Empty lines are as many additional Underscores as empty lines.
-; $5e is "^" (powerto sign) on PC (left to key "1")
 ;
-; $5e is a dead key, so you have to hit space after hitting ^!
+; German umlauts have to be written as their hexcodes
+; in this source file: $b0,$b9,$ba are ÄÖÜ
+;                      $5d,$5b,$40 are äöü
+;                      $5c          is ß
+;
+; "^" is a dead key, so you have to hit space after hitting ^!
 
 	!by $80		; end of text
 
