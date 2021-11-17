@@ -1,0 +1,858 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; -----------------------------------------
+;
+; svr.Pagefox
+;     Saver für Pagefox up to 320x200
+;
+; 1.00, 17.11.21, first release
+;
+; -----------------------------------------
+
+; ----------------------------------------- Label-Definitionen
+
+	dst	= $30	;/
+	dst0	= $32	;/
+	cnt	= $34	;/
+
+	vertcnt	= $37
+	adcnt	= $38
+	byte	= $39
+	bitcnt	= $3a
+	breite	= $3b	;/
+
+	src0	= $40	;/
+	hold	= $42
+	lcnt8	= $43
+	lcnt	= $44
+	bcnt	= $45
+
+	clpzl	= $48
+	clpsp	= $49
+	clpbr	= $4a
+	clpho	= $4b
+
+	offx	= ls_adrmisc	; gauge counters
+	offy	= offx+1
+
+	destbuf	= $ca00
+	buf	= $cd00
+
+	oszi3	= $d40e
+	wave	= $d412
+	filter	= $d418
+	rausch	= $d41b
+
+; ----------------------------------------- Header
+
+ 	jmp start
+
+	!by $40
+	!by 0
+	!by 0
+	!wo modend
+	!wo 0
+	!tx "Pagefox Clips   "
+	!tx "1.00"
+	!tx "17.11.21"
+	!tx "A.Dettke        "
+
+; ----------------------------------------- 
+
+start	ldx gr_nr		; Funktionsnummer testen:
+	dex
+	bne saver		; Null, dann eigentlichen Saver aufrufen
+
+	jmp initinp	; eins, dann "Input" ausführen (in INPUT.INC)
+
+; ----------------------------------------- Main
+
+saver	jsr requester	; display requester
+	lda used		; cancelled?
+	cmp #3
+	bcs st12
+
+st11	jsr gd_sproff	; Sprites aus
+	lda gd_modswitch	; Memory Management
+	pha
+
+	lda ls_flen	; Filename wurde vom Filerequester übergeben?
+	beq st1		; nein (dann Cancel)
+
+	sta wflen		; sonst: Länge sichern
+	jsr addsig	; Namenskürzel anhängen (".pg")
+	jsr wopen		; Datei zum Schreiben öffnen
+	bne st2		; wenn Diskettenfehler: Ende
+
+	jsr getname	; Filenamen für Image Information sichern
+	ldx #12		; OPEN #12, out
+	jsr ckout
+	jsr gd_clrms	; Fortschrittsbalken und Statusausgaben vorbereiten
+	ldx #0		; Anzeigetext ("Pagefox") eintragen
+	jsr tcopy
+	iny
+	sty adcnt		; Activity (Fortschrittsbalken) starten (.y=1)
+
+	jsr write		; jetzt Bild speichern
+
+st2	jsr clrch		; danach Bus freigeben
+	lda #12		; Datei #12 schließen
+	jsr close
+	jsr err9		; Floppystatus zeigen (nur sehr kurz)
+	bne st1
+
+	jsr setname	; nur wenn fehlerfrei: Image Information aufbereiten
+
+st1	pla		; dann Saver abwickeln: Memory Management
+	sta gd_modswitch
+
+st12	jsr canc
+	jsr gd_spron	; Mauszeiger wieder an
+	sec		; Leave-Flag setzen
+	rts		; fertig, Saver verlassen
+
+
+; ----------------------------------------- 
+; ----------------------------------------- Input Routines (This next line _mandatory_ for savers!)
+; ----------------------------------------- 
+
+	!src "input.inc"
+
+; ----------------------------------------- 
+; -----------------------------------------
+; ----------------------------------------- 
+
+
+; ----------------------------------------- 
+; ----------------------------------------- Disk Access Routines
+; ----------------------------------------- 
+
+pw	!pet "w,p,"
+sigtx	!pet "gp."
+sigtxs	!scr "gp."
+drinit	!pet "i0"
+wflen	!by 0
+
+; ----------------------------------------- Filehandling
+
+wopen	jsr inull		; Initialize
+	bne err8
+	ldy wflen		; ",p,w" anhängen
+	ldx #3
+wo1	lda pw,x
+	sta ls_nambuf,y
+	iny
+	dex
+	bpl wo1
+	sty wflen
+	lda #12		; OPEN 12,drive,12,"name,p,w"
+	tay
+	ldx ls_drive
+	jsr filpar
+	lda wflen
+	ldx #<ls_nambuf
+	ldy #>ls_nambuf
+	jsr filnam
+	jsr copen
+	jmp err9
+;
+inull	ldx #<drinit	; Initialize Drive
+	ldy #>drinit
+	lda #2
+	jsr gd_sendcom
+
+err9	jsr gd_xmess
+	lda ls_err2	; liefert Fehlernummer der Floppy
+	and #15		; und zwar als Bytewert (wenn <>0, dann Fehler)
+err8 	sec
+	rts
+
+; ----------------------------------------- 
+; ----------------------------------------- Activity Handler
+; ----------------------------------------- 
+
+messout	ldx #<message	; Textausgabe
+	ldy #>message
+	jmp gd_xtxout2
+
+tcopy	ldy #0		; Informationstextauswahl, Offset auf txt in .x
+tc0 	lda txt,x
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+
+clrmess	ldx #22		; Puffer für Balken löschen
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0		; Balkenlänge 0
+	ldx #7		; Dicke am Ende 0
+	sty offy
+	stx offx
+	rts
+
+action 	dec adcnt		; Activity, aktiviert sich nur bei 0 (Zähler abgelaufen)
+	bne ld4
+	lda cntwert	; dann: Reload des Zählers
+	sta adcnt
+	ldy offy		; Offset auf Balkenende
+	cpy clrmess+1	; Ende der Ausgabezeile erreicht?
+	bne act0
+	jsr clrmess	; ja, re-Init des Status-Bereichs
+act0	ldx offx		; offx: Index auf aktuelles Zeichen für Dicke des Balkenendstücks
+	lda filltab,x
+	sta mess,y
+	jsr messout	; ganzen Balken ausgeben
+	dec offx		; Endstück nächstes Mal dicker
+	bpl ld4		; bis Endstück gefüllt
+	inc offy		; dann den Balken selbst verlängern
+	lda #7		; nächstes Endstück wieder dünn
+	sta offx
+ld4 	rts
+
+filltab	!by 160,93,103,127,126,124,105,109
+cntwert	!by 2
+
+txt	!scr " Pagefox ",0	; Offset 0
+
+message	!fill 9,32
+mess	!fill 23,32
+	!by 0
+
+; ----------------------------------------- 
+; ----------------------------------------- Image Information Handler
+; ----------------------------------------- 
+
+getname	ldx #0		; aktuellen Filenamen sichern
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+setname	lda #0		; Namen in Image Info eintragen
+	ldx #<ls_picname
+	ldy #>ls_picname
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+;
+nbuf	!fill 16,32	; Namenspuffer
+	!by 0
+
+; ----------------------------------------- Startup requester
+
+requ 	inc used
+	ldx #<spfoxlst
+	ldy #>spfoxlst
+	jsr gd_screen
+	jsr setdith
+	jsr gd_eloop
+
+; ----------------------------------------- Requester management
+
+requester	ldx used
+	bmi requ
+	rts
+
+; ----------------------------------------- Leave saver
+
+cn2 	lda #3
+	!by $2c
+canc 	lda #$ff
+	sta used
+	sec
+	rts
+
+; ----------------------------------------- 
+; ----------------------------------------- Write File
+; ----------------------------------------- 
+
+write	jsr setclip	; compute clip address, .y=0
+	jsr compclip	; compute width in pixels
+	lda sc_texttab
+	sta src0
+	lda sc_texttab+1
+	sta src0+1
+
+	ldx #3
+hd0	lda pfheader,x	; "p" ho br "k"
+	jsr bsout
+	dex 
+	bpl hd0
+	lda clpho		; write (dummy) contour data
+	asl
+	asl
+	tax
+hd1	lda #1		; (4 bytes per blockline, so: ho*4 bytes)
+	jsr bsout
+	dex 
+	bne hd1
+	txa 		; set pack counter to $00
+	stx cnt
+	stx cnt+1
+	jsr bsout		; end of header ($00)
+
+	lda #$80		; init randomizer (for Noise)
+	sta filter
+	sta oszi3
+	sta oszi3+1
+	lda #0
+	sta wave
+	lda #$81
+	sta wave
+
+	jsr pagefox	; save image
+
+	ldx #3
+m0	lda pfend,x	; add end signature
+	jsr bsout
+	dex
+	bpl m0
+	sec
+	rts
+
+; ---------------------------------------- Render Image to Disk
+
+pagefox	lda #0
+	sta vertcnt
+	lda clpho
+	sta lcnt8
+lnloop8	lda #0		; all block rows
+	sta lcnt
+
+lnloop	jsr action	; 1 block row
+	ldx #0
+
+byloop	lda #$80		; 1 raster line
+	sta bitcnt
+	lda #0
+	sta byte
+
+btloop	ldy #0		; 1 tile line
+	lda (sc_texttab),y
+	pha
+	lsr		; left pixel
+	lsr
+	lsr
+	lsr
+	tay
+	lda gr_btab,y
+	jsr makebyte	; dither
+	lsr bitcnt
+	pla
+	and #$0f		; right pixel
+	tay
+	lda gr_btab,y
+	jsr makebyte	; dither
+	inc sc_texttab
+	bne s3
+	inc sc_texttab+1
+s3	lsr bitcnt
+	bcc btloop
+
+	sta buf,x		; buffer result (max 320 pixels)
+
+	lda sc_texttab
+	clc
+	adc #28
+	sta sc_texttab
+	bcc s4
+	inc sc_texttab+1
+s4	inx
+	cpx clpbr		; index in buffer
+	bne byloop
+
+	jsr moveline	; write buffer to disk
+
+	ldx vertcnt	; next line 
+	inx
+	cpx #8
+	bne s41
+	ldx #0
+s41	stx vertcnt
+
+newline	lda src0		; now advance to new line
+	clc
+	adc #4
+	sta src0
+	sta sc_texttab
+	bcc s5
+	inc src0+1
+s5	lda src0+1
+	sta sc_texttab+1
+	inc lcnt
+	lda #8		; 8 per tile (1 tile row)
+	cmp lcnt
+	beq s51
+	jmp lnloop
+
+s51	lda src0		; next tile row
+	clc
+	adc #<1248
+	sta src0
+	sta sc_texttab
+	lda src0+1
+	adc #>1248
+	sta src0+1
+	sta sc_texttab+1
+	dec lcnt8
+	beq done
+	jmp lnloop8
+
+done	rts		; until done
+
+; ---------------------------------------- Write Render Buffer
+
+moveline	lda vertcnt
+	bne ml0
+
+	lda #<destbuf	; preset write buffer address
+	ldy #>destbuf
+	sta dst0
+	sty dst0+1
+	bne ml2
+
+ml0	inc dst0		; inc buffer (7 times)
+ml2	lda dst0
+	ldy dst0+1
+	sta dst
+	sty dst+1
+
+	ldy #0
+	ldx #0
+mloop	lda buf,x		; get rendered pixels
+	sta (dst),y	; fill write buffer
+	lda dst
+	clc
+	adc #8
+	sta dst
+	bcc +
+	inc dst+1
++	inx
+	cpx clpbr		; with 1 line
+	bne mloop
+
+	ldy vertcnt
+	cpy #7
+	beq writeloop
+	ldy #0
+	jmp compclip	; Breite neu setzen
+
+; ---------------------------------------- Write to Disk
+
+writeloop	lda #<destbuf	; from write buffer
+	ldy #>destbuf
+	sta dst0
+	sty dst0+1
+	ldy #0
+	sty cnt
+	sty cnt+1
+	sty byte
+
+wloop	lda (dst0),y
+	jsr pack		; compress data and write to disk
+	iny
+	bne +
+	sty breite+1
+	inc dst0+1
++	lda breite+1
+	bne wloop
+	cpy breite
+	bne wloop
+
+	ldy #0
+	lda byte		; flush compress buffer
+	eor #$ff
+
+; ---------------------------------------- Compress and Write
+
+pack	cmp byte		; current is last?
+	bne writeit	; no write
+	jmp incr		; yes, count
+
+writeit	pha 
+	lda cnt+1		; more than 255 times?
+	beq wl4
+
+wl6	lda #$9b		; yes, Indicator: $9b
+	jsr bsout
+	lda #0		; counter (0 is 256 times)
+	jsr bsout
+	lda byte		; revert pixel and out
+	eor #$ff
+	jsr bsout
+	dec cnt+1		; more than 511 times?
+	bne wl6		; yes, one more (and so on)
+
+wl4	lda cnt		; first pass? (0)
+	beq wl1		; then count
+	cmp #4		; counted more than 3?
+	bcs wl0		; yes, out
+
+	lda byte		; byte is indicator?
+	cmp #$64
+	bne wl2		; no, treat as pixel
+wl0	lda #$9b		; indicator out
+	jsr bsout
+	lda cnt		; counter out (!byte)
+	jsr bsout
+	lda #1		; set counter to 1
+	sta cnt
+	lda #0
+	sta cnt+1
+
+wl2	lda byte		; byte out (reverted)
+	eor #$ff
+	jsr bsout
+	dec cnt		; count unpacked bytes (max. 3)
+	bne wl2
+	lda cnt+1		; more than 255?
+	beq wl1
+	dec cnt+1		; yes, loop for next
+	jmp wl2
+
+wl1	pla 		; re-get current
+	sta byte
+
+incr	inc cnt		; and count
+	bne wl3
+	inc cnt+1
+wl3	rts 
+
+; ------------------------------------ Event: Choose Dithering
+
+evdith	lda dithflag	; inc dither
+	cmp #4
+	bne dp0
+	lda #$ff
+	sta dithflag
+dp0	inc dithflag
+setdith	ldx dithflag	; set dither routines
+	lda dlo,x
+	sta dmode
+	lda dhi,x
+	sta dmode+1
+	lda gadoffs,x	; show captions
+	tax
+	ldy #6
+dpi1	lda dithtxts,x
+	sta dithtx,y
+	dex
+	dey
+	bpl dpi1
+	ldy #0
+out2	jsr settext
+	ldy #6
+	jmp gd_xtxout1
+
+; ------------------------------------ Event: Choose area
+
+evarea	lda areaflag	; toggle area
+	bmi ea0
+	lda #$fe
+	sta areaflag
+ea0	inc areaflag
+	beq ea1
+	ldx #3		; show caption
+	!by $2c
+ea1	ldx #7
+	ldy #3
+ea2	lda areatxts,x
+	sta areatx,y
+	dex
+	dey
+	bpl ea2
+	jsr setclip
+	ldy #2
+	bne out2
+
+; ----------------------------------------- Save Pagefox
+
+evsvpfox	inc used		; set flag
+	sec		; start recursion
+	rts
+
+; ------------------------------------ Output gadget text routines
+
+tabigad	!wo dithgad
+	!wo areagad
+
+settext	lda #<tabigad
+	sta ls_vekta8
+	lda #>tabigad
+	sta ls_vekta8+1
+
+	lda (ls_vekta8),y
+	sta sc_screentab
+	iny
+	lda (ls_vekta8),y
+	sta sc_screentab+1
+	lda #0
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #3
+	bne gt0
+	stx sc_ho
+	jsr gd_trim
+	jmp gd_initmove
+
+; --------------------------------------
+; -------------------------------------- Dither Routines
+; --------------------------------------
+
+; -------------------------------------- Distributor
+
+makebyte	jmp (dmode)
+
+; -------------------------------------- Off
+
+dithoff	cmp #8
+	bpl do0
+	lda #0
+	!byte $2c
+do0	lda bitcnt
+	ora byte
+	sta byte
+	rts
+
+; -------------------------------------- Ordered
+
+dithrst	ldy vertcnt
+	ora offs,y
+	tay
+	lda gr_orderedpat,y
+	and bitcnt
+	ora byte
+	sta byte
+	rts
+
+; -------------------------------------- Pattern
+
+dithpat	asl
+	asl
+	asl
+	ora vertcnt
+	tay
+	lda gr_pattern,y
+	and bitcnt
+	ora byte
+	sta byte
+	rts
+
+; -------------------------------------- Noise
+
+dithnoi	beq dn0
+	cmp #15
+	beq dn1
+	ldy #0
+	sta hold
+	lda rausch
+	and #$0f
+	cmp hold
+	bcs dn3
+	ldy #$aa
+dn3	lda rausch
+	and #$0f
+	cmp hold
+	tya
+	bcs dn2
+	ora #$55
+dn2	!byte $2c
+dn1	lda #$ff
+	and bitcnt
+dn0	ora byte
+	sta byte
+	rts
+
+; -------------------------------------- Random
+
+dithrnd	cmp #8
+	beq dr0
+	bcs dr1
+	bcc dr2
+dr0	lda rausch
+	!byte $2c
+dr1	lda bitcnt
+	and bitcnt
+	!byte $2c
+dr2	lda #0
+	ora byte
+	sta byte
+	rts
+
+; ---------------------------------------- Compute Start address of Clip
+
+setclip	lda #>sy_4bit	; 4Bit starting from $4000
+	sta sc_texttab+1
+	ldy #<sy_4bit
+	sty sc_texttab
+	sty clpzl		; set clip: 0,0,40,25
+	sty clpsp
+	lda #40
+	sta clpbr
+	sta width
+	lda #25 
+	sta clpho
+	sta height
+	lda areaflag 
+	bmi compclip
+
+	lda sc_lastclpzl	; row
+	beq scp1		; is zero: skip
+	sta clpzl
+scp4	clc
+	lda sc_texttab+1	; else add 1280, "row" times
+	adc #5
+	sta sc_texttab+1
+	dec clpzl
+	bne scp4
+
+scp1	lda sc_lastclpsp	; column
+	beq scp5		; is zero: skip
+	sta clpsp
+scp6	clc
+	lda sc_texttab	; else add 32, "column" times
+	adc #$20
+	sta sc_texttab
+	bcc scp7
+	inc sc_texttab+1
+scp7	dec clpsp
+	bne scp6
+scp5	lda sc_lastclpbr
+	sta clpbr
+	sta width
+	lda sc_lastclpho
+	sta clpho
+	sta height
+
+; ---------------------------------------- Compute Width of Clip
+
+compclip	sty breite+1	; Hibyte to zero
+	lda clpbr
+	clc
+	asl		; times 8
+	asl
+	asl
+	sta breite
+	bcc +
+	inc breite+1
++	rts
+
+; ----------------------------------------- 
+; ----------------------------------------- Namen verlängern
+; ----------------------------------------- 
+
+addsig	pha		; Länge merken
+	tay
+	dey
+	ldx #0
+ag4	lda ls_nambuf,y	; endet auf ".pg"?
+	cmp sigtx,x
+	bne ag2		; nein
+	dey
+	inx
+	cpx #3
+	bcc ag4
+	pla		; ja, fertig
+	rts
+
+ag2	pla
+	tay		; Name länger als 13 Zeichen?
+	cpy #14
+	bcs ag0		; ja, behandeln
+
+ag5	ldx #2		; nein, ".pg" anhängen
+ag1	lda sigtx,x
+ag3	sta ls_nambuf,y
+	lda sigtxs,x	; auch für Image Information
+	sta ls_lastname,y
+	iny
+	dex
+	bpl ag1
+	sty wflen		; neue Länge merken, fertig
+	sty ls_flen
+	rts
+
+ag0	dey		; auf 13 verkürzen
+	cpy #13
+	bne ag0
+	beq ag5		; unbed. Sprung
+
+; ----------------------------------------- Screenlist
+
+spfoxlst	!by 0
+	!by 5,11,18,12,$81,0,0
+	!scr "Save Pagefox@"
+dithgad	!by 8,19,10,3,$cf
+	!wo evdith
+	!by 223
+dithtx	!scr "  Off  @"
+areagad	!by 10,22,7,3,$ce
+	!wo evarea
+	!by 223
+areatx	!scr "Full@"
+	!by 12,11,18,3,$cb
+	!wo evsvpfox
+	!scr "Save PG Image@"
+	!by 14,11,18,3,$cb
+	!wo cn2
+	!scr "Cancel Save@"
+	!by $c0,8,11,5
+	!scr "Dith:@"
+	!by $c0,10,11,10
+	!scr "Save Area:@"
+	!by $80
+
+; ----------------------------------------- 
+; ----------------------------------------- Data
+; ----------------------------------------- 
+
+pfheader	!tx "k"		; rückwärts
+width	!by 0
+height	!by 0
+	!tx "p"
+pfend	!by $bf,$20,$00,$9b	; end signature
+
+dithtxts	!scr "  Off  "	; 0
+	!scr "Ordered"	; 7
+	!scr "Pattern"	; 14
+	!scr " Noise "	; 21
+	!scr "Random "	; 28
+
+areatxts	!scr "Full" ; 0
+	!scr "Clip" ; 4
+
+used	!by $ff
+dithflag	!by 0
+areaflag	!by $ff
+gadoffs	!by 6,13,20,27,34
+gadoffs2	!by 3,7
+
+dmode	!wo 0
+offs	!by $00,$10,$20,$30	; offsets for pattern "Ordered"
+	!by $00,$10,$20,$30
+dlo	!by <dithoff,<dithrst,<dithpat,<dithnoi,<dithrnd
+dhi	!by >dithoff,>dithrst,>dithpat,>dithnoi,>dithrnd
+
+; ----------------------------------------- 
+
+modend 	!eof
