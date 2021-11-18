@@ -10,6 +10,7 @@
 ;     Saver für Pagefox up to 320x200
 ;
 ; 1.00, 17.11.21, first release
+; 1.01, 19.11.21, better activity bar
 ;
 ; -----------------------------------------
 
@@ -24,6 +25,7 @@
 	byte	= $39
 	bitcnt	= $3a
 	breite	= $3b	;/
+	xmrk	= $3d
 
 	src0	= $40	;/
 	hold	= $42
@@ -56,9 +58,9 @@
 	!by 0
 	!wo modend
 	!wo 0
-	!tx "Pagefox Clips   "
-	!tx "1.00"
-	!tx "17.11.21"
+	!tx "Pagefox /w Clips"
+	!tx "1.01"
+	!tx "18.11.21"
 	!tx "A.Dettke        "
 
 ; ----------------------------------------- 
@@ -218,7 +220,7 @@ act0	ldx offx		; offx: Index auf aktuelles Zeichen für Dicke des Balkenendstücks
 ld4 	rts
 
 filltab	!by 160,93,103,127,126,124,105,109
-cntwert	!by 2
+cntwert	!by 184
 
 txt	!scr " Pagefox ",0	; Offset 0
 
@@ -286,7 +288,6 @@ canc 	lda #$ff
 ; ----------------------------------------- 
 
 write	jsr setclip	; compute clip address, .y=0
-	jsr compclip	; compute width in pixels
 	lda sc_texttab
 	sta src0
 	lda sc_texttab+1
@@ -338,15 +339,17 @@ pagefox	lda #0
 lnloop8	lda #0		; all block rows
 	sta lcnt
 
-lnloop	jsr action	; 1 block row
-	ldx #0
+lnloop	ldx #0		; 1 block row
 
 byloop	lda #$80		; 1 raster line
 	sta bitcnt
 	lda #0
 	sta byte
 
-btloop	ldy #0		; 1 tile line
+btloop	stx xmrk
+	jsr action	; (activity bar)
+	ldx xmrk
+	ldy #0		; 1 tile line
 	lda (sc_texttab),y
 	pha
 	lsr		; left pixel
