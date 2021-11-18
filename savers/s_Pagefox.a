@@ -10,7 +10,8 @@
 ;     Saver für Pagefox up to 320x200
 ;
 ; 1.00, 17.11.21, first release
-; 1.01, 19.11.21, better activity bar
+; 1.01, 18.11.21, better activity bar
+; 1.02, 18.11.21, bugfix: added missing listbox indicator
 ;
 ; -----------------------------------------
 
@@ -59,7 +60,7 @@
 	!wo modend
 	!wo 0
 	!tx "Pagefox /w Clips"
-	!tx "1.01"
+	!tx "1.02"
 	!tx "18.11.21"
 	!tx "A.Dettke        "
 
@@ -261,7 +262,8 @@ nbuf	!fill 16,32	; Namenspuffer
 
 ; ----------------------------------------- Startup requester
 
-requ 	inc used
+requ	jsr makechr
+ 	inc used
 	ldx #<spfoxlst
 	ldy #>spfoxlst
 	jsr gd_screen
@@ -800,6 +802,15 @@ ag0	dey		; auf 13 verkürzen
 	bne ag0
 	beq ag5		; unbed. Sprung
 
+; ----------------------------------------- Listbox Indicator
+
+makechr	ldx #7
+-	lda chschr,x
+	sta sc_undochar,x
+	dex
+	bpl -
+	rts
+
 ; ----------------------------------------- Screenlist
 
 spfoxlst	!by 0
@@ -855,6 +866,8 @@ offs	!by $00,$10,$20,$30	; offsets for pattern "Ordered"
 	!by $00,$10,$20,$30
 dlo	!by <dithoff,<dithrst,<dithpat,<dithnoi,<dithrnd
 dhi	!by >dithoff,>dithrst,>dithpat,>dithnoi,>dithrnd
+
+chschr	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
 
 ; ----------------------------------------- 
 
