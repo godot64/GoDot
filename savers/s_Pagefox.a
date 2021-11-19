@@ -12,6 +12,7 @@
 ; 1.00, 17.11.21, first release
 ; 1.01, 18.11.21, better activity bar
 ; 1.02, 18.11.21, bugfix: added missing listbox indicator
+; 1.03, 19.11.21, added: reset of balancing after save
 ;
 ; -----------------------------------------
 
@@ -60,8 +61,8 @@
 	!wo modend
 	!wo 0
 	!tx "Pagefox /w Clips"
-	!tx "1.02"
-	!tx "18.11.21"
+	!tx "1.03"
+	!tx "19.11.21"
 	!tx "A.Dettke        "
 
 ; ----------------------------------------- 
@@ -115,6 +116,15 @@ st1	pla		; dann Saver abwickeln: Memory Management
 
 st12	jsr canc
 	jsr gd_spron	; Mauszeiger wieder an
+
+	ldy #16		; finished, reset Balancing
+	sty gr_ctr
+	sty gr_brt
+dc8	dey
+	tya
+	sta gr_btab,y
+	bne dc8
+
 	sec		; Leave-Flag setzen
 	rts		; fertig, Saver verlassen
 
