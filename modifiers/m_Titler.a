@@ -21,6 +21,7 @@
 ;    1.06: 14.04.18, bugfix: could crash when loading fnt-file
 ;    1.07: 27.02.21, added positioning according to graphics mode
 ;    1.08, 02.10.21, added grid to preview
+;    1.09, 09.12.21, grid now also on bright underground
 ;
 ; ------------------------------------------------------------ 
 
@@ -95,8 +96,8 @@
 	!wo modend
 	!wo 0
 	!pet "GoDot Titler    "
-	!pet "1.08"
-	!pet "02.10.21"
+	!pet "1.09"
+	!pet "09.12.21"
 	!pet "A.Dettke        "
 
 ; ----------------------------------------- Main
@@ -1224,7 +1225,7 @@ lloop	sta dst0
 	sta bcnt
 
 tloop	lda (dst),y	; create grid (1 row)
-	ora #$c0
+	eor #$c0		; ### 1.09
 	sta (dst),y
 	clc
 	lda dst
