@@ -21,6 +21,7 @@
 ;    1.12, 18.01.18, added: merge mask from undo
 ;    1.13, 21.06.19, added init keyboard for SuperCPU
 ;    1.14, 11.09.21, added: break loading process with STOP key
+;    1.15, 13.12.21, changed: Mask from Clip (now even when inactive)
 ;
 ; ------------------------------------------------------------ 
 
@@ -61,8 +62,8 @@ header 	jmp start
 	!wo modend
 	!wo 0
 	!pet "4Bit+BmMask+Clip"
-	!pet "1.14"
-	!pet "11.09.21"
+	!pet "1.15"
+	!pet "13.12.21"
 	!pet "A.Dettke/W.Kling"
 
 ; ----------------------------------------- Leave Loader
@@ -119,8 +120,8 @@ ob32 	sei		; 3=VDC2
 	jsr setvdc
 	jsr clrlo
 	cli
-	ldx #<(readvdc)
-	ldy #>(readvdc)
+	ldx #<readvdc
+	ldy #>readvdc
 	bne ob4
 
 ob31 	lda ramtype	; Art des Extra-RAM?
@@ -135,19 +136,19 @@ ob31 	lda ramtype	; Art des Extra-RAM?
 	stx pfvek
 	lda #8
 	sta pfbank
-	ldx #<(readpfox)
-	ldy #>(readpfox)
+	ldx #<readpfox
+	ldy #>readpfox
 	bne ob4
 
 ob30 	cmp #7		; SuperRAM?
 	beq ob3		; yes, but not yet implemented, so: disk
 
-	ldx #<(readreu)	; on REU (Typ 4, 5 oder 8)
-	ldy #>(readreu)
+	ldx #<readreu	; on REU (Typ 4, 5 oder 8)
+	ldy #>readreu
 	bne ob4
 
-ob3 	ldx #<(readdisk)	; on disk
-	ldy #>(readdisk)
+ob3 	ldx #<readdisk	; on disk
+	ldy #>readdisk
 
 ob4 	stx readvek
 	sty readvek+1
@@ -353,8 +354,8 @@ requ  	lda list+1
 rq0 	inc used
 	ldx #0
 	stx $90
-	ldx #<(fbitlst)	; display requester
-	ldy #>(fbitlst)
+	ldx #<fbitlst	; display requester
+	ldy #>fbitlst
 	jsr gd_xmloop	; wait...
 	jmp start		; then start over
 
@@ -365,7 +366,7 @@ action 	dec adcnt
 	lda cntwert
 	sta adcnt
 	ldy offy
-	cpy #22
+	cpy clrmess+1
 	bne act0
 	jsr clrmess
 act0	ldx offx
@@ -398,8 +399,8 @@ cl0 	sta mess,x
 	stx offx
 	rts
 
-messout 	ldx #<(message)
-	ldy #>(message)
+messout 	ldx #<message
+	ldy #>message
 	jmp gd_xtxout2
 
 ; ----------------------------------------- 
@@ -436,25 +437,35 @@ fbitlst 	!by 0
 	!wo ev_prviu
 	!by 2,10,20,23,$91,0,0
 	!scr "Select Operation@"
-	!by 4,10,10,3,$c8,<(sevinst),>(sevinst)
+	!by 4,10,10,3,$c8
+	!wo sevinst
 	!scr "Get Mask@"
-from 	!by 4,24,6,3,$cf,<(sevfrom),>(sevfrom)
+from 	!by 4,24,6,3,$cf
+	!wo sevfrom
 fromtx 	!scr "Disk@"
-	!by 7,10,10,3,$c8,<(sevmerge),>(sevmerge)
+	!by 7,10,10,3,$c8
+	!wo sevmerge
 	!scr "Mrge Msk@"
-mfrom 	!by 7,24,6,3,$cf,<(sevmfrom),>(sevmfrom)
+mfrom 	!by 7,24,6,3,$cf
+	!wo sevmfrom
 mfromtx 	!scr "Disk@"
-	!by 10,10,20,3,$ca,<(sevview),>(sevview)
+	!by 10,10,20,3,$ca
+	!wo sevview
 	!scr "View Mask@"
-	!by 13,10,20,3,$ca,<(sevinv),>(sevinv)
+	!by 13,10,20,3,$ca
+	!wo sevinv
 	!scr "Invert Mask@"
-	!by 16,10,10,3,$c8,<(sevget),>(sevget)
+	!by 16,10,10,3,$c8
+	!wo sevget
 	!scr "Get 4Bit@"
-from4 	!by 16,24,6,3,$cf,<(sev4from),>(sev4from)
+from4 	!by 16,24,6,3,$cf
+	!wo sev4from
 fromtx4 	!scr "Disk@"
-usemskgad	!by 19,25,5,3,$cf,<(evusemask),>(evusemask)
+usemskgad	!by 19,25,5,3,$cf
+	!wo evusemask
 usemsktxt	!scr "yes@"
-	!by 22,10,20,3,$c9,<(cn2),>(cn2)
+	!by 22,10,20,3,$c9
+	!wo cn2
 	!scr "Leave@"
 
 	!by $c0,4,19,4
@@ -554,12 +565,12 @@ vw2 	ldx list		; display main screen
 sevinv 	lda #200
 	jsr initad
 	ldy #0
-	lda #<($2000)
-	ldx #>($2000)
+	lda #<$2000
+	ldx #>$2000
 	sta sc_vekt20
 	stx sc_vekt20+1
-	lda #<(8000)
-	ldx #>(8000)
+	lda #<8000
+	ldx #>8000
 	sta ls_vekta8
 	stx ls_vekta8+1
 sin0  	lda (sc_vekt20),y
@@ -651,9 +662,9 @@ getmtab	lda #<mfrom
 	sta sc_screentab
 	lda #>mfrom
 	bne gettab2
-gettab 	lda #<(from)
+gettab 	lda #<from
 	sta sc_screentab
-	lda #>(from)
+	lda #>from
 gettab2 	sta sc_screentab+1
 	lda #0
 	tax
@@ -686,8 +697,8 @@ gaugeout 	inc used
 	pha
 	lda sc_screenvek+1
 	pha
-	ldx #<(gaugelst)
-	ldy #>(gaugelst)
+	ldx #<gaugelst
+	ldy #>gaugelst
 	jsr gd_screen
 	pla
 	sta sc_screenvek+1
@@ -727,8 +738,8 @@ in10	jsr gd_clrms	; prepare status bar and activity
 	ldy #$20
 	stx sc_texttab
 	sty sc_texttab+1
-	lda #<(8000)	; set counter
-	ldx #>(8000)
+	lda #<8000	; set counter
+	ldx #>8000
 	sta ls_vekta8
 	stx ls_vekta8+1
 	rts
@@ -749,7 +760,7 @@ in2 	ldy #0
 
 ; ----------------------------------------- Get UndoRendered
 
-in02	ldx #(merge-in00)	; Aufrufroutine umkopieren, weil
+in02	ldx #(merge-in00-1)	; Aufrufroutine umkopieren, weil
 in01	lda in00,x	; sie durch das RAM-Device
 	sta sy_global,x	; ausgeblendet wird
 	dex
@@ -812,7 +823,7 @@ instclip 	jsr initad
 	sta dst+1
 	ldy #0
 	sty dst
-	lda sc_clipzl
+	lda sc_lastclpzl		; ### 1.15
 	beq scp1
 	sta sc_zl
 scp4 	clc
@@ -824,7 +835,7 @@ scp4 	clc
 	sta dst+1
 	dec sc_zl
 	bne scp4
-scp1 	lda sc_clipsp
+scp1 	lda sc_lastclpsp		; ### 1.15
 	beq scp5
 	sta sc_sp
 scp8 	clc
@@ -835,11 +846,11 @@ scp8 	clc
 	inc dst+1
 scp6 	dec sc_sp
 	bne scp8
-scp5 	ldx sc_clipho
+scp5 	ldx sc_lastclpho		; ### 1.15
 	ldy #0
 cc2 	sty ls_vekta8+1
 	clc
-	lda sc_clipbr
+	lda sc_lastclpbr		; ### 1.15
 	asl
 	asl
 	asl
@@ -877,8 +888,8 @@ clrmap 	ldy #0
 	sty sc_texttab
 	lda #$20
 	sta sc_texttab+1
-	lda #<(8000)
-	ldx #>(8000)
+	lda #<8000
+	ldx #>8000
 	sta ls_vekta8
 	stx ls_vekta8+1
 clm0 	lda #$ff
@@ -1090,9 +1101,9 @@ srt6 	lda fromwhich,x
 	dex
 	dey
 	bpl srt6
-	lda #<(from4)
+	lda #<from4
 	sta sc_screentab
-	lda #>(from4)
+	lda #>from4
 srt9 	jsr gettab2
 	ldy #6
 	jmp gd_xtxout1
@@ -1120,20 +1131,20 @@ setinfo 	jsr setname
 	jmp setdata
 
 setname 	lda #0
-	ldx #<(ls_picname)
-	ldy #>(ls_picname)
+	ldx #<ls_picname
+	ldy #>ls_picname
 	bne si3
 setloader	lda #17
-	ldx #<(ls_iloader)
-	ldy #>(ls_iloader)
+	ldx #<ls_iloader
+	ldy #>ls_iloader
 	bne si3
 setmode 	lda #25
-	ldx #<(ls_imode)
-	ldy #>(ls_imode)
+	ldx #<ls_imode
+	ldy #>ls_imode
 	bne si3
 setdata 	lda #33
-	ldx #<(ls_idrive)
-	ldy #>(ls_idrive)
+	ldx #<ls_idrive
+	ldy #>ls_idrive
 si3 	stx dst
 	sty dst+1
 	tax
@@ -1169,9 +1180,9 @@ em2	lda yesno,y
 	dey
 	dex
 	bpl em2
-	lda #<(usemskgad)
+	lda #<usemskgad
 	sta sc_screentab
-	lda #>(usemskgad)
+	lda #>usemskgad
 	jmp srt9
 
 ; ----------------------------------------- Read Clip data from File
@@ -1196,7 +1207,7 @@ getfclip	jsr onebyte	; fetch Clip row
 setfull	lda filetype	; true Clip?
 	ldx full+2
 	and #2
-	beq gm9	; no
+	beq gm9		; no
 	ldx brmerk	; else: save width
 gm9 	ldy #3
 gm0	lda full,y
