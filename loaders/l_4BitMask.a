@@ -22,36 +22,38 @@
 ;    1.13, 21.06.19, added init keyboard for SuperCPU
 ;    1.14, 11.09.21, added: break loading process with STOP key
 ;    1.15, 13.12.21, changed: Mask from Clip (now even when inactive)
+;    1.16, 19.12.21, added: way to merge mask in difference mode
 ;
 ; ------------------------------------------------------------ 
 
-	 filetype		= $30
-	 counter		= $31
-	 gbyte		= $33
-	 ymerk		= $34
-	 adcnt		= $35
-	 offx		= $36
-	 offy		= $37
-	 readvek		= $38
-	 pfvek		= $3a
-	 brmerk		= $3c
-	 dst		= $3d
-	 bbreite   	= $3f
-	 rrand		= $40
-	 skip		= $41
-	 mask		= $43
-	 maskcnt		= $44
-	 byte1		= $45
-	 byte2		= $46
-	 masksrc		= $47
-	 masksrcw		= $49
+	filetype		= $30
+	counter		= $31
+	gbyte		= $33
+	ymerk		= $34
+	adcnt		= $35
+	offx		= $36
+	offy		= $37
+	readvek		= $38
+	pfvek		= $3a
+	brmerk		= $3c
+	dst		= $3d
+	bbreite   	= $3f
+	rrand		= $40
+	skip		= $41
+	mask		= $43
+	maskcnt		= $44
+	byte1		= $45
+	byte2		= $46
+	masksrc		= $47
+	masksrcw		= $49
 
-	 colors		= $0400
+	shift		= $028d
+	colors		= $0400
 
-	 execarea		= $c000
-	 y2		= $d005
-	 vdc		= $d600
-	 vdcdata		= $d601
+	execarea		= $c000
+	y2		= $d005
+	vdc		= $d600
+	vdcdata		= $d601
 
 ; ----------------------------------------- Header
 
@@ -62,8 +64,8 @@ header 	jmp start
 	!wo modend
 	!wo 0
 	!pet "4Bit+BmMask+Clip"
-	!pet "1.15"
-	!pet "13.12.21"
+	!pet "1.16"
+	!pet "19.12.21"
 	!pet "A.Dettke/W.Kling"
 
 ; ----------------------------------------- Leave Loader
@@ -785,14 +787,21 @@ in00	jsr gd_swapd	; RAM einblenden
 
 ; ----------------------------------------- Merge Mask
 
-merge	lda mflag		; from Undo?
+merge	lda shift		; Shift, C= or CTRL? ### 1.16
+	beq +
+	lda #$51		; for shortness: self modifying code
+	!by $2c
++	lda #$11
+	sta modify
+
+	lda mflag		; from Undo?
 	beq +
 
 	jsr gaugeout
 	jsr openumask	; yes, set parameters
 in30	ldy #0
 	jsr readreu	; and process data
-	ora (sc_texttab),y
+modify	ora (sc_texttab),y	; ### 1.16 this gets self modified
 	sta (sc_texttab),y
 	jsr action
 	jsr cou5
