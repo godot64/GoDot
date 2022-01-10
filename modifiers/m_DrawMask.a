@@ -18,6 +18,8 @@
 ;   1.04, 02.06.17: positioning problem with drawing near borders fixed
 ;   1.05, 31.03.18: changed size of smaller brushes (1 and 4)
 ;   2.00, 29.12.20: added hotkeys for Size and Mode
+;   2.01, 09.01.21: added brush dither
+;   2.02, 10.01.21: dither brush only on even x/y-positions
 ;
 ; ------------------------------------------ 
 
@@ -28,8 +30,8 @@
 	!wo modend
 	!wo 0
 	!pet "Draw Mask on pic"
-	!pet "2.00"
-	!pet "29.12.20"
+	!pet "2.02"
+	!pet "10.01.21"
 	!pet "A. Dettke       "
 
 ; ------------------------------------------ 
@@ -52,6 +54,7 @@
 	stoa		= $43
 	bytev		= $44
 	byteh		= $45
+	dither		= $46
 
 	offx		= $b2
 	offy		= $b3
@@ -78,6 +81,8 @@ start 	ldx sc_screenvek	; save current screenlist (mainlst)
 	sta redisp
 	lda sprcolor	; save current spritecolor
 	sta mscol
+	ldx #0		; reset dither to "no dither"
+	stx dither
 
 	jsr showreq	; show requester
 	jsr gd_eloop	; wait for clicks
@@ -109,9 +114,82 @@ es0	stx bsize
 	ldy #>sizet
 	jmp gd_xtxout2
 
+; --------------------------------------- Event: Dither
+
+evdither	ldx dither	; 0: off, 1: Hires, 2: Multi
+	inx
+	cpx #3
+	bcc ed1
+ed0	ldx #0
+ed1	stx dither
+	beq ++
+	dex
+	stx byte3		; byte3: 0=Hires, 1=Multi
+	bne +
+	lda #$55		; hires mask: %01010101
+	!by $2c
++	lda #$33		; multi mask: %00110011
+	sta byte2
+++	jsr swapsys
+	ldx bsize		; repair current brush
+	jsr setbrush
+	ldx dither	; dither?
+	beq ++
+	lda #<spr		; no, address sprite
+	sta dst
+	lda #>spr
+	sta dst+1
+	ldx #0
+--	ldy #0
+-	lda (dst),y	; linewise (odd): apply dither
+	sta byte1
+	eor byte2
+	and byte1
+	sta (dst),y
+	iny
+	cpy #3
+	bcc -
+	clc		; proceed to next line
+	lda dst
+	adc #3
+	sta dst
+	bcc +
+	inc dst+1
++	inx
+	cpx #21		; until 21 lines
+	bcs ++
+	ldy #0		; and for even lines: 
+	lda byte3
+	beq +
+	asl byte2		; shift mask left, multi: %11001100
++	asl byte2		; hires: %10101010
+-	lda (dst),y	; apply dither
+	sta byte1
+	eor byte2
+	and byte1
+	sta (dst),y
+	iny
+	cpy #3
+	bcc -
+	inx
+	clc		; proceed to next line
+	lda dst
+	adc #3
+	sta dst
+	bcc +
+	inc dst+1
++	lda byte3		; shift back mask
+	beq +
+	lsr byte2		; to their original values
++	lsr byte2
+	cpx #21		; until 21 lines
+	bcc --
+++	jsr chgbrush	; activate it
+	jmp swapsys
+
 ; ----------------------------------------- Event: Switch Draw Mode
 
-evmode: 	ldx pmode		; Mode: Draw/Clear
+evmode: 	ldx pmode		; Mode: Draw/Clear ("m")
 	inx
 	cpx #2
 	bcc md0
@@ -187,6 +265,14 @@ goon	lda sprxmsb	; Brush x-position (hi)
 dr1	lda sprx0		; and lo
 	sec		; minus 24 (to get graphics ordinate)
 	sbc #24
+	php
+	ldx dither	; dithered brush only on even x-positions
+	beq ++
+	dex
+	beq +
+	and #$fc		; multi
++	and #$fe		; hires
+++	plp
 	sta sprx		; store
 	bcs goon1
 	dec sprx+1
@@ -204,7 +290,10 @@ goon1	and #7		; bit in byte
 	sta sprx
 
 	lda spry		; y-position of brush
-	sta linenr
+	ldx dither	; dithered brush only on even y-positions
+	beq ++
+	and #$fe
+++	sta linenr
 	lda #0
 	sta xbuf
 	lda #21		; count 21 sprite scanlines
@@ -442,7 +531,16 @@ spr	!by $01,$fc,$00,$07,$ff,$00,$0f,$ff,$80,$1f,$ff,$c0,$3f,$ff,$e0
 
 ; ------------------------------------------ 
 
+svspr	!by $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+	!by $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+	!by $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+	!by $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+	!by $00,$00,$00
+
+; ------------------------------------------ 
+
 list	!wo 0
+first	!by $ff
 redisp 	!by 0
 pmode	!by 1		; mode: 1=draw 0=clear
 drawoffs	!by 5,11
@@ -482,6 +580,12 @@ kl	lda sc_stop
 	jsr tdelay	; Tastatur entprellen
 	jsr switch	; Farbe setzen
 	bcc draw
+
++	cmp #18		; key "d" (Dither)
+	bne +
+	jsr evdither	; yes, dither brush
+	jsr tdelay	; Tastatur entprellen
+	beq draw
 
 +	ldx #0		; key "1..8"? (Size)
 -	cmp keys,x
@@ -533,6 +637,31 @@ sb0	lda (src),y
 	sta spr,y
 	dey
 	bpl sb0
+	rts
+
+; --------------------------------------- Set dithered brush
+
+chgbrush	lda #<spr
+	sta src
+	lda #>spr
+	sta src+1
+	ldy #62
+cb0	lda (src),y
+	sta spr11,y
+	dey
+	bpl cb0
+	rts
+
+; --------------------------------------- Save System brush
+
+swapsys	ldy #62
+svl	ldx svspr,y
+	lda spr,y
+	sta svspr,y
+	txa
+	sta spr,y
+	dey
+	bpl svl
 	rts
 
 ; ------------------------------------------ Tastaturentprellung
