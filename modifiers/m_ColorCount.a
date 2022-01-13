@@ -18,8 +18,9 @@
 ;                 added: "GoDot" colors
 ;                 changed: "found" to "IFLI" and "C64" to "Multi"
 ; 1.04, 17.10.05, bugfix: flickering output
-; 1.05, 18.07.17: added Preview
-; 1.06, 09.03.20: made Preview more stable, added Multi rendered
+; 1.05, 18.07.17, added Preview
+; 1.06, 09.03.20, made Preview more stable, added Multi rendered
+; 1.07, 13.01.22, bugfix: IFLI counted incorrectly
 ;
 ; ------------------------------------------------ 
 
@@ -32,16 +33,17 @@
 	godc		= $32
 	cntnat		= $33
 	gads		= $34
-	src		= $35
+	src		= $35		; /$36
 	colmk		= $37
 	mulr		= $38
 	xmrk		= $39
 	
 	sprptr		= $07f8
 	spr255		= $3fc0
-	hist		= $ca00
-	hist1		= hist+256
-	histr		= hist1+256
+	hist		= $ca00		; 2*16 bytes (2nd pass)
+	hist1		= hist+256	; or 2*256 bytes (1st pass)
+	histr		= hist1+256	; 2*16 bytes
+	histb		= histr+32	; 2*16 bytes
 
 	x2		= $d004
 	y2		= x2+1
@@ -58,8 +60,8 @@
 	!wo modend
 	!wo 0
 	!pet "How Many Colors?"
-	!pet "1.06"
-	!pet "09.03.20"
+	!pet "1.07"
+	!pet "13.01.22"
 	!pet "W.Kling/A.Dettke"
 
 ; ------------------------------------------------ Main
@@ -102,10 +104,12 @@ histhead	lda #3
 histo2	jsr histhead
 	lda #0
 	tax
-hl3	sta hist,x	; clear
+hl3	sta hist,x	; clear histograms
 	sta hist1,x
 	sta histr,x
 	sta histr+16,x
+	sta histb,x
+	sta histb+16,x
 	inx
 	cpx #16
 	bne hl3
@@ -114,14 +118,26 @@ hl3	sta hist,x	; clear
 hl4	lda (src),y
 	pha
 	and #15
+	sta colmk
 	tax
-	inc histr,x	; count right pixels (multr)
+	inc histr,x	; count only right pixels (multi rendered)
 	bne hl9
 	inc histr+16,x
-hl9	inc hist,x	; count true hires colors
+hl9	pla
+	pha 
+	lsr 		; now analyze left pixel
+	lsr 
+	lsr 
+	lsr 
+	eor colmk
+	bne sk3
+	inc histb,x	; count if true multicolor 
+	bne sk3
+	inc histb+16,x
+sk3	inc hist,x	; now count true hires right pixels
 	bne hl7
 	inc hist1,x
-hl7	pla
+hl7	pla		; so also left pixels
 	lsr
 	lsr
 	lsr
@@ -133,42 +149,53 @@ hl7	pla
 hl8	iny
 	bne hl4
 
-	jsr adinc
+	jsr adinc		; page after page
 	inc src+1
 	lda src+1
 	cmp #$bd
 	bne hl4
 
-	ldx #0
+	ldx #0		; then:
 	ldy #0
-hl6	lda hist,x	; how many different? (in .y=godc)
+hl6	lda hist,x	; which true hires pixels counted?
 	ora hist1,x
-	beq hl5
-	iny
+	beq hl5		; (skip uncounted)
+	iny		;  .y: amount of true colors
 hl5	inx
 	cpx #16
 	bne hl6
-	sty godc
+	sty godc		; store value
 
 	ldx #0
 	ldy #0
-ml0	lda histr,x	; how many different rendered colors? (in .y=mulr)
+ml0	lda histr,x	; which multi rendered pixels counted?
 	ora histr+16,x
-	beq ml1
-	iny
+	beq ml1		; (skip uncounted)
+	iny		; .y: amount of rendered multi colors
 ml1	inx
 	cpx #16
 	bne ml0
-	sty mulr
+	sty mulr		; store value
 
-	jmp clearad
+	ldx #0
+	ldy #0
+ml00	lda histb,x	; which true multi pixels counted?
+	ora histb+16,x
+	beq ml01		; (skip uncounted)
+	iny		; .y: amount of true multi colors
+ml01	inx
+	cpx #16
+	bne ml00
+	sty cntnat	; store value
+
+	jmp clearad	; reset activity bar
 
 ; ------------------------------------------------ IFLI
 
 histo	jsr histhead
 	lda #0
 	tax
-hl0	sta hist,x	; clear
+hl0	sta hist,x	; clear long histogram
 	sta hist1,x
 	inx 
 	bne hl0
@@ -184,7 +211,7 @@ hl1	lda (src),y
 sk1	iny 
 	bne hl1
 
-	jsr adinc
+	jsr adinc		; page by page
 	inc src+1
 	lda src+1
 	cmp #$bd
@@ -194,28 +221,14 @@ sk1	iny
 
 	ldx #0
 	ldy #0
-	sty cntnat	; counts native colors
-	sty mulr		; counts rendered colors
 
-hl2	lda hist,y
+hl2	lda hist,y	; skip uncounted
 	ora hist1,y
 	beq sk2
-	inx 		; count all colors
-	tya 
-	and #15
-	sta colmk		; prepare: upper nibble equal to lower?
-	tya 
-	lsr 
-	lsr 
-	lsr 
-	lsr 
-	eor colmk
-	bne sk2
-	inc cntnat	; yes, count (multicolor value)
-
+	inx 		; .x: count ifli colors
 sk2	iny 
 	bne hl2
-	stx iflic		; .x is IFLI colors	
+	stx iflic		; .x is IFLI colors
 
 	jmp clearad
 
@@ -399,22 +412,22 @@ gt0	jsr gd_setpos
 
 tabigad	!wo allgad,newgad,gad,mulgad
 
-inctable	!by $00,$01,$02,$03,$04,$05,$06,$07,$08,$09,$0a,$0b,$0c,$0d,$0e,$0f 
+inctable	!by $00,$01,$02,$03,$04,$05,$06,$33,$08,$09,$0a,$37,$0c,$0d,$0e,$77 
 	!by $01,$11,$12,$13,$14,$15,$16,$17,$18,$19,$1a,$1b,$1c,$1d,$1e,$1f 
 	!by $02,$12,$22,$23,$24,$25,$26,$27,$28,$29,$2a,$2b,$2c,$2d,$2e,$2f 
-	!by $03,$13,$23,$33,$34,$35,$36,$37,$38,$39,$3a,$3b,$3c,$3d,$3e,$3f 
+	!by $03,$13,$23,$33,$34,$35,$36,$37,$38,$39,$3a,$77,$3c,$3d,$3e,$7b 
 	!by $04,$14,$24,$34,$44,$45,$46,$47,$48,$49,$4a,$4b,$4c,$4d,$4e,$4f 
 	!by $05,$15,$25,$35,$45,$55,$56,$57,$58,$59,$5a,$5b,$5c,$5d,$5e,$5f 
 	!by $06,$16,$26,$36,$46,$56,$66,$67,$68,$69,$6a,$6b,$6c,$6d,$6e,$6f 
-	!by $07,$17,$27,$37,$47,$57,$67,$77,$78,$79,$7a,$7b,$7c,$7d,$7e,$7f 
+	!by $33,$17,$27,$37,$47,$57,$67,$77,$78,$79,$7a,$7b,$7c,$7d,$7e,$bb 
 	!by $08,$18,$28,$38,$48,$58,$68,$78,$88,$89,$8a,$8b,$8c,$8d,$8e,$8f 
 	!by $09,$19,$29,$39,$49,$59,$69,$79,$89,$99,$9a,$9b,$9c,$9d,$9e,$9f 
 	!by $0a,$1a,$2a,$3a,$4a,$5a,$6a,$7a,$8a,$9a,$aa,$ab,$ac,$ad,$ae,$af 
-	!by $0b,$1b,$2b,$3b,$4b,$5b,$6b,$7b,$8b,$9b,$ab,$bb,$bc,$bd,$be,$bf 
+	!by $37,$1b,$2b,$77,$4b,$5b,$6b,$7b,$8b,$9b,$ab,$bb,$bc,$bd,$be,$bf 
 	!by $0c,$1c,$2c,$3c,$4c,$5c,$6c,$7c,$8c,$9c,$ac,$bc,$cc,$cd,$ce,$cf 
 	!by $0d,$1d,$2d,$3d,$4d,$5d,$6d,$7d,$8d,$9d,$ad,$bd,$cd,$dd,$de,$df 
 	!by $0e,$1e,$2e,$3e,$4e,$5e,$6e,$7e,$8e,$9e,$ae,$be,$ce,$de,$ee,$ef 
-	!by $0f,$1f,$2f,$3f,$4f,$5f,$6f,$7f,$8f,$9f,$af,$bf,$cf,$df,$ef,$ff
+	!by $77,$1f,$2f,$7b,$4f,$5f,$6f,$bb,$8f,$9f,$af,$bf,$cf,$df,$ef,$ff
 
 ; ------------------------------------------------ 
 
