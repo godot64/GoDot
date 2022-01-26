@@ -19,25 +19,26 @@
 ;    1.07, 26.10.20, slight GUI changes
 ;    2.00, 04.11.20, added: install of dev.REU at runtime
 ;    2.01, 30.01.21, added: set ReloadOnBoot-flag (REUClear)
+;    2.02, 26.01.22, added: recover UNDO of former sessions
 ;
 ; ------------------------------------------------------------ 
 
 ; ----------------------------------------- Equates
+
+	reuclear		= 18	; constant: position of REUClear
 
 	info		= $30	; /$31,$32
 	tentry		= $33
 	nextentry		= $34
 	oflo		= $35
 	ofhi		= $36
-	rmbk		= $37	; don't use $38!
+	rmbk		= $37	; !!!don't use $38!!!
 	entry		= $3a	; /$3b (is dev.REU vector!)
 	bank0val		= $3d
 	banknval		= $3e
 	bankcval		= $3f
 	curbank		= $40
 	
-	reuclear		= 18	; constant: position of REUClear
-	status		= $90
 	swappfox		= $1714	; swap slots of 4KB
 	func3		= $186f	; !! self modifying the kernel !!
 	ramtype		= $1d8f	; ### 1.04
@@ -48,10 +49,10 @@
 	mal19		= $bd8c	; part of dev.REU
 	back		= $befd	; part of dev.REU
 	dirblock		= $bf00	; directory block
-	modul		= $c000
 	ramdevice		= $ca64	; start address of dev.REU
 	ramstart		= $cab0	; header address of dev.REU
 	kapaz		= $cde7	; !! self modifying dev.REU !!
+
 	sprite		= $d015
 
 ; ----------------------------------------------- Header
@@ -60,10 +61,10 @@
 	!by $20
 	!by $00,$01
 	!wo modend
-	!by $00,$00
+	!wo 0
 	!pet "Tool for REUs   "
-	!pet "2.00"
-	!pet "04.11.20"
+	!pet "2.02"
+	!pet "26.01.22"
 	!pet "A.Dettke        "
 
 ; ----------------------------------------------- Main 
@@ -105,7 +106,7 @@ stats	lda rm_ramundo	; welche gibt's und wie viele?
 st1	ldx #5
 	ldy #2
 st2	lda yesno,x
-	sta un4tx,y
+	sta un4tx2,y
 	dex
 	dey
 	bpl st2
@@ -117,7 +118,7 @@ st2	lda yesno,x
 st3	ldx #5
 	ldy #2
 st4	lda yesno,x
-	sta unrtx,y
+	sta unrtx2,y
 	dex
 	dey
 	bpl st4
@@ -218,7 +219,7 @@ show	ldx last		; then overlay REUTool Requester
 	clc
 	rts
 
-; ----------------------------------------------- 
+; ----------------------------------------------- SuperCPU
 
 supercpu	lda gd_modswitch
 	pha
@@ -877,9 +878,46 @@ swc2	lda yesno,x
 	clc
 	rts
 
+; ----------------------------------------------- Event: Recover Undo 4Bit
+
+evrecu1	ldx #2
+ru1	lda yesno,x
+	sta un4tx1,x
+	sta un4tx2,x
+	dex
+	bpl ru1
+	ldy #8		; and show
+	jsr evc3
+
+	lda rm_ramundo
+	ora #1		; finally set value
+	sta rm_ramundo
+
+	clc
+	rts
+
+; ----------------------------------------------- Event: Recover Undo Rendered
+
+evrecu2	ldx #2
+ru2	lda yesno,x
+	sta unrtx1,x
+	sta unrtx2,x
+	dex
+	bpl ru2
+	ldy #10		; and show
+	jsr evc3
+
+	lda rm_ramundo
+	ora #2		; finally set value
+	sta rm_ramundo
+
+	clc
+	rts
+
 ; ----------------------------------------------- 
 
 tabigad	!wo choosegad,ramgad,delgad,cleargad	; 0,2,4,6
+	!wo recu1gad,recu2gad		; 8,10
 
 settab	lda #<tabigad
 	sta sc_texttab
@@ -990,9 +1028,17 @@ bbu	!byte 32			;    (darin: Anim-Counter und REUClear-Flag "bbu")
 reulst	!by 0
 	!by 1,11,18,23,$81,0,0
 	!scr "REU Tool@"
-cleargad	!by 9,23,5,3,$d0
+
+cleargad	!by 9,23,5,3,$d0		; Init on Boot
 	!wo evswclear
 cleartx	!scr " no",0
+recu1gad	!by 10,23,5,3,$d0		; Recover Undo 4Bit
+	!wo evrecu1
+un4tx1	!scr " no",0
+recu2gad	!by 11,23,5,3,$d0		; Recover Undo Rendered
+	!wo evrecu2
+unrtx1	!scr " no",0	
+
 	!by 3,12,16,12,$b0,0,0	; Statusfenster
 	!scr "Status@"
 	!by 15,12,9,3,$d0
@@ -1031,10 +1077,10 @@ availtx	!scr "000000@"
 cleartx2	!scr " no",0
 	!by $c0,10,12,14
 	!scr "Undo 4Bit :"
-un4tx	!scr " no@"
+un4tx2	!scr " no@"
 	!by $c0,11,12,14
 	!scr "Undo Rend :"
-unrtx	!scr " no@"
+unrtx2	!scr " no@"
 	!by $c0,12,12,14
 	!scr "# of Temps: "
 numttx	!scr " 0@"
