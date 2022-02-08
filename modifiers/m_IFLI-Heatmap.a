@@ -10,6 +10,7 @@
 ;   Module to provide a skeleton for other modules
 ;
 ;  1.00, 30.01.22, first release
+;  1.01, 08.02.22, changed output palettes
 ;
 ; ----------------------------------------- 
 
@@ -20,9 +21,15 @@
 	dst	= $33	; /$34
 	lcnt	= $35
 	bcnt	= $36
-	byte1	= $37
-	byte2	= $38
+	tcnt	= $37
+	byte1	= $38
+	byte2	= $39
+	iscolor	= $3a
+	src0	= $3b	; /$3c
+	lastkey	= $3d
 
+	currkey	= $cb
+	shift	= $028d
 	sprptr	= $07f8
 	spr255	= $3fc0
 
@@ -43,8 +50,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "Show IFLI diffs "
-	!tx "1.00"
-	!tx "30.01.22"
+	!tx "1.01"
+	!tx "08.02.22"
 	!tx "A.Dettke        "
 
 ; ----------------------------------------- Main
@@ -52,16 +59,20 @@ header	jmp start
 start	jsr check4reu	; reu present?
 	bne noreu
 
-	lda gd_modswitch
+	lda shift		; beim Start Shift gedrückt?
+	and #1
+	sta iscolor
+	lda gd_modswitch	; memory management
 	sta modswitch
 	lda gr_redisp
 	sta redisp
+
 	lda #9		; Funktion "Undo in die REU" setzen
 	sta getundo+1
 	jsr doundo	; automatisches Undo ausführen
 	jsr gd_spron
 
-	jsr render
+	jsr render	; Heatmap erzeugen und anzeigen
 
 	lda #8		; Funktion "Undo aus der REU" setzen
 	sta getundo+1
@@ -70,9 +81,11 @@ start	jsr check4reu	; reu present?
 	jsr gd_spron
 	lda redisp
 	sta gr_redisp
-	lda modswitch
+	lda modswitch	; memory management
 	sta gd_modswitch
-	clc
+	lda #0		; reset Shift flag
+	sta iscolor
+	clc		; back to GoDot Main
 	rts
 	
 
@@ -99,49 +112,138 @@ warnlst	!by 0
 	
 ; ----------------------------------------- Render Image Diffs
 
-render	jsr initad
+render	jsr initad	; init activity
 
 	lda #<sy_4bit	; .a=0
 	sta src
-	sta lcnt
-	sta bcnt
+	sta src0
+	sta bcnt		; counts tiles (0..39)
+	sta lcnt		; counts rasterlines (0..199)
+	sta tcnt		; counts tilelines (0..7)
+	sta lastkey	; reset key buffer
 	tay
 	lda #>sy_4bit
 	sta src+1
+	sta src0+1
 
--	lda (src),y	; get 2 pixels
+rloop	lda currkey	; ### 1.01: while rendering: key pressed?
+	cmp #$40
+	beq +
+	sta lastkey	; yes, store
+
++	lda (src),y	; then get 2 pixels
+	pha
+	lsr
+	lsr
+	lsr
+	lsr
 	tax
-	lsr
-	lsr
-	lsr
-	lsr
-	sta byte1		; left one
-	txa
+	lda gr_btab,x	; care for balancing
+	sta byte1		; left pixel (to .x)
+	pla
 	and #15
-	sta byte2		; right one
+	tax
+	lda gr_btab,x	; balancing
+	sta byte2		; right pixel (in .a)
+
 	ldx byte1
-	cmp byte1		; which is larger?
+	cmp byte1		; which is brighter?
 	bcc +
 	beq +
 	sta byte1		; if byte2: exchange
 	stx byte2
-+	lda byte1
+
++	lda byte1		; compute difference
 	sec
 	sbc byte2
 	tax
-	lda dnibs,x
-	sta (src),y
-	iny
-	bne -
-	jsr adinc
-	inc src+1
-	lda src+1
-	cmp #>sy_bigbuffer
-	bcc -
+	lda ltab,x	; take as luma
+	tax
 
-	sta gr_redisp
+	lda iscolor	; heatmap: gray or colored?
+	bne ++
+
+	lda tcnt		; gray, rasterline: odd or even?
+	and #1
+	bne +
+	lda gnibs1,x	; even
+	jmp +++
++	lda gnibs2,x	; odd
+	jmp +++
+
+++	lda dnibs,x	; colored
+
++++	sta (src),y
+	iny		; of one tileline
+	cpy #4
+	bcc rloop
+
+	clc		; advance: next tile
+	lda src
+	adc #32
+	sta src
+	bcc +
+	inc src+1
++	ldy #0
+	inc bcnt		; count until 40
+	lda bcnt
+	cmp #40
+-	bne rloop
+
+	sty bcnt		; .y=0, reset tile counter
+	jsr adinc		; activity
+	clc		; advance: next rasterline
+	lda src0
+	adc #4
+	sta src0
+	sta src
+	lda src0+1
+	adc #0
+	sta src+1
+	sta src0+1
+	inc lcnt		; count rasterlines (200)
+	inc tcnt		; count tilelines (8)
+	lda tcnt
+	cmp #8
+	bne -
+
+	sty tcnt		; .y=0, reset tileline counter
+	clc
+	lda src0		; advance: next block row
+	adc #$e0
+	sta src0
+	sta src
+	lda src0+1
+	adc #$04
+	sta src0+1
+	sta src+1
+	
+	lda lcnt		; finished?
+	cmp #200
+	bne -
+
+	sta gr_redisp	; yes, now render the heatmap:
 	jsr clearad
-	jmp ev_display
+	lda lastkey
+	beq +
+	cmp #$0d		; was "s" pressed?
+	bne +
+	jsr savetemp	; yes, save heatmap to temp
+	lda #0		; (repair modified values)
+	sta tbank+1
+	lda #$10
+	sta target+1
++	jmp ev_display	; finally display heatmap
+
+; ---------------------------------------------- Save Heatmap to Temp
+
+savetemp	ldx bank		; address temp:
+	inx
+	stx tbank+1
+	lda #$83		; $8300: address of Temp00 in bank 7
+	sta target+1
+	lda #9		; Funktion "Undo in die REU" setzen
+	sta getundo+1
 
 ; ---------------------------------------------- DoUndo
 
@@ -167,8 +269,10 @@ md0	sta rm_werte,x	; zuerst löschen
 	bpl md0
 	lda #>sy_4bit	; 4Bit-Bereich im C64
 	sta rm_werte+1
-	lda #$10		; nach Undo4Bit im Ram
+target	lda #$10		; nach Undo4Bit im Ram
 	sta rm_werte+3	; ($8d für Undo Rendered)
+tbank	lda #0		; set bank
+	sta rm_werte+4	; (7 for temp00)
 	lda #$7d		; 32000 Bytes
 	sta rm_werte+6
 
@@ -234,7 +338,7 @@ initad	ldy #60		; prepare spriteblock 255
 	ora #$0c		; activate bar
 	sta spren
 
-setadcnt	lda #3		; init counter to 5 (times 40 = 120 pages of 125)
+setadcnt	lda #5		; init counter to 5 (times 40 = 200 rasterlines)
 	sta adcnt
 	rts
 
@@ -277,11 +381,14 @@ stay	clc
 
 ; ----------------------------------------- Data
 
-bank	!by 0				; used by CHECK4REU
+bank	!by 0			; used by CHECK4REU
 redisp	!by 0
 modswitch	!by 0
-dnibs	!by $00,$11,$22,$33,$44,$55,$66,$77
-	!by $88,$99,$aa,$bb,$cc,$dd,$ee,$ff
+dnibs	!by $00,$11,$33,$55,$77,$99,$bb,$dd,$ff
+;             blk blu dgr pur mgr lrd lgr yel wht
+gnibs1	!by $00,$03,$33,$37,$77,$7b,$bb,$bf,$ff
+gnibs2	!by $00,$30,$33,$73,$77,$b7,$bb,$fb,$ff
+ltab	!by 0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8
 
 ; ----------------------------------------- 
 
