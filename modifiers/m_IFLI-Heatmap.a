@@ -11,6 +11,7 @@
 ;
 ;  1.00, 30.01.22, first release
 ;  1.01, 08.02.22, changed output palettes
+;  1.02, 09.02.22, bugfix: added SaveTemp flag
 ;
 ; ----------------------------------------- 
 
@@ -50,8 +51,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "Show IFLI diffs "
-	!tx "1.01"
-	!tx "08.02.22"
+	!tx "1.02"
+	!tx "09.02.22"
 	!tx "A.Dettke        "
 
 ; ----------------------------------------- Main
@@ -85,7 +86,22 @@ start	jsr check4reu	; reu present?
 	sta gd_modswitch
 	lda #0		; reset Shift flag
 	sta iscolor
-	clc		; back to GoDot Main
+
+; ----------------------------------------------------- Reset Balancing
+
+	lda shift		; nach Display Shift gedrückt?
+	and #1
+	bne +
+
+	ldy #16		; yes, reset Balancing
+	sty gr_ctr
+	sty gr_brt
+dc8	dey
+	tya
+	sta gr_btab,y
+	bne dc8
+
++	clc		; back to GoDot Main
 	rts
 	
 
@@ -229,8 +245,10 @@ rloop	lda currkey	; ### 1.01: while rendering: key pressed?
 	cmp #$0d		; was "s" pressed?
 	bne +
 	jsr savetemp	; yes, save heatmap to temp
-	lda #0		; (repair modified values)
-	sta tbank+1
+	ldx #0		; (repair modified values)
+	stx tbank+1
+	inx		; tell GoDot there's a temp
+	stx rm_tmpsaved
 	lda #$10
 	sta target+1
 +	jmp ev_display	; finally display heatmap
