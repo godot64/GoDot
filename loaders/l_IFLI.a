@@ -16,6 +16,7 @@
 ;    1.02, 29.10.16, added warning of X-Ray FLI files
 ;    1.03, 23.04.17, added Pixel Perfect format (pp and ppp)
 ;    1.04, 12.09.21, added: break loading process with STOP key
+;    1.05, 10.02.22, changed progression bar's len slightly
 ;
 ; ----------------------------------------- Equates
 
@@ -51,8 +52,8 @@
 	!wo modend
 	!by $00,$00
 	!pet "loader for IFLIs"
-	!pet "1.04"
-	!pet "12.09.21"
+	!pet "1.05"
+	!pet "10.02.22"
 	!pet "W.Kling/A.Dettke"
 
 ; ----------------------------------------- Main
@@ -192,7 +193,7 @@ gma	ldx #0
 	
 	ldx #48
 	jsr tcopy
-	lda #6
+	lda #7		; ###
 	jsr setcnt
 	
 	jsr render	; render image to 4Bit

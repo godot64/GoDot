@@ -7,11 +7,13 @@
 ; ----------------------------------------- 
 ;
 ;  mod.IFLI-Heatmap
-;   Module to provide a skeleton for other modules
+;   Module to visualize IFLI flickering locations
 ;
 ;  1.00, 30.01.22, first release
 ;  1.01, 08.02.22, changed output palettes
 ;  1.02, 09.02.22, bugfix: added SaveTemp flag
+;  1.03, 10.02.22, bugfix: set fake REU bank to gain check valid
+;                  added: dirty flag (not executable from REU)
 ;
 ; ----------------------------------------- 
 
@@ -47,17 +49,18 @@
 header	jmp start
 	!by $20
 	!by 0
-	!by 0
+	!by 1		; dirty
 	!wo modend
 	!wo 0
 	!tx "Show IFLI diffs "
-	!tx "1.02"
-	!tx "09.02.22"
+	!tx "1.03"
+	!tx "10.02.22"
 	!tx "A.Dettke        "
 
 ; ----------------------------------------- Main
 
-start	jsr check4reu	; reu present?
+start	ldy #0		; set fake REU bank
+	jsr check4reu	; reu present?
 	bne noreu
 
 	lda shift		; beim Start Shift gedrückt?
@@ -93,7 +96,7 @@ start	jsr check4reu	; reu present?
 	and #1
 	bne +
 
-	ldy #16		; yes, reset Balancing
+	ldy #16		; no, reset Balancing
 	sty gr_ctr
 	sty gr_brt
 dc8	dey
@@ -105,7 +108,7 @@ dc8	dey
 	rts
 	
 
-; ----------------------------------------- No REU
+; ----------------------------------------- If no REU found
 
 noreu	ldx #<warnlst
 	ldy #>warnlst
