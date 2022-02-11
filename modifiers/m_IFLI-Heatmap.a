@@ -110,9 +110,9 @@ dc8	dey
 
 ; ----------------------------------------- If no REU found
 
-noreu	ldx #<warnlst
+noreu	ldx #<warnlst	; open requester...
 	ldy #>warnlst
-	jmp gd_xmloop
+	jmp gd_xmloop	; and wait for click
 
 ; ----------------------------------------------------- 
 
