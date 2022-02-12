@@ -10,7 +10,8 @@
 ;
 ;
 ;    1.00:         , first release
-;    1.01: 13.10.99, 
+;    1.01: 13.10.99,
+;    1.02: 12.02.22, bugfix: reset rm_werte after load
 ;
 ; ------------------------------------------------ 
 
@@ -36,7 +37,7 @@
 	offx		= ls_adrmisc
 	offy		= offx+1
 
-	global		=$8f40
+	global		= $8f40
 
 	col0		= $c900
 	colff		= col0-1
@@ -56,8 +57,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "TruePaint MCI   "
-	!tx "1.01"
-	!tx "13.10.99"
+	!tx "1.02"
+	!tx "12.02.22"
 	!tx "A.Dettke        "
 ;
 ; ------------------------------------------------ 
@@ -411,7 +412,7 @@ prepdecomp
 	lda ls_ramdrive	; test for REU
 	and #7
 	beq pd0		; 1750   : ok
-	cmp #7		; Flash8 : not ok
+	cmp #7		; SCPU : not ok
 	beq pd1
 	and #4		; 1700/64: ok
 	bne pd0
@@ -520,7 +521,7 @@ doundo	lda #<undo	; eigentliche Routine verschieben
 	ldx #>undo	; (weil das Modul ausgeblendet wird)
 	sta ls_vekta8
 	stx ls_vekta8+1
-	ldy #setcnt-undo
+	ldy #setcnt-undo-1
 sloop	lda (ls_vekta8),y
 	sta global,y	; nach GLOBAL ('undo' at $8f40)
 	dey
@@ -691,9 +692,21 @@ break	jsr gd_xmess
 	jsr gd_xclose
 	jsr gd_spron
 	cli
+	jsr remedy
+	lda #$c0
+	sta rm_werte+1
 	sec
 	rts
  
+; ------------------------------------------------ 
+
+remedy	ldx #6	
+	lda #0
+-	sta rm_werte,x
+	dex
+	bpl -
+	rts
+
 ; ------------------------------------------------ 
 
 onebyte	jsr basin
