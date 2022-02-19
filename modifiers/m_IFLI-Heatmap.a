@@ -14,6 +14,7 @@
 ;  1.02, 09.02.22, bugfix: added SaveTemp flag
 ;  1.03, 10.02.22, bugfix: set fake REU bank to gain check valid
 ;                  added: dirty flag (not executable from REU)
+;  1.04, 19.02.22, changed colors to real heatmap colors
 ;
 ; ----------------------------------------- 
 
@@ -53,8 +54,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "Show IFLI diffs "
-	!tx "1.03"
-	!tx "10.02.22"
+	!tx "1.04"
+	!tx "19.02.22"
 	!tx "A.Dettke        "
 
 ; ----------------------------------------- Main
@@ -405,8 +406,8 @@ stay	clc
 bank	!by 0			; used by CHECK4REU
 redisp	!by 0
 modswitch	!by 0
-dnibs	!by $00,$11,$33,$55,$77,$99,$bb,$dd,$ff
-;             blk blu dgr pur mgr lrd lgr yel wht
+dnibs	!by $00,$11,$aa,$22,$66,$99,$dd,$55,$44
+; colors:     blk blu grn bwn ora lrd yel pur red
 gnibs1	!by $00,$03,$33,$37,$77,$7b,$bb,$bf,$ff
 gnibs2	!by $00,$30,$33,$73,$77,$b7,$bb,$fb,$ff
 ltab	!by 0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8
