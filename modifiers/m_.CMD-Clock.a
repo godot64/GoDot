@@ -6,18 +6,22 @@
 
 ; ------------------------------------------------     
 ;
-; mod..CMD-Clock
-;  System Module to retrieve and show the time from CMD RTCs
+; mod.RTC-Clock
+;  (formerly mod..CMD-Clock)
+;  Module to retrieve and show the time from known RTCs:
+;  all CMD drives, CMD RAMLink, CMD Smartmouse, Turbo Chameleon 64
+;  and Ultimate 64 (untested, should be compatible to TC64)
 ;
 ;   1.00, 09.12.95, first release
 ;   1.01, 27.05.96, added RTC in CMD Smartmouse (different h/w type)
 ;   1.02, 19.10.20, bugfix: didn't recognize Smartmouse at all
 ;   1.03, 21.10.20, bugfix: correct pm/am recognition
+;   1.04, 02.03.22, renamed, added RTC of Turbo Chameleon Cartridge
 ;
 ; ------------------------------------------------ 
 ;
 ;   The data returned by the Smartmouse RTC
-;   (all data bytes in decimal mode):
+;   (all data bytes in decimal mode BCD):
 ;
 ;   0: seconds (0..59),     bit 7 lets the clock halt (if 1)
 ;   1: minutes (0..59)
@@ -28,6 +32,13 @@
 ;   5: weekday (1.. 7),     1: Sunday
 ;   6: year    (0..99)
 ;   7: write protect,       bit 7 controls write protection (on if set)
+;
+;   Chameleon 64 clock chip is PFC2123
+;   The data returned by TC64 RTC:
+; 
+;   CC YY MM WD DD HH MM SS (8 bytes)
+;
+;   value output format is also BCD (CC: Century)
 ;
 ; ------------------------------------------------ Equates
 
@@ -45,6 +56,11 @@
 	ddr1		= joypt1+2
 
 	rahmen		= $d020
+	tc_cfgreg		= $d0fe	; config enable reg
+	tc_cfgspi		= $d0f1	; SPI config reg
+	tc_spidat		= $df10	; spi data transfer
+	tc_spictrl	= $df11	; spi control
+	tc_spistat	= $df12	; spi status
 	iecin		= $ffa5
 	untalk		= $ffab
 
@@ -56,9 +72,9 @@ header	jmp start
 	!by 0
 	!wo modend
 	!wo 0
-	!tx "CMD RT Clock    "
-	!tx "1.03"
-	!tx "21.10.20"
+	!tx "RT Clock        "
+	!tx "1.04"
+	!tx "02.03.22"
 	!tx "A.Dettke        "
 ;
 ; ------------------------------------------------ 
@@ -76,7 +92,11 @@ gettime	jmp (distrib)
 
 ; ------------------------------------------------ 
 
-start	ldy #0		; init Mausflag
+start	jsr checktc64	; check Turbo Chameleon 64
+	bcc +		; .c=0: not successful, continue checking
+	rts		; get here after "Exit": leave module
+
++	ldy #0		; init Mausflag
 	sty cmd
 	lda shift		; Shift, CTRL oder C= gedrückt?
 	bne +		; ja, Maustest übergehen
@@ -332,7 +352,7 @@ evcanc	sec
 
 clocklst	!by 0,10,15,18,9,$01
 	!wo 0
-	!by 11,16,16,5,$92
+	!by 11,16,16,5,$b0
 	!wo 0
 	!scr " "
 daytxt	!scr "Thu "
@@ -367,7 +387,7 @@ cmd	!by 0,0,0,0,0	; CMD-Drivenummern mit RTC
 
 command	!tx "t-rd"	; Kommando für Drive-RTCs
 comlen	!by 4
-time	!by 0,0,0,0,0,0,0,0,0
+time	!by 0,0,0,0,0,0,0,0,0 ; wd yy mm dd hh mm ss ap ..
 
 adays	!scr "SunMonTueWedThuFriSat"
 gdays	!scr "So Mo Di Mi Do Fr Sa "
@@ -382,7 +402,8 @@ ddrsv	!by 0
 flgsv	!by 0
 
 bnum	!by 0
-clkdata	!by 0,0,0,0,0,0,0,0 
+clkdata	!by 0,0,0,0,0,0,0,0	; ss mm hh dd mm wd yy
+tc_clock	!by 0,0,0,0,0,0,0,0	; cc yy mm wd dd hh mm ss
 
 ; ------------------------------------------------ CMD Smartmouse
 
@@ -601,5 +622,81 @@ nomouse	dey
 	rts
 
 ; ------------------------------------------------ 
+
+checktc64	ldy #0
+	lda #$2a		; activate config reg
+	sta tc_cfgreg
+	lda tc_cfgreg	; read status
+	dey
+	sty tc_cfgreg	; and deactivate
+	cmp #$ff		; no tc64?
+	bne +
+	clc		; yes, leave
+	bcc nomouse	; uncond. branch
+
++	lda #<gettc64	; Vektor auf gettime setzen
+	sta distrib
+	lda #>gettc64
+	sta distrib+1
+	jmp chk3
+
+; ------------------------------------------------ Read TC64
+
+gettc64	lda #$2a		; activate config reg
+	sta tc_cfgreg
+	lda tc_cfgspi	; save spi regs
+	pha
+	lda tc_spictrl
+	pha
+	lda #3		; set spi config init codes
+	sta tc_cfgspi
+	sta tc_spictrl
+	lda #$13		; select rtc
+	sta tc_spictrl
+	lda #$92		; start transfer
+	sta tc_spidat
+hdshk1	lda tc_spistat	; wait for valid data
+	and #1
+	bne hdshk1
+	ldx #7		; retrieve 8 bytes:
+tctime	lda #0		; transfer clockdata
+	sta tc_spidat
+hdshk2	lda tc_spistat
+	and #1
+	bne hdshk2
+	lda tc_spidat	; to tc_clock, format:
+	sta tc_clock,x	; cc yy mm wd dd hh mm ss
+	dex
+	bne tctime
+	lda #$20		; set century manually (though not used)
+	sta tc_clock
+
+	pla
+	sta tc_spictrl	; restore spi values
+	pla
+	sta tc_cfgspi
+	ldy #$ff
+	sty tc_cfgreg	; close rtc, then convert data:
+
+	lda tc_clock+3	; first: weekday
+	sta time
+	ldx #7
+	ldy #6
+-	cpx #3
+	beq +
+	lda tc_clock,x	; convert clock data
+	jsr wandeln	; from bcd to standard (store at TIME)
++	dex
+	cpx #1
+	bcs -
+	dex		; .x=0
+	lda time+4	; 12/24?
+	cmp #13
+	bcc +
+	sbc #12		; 12, so subtract 12
+	sta time+4
+	ldx #$80		; and set am/pm-flag
++	stx time+7
+	rts
 
 modend	!eof
