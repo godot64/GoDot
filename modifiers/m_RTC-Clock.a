@@ -79,7 +79,7 @@ header	jmp start
 ;
 ; ------------------------------------------------ 
 
-clear	ldx #4		; Drivenummern lÃ¶schen
+clear	ldx #4		; Drivenummern löschen
 	lda #0
 chk2	sta cmd,x
 	dex 
@@ -98,14 +98,14 @@ start	jsr checktc64	; check Turbo Chameleon 64
 
 +	ldy #0		; init Mausflag
 	sty cmd
-	lda shift		; Shift, CTRL oder C= gedrÃ¼ckt?
-	bne +		; ja, Maustest Ã¼bergehen
+	lda shift		; Shift, CTRL oder C= gedrückt?
+	bne +		; ja, Maustest übergehen
 	jsr chkmouse	; nein, ist RTC in Smartmouse?
 +	jsr clear
 	lda cmd		; (cmd=0 if no Smartmouse found)
 	bne mousereq	; cmd=6, Smartmouse found, branch
 
-	ldy #11		; sonst: CMD-GerÃ¤te erkennen
+	ldy #11		; sonst: CMD-Geräte erkennen
 	ldx #4
 chk1	lda doffs-8,y
 	sty ymrk
@@ -117,7 +117,7 @@ chk1	lda doffs-8,y
 	lda ls_units-8,y
 	and #$0f
 	sta cmd,x		; Drivenummer merken
-	sty cmd		; Offset als Flag fÃ¼r found
+	sty cmd		; Offset als Flag für found
 chk0	dey 
 	dex 
 	bne chk1
@@ -126,7 +126,7 @@ chk0	dey
 	sta distrib
 	lda #>getcmd
 	sta distrib+1
-	lda cmd		; ein CMD-GerÃ¤t dabei?
+	lda cmd		; ein CMD-Gerät dabei?
 	bne chk3		; ja
 
 ; ------------------------------------------------ Blink the Border
@@ -145,7 +145,7 @@ graphon	ldy #2		; nein, Rahmenblinken (2: rot)
 
 ; ------------------------------------------------ 
 
-mousereq	lda #<chkmouse	; Einlesevektor fÃ¼r RTC Smartmouse setzen
+mousereq	lda #<chkmouse	; Einlesevektor für RTC Smartmouse setzen
 	sta distrib
 	lda #>chkmouse
 	sta distrib+1
@@ -249,7 +249,7 @@ zeit	lda time+4	; Stunde
 	ldy #>clocklst
 	jsr gd_screen
 
-	lda sc_normtext	; und einfÃ¤rben
+	lda sc_normtext	; und einfärben
 	sta sc_chgcol
 	lda #<daygad
 	ldx #>daygad
@@ -274,7 +274,7 @@ makeday	lda time		; Wert mal 3
 	adc temp
 	tax 
 	ldy #0
-md1	lda adays,x	; KÃ¼rzel holen
+md1	lda adays,x	; Kürzel holen
 	sta daytxt,y	; und in Requester schreiben
 	inx 
 	iny 
@@ -302,7 +302,7 @@ maketag	lda time		; Wert mal 3
 	adc temp
 	tax 
 	ldy #0
-md3	lda gdays,x	; KÃ¼rzel holen
+md3	lda gdays,x	; Kürzel holen
 	sta daytxt,y	; in Requester
 	inx 
 	iny 
@@ -320,28 +320,30 @@ md3	lda gdays,x	; KÃ¼rzel holen
 	adc #12
 	sta time+4
 
-md4	lda #32		; am/pm lÃ¶schen
+md4	lda #32		; am/pm löschen
 	sta time0
 	sta time0+1
 	rts 
 
 ; ------------------------------------------------ Switch Mode
 
-evmode	jsr gettime	; deutsch/englisch umschalten
-	ldx mode
+evmode	jsr gettime	; Zeit neu einlesen
+	ldx mode		; deutsch/englisch umschalten
 	inx 
 	beq em0
 	ldx #$ff
 em0	stx mode
+	jsr gettime
+em2	ldx mode
 	bne em1
-	jmp showtime1	; 0: englisch
-em1	jmp showtime2	; 1: deutsch
+	jmp showtime1	;  =0: englisch
+em1	jmp showtime2	; <>0: deutsch
 
 ; ------------------------------------------------ Get Time
 
 evtime	jsr gettime	; Zeit einlesen
 	ldx mode		; und ausgeben
-	jmp em0
+	jmp em2
 
 ; ------------------------------------------------ Leave
 
@@ -385,7 +387,7 @@ mode	!by 0		; default: englisch (0)
 doffs	!by 34,41,49,57	; Offsets auf Drives im Filerequester
 cmd	!by 0,0,0,0,0	; CMD-Drivenummern mit RTC
 
-command	!tx "t-rd"	; Kommando fÃ¼r Drive-RTCs
+command	!tx "t-rd"	; Kommando für Drive-RTCs
 comlen	!by 4
 time	!by 0,0,0,0,0,0,0,0,0 ; wd yy mm dd hh mm ss ap ..
 
@@ -692,11 +694,13 @@ hdshk2	lda tc_spistat
 	dex		; .x=0
 	lda time+4	; 12/24?
 	cmp #13
-	bcc +
-	sbc #12		; 12, so subtract 12
+	bcc ++
+	ldy mode		; German/English? 
+	bne +
+	sbc #12		; English, so subtract 12
 	sta time+4
-	ldx #$80		; and set am/pm-flag
-+	stx time+7
++	ldx #$80		; and set am/pm-flag
+++	stx time+7
 	rts
 
 modend	!eof
