@@ -63,7 +63,7 @@ header	jmp start
 ;
 ; ------------------------------------------------ 
 
-clear	ldx #4		; Drivenummern löschen
+clear	ldx #4		; Drivenummern lÃ¶schen
 	lda #0
 chk2	sta cmd,x
 	dex 
@@ -78,14 +78,14 @@ gettime	jmp (distrib)
 
 start	ldy #0		; init Mausflag
 	sty cmd
-	lda shift		; Shift, CTRL oder C= gedrückt?
-	bne +		; ja, Maustest übergehen
+	lda shift		; Shift, CTRL oder C= gedrÃ¼ckt?
+	bne +		; ja, Maustest Ã¼bergehen
 	jsr chkmouse	; nein, ist RTC in Smartmouse?
 +	jsr clear
 	lda cmd		; (cmd=0 if no Smartmouse found)
 	bne mousereq	; cmd=6, Smartmouse found, branch
 
-	ldy #11		; sonst: CMD-Geräte erkennen
+	ldy #11		; sonst: CMD-GerÃ¤te erkennen
 	ldx #4
 chk1	lda doffs-8,y
 	sty ymrk
@@ -97,7 +97,7 @@ chk1	lda doffs-8,y
 	lda ls_units-8,y
 	and #$0f
 	sta cmd,x		; Drivenummer merken
-	sty cmd		; Offset als Flag für found
+	sty cmd		; Offset als Flag fÃ¼r found
 chk0	dey 
 	dex 
 	bne chk1
@@ -106,7 +106,7 @@ chk0	dey
 	sta distrib
 	lda #>getcmd
 	sta distrib+1
-	lda cmd		; ein CMD-Gerät dabei?
+	lda cmd		; ein CMD-GerÃ¤t dabei?
 	bne chk3		; ja
 
 ; ------------------------------------------------ Blink the Border
@@ -125,7 +125,7 @@ graphon	ldy #2		; nein, Rahmenblinken (2: rot)
 
 ; ------------------------------------------------ 
 
-mousereq	lda #<chkmouse	; Einlesevektor für RTC Smartmouse setzen
+mousereq	lda #<chkmouse	; Einlesevektor fÃ¼r RTC Smartmouse setzen
 	sta distrib
 	lda #>chkmouse
 	sta distrib+1
@@ -229,7 +229,7 @@ zeit	lda time+4	; Stunde
 	ldy #>clocklst
 	jsr gd_screen
 
-	lda sc_normtext	; und einfärben
+	lda sc_normtext	; und einfÃ¤rben
 	sta sc_chgcol
 	lda #<daygad
 	ldx #>daygad
@@ -254,7 +254,7 @@ makeday	lda time		; Wert mal 3
 	adc temp
 	tax 
 	ldy #0
-md1	lda adays,x	; Kürzel holen
+md1	lda adays,x	; KÃ¼rzel holen
 	sta daytxt,y	; und in Requester schreiben
 	inx 
 	iny 
@@ -282,7 +282,7 @@ maketag	lda time		; Wert mal 3
 	adc temp
 	tax 
 	ldy #0
-md3	lda gdays,x	; Kürzel holen
+md3	lda gdays,x	; KÃ¼rzel holen
 	sta daytxt,y	; in Requester
 	inx 
 	iny 
@@ -300,7 +300,7 @@ md3	lda gdays,x	; Kürzel holen
 	adc #12
 	sta time+4
 
-md4	lda #32		; am/pm löschen
+md4	lda #32		; am/pm lÃ¶schen
 	sta time0
 	sta time0+1
 	rts 
@@ -365,7 +365,7 @@ mode	!by 0		; default: englisch (0)
 doffs	!by 34,41,49,57	; Offsets auf Drives im Filerequester
 cmd	!by 0,0,0,0,0	; CMD-Drivenummern mit RTC
 
-command	!tx "t-rd"	; Kommando für Drive-RTCs
+command	!tx "t-rd"	; Kommando fÃ¼r Drive-RTCs
 comlen	!by 4
 time	!by 0,0,0,0,0,0,0,0,0
 
