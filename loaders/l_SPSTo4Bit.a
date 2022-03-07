@@ -18,6 +18,7 @@
 ;                    or multiple single sprites
 ;    1.04, 05.03.20, changed file format (added timer)
 ;    1.05, 26.05.20, changed file format (added optimization flag)
+;    1.06, 07.03.22, added hires rendering
 ;
 ; ----------------------------------------- 
 
@@ -39,7 +40,7 @@
 	sprcol		= $4a	; sprites' own color (%10)
 	sprmul1		= $4b	; multi color 1      (%11)
 	mulconv		= $4c	; conversion buffer, up to $4f
-	status		= $90
+	col0		= $50
 
 	offx		= $b2
 	offy		= offx+1
@@ -47,10 +48,6 @@
 	ld11		= $1825	;         load file
 	lsm1		= $194b	;         load
 	jsuni		= $19d4	;         patch
-
-	vrbuf		= $c600
-	crbuf		= vrbuf+1000
-	col0		= vrbuf+2000
 
 ; --------------------------------------- Header
 
@@ -61,8 +58,8 @@
 	!wo modend
 	!by $00,$00
 	!pet "Spriteset Loader"
-	!pet "1.05"
-	!pet "26.05.20"
+	!pet "1.06"
+	!pet "07.03.22"
 	!pet "A.Dettke        "
 
 ; --------------------------------------- Service Routines 
@@ -192,11 +189,11 @@ convert	ldx #255
 	lda #1
 	sta cntwert
 	sta cntaction
-es0	jsr next
+es0	jsr next		; count (1st to 0)
 	lda gmode
 	bne es2
-	jsr cnvhsprite	; hires (not yet implemented)
-	bne es1
+	jsr cnvhsprite	; hires 
+	jmp es1
 es2	jsr cnvmsprite	; multi
 es1	ldx maxnumber
 	cpx curnumber
@@ -220,7 +217,7 @@ sk10	jsr gd_xmess	; error message from drive
 
 ; ----------------------------------------- Skip Sprite Pointers
 
-spointers	ldx totnumber
+spointers	ldx infile	; ### 1.06
 -	jsr basin
 	bcs +
 	dex
@@ -266,8 +263,7 @@ sc1	inx
 	sty curry		; Zeile des Sprites im 4Bit
 
 	dex
-;	lda curnumber
-	sec
+	sec		; .a = curnumber
 	sbc multab,x
 	bcs sc2
 	lda curnumber
@@ -323,8 +319,10 @@ scp5	lda currspr
 	clc
 	adc #$20
 	sta src+1
-	ldy #63
+
+	ldy #63		; then retrieve individual sprite color
 	lda (src),y
+	and #15
 	sta spritecol2
 
 	rts 
@@ -332,14 +330,14 @@ scp5	lda currspr
 ; --------------------------------------- Convert one Sprite (multi)
 
 cnvmsprite
-	jsr setcurr
+	jsr setcurr	; returns also indivual spr col
 
 ; --------------------------------------- Convert Multi
 
 msprite	lda background	; result at sprback,x
 	jsr getdnib
 	sta sprback
-	lda spritecol2
+	lda spritecol2	; individual spr col
 	jsr getdnib
 	sta sprcol
 	lda spritecol0
@@ -402,16 +400,16 @@ gs7	pla		; all block lines per sprite?
 ; --------------------------------------- Render Multi no expand
 
 mnox	jsr mulindex
-mnx1	pha
-	lda mulconv,x	; get bit pattern
+mnx1	pha		; 1st: .a=0, .y=0
+	lda mulconv,x	; get bit pattern (1st: .x=0)
 	and #3
 	tax
 	lda sprback,x	; übertragen nach 4bit
 	sta (dst),y
 mnx2	pla
 	tax
-	inx
-	txa
+	inx		; .x=1
+	txa		; .a=1
 	iny
 	cpx #4
 	bne mnx1
@@ -435,7 +433,98 @@ mex0	asl
 	tax		; .a=0
 	rts
 
+; --------------------------------------- Convert one Sprite (hires)
+
 cnvhsprite
+	jsr setcurr
+
+; --------------------------------------- Convert Hires
+
+hsprite	lda background
+	jsr getdnib
+	sta sprback
+	lda spritecol2	; individual spr col
+	jsr getdnib
+	sta sprcol
+
+	ldx #0		; must be 0
+	ldy #3
+
+pr2loop	tya
+	pha
+	sta temp
+	ldy curry		; sprite raster line
+	lda offs,y
+	clc
+	adc temp
+	tay
+	lda (renderline),y	; now convert:
+	beq gs27
+	sta lcnt		; counts remaining lines per tile 
+
+z2loop	ldy #0
+
+mk23	jsr hnox		; one byte to 4bit
+
+mk272	inc src		; next byte in sprite bitmap
+	bne mk273
+	inc src+1
+
+mk273	cpy #$60		; third is processed?
+	bne mk23		; no, loop
+
+	clc		; yes, next raster line in 4Bit
+	lda dst
+	adc #4
+	sta dst
+	bcc mk275
+	inc dst+1
+
+mk275	dec lcnt		; alle durch?
+	bne z2loop
+
+	clc		; next block line in 4Bit
+	lda dst
+	adc #$e0
+	sta dst
+	lda dst+1
+	adc #$04
+	sta dst+1
+
+gs27	pla		; all block lines per sprite?
+	tay
+	dey
+	bpl pr2loop
+	jmp action	; then action
+
+; --------------------------------------- Render Hires no expand
+
+hnox	lda (src,x)	; get sprite bitmap byte
+	sta byte
+hnx1	asl byte		; bit 1,3,5,7
+	bcc +
+	lda sprcol
+	!by $2c
++	lda sprback
+	and #$f0
+	sta (dst),y
+	asl byte		; bit 2,4,6,8
+	bcc +
+	lda sprcol
+	!by $2c
++	lda sprback
+	and #$0f
+	ora (dst),y
+	sta (dst),y
+	iny
+	inx
+	cpx #4
+	bne hnx1
+	ldx #0		; reset .x
+	tya		; now proceed to next tile
+	clc
+	adc #28
+	tay
 	rts
 
 ; --------------------------- 
