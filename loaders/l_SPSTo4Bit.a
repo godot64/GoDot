@@ -19,6 +19,8 @@
 ;    1.04, 05.03.20, changed file format (added timer)
 ;    1.05, 26.05.20, changed file format (added optimization flag)
 ;    1.06, 07.03.22, added hires rendering
+;    1.07, 08.03.22, optimized code
+;    1.08, 08.03.22, take care of single sprite anims
 ;
 ; ----------------------------------------- 
 
@@ -58,8 +60,8 @@
 	!wo modend
 	!by $00,$00
 	!pet "Spriteset Loader"
-	!pet "1.06"
-	!pet "07.03.22"
+	!pet "1.08"
+	!pet "08.03.22"
 	!pet "A.Dettke        "
 
 ; --------------------------------------- Service Routines 
@@ -127,7 +129,6 @@ stt1	jsr readbyte	; get header (tot. 18 bytes)
 	jsr checkform	; richtiges Fileformat? ("GOD7")
 	bne jerror
 
-stt3	jsr amount	; # of sprites and # of bytes in total
 	jsr basin		; # of sprites in this file
 	sta infile
 	jsr basin		; # of followup files (if 0: last file in line)
@@ -136,6 +137,28 @@ stt3	jsr amount	; # of sprites and # of bytes in total
 	sta timer
 	jsr basin		; optimization flag ### 1.05
 	sta optimized
+
+	clc		; ### 1.08...
+	lda width		; single sprite anim? (result>3)
+	adc height
+	adc infile
+	bcs +
+	cmp #3
+	beq stt3
++	ldx #8		; yes, set width to 8
+	stx width
+	inx
+	lda infile	; height to 9 (for a max of 72)...
+	cmp #72
+	bcs +
+	ldx #$ff		; (if lt 72: divide by 8 until <=0)
+	sec
+-	inx		; ...or lower
+	sbc #8
+	bcs -
++	stx height	; ...###
+
+stt3	jsr amount	; compute # of sprites and # of bytes in total
 
 	jsr spointers	; retrieve sprite pointers (for now: just skip them)
 	bcc +
@@ -189,13 +212,10 @@ convert	ldx #255
 	lda #1
 	sta cntwert
 	sta cntaction
+
 es0	jsr next		; count (1st to 0)
-	lda gmode
-	bne es2
-	jsr cnvhsprite	; hires 
-	jmp es1
-es2	jsr cnvmsprite	; multi
-es1	ldx maxnumber
+	jsr cnvsprite	; convert sprites to 4bit
+	ldx maxnumber
 	cpx curnumber
 	bne es0
 
@@ -203,8 +223,12 @@ es1	ldx maxnumber
 
 	ldx #0		; reset text to default ("Sprites")
 	jsr tcopy
-	jsr setinfo	; set filename
-	stx gr_redisp	; set re-render flag
+	stx gr_redisp	; set re-render flag (.x>0)
+	lda gmode		; mode: 0 (hires), 1 (multi)
+	bne +
+	jsr setginfo
+	beq sk10
++	jsr setminfo	; set filename
 
 sk10	jsr gd_xmess	; error message from drive
 	jsr gd_spron	; sprite pointer on
@@ -327,14 +351,12 @@ scp5	lda currspr
 
 	rts 
 
-; --------------------------------------- Convert one Sprite (multi)
+; --------------------------------------- Convert one Sprite
 
-cnvmsprite
+cnvsprite
 	jsr setcurr	; returns also indivual spr col
 
-; --------------------------------------- Convert Multi
-
-msprite	lda background	; result at sprback,x
+sprite	lda background	; result at sprback,x
 	jsr getdnib
 	sta sprback
 	lda spritecol2	; individual spr col
@@ -358,21 +380,23 @@ prloop	tya
 	clc
 	adc temp
 	tay
-	lda (renderline),y	; now convert:
+	lda (renderline),y	; now convert one sprite line:
 	beq gs7
 	sta lcnt		; counts remaining lines per tile 
 
-zloop	ldy #0
+zloop	ldy #0		; ### 1.07...
 
-mk3	jsr mnox		; one byte to 4bit
-
-mk72	inc src		; next byte
+es2	lda gmode		; mode:
+	bne mk3
+	jsr hnox		; hires?
+	bne mk72
+mk3	jsr mnox		; multi?
+mk72	inc src		; next byte in sprite
 	bne mk73
 	inc src+1
-
-mk73	cpy #$60		; third is processed?
-	bne mk3		; no, loop
-
+mk73	cpy #$60		; third is processed? (24 pixels)
+	bne es2		; no, loop
+			; ... ###
 	clc		; yes, next raster line
 	lda dst
 	adc #4
@@ -395,7 +419,8 @@ gs7	pla		; all block lines per sprite?
 	tay
 	dey
 	bpl prloop
-	jmp action	; then action
+
+	jmp action	; finally action
 
 ; --------------------------------------- Render Multi no expand
 
@@ -406,14 +431,15 @@ mnx1	pha		; 1st: .a=0, .y=0
 	tax
 	lda sprback,x	; übertragen nach 4bit
 	sta (dst),y
-mnx2	pla
+	pla
 	tax
 	inx		; .x=1
 	txa		; .a=1
 	iny
 	cpx #4
 	bne mnx1
-	ldx #0
+
+mnx2	ldx #0
 	tya
 	clc
 	adc #28 		; y+32 = next tile in 4Bit
@@ -433,101 +459,32 @@ mex0	asl
 	tax		; .a=0
 	rts
 
-; --------------------------------------- Convert one Sprite (hires)
-
-cnvhsprite
-	jsr setcurr
-
-; --------------------------------------- Convert Hires
-
-hsprite	lda background
-	jsr getdnib
-	sta sprback
-	lda spritecol2	; individual spr col
-	jsr getdnib
-	sta sprcol
-
-	ldx #0		; must be 0
-	ldy #3
-
-pr2loop	tya
-	pha
-	sta temp
-	ldy curry		; sprite raster line
-	lda offs,y
-	clc
-	adc temp
-	tay
-	lda (renderline),y	; now convert:
-	beq gs27
-	sta lcnt		; counts remaining lines per tile 
-
-z2loop	ldy #0
-
-mk23	jsr hnox		; one byte to 4bit
-
-mk272	inc src		; next byte in sprite bitmap
-	bne mk273
-	inc src+1
-
-mk273	cpy #$60		; third is processed?
-	bne mk23		; no, loop
-
-	clc		; yes, next raster line in 4Bit
-	lda dst
-	adc #4
-	sta dst
-	bcc mk275
-	inc dst+1
-
-mk275	dec lcnt		; alle durch?
-	bne z2loop
-
-	clc		; next block line in 4Bit
-	lda dst
-	adc #$e0
-	sta dst
-	lda dst+1
-	adc #$04
-	sta dst+1
-
-gs27	pla		; all block lines per sprite?
-	tay
-	dey
-	bpl pr2loop
-	jmp action	; then action
-
 ; --------------------------------------- Render Hires no expand
-
+; 			  ### 1.07
 hnox	lda (src,x)	; get sprite bitmap byte
 	sta byte
 hnx1	asl byte		; bit 1,3,5,7
 	bcc +
-	lda sprcol
+	lda sprcol	; get colors
 	!by $2c
 +	lda sprback
 	and #$f0
 	sta (dst),y
 	asl byte		; bit 2,4,6,8
 	bcc +
-	lda sprcol
+	lda sprcol	; get colors
 	!by $2c
 +	lda sprback
 	and #$0f
 	ora (dst),y
-	sta (dst),y
+	sta (dst),y	; write 4Bit
 	iny
 	inx
-	cpx #4
+	cpx #4		; 8 pixels
 	bne hnx1
-	ldx #0		; reset .x
-	tya		; now proceed to next tile
-	clc
-	adc #28
-	tay
-	rts
+	beq mnx2
 
-; --------------------------- 
+; --------------------------------------- 
 
 error	jsr gd_xclose
 	jsr sk10
@@ -541,8 +498,8 @@ getdnib	and #$0f		; Farbe holen
 	lda dnib,x
 	rts
 
-; --------------------------------------- Decompress Image 
-; compression: flag, counter, byte ! $00 counts 256
+; --------------------------------------- Decompress Sprite Data
+; compression: flag, counter, byte - $00 counts 256
 ; --------------------------------------- 
 
 onebyte	lda counter	; repeated byte?
@@ -798,38 +755,40 @@ si1	rts
 
 ; --------------------------------------- Image Information
 
-getdatag	ldx #9
+getmodec	ldx #13
 	!by $2c
-getdatac	ldx #4
-	ldy #4
-sinfo0	lda dtextc,x
-	sta datatype,y
+getmodeg	ldx #6
+	ldy #6
+sinfo0	lda htext,x
+	sta modetx,y
 	dex
 	dey
 	bpl sinfo0
 	rts
 
-setinfo	jsr getdatac
-	jsr setname
+setginfo	jsr getmodeg
+	bmi +
+setminfo	jsr getmodec
++	jsr setname
 	jsr setloader
 	jsr setmode
 	jmp setdata
 
 setname	lda #0
-	ldx #<(ls_picname)
-	ldy #>(ls_picname)
+	ldx #<ls_picname
+	ldy #>ls_picname
 	bne si3
 setloader	lda #17
-	ldx #<(ls_iloader)
-	ldy #>(ls_iloader)
+	ldx #<ls_iloader
+	ldy #>ls_iloader
 	bne si3
 setmode	lda #25
-	ldx #<(ls_imode)
-	ldy #>(ls_imode)
+	ldx #<ls_imode
+	ldy #>ls_imode
 	bne si3
 setdata	lda #33
-	ldx #<(ls_idrive)
-	ldy #>(ls_idrive)
+	ldx #<ls_idrive
+	ldy #>ls_idrive
 si3	stx sc_texttab
 	sty sc_texttab+1
 	tax
@@ -851,7 +810,6 @@ datatype	!scr "Color@"	; 33
 htext	!scr "320x200"	; 46
 mtext	!scr "160x200"
 
-dtextc	!scr "Color"	; 4
-	!scr "Gray "	; 9
+; ----------------------------------------- 
 
 modend	!eof
