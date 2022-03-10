@@ -21,6 +21,7 @@
 ;    1.06, 07.03.22, added hires rendering
 ;    1.07, 08.03.22, optimized code
 ;    1.08, 08.03.22, take care of single sprite anims
+;    1.09, 09.03.22, bugfix: reset of filename after having used it
 ;
 ; ----------------------------------------- 
 
@@ -60,18 +61,29 @@
 	!wo modend
 	!by $00,$00
 	!pet "Spriteset Loader"
-	!pet "1.08"
-	!pet "08.03.22"
+	!pet "1.09"
+	!pet "09.03.22"
 	!pet "A.Dettke        "
 
 ; --------------------------------------- Service Routines 
 
+jsk10	ldx #15		; ### 1.09...
+-	lda nbuf,x	; reget filename after Cancel
+	sta ls_picname,x
+	dex
+	bpl -		; ...####
+	jmp sk10		; cancel
+
 jerror	jmp error		; file error
-jsk10	jmp sk10		; cancel
 
 directory	inc used		; =0 now
 	lda gd_modswitch	; memory handler
 	sta ms_store
+	ldx #15		; ### 1.09...
+	lda #32		; space to name buffers
+-	sta ls_picname,x
+	dex
+	bpl -		; ...####
 	lda #<spstx	; prefix "SPS."
 	pha
 	lda #>spstx
