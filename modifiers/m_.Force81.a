@@ -1,0 +1,156 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ----------------------------------------- 
+;
+;  mod.Force81
+;   Module to set a drive to 1581 when hardware
+;   recognition failed
+;
+;  1.00, 11.03.22, first release
+;
+; ----------------------------------------- 
+
+; ----------------------------------------- Equates
+
+	zeile	= sc_merk
+	spalte	= zeile+1
+
+	present	= $14a2
+	cnvdez	= $1b05
+
+; ----------------------------------------- Header
+
+header	jmp start
+	!by $20
+	!by 0
+	!by 0
+	!wo modend
+	!wo 0
+	!tx "Force 1581 drive"
+	!tx "1.00"
+	!tx "11.03.22"
+	!tx "A.Dettke        "
+
+; ----------------------------------------- Main 
+
+start	ldx #<screenlst	; build requester
+	ldy #>screenlst
+	jsr gd_screen
+	jmp gd_eloop	; now wait for gadget clicks
+
+; ----------------------------------------- Event: Leave Module
+
+evcancel	sec
+	rts
+
+; ----------------------------------------- Event: Select Drive 
+
+evselect	ldx drivenr	; last drive number
+	lda spalte	; where clicked?
+	cmp #23
+	bcc +
+--	inx		; right: increment
+	bne ++
+-
++	dex		; left : decrement
+++	cpx #8		; less than 8?
+	bcc --
+	cpx #12		; more then 11?
+	bcs -		; don't exceed
+
+	lda ls_units-8,x	; drive present?
+	and #15
+	beq --		; no, proceed to next
+	stx drivenr	; set new drive number
+	txa
+	jsr cnvdez	; convert to decimal
+	sta selcttx+1
+	lda #32
+	cpx #$30
+	beq +
+	txa
++	sta selcttx	
+	jmp textout	; and show
+
+
+; ----------------------------------------- Event: Apply
+
+evapply	ldx drivenr	; get drive number
+	lda ls_units-8,x	; implement: 
+	ora #$80
+	sta ls_units-8,x	; drive type 1581
+	lda #40
+	sta ls_ftabt-8,x	; dir track: 40
+	lda #3
+	sta ls_ftabs-8,x	; dir sector: 3
+	sec		; leave module
+	rts
+
+; ----------------------------------------- Text Output Handler
+
+tabigad	!wo selctgad	; .y:0
+
+settxt	lda #<tabigad
+	sta sc_texttab
+	lda #>tabigad
+	sta sc_texttab+1
+
+gettab	lda (sc_texttab),y	; set gadget parameters (where to output)
+	sta sc_screentab
+	iny
+	lda (sc_texttab),y
+	sta sc_screentab+1
+
+	lda #0
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #4
+	bne gt0
+	jsr gd_trim
+	jmp gd_initmove
+
+; ----------------------------------------- Output Text
+
+textout	ldy #0		; .y: index in tabigad
+	jsr settxt
+	ldy #6		; offset to gadget text area
+	jmp gd_xtxout1	; show text
+
+; ----------------------------------------- Data
+
+drivenr	!by 8
+
+; ----------------------------------------- Screenlist
+
+screenlst	!by 0
+	!by 8,14
+	!by 11,9
+	!by $91
+	!wo 0
+title	!scr " Force81",0
+
+selctgad	!by 10,21,4,3,$cf
+	!wo evselect
+selcttx	!scr " 8",0
+	!by 12,14,11,3,$cb
+	!wo evapply
+	!scr " Apply",0
+	!by 14,14,11,3,$cb
+	!wo evcancel
+	!scr " Leave",0
+
+	!by $c0
+	!by 10,14
+	!by 6
+	!scr "Drive:",0
+
+	!by $80
+
+; ----------------------------------------- 
+
+modend	!eof
