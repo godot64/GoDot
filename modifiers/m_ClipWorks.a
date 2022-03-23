@@ -18,6 +18,7 @@
 ; 1.09, 26.05.18: made Preview safer (avoiding color trash on Show after Execute from RAM)
 ; 1.10, 20.06.19: added debounce on key presses when displaying graphics
 ; 1.11, 28.02.20: added leave subrequester after work
+; 1.12, 23.03.22: added automatic reaction to exceeding input values
 ;
 ; ------------------------------------------------ 
 
@@ -86,8 +87,8 @@
 	!wo modend
 	!wo 0
 	!pet "ClipWorks       "
-	!pet "1.11"
-	!pet "28.02.20"
+	!pet "1.12"
+	!pet "23.03.22"
 	!pet "A. Dettke       "
 
 ; ------------------------------------------------ Main
@@ -748,39 +749,50 @@ getword	iny		; convert digits to integers
 
 ; ------------------------------------------------ Check for valid values
 
-gw0	lda inmerk	; get flag for type of inputted value
+gw0	lda inmerk	; get flag for type of inputted value (0..3)
 	tax		; save to .x
 	eor #3
-	tay
-	txa		; was row?
+	tay		; 0 corresponds to 3, 1 to 2
+	txa		; was row (0)?
 	beq gw1		; yes
 
-	cpx #1		; was column?
+	cpx #1		; was column (1)?
 	beq gw1		; yes
 
-	lda int		; no, value was zero?
+	lda int		; no, was 2 or 3, value was zero?
 	beq gw2		; yes, finish
 	bne gw4		; else proceed
 
-gw1	lda sc_clipzl,y	; was row+ver>max or was hor+col>max?
-gw3	clc
+gw11	lda sc_clipzl,y	; 0 or 1: get value from corresponding 
+gw3	clc		; add input value
 	adc int
 	sta int+1
-	sec
+	sec		; compare to max value
 	lda max-2,y
 	sbc int+1
-	bcc gw2		; yes, no change
-	lda int
-	sta clipundo,x
-gw2	jmp ss53		; and show value
+	bcc gw2		; exceeded? (if yes, don't change undo buffer)
+gw21	lda int		; no, take input value
+	sta clipundo,x	; save to undo buffer
+gw2	jmp ss53		; and show all values
 
-gw4	lda sc_clipzl,y	; care for right value
+gw4	lda sc_clipzl,y	; 2 or 3: get corresponding value
 	pha
-	tya
+	tya		; reset .y to 2 or 3 comparison
 	eor #3
 	tay
 	pla
-	jmp gw3
+	jmp gw3		; now compare
+
+gw1	lda sc_clipzl,y	; 0 or 1: exceeded?
+	clc
+	adc int
+	sta int+1
+	cmp max-2,y
+	bcc gw11		; no, set input value
+	lda max-2,y	; yes, compute max minus int
+	sbc int
+	sta clipundo,y	; set as corresponding value
+	jmp gw21		; and set input value
 
 ; ----------------------------------------- Event: Show Preview
 
