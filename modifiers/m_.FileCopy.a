@@ -17,6 +17,7 @@
 ;                 changed some minor things
 ; 1.13, 29.08.17, changed: getting empty DIR (VICE would crash old way to do it)
 ; 1.14, 13.10.20, changed: location of DSPALTE in god.main has changed
+; 1.15, 26.03.22, bugfix: d81 dir stopped before end
 ;
 ; ------------------------------------------------ 
 
@@ -43,12 +44,12 @@
 	dspalte		= $1aac		; system dir window indent; ### 1.14
 
 	block		= sy_global	; system dir buffers
-	ftrack		= block+96
+	ftrack		= block+$60	; ($3fa0)
 	dirbuffer		= sy_bigbuffer
 	dirname		= dirbuffer+5
 	blksfree		= dirbuffer+32
 	filetype		= dirbuffer+54
-	fftrack		= dirbuffer+160
+	fftrack		= dirbuffer+160	; ($bfa0)
 	buffer		= $cd00		; transport buffer (1 block)
 
 	sprite		= $d015
@@ -65,8 +66,8 @@
 	!wo modend
 	!wo 0
 	!pet "FileCopy        "
-	!pet "1.14"
-	!pet "13.10.20"
+	!pet "1.15"
+	!pet "26.03.22"
 	!pet "A.Dettke        "
 
 ; ----------------------------------------- Main
@@ -272,11 +273,11 @@ sdir0	sta dspalte	; System-Indent fürs Dir-Fenster ändern
 	jsr gd_dir	; System-Directory
 	jsr svftrack	; save system track list
 	lda ls_track
-	sta block+$1d
+	sta block+$2d
 	lda ls_first
-	sta block+$1f
+	sta block+$2f
 sdir3	lda ls_cblocks
-	sta block+$1e
+	sta block+$2e
 sdir1	lda #5		; System-Indent restaurieren
 	sta dspalte
 sdir2	clc 
@@ -779,13 +780,13 @@ sevsupdn	lda sc_merk
 	lda #1
 
 destud	sta dspalte
-	lda block+$1d
+	lda block+$2d
 	sta ls_track
 
 	lda merkzl	; wo geklickt?
 	cmp #6		; up oder down?
 	bcs up
-dn	ldy block+$1e
+dn	ldy block+$2e
 	bne sdw4
 	ldy #2
 sdw4	iny 
@@ -801,7 +802,7 @@ up	lda #1
 sdw5	ldx block
 	dex 
 	bne sdw2
-	ldy block+$1f
+	ldy block+$2f
 	inx 
 	sty block+1
 	bne sdw11
@@ -832,14 +833,14 @@ dirdest	jsr swap		; swap dir records
 	sta disklen
 	lda blksfree+1
 	sta disklen+1
-	ldx block+$1e
+	ldx block+$2e
 	beq sud1
 	dex 
 	beq sud1
 	dex 
 	bne sud2
 sud1	inx 
-sud2	stx block+$1e
+sud2	stx block+$2e
 	lda #5
 	bne sud3
 
@@ -962,7 +963,7 @@ rn1	lda rename,x
 	jsr cnva7
 	lda #5
 	sta merkzl
-	dec block+$1e
+	dec block+$2e
 	jmp destud-2	; Ergebnis anzeigen
 
 ; ------------------------------------------------ Event: DOS (Input a DOS Command)
@@ -1111,7 +1112,7 @@ cdp2	lda ftrack-1,x	; Chain of Tracks in Dir Window
 
 ; ------------------------------------------------ Get System Dir Sector Chain
 
-chkdrvpar	ldx #192
+chkdrvpar	ldx #192		; save all current bytes
 	jsr cdp2
 	lda sdrive
 	cmp ddrive
@@ -1119,19 +1120,17 @@ chkdrvpar	ldx #192
 	ldx #31
 cdp1	lda block,x
 	sta block+$40,x
-;	lda ftrack,x	; ### 1.11 ???
-;	sta ftrack+$40,x
 	dex 
 	bpl cdp1
 	lda ls_cblocks
-	sta block+$1e
-	sta block+$5e
+	sta block+$2e	; ### 1.15
+	sta block+$8e
 	lda ls_first
-	sta block+$1f
-	sta block+$5f
+	sta block+$2f
+	sta block+$8f
 	lda ls_track
-	sta block+$1d
-	sta block+$5d
+	sta block+$2d
+	sta block+$8d	; ...####
 cdp0	rts 
 
 ; ------------------------------------------------ Swap Chain for Destination Drive
