@@ -20,6 +20,7 @@
 ;    2.00, 04.11.20, added: install of dev.REU at runtime
 ;    2.01, 30.01.21, added: set ReloadOnBoot-flag (REUClear)
 ;    2.02, 26.01.22, added: recover UNDO of former sessions
+;    2.03, 28.03.22, added: recover REU-TEMP of former sessions
 ;
 ; ------------------------------------------------------------ 
 
@@ -63,8 +64,8 @@
 	!wo modend
 	!wo 0
 	!pet "Tool for REUs   "
-	!pet "2.02"
-	!pet "26.01.22"
+	!pet "2.03"
+	!pet "28.03.22"
 	!pet "A.Dettke        "
 
 ; ----------------------------------------------- Main 
@@ -122,7 +123,8 @@ st4	lda yesno,x
 	dex
 	dey
 	bpl st4
-	lda rm_tmpsaved	; Temp
+
+tstat	lda rm_tmpsaved	; Temp
 	beq st5
 	cmp #3
 	bne st6
@@ -130,7 +132,8 @@ st4	lda yesno,x
 	!by $2c
 st6	lda #1
 st5	ora #$30
-	sta numttx+1
+	sta numttx1+2
+	sta numttx2+1
 	rts
 
 ; ----------------------------------------------- 
@@ -914,10 +917,28 @@ ru2	lda yesno,x
 	clc
 	rts
 
+; ----------------------------------------------- Event: Recover Temp
+
+evrectmp	lda thisram	; REU attached?
+	and #$0d
+	cmp #4
+	bcc +
+	cmp #9
+	bcs +
+	lda rm_tmpsaved	; yes, set value for "activate temp"
+	ora #1
+	sta rm_tmpsaved
+	jsr tstat
+	ldy #12		; and show
+	jsr evc3
+
++	clc
+	rts
+
 ; ----------------------------------------------- 
 
 tabigad	!wo choosegad,ramgad,delgad,cleargad	; 0,2,4,6
-	!wo recu1gad,recu2gad		; 8,10
+	!wo recu1gad,recu2gad,rectmpgad	; 8,10,12
 
 settab	lda #<tabigad
 	sta sc_texttab
@@ -1038,6 +1059,9 @@ un4tx1	!scr " no",0
 recu2gad	!by 11,23,5,3,$d0		; Recover Undo Rendered
 	!wo evrecu2
 unrtx1	!scr " no",0	
+rectmpgad	!by 12,23,5,3,$d0		; Recover Temp
+	!wo evrectmp
+numttx1	!scr "  0",0	
 
 	!by 3,12,16,12,$b0,0,0	; Statusfenster
 	!scr "Status@"
@@ -1083,7 +1107,7 @@ un4tx2	!scr " no@"
 unrtx2	!scr " no@"
 	!by $c0,12,12,14
 	!scr "# of Temps: "
-numttx	!scr " 0@"
+numttx2	!scr " 0@"
 	!by $80
 
 ; ----------------------------------------------- 
