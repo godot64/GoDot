@@ -14,6 +14,7 @@
 ;   1.03, 26.11.18, bugfix: wrong start of line after topskip
 ;   1.04, 08.11.19, added more colors (now 64)
 ;   1.05, 12.09.21, added: break loading process with STOP key
+;   1.06, 30.03.22, changed base palette
 ; 
 ; -------------------------------------- 
 
@@ -97,8 +98,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "gif: LoadSection"
-	!pet "1.05"
-	!pet "12.09.21"
+	!pet "1.06"
+	!pet "30.03.22"
 	!pet "A.Dettke/W.Kling"
 addtxt	!pet "viva D. Jansen!!"
 	!by 0
@@ -250,7 +251,7 @@ pconv	pha		; R, G, or B values
 
 ; -------------------------------------- Get one color index byte from file
 
-getpal	ldy #$bd		; palette buffers: 
+getpal	ldy #$bd		; palette buffers (set vectors): 
 	sty palbuf1+1	; 1: $bd00 (red)
 	iny
 	sty palbuf2+1	; 2: $be00 (green)
@@ -379,7 +380,7 @@ cred1	!by 0,0,0,0,0,0,0,0
 	!by 0,0,0,0,0,0,0,0
 	!by 0,0,0,0,0,0,0,0
 	!by 0,0,0,0,0,0,0,0
-	!by 0,0,0,0,0,0,0,0		; # --- 1.02
+	!by 0,0,0,0,0,0,0,0
 	!by 0,0,0,0,0,0,0,0
 
 cgrn	!by 0,3,7,11,15,0,3,0
@@ -389,7 +390,7 @@ cgrn1	!by 0,0,0,0,0,0,0,0
 	!by 0,0,0,0,0,0,0,0
 	!by 0,0,0,0,0,0,0,0
 	!by 0,0,0,0,0,0,0,0
-	!by 0,0,0,0,0,0,0,0		; # --- 1.02
+	!by 0,0,0,0,0,0,0,0
 	!by 0,0,0,0,0,0,0,0
 
 cblu	!by 0,3,7,11,15,7,0,0
@@ -399,7 +400,7 @@ cblu1	!by 0,0,0,0,0,0,0,0
 	!by 0,0,0,0,0,0,0,0
 	!by 0,0,0,0,0,0,0,0
 	!by 0,0,0,0,0,0,0,0
-	!by 0,0,0,0,0,0,0,0		; # --- 1.02
+	!by 0,0,0,0,0,0,0,0
 	!by 0,0,0,0,0,0,0,0
 
 cpref	!by 11,7,3,0,15,2,9,6
@@ -414,64 +415,63 @@ cpref	!by 11,7,3,0,15,2,9,6
 	!by 40,41,42,43
 	!by 44,45,46,47
 	!by 48,49,50,51
-	!by 52,53,54,55		; # --- 1.02
+	!by 52,53,54,55
 	!by 56,57,58,59
 	!by 60,61,62,63
 
 ; -------------------------------------- Conversion table to IFLI
-;	  color-combi, r, g, b
+;	  color-combi, r, g, b		# --- 1.06 all!
 
 rgbtab	!by $30,02,02,02	; blk-dgr, 16	# --- 1.02
-	!by $04,05,00,00	; blk-red, 17	# --- 1.02
-	!by $be,10,13,08	; lgr-lgn, 18
-	!by $12,03,02,05	; blu-brn, 19
-	!by $34,05,01,01	; dgr-red, 20
-	!by $26,09,06,03	; brn-org, 21
-	!by $58,06,06,14	; pur-lbl, 22
-	!by $bc,10,13,12	; lgr-cyn, 23
-	!by $69,14,08,06	; ora-lrd, 24
-	!by $9d,15,11,07	; lrd-yel, 25
-	!by $bd,12,12,09	; lgr-yel, 26
-	!by $6a,07,09,05	; ora-grn, 27
-	!by $a8,04,10,10	; grn-lbl, 28
-	!by $ae,05,12,04	; grn-lgn, 29
-	!by $fd,14,14,11	; wht-yel, 30
-	!by $de,12,13,06	; yel-lgn, 31
+	!by $04,04,02,02	; blk-red, 17	# --- 1.02
+	!by $12,04,03,05	; blu-brn, 19
+	!by $34,07,04,04	; dgr-red, 20
+	!by $26,07,04,01	; brn-org, 21
+	!by $58,08,05,12	; pur-lbl, 22
+	!by $bc,08,11,11	; lgr-cyn, 23
+	!by $69,10,06,04	; ora-lrd, 24
+	!by $9d,12,10,06	; lrd-yel, 25
+	!by $bd,12,12,08	; lgr-yel, 26
+	!by $6a,07,08,03	; ora-grn, 27
+	!by $a8,06,08,09	; grn-lbl, 28
+	!by $ae,07,12,07	; grn-lgn, 29
+	!by $fd,14,15,11	; wht-yel, 30
+	!by $de,11,14,07	; yel-lgn, 31
 ;
-	!by $79,11,07,07	; mgr-lrd, 32
-	!by $57,10,06,10	; pur-mgr, 33
-	!by $ce,10,15,10	; cyn-lgn, 34
-	!by $6a,07,11,05	; ora-grn, 35	### 1.04
+	!by $79,10,07,07	; mgr-lrd, 32
+	!by $57,08,05,09	; pur-mgr, 33
+	!by $ce,08,13,10	; cyn-lgn, 34
+	!by $6a,07,08,03	; ora-grn, 35	### 1.04
 	!by $bf,13,13,13	; lgy-wht, 36
-	!by $7a,04,10,06	; mgr-grn, 37
-	!by $13,02,02,06	; blu-dgr, 38
-	!by $1a,00,06,07	; blu-grn, 39
-	!by $78,03,07,11	; mgr-lbl, 40
-	!by $67,10,08,06	; ora-mgr, 41
-	!by $a9,08,10,06	; grn-lrd, 42
-	!by $02,05,03,00	; blk-brn, 43	# --- 1.02
-	!by $56,13,06,08	; pur-org, 44
-	!by $14,04,00,05	; blu-red, 45
-	!by $25,09,04,06	; brn-pur, 46
-	!by $cf,13,15,15	; yel-wht, 47	### 1.04
+	!by $7a,06,09,06	; mgr-grn, 37
+	!by $13,04,04,08	; blu-dgr, 38
+	!by $1a,04,07,08	; blu-grn, 39
+	!by $78,07,07,11	; mgr-lbl, 40
+	!by $67,08,06,05	; ora-mgr, 41
+	!by $a9,08,08,06	; grn-lrd, 42
+	!by $02,03,02,00	; blk-brn, 43	# --- 1.02
+	!by $56,09,04,06	; pur-org, 44
+	!by $14,06,03,07	; blu-red, 45
+	!by $25,07,04,05	; brn-pur, 46
+	!by $cf,14,15,11	; yel-wht, 47	### 1.04
 
-	!by $01,00,00,05	; blk-blu, 48	# --- 1.02
-	!by $17,04,04,09	; blu-mgr, 49	### 1.04
-	!by $73,05,05,05	; mgr-dgr, 50
-	!by $18,00,04,13	; blu-lbl, 51	### 1.04
-	!by $ef,13,14,15	; lgn-wht, 52	### 1.04
-	!by $ab,06,12,09	; grn-lgr, 53	### 1.04
+	!by $01,02,01,05	; blk-blu, 48	# --- 1.02
+	!by $17,05,05,09	; blu-mgr, 49	### 1.04
+	!by $73,06,06,06	; mgr-dgr, 50
+	!by $18,05,05,12	; blu-lbl, 51	### 1.04
+	!by $ef,12,15,12	; lgn-wht, 52	### 1.04
+	!by $ab,07,12,07	; grn-lgr, 53	### 1.04
 	!by $fb,13,13,13	; wht-lgr, 54
-	!by $a3,02,08,04	; grn-dgr, 55	### 1.04
+	!by $a3,05,08,05	; grn-dgr, 55	### 1.04
 
-	!by $8b,06,12,14	; lbl-lgr, 56 --- 	### 1.04
-	!by $ac,05,14,10	; grn-cyn, 57
-	!by $d7,11,11,07	; yel-mgr, 58
-	!by $42,08,02,00	; red-bwn, 59
-	!by $29,11,06,04	; bwn-lrd, 60
-	!by $45,11,02,07	; red-pur, 61
-	!by $a2,03,09,03	; grn-bwn, 62
-	!by $ad,07,14,06	; grn-yel, 63 ---	### bis hier
+	!by $8b,08,08,12	; lbl-lgr, 56 --- 	### 1.04
+	!by $ac,06,11,08	; grn-cyn, 57
+	!by $d7,10,10,06	; yel-mgr, 58
+	!by $42,07,03,02	; red-bwn, 59
+	!by $29,08,05,03	; bwn-lrd, 60
+	!by $45,09,03,07	; red-pur, 61
+	!by $a2,05,07,02	; grn-bwn, 62
+	!by $ad,09,12,05	; grn-yel, 63 ---	### bis hier
 
 
 ; -------------------------------------- 
@@ -485,7 +485,7 @@ cnibs1	!by 0,0,0,0,0,0,0,0
 	!by 0,0,0,0,0,0,0,0
 	!by 0,0,0,0,0,0,0,0
 	!by 0,0,0,0,0,0,0,0
-	!by 0,0,0,0,0,0,0,0		; # --- 1.02
+	!by 0,0,0,0,0,0,0,0
 	!by 0,0,0,0,0,0,0,0
 
 ; -------------------------------------- Gray Conversion Routine
