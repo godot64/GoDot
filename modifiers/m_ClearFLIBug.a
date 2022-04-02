@@ -1,0 +1,601 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ----------------------------------------- 
+;
+;  mod.ClearFLIBug
+;   Module to provide a skeleton for other modules
+;
+;  1.00, 02.04.22, first release
+;
+; ----------------------------------------- 
+
+; ----------------------------------------- Equates
+
+	adcnt	= $30
+	vert	= $31
+	data	= $32	; /$33
+	data0	= $34	; /$35
+	cnt	= $36	; /$37
+	cntmk	= $38	; /$39
+	src	= $3a	; /$3b
+	dst	= $3c	; /$3d
+	linenr	= $3e
+	blcnt	= $40
+	vbuf0	= $42	; /$43
+	vbuf1	= $44	; /$45
+
+	sprptr	= $07f8
+	spr255	= $3fc0
+
+	buf0	= $c600
+	buf1	= $c800
+
+	spr2x	= $d004
+	spr2y	= $d005
+	msbx	= $d010
+	spren	= $d015
+	sprxe	= $d01d
+	border	= $d020
+	sprcol2	= $d029
+
+; ----------------------------------------- Header
+
+header	jmp start
+	!by $20
+	!by 0
+	!by 0
+	!wo modend
+	!wo 0
+	!tx "Clear FLIBugArea"
+	!tx "1.00"
+	!tx "02.04.22"
+	!tx "A.Dettke        "
+
+; ----------------------------------------- Main 
+
+start	ldx #<screenlst	; build requester
+	ldy #>screenlst
+	jsr gd_screen
+	jmp gd_eloop	; now wait for gadget clicks
+
+; ----------------------------------------- Event: Leave Modifier
+
+evleave	sec
+	rts
+
+; ----------------------------------------- Event: Apply
+
+evapply	jsr initad	; init activity display
+
+	lda amount	; displace?
+	beq +
+	jsr displace	; yes, move image right
++	jsr clearad	; then activity off
+
+	jsr setstart	; now clear fli bug:
+	lda #3		; compute 4bit width (3 tiles)
+	jsr mal32
+	lda #25		; and height
+	sta vert
+	jsr zero2		; then clear
+
+	lda decision	; then: add logo?
+	bne ++
+	lda #<logo	; yes, set src address
+	sta src
+	lda #>logo
+	sta src+1
+	jsr setstart	; yes, set base target address
+	ldx logopos
+	jsr mal1280	; compute 4bit position
+	clc
+	adc data+1
+	sta data+1
+	lda logopos+1
+	jsr mal32
+	clc
+	lda cnt
+	adc data
+	sta data
+	sta data0
+	lda cnt+1
+	adc data+1
+	sta data+1
+	sta data0+1	; move logo into fli bug
+	lda logopos+3	; height of logo (width is 1)
+	sta blcnt
+---	ldx #7		; move: 1 row
+--	ldy #0		; move: 1 rasterline
+-	lda (src),y
+	sta (data),y
+	iny
+	cpy #4
+	bcc -
+	clc		; next rasterline
+	lda src
+	adc #4
+	sta src
+	bcc +
+	inc src+1
++	clc
+	lda data
+	adc #4
+	sta data
+	bcc +
+	inc data+1
++	dex		; 8 rasterlines (of a row)?
+	bpl --
+	clc		; yes, next row
+	lda data0+1
+	adc #5
+	sta data0+1
+	sta data+1
+	lda data0
+	sta data
+	dec blcnt		; height rows?
+	bne ---
+++	sec		; yes, finished
+	rts
+
+; ------------------------------------------------ .x times 1280
+
+mal1280	clc
+	lda #0
+ml0	adc #5
+	dex
+	bne ml0
+	rts
+
+; ------------------------------------------------ .a times 32
+
+mal32	ldx #0
+	stx cnt+1
+	sta cnt
+	asl cnt
+	rol cnt+1
+	asl cnt
+	rol cnt+1
+	asl cnt
+	rol cnt+1
+	asl cnt
+	rol cnt+1
+	asl cnt
+	rol cnt+1
+	rts
+
+; ------------------------------------------------ 
+
+setstart	lda #>sy_4bit	; start from $4000
+	ldy #<sy_4bit
+	sta data0+1
+	sta data+1
+	sty data0
+	sty data
+	rts
+
+; ------------------------------------------------ Clear FLIBug by BLK
+
+zero1	ldy #0
+	beq z1
+ml1	lda cnt		; count width (3 tiles)
+	bne ml2
+	dec cnt+1
+ml2	dec cnt
+	lda cnt
+	ora cnt+1
+	beq ml3
+z1	lda #0		; set black
+	sta (data),y
+	inc data
+	bne ml1
+	inc data+1
+	bne ml1
+ml3	rts
+
+zero2	lda cnt+1
+	ldx cnt
+	sta cntmk+1
+	stx cntmk
+	ldx vert		; count height (25 rows)
+ml7	jsr zero1
+	clc
+	lda data0+1
+	adc #5
+	sta data0+1
+	sta data+1
+	lda data0
+	sta data
+	lda cntmk+1
+	sta cnt+1
+	lda cntmk
+	sta cnt
+	dex
+	bne ml7
+	rts
+
+; ----------------------------------------- Event: Set Displace
+
+evdisplc	ldx displc	; Values: 0..3
+	cpx #3
+	bcc +
+	ldx #$ff
++	inx
+	stx displc
+	lda pixels,x
+	sta amount
+	txa
+	jsr gd_xcnvdez
+	sta displtx+1
+	ldy #2
+	bne txout2
+
+; ----------------------------------------- Text Output Handler
+
+tabigad	!wo addlggad	; .y: 0
+	!wo displgad	;     2
+
+settxt	lda #<tabigad
+	sta sc_texttab
+	lda #>tabigad
+	sta sc_texttab+1
+
+gettab	lda (sc_texttab),y
+	sta sc_screentab
+	iny
+	lda (sc_texttab),y
+	sta sc_screentab+1
+
+	lda #0
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #4
+	bne gt0
+	jsr gd_trim
+	jmp gd_initmove
+
+; ----------------------------------------- Event: Add Logo?
+
+evaddlg	ldx decision	; switch decision (default: yes):
+	beq swc0
+	ldx #$ff
+swc0	inx
+	stx decision	; 0: yes, 1: no
+	beq swc1
+	ldx #5
+	!by $2c
+swc1	ldx #2
+	ldy #2
+swc2	lda yesno,x	; change text
+	sta addlgtx,y
+	dex
+	dey
+	bpl swc2		; and then show:
+
+; ----------------------------------------- Output Text
+
+textout	ldy #0		; .y: index in tabigad
+txout2	jsr settxt
+	ldy #6		; offset to gadget text area
+	jmp gd_xtxout1	; show text
+
+; ------------------------------------ Zeilenadresse berechnen
+
+getladd	lda linenr	; durch 8 (wird Index in Hibyte-Tabelle)
+	pha
+	lsr
+	lsr
+	lsr
+	tax
+	pla		; Lobyte mal 4
+	and #$07
+	asl
+	asl
+	sta dst		; ist 4Bitadresse
+	lda line8,x
+	sta dst+1
+	rts
+
+; ----------------------------------------- Scroll to the right
+
+displace	lda #0		; prepare: Linien (0-200)
+	sta linenr
+loop00	jsr getladd	; Zeilenadresse ermitteln
+	lda #<buf0	; eine Linie holen und "entnibbeln"
+	ldx #>buf0
+	sta src
+	stx src+1
+	ldx #0
+	lda #40
+	sta blcnt
+loop0	ldy #0
+loop1	lda (dst),y
+	pha
+	lsr
+	lsr
+	lsr
+	lsr
+	sta (src,x)	; Highnibble isolieren
+	inc src
+	bne skip0
+	inc src+1
+skip0	pla
+	and #$0f
+	sta (src,x)	; Lonibble isolieren
+	inc src
+	bne skip1
+	inc src+1
+skip1	iny		; eine Kachelzeile
+	cpy #4
+	bne loop1
+	lda dst		; nächste Kachel
+	clc
+	adc #32
+	sta dst
+	bcc skip2
+	inc dst+1
+skip2	dec blcnt		; 40 Kacheln durch (320 Pixel)
+	bne loop0
+
+; ------------------------------------ Do scroll
+
+rechts	jsr setvb0	; Quellpuffer auf Start
+	lda #<buf1	; Zielpuffer, eingerückt um amount Bytes
+	clc
+	adc amount
+	sta vbuf1
+	ldy #>buf1
+	sty vbuf1+1
+	jsr move512	; verschieben
+
+	dec vbuf0+1	; Quelle minus 256 (zeigt jetzt auf Quelle+256)
+	sec		; Index auf Position ganz rechts setzen
+	lda #<320
+	sbc amount
+	sta vbuf0
+	jsr setvb1	; Zielpuffer auf Start
+	ldx amount	; und amount als Zähler
+
+shift	ldy #0
+shf0	lda (vbuf0),y	; Bytes umlagern
+	sta (vbuf1),y
+	iny
+	dex
+	bne shf0
+
+; ------------------------------------ Back to 4Bit
+
+	jsr getladd	; Adresse der Linie ermitteln
+	lda #<buf1	; zurückschreiben
+	ldx #>buf1
+	sta src
+	stx src+1
+	ldx #0
+	lda #40		; 40 Kacheln bearbeiten
+	sta blcnt
+loop2	ldy #0		; wieder zusammennibbeln
+loop3	lda (src,x)
+	asl
+	asl
+	asl
+	asl
+	inc src
+	bne skip3
+	inc src+1
+skip3	ora (src,x)
+	inc src
+	bne skip4
+	inc src+1
+skip4	sta (dst),y	; und ins 4Bit damit
+	iny
+	cpy #4		; eine Kachellinie
+	bne loop3
+	lda dst		; nächste Kachel
+	clc
+	adc #32
+	sta dst
+	bcc skip5
+	inc dst+1
+skip5	dec blcnt		; alle 40 Kacheln durch
+	bne loop2
+
+	jsr adinc		; Balken bewegen
+	inc linenr	; nächste Linie
+	lda linenr	; bis alle 200 Linien durch
+	cmp #200
+	beq exit
+	jmp loop00
+
+exit	jmp initad
+
+; ------------------------------------ Quellpuffer setzen 
+
+setvb0	lda #<buf0
+	ldy #>buf0
+sv0	sta vbuf0
+	sty vbuf0+1
+	rts
+
+; ------------------------------------ Zielpuffer setzen 
+
+setvb1	lda #<buf1
+	ldy #>buf1
+sv1	sta vbuf1
+	sty vbuf1+1
+	rts
+
+; ------------------------------------ 2 Pages verschieben
+
+move512	ldx #1		; 2 Blöcke
+	ldy #0
+mv0	lda (vbuf0),y	; verschieben
+	sta (vbuf1),y
+	iny
+	bne mv0
+	inc vbuf0+1
+	inc vbuf1+1
+	dex
+	bpl mv0
+	rts
+
+; ------------------------------------------------ Activity
+
+adinc	dec adcnt		; advance after adcnt passes
+	bne +
+	inc spr2y
+	inc spr2y+2
+	bne setadcnt	; and reset adcnt
+
+; ------------------------------------------------ Finish Activity
+
+clearad	lda spren		; progress bar off
+	and #$f3
+	sta spren
+	lda msbx
+	and #$f3
+	sta msbx
+	lda #$ff		; graphics buffer changed, so
+	sta gr_redisp	; set flags for system
+	clc 		; finished
++	rts 
+
+; ------------------------------------------------ Init Activity
+
+initad	ldy #60		; prepare spriteblock 255
+	lda #0
+-	sta spr255+3,y
+	dey 
+	bpl -
+	sty spr255	; thin line
+	sty spr255+1
+	sty spr255+2
+	lda #15		; light gray
+	sta sprcol2
+	sta sprcol2+1
+	lda sprxe		; x-expanded
+	ora #$0c
+	sta sprxe
+
+	lda msbx		; x is beyond 255
+	ora #$0c
+	sta msbx
+	lda #8		; so x is 8 (plus 256)
+	sta spr2x
+	lda #$20
+	sta spr2x+2
+	lda #$92		; y is 146
+	sta spr2y		; (in Image Information window)
+	sta spr2y+2
+
+	sty sprptr+2	; use sprite 255
+	sty sprptr+3
+	lda spren
+	ora #$0c		; activate bar
+	sta spren
+
+setadcnt	lda #5		; init counter to 5 (times 40 = 200 raster lines)
+	sta adcnt
+	rts
+
+; ----------------------------------------- Data
+
+decision	!by 0
+yesno	!scr "yes no"
+displc	!by 0
+amount	!by 0
+pixels	!by 0,8,16,24
+logopos	!by 19,1,1,5
+
+line8	!by $40,$45,$4a,$4f,$54	; 4bit rows
+	!by $59,$5e,$63,$68,$6d
+	!by $72,$77,$7c,$81,$86
+	!by $8b,$90,$95,$9a,$9f
+	!by $a4,$a9,$ae,$b3,$b8
+
+logo	!by $00,$00,$00,$00		; "GoDot"
+	!by $00,$00,$00,$00
+	!by $00,$00,$00,$00
+	!by $00,$00,$00,$00
+	!by $00,$bb,$00,$bb
+	!by $00,$bb,$00,$bb
+	!by $bb,$bb,$bb,$bb
+	!by $bb,$bb,$bb,$00
+
+	!by $00,$00,$00,$00
+	!by $00,$00,$bb,$00
+	!by $00,$bb,$bb,$bb
+	!by $00,$bb,$00,$bb
+	!by $00,$bb,$00,$bb
+	!by $00,$bb,$bb,$bb
+	!by $00,$00,$bb,$00
+	!by $00,$00,$00,$00
+
+	!by $00,$bb,$bb,$00
+	!by $bb,$bb,$bb,$bb
+	!by $bb,$00,$00,$bb
+	!by $bb,$00,$00,$bb
+	!by $bb,$bb,$bb,$bb
+	!by $bb,$bb,$bb,$bb
+	!by $00,$00,$00,$00
+	!by $00,$00,$bb,$00
+
+	!by $00,$bb,$bb,$bb
+	!by $00,$bb,$00,$bb
+	!by $00,$bb,$00,$bb
+	!by $00,$bb,$bb,$bb
+	!by $00,$00,$bb,$00
+	!by $00,$00,$00,$00
+	!by $00,$00,$bb,$bb
+	!by $bb,$00,$bb,$bb
+
+	!by $bb,$00,$00,$bb
+	!by $bb,$00,$00,$bb
+	!by $bb,$bb,$bb,$bb
+	!by $00,$bb,$bb,$00
+	!by $00,$00,$00,$00
+	!by $00,$00,$00,$00
+	!by $00,$00,$00,$00
+	!by $00,$00,$00,$00
+
+; ----------------------------------------- Screenlist
+
+screenlst	!by 0
+	!by 8,13,14,9,$81
+	!wo 0
+title	!scr "Clear FLIBug",0
+
+displgad	!by 10,23,4,3,$cf
+	!wo evdisplc
+displtx	!scr " 0",0
+
+addlggad	!by 12,22,5,3,$ce
+	!wo evaddlg
+addlgtx	!scr "yes",0
+
+	!by 14,13,7,3,$c7
+	!wo evapply
+	!scr "Apply",0
+
+	!by 14,20,7,3,$ce
+	!wo evleave
+	!scr "Leave",0
+
+	!by $c0
+	!by 10,13
+	!by 8
+	!scr "Displace",0
+
+	!by $c0
+	!by 12,13
+	!by 8
+	!scr "Add Logo",0
+
+	!by $80		; end of screen list
+
+; ----------------------------------------- 
+
+modend	!eof
