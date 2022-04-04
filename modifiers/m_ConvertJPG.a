@@ -1,6 +1,8 @@
 
-!src "godotlib.lib"
-*	= $c000
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
 
 ; ------------------------------------------------------------ 
 ;
@@ -10,6 +12,7 @@
 ; REU *desperately* needed
 ;
 ;   1.00, 18.09.03: first release
+;   1.01, 04.04.22, made REU access system convenient
 ;
 ; ------------------------------------------------------------ 
 
@@ -25,6 +28,8 @@
 	src	= $39
 	cntwert	= $3b
 	adcnt	= $3e
+	xmrk	= $40
+	ymrk	= $41
 	
 	offx	= $b2
 	offy	= offx+1
@@ -51,19 +56,17 @@
 	!by $20
 	!by 0
 	!by 0
-	!by <(modend),>(modend)
+	!wo modend
 	!wo 0
 	!pet "ConvertJPGto4Bit"
-	!pet "1.00"
-	!pet "18.09.03"
+	!pet "1.01"
+	!pet "04.04.22"
 	!pet "Arndt Dettke    "
 
 ; --------------------------------------- Main
 
 start	jsr getname
 	jsr reuinfo
-	lda #$80
-	sta reubase+10
 	jsr initad
 
 gm0 	ldx #0
@@ -79,14 +82,14 @@ gm0 	ldx #0
 readifli 	lda #204
 	jsr setcnt
 	jsr setreu
-	lda #<($4000)	; destination in 4bit
-	ldy #>($4000)
+	lda #<sy_4bit	; destination in 4bit
+	ldy #>sy_4bit
 	jsr getvr		; get 8 video rams (image 1)
 
 	jsr initad
 	jsr setreu
-	lda #<($4001)
-	ldx #>($4001)
+	lda #<sy_4bit+1
+	ldx #>sy_4bit+1
 	jsr getbm		; get bitmap 1
 
 	jsr getc0		; get bg colors 1
@@ -99,14 +102,14 @@ readifli 	lda #204
 	lda #204
 	jsr setcnt
 	jsr setreu
-	lda #<($4002)
-	ldy #>($4002)
+	lda #<sy_4bit+2
+	ldy #>sy_4bit+2
 	jsr getvr		; get 8 video rams (image 2)
 	
 	jsr initad
 	jsr setreu
-	lda #<($4003)
-	ldx #>($4003)
+	lda #<sy_4bit+3
+	ldx #>sy_4bit+3
 	jsr getbm		; get bitmap 2
 	
 	jsr getc02	; get bg colors 2
@@ -196,12 +199,12 @@ l4 	lda #0 		; background color (black)
 
 ; --------------------------------------- Color RAM
 
-getcr 	lda #<(1024)
-	ldy #>(1024)
+getcr 	lda #<1024
+	ldy #>1024
 gc3 	sta ls_vekta8
 	sty ls_vekta8+1
-	lda #<(cram)
-	ldx #>(cram)
+	lda #<cram
+	ldx #>cram
 	sta dst
 	stx dst+1
 	ldy #0
@@ -233,12 +236,12 @@ gc6 	rts
 
 render 	lda #0
 	sta linenr
-	lda #<($4000)
-	ldx #>($4000)
+	lda #<sy_4bit
+	ldx #>sy_4bit
 	sta dst
 	stx dst+1
-	lda #<(cram)
-	ldx #>(cram)
+	lda #<cram
+	ldx #>cram
 	sta src
 	stx src+1
 l8 	lda #40
@@ -321,31 +324,47 @@ rok 	rts
 
 ; --------------------------------------- Read from REU
 
-unpack 	lda #$91
-	sta reucom
+unpack	stx xmrk
+	sty ymrk
+	lda #$91		; DMA auslösen (holen)
+	jsr gd_reu
+	inc rm_werte+2
+	bne +
+	inc rm_werte+3
++	ldx xmrk
+	ldy ymrk
 	lda sc_merk
 	rts
 
 ; --------------------------------------- Set REU addresses
 
-setreu	ldx #6
-pt34	lda #0
-	sta reubase+2,x
-	dex
-	bpl pt34
-	lda #1
-	sta reubase+7
-	lda bank
-	sta reubase+6
+setreu	jsr resetrec
 	ldy addry
 	lda adds,y
-	sta reubase+5
-	lda #sc_merk
-	sta reubase+2
+	sta reuaddr+1
+
+	ldy #6
+-	lda reuwerte,y
+	sta rm_werte,y
+	dey
+	bpl -
 	inc addry
 	rts
 
+resetrec	ldy #6		; color ram + bg (nach $4000/$6000)
+	lda #0
+-	sta rm_werte,y	; clear record
+	dey 
+	bpl -
+	rts
+
+
 ; --------------------------------------- Variables
+
+reuwerte	!by $b0,0
+reuaddr	!by 0,0
+bank	!by 6
+	!by 1,0
 
 bm1 	!by 0
 bm2 	!by 0
@@ -363,7 +382,6 @@ lcnt 	!by 0
 blcnt 	!by 0
 bbuf 	!by 0
 addry	!by 0
-bank	!by 6
 
 adds	!by $40,$60,$04,$c0,$e0
 
@@ -414,8 +432,8 @@ l11 	tya
 	iny
 	bne l11
 ;
-	lda #<($4000)
-	ldx #>($4000)
+	lda #<sy_4bit
+	ldx #>sy_4bit
 	sta dst
 	stx dst+1
 	ldy #0
@@ -448,16 +466,18 @@ gdcols 	!by $00,$ff,$44,$cc
 ; --------------------------------------- Close File
 
 break 	jsr setinfo
-	ldx #0
-	stx reubase+10
+	jsr resetrec
+	sty gr_redisp	; .y=$ff
+	lda #$c0
+	sta rm_werte+1
 	lda msbx
 	and #3
 	sta msbx
-	inx
-	stx gr_redisp
 	jsr gd_spron
 	sec
 	rts
+
+; ---------------------------------------
 
 reuinfo	lda ls_ramdrive	; which RAM?
 	and #15
@@ -538,20 +558,20 @@ setinfo 	jsr setname
 	jmp setdata
 ;
 setname 	lda #0
-	ldx #<(ls_picname)
-	ldy #>(ls_picname)
+	ldx #<ls_picname
+	ldy #>ls_picname
 	bne si3
 setloader	lda #17
-	ldx #<(ls_iloader)
-	ldy #>(ls_iloader)
+	ldx #<ls_iloader
+	ldy #>ls_iloader
 	bne si3
 setmode 	lda #25
-	ldx #<(ls_imode)
-	ldy #>(ls_imode)
+	ldx #<ls_imode
+	ldy #>ls_imode
 	bne si3
 setdata	lda #33
-	ldx #<(ls_idrive)
-	ldy #>(ls_idrive)
+	ldx #<ls_idrive
+	ldy #>ls_idrive
 si3 	stx dst0
 	sty dst0+1
 	tax
