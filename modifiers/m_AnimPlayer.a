@@ -14,6 +14,7 @@
 ;   1.01, 27.08.19, added sychronisation of dma to rasterbeam
 ;   1.02, 30.08.19, added double buffering
 ;   1.03, 31.08.19, added undo of 4bit
+;   1.04, 04.04.22, code revised for better convenience with device
 ;
 ; ------------------------------------------------ 
 
@@ -30,7 +31,6 @@
 	cram1		= cram0+$4000
 	bkgr1		= bkgr0+$4000
 	records		= cram+$800
-	reuwerte		= reubase+2
 
 	grafreg		= $d011
 	multreg		= $d016
@@ -48,8 +48,8 @@
 	!wo modend
 	!wo 0
 	!tx "Animator        "
-	!tx "1.03"
-	!tx "31.08.19"
+	!tx "1.04"
+	!tx "04.04.22"
 	!tx "A.Dettke        "
 
 ; ------------------------------------------------ 
@@ -157,27 +157,27 @@ getimage	jsr setimgdta	; startrecord setzen (von records holen)
 
 	ldy #6		; bitmap (nach $2000/$4000)
 -	lda recbmap,y
-	sta reuwerte,y
+	sta rm_werte,y
 	dey 
 	bpl -
 	lda #$91		; DMA auslösen (holen)
-	sta reucom
+	jsr gd_reu
 
 	ldy #6		; video ram (nach $0400/$4400)
 -	lda recvram,y
-	sta reuwerte,y
+	sta rm_werte,y
 	dey 
 	bpl -
 	lda #$91		; DMA auslösen (holen)
-	sta reucom
+	jsr gd_reu
 
 	ldy #6		; color ram + bg (nach $4000/$6000)
 -	lda reccram,y
-	sta reuwerte,y
+	sta rm_werte,y
 	dey 
 	bpl -
 	lda #$91		; DMA auslösen (holen)
-	sta reucom
+	jsr gd_reu
 
 	ldx evenodd	; Colorram eintragen
 	bne setcram1
@@ -336,11 +336,11 @@ fail1	pla
 
 chk4anim	ldy #6
 -	lda control,y
-	sta reuwerte,y
+	sta rm_werte,y
 	dey
 	bpl -
 	lda #$91		; $91: Fetch
-	sta reucom
+	jsr gd_reu
 	lda frames+3	; frame record already filled?
 	cmp #$20
 	bcs fail1		; no, no anim in reu, leave mod
