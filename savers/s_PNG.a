@@ -16,6 +16,7 @@
 ; 1.03: 01.08.21, exchanged palettes (C64pixels - Ptoing)
 ; 1.04: 31.03.22, exchanged palettes (VICE - PALette_v1)
 ;                 changed IFLI palette, now based on PALette_v1
+; 1.05, 06.04.22, bugfix, didn't reset reu record
 ;
 ; ----------------------------------------- Header
 ;
@@ -27,8 +28,8 @@
 	!wo modend		; Endadresse+1 des Moduls
 	!wo 0			; unused
 	!pet "PNG max 136 cols"	; description
-cvers	!pet "1.04"		; Versionsnummer
-	!pet "31.03.22"		; Datum
+cvers	!pet "1.05"		; Versionsnummer
+	!pet "06.04.22"		; Datum
 	!pet "A.Dettke        "	; author
 
 ; ----------------------------------------- Definitionen
@@ -127,7 +128,8 @@ st2	jsr clrch		; Bus freigeben
 st1	pla		; Modularea wieder setzen
 	sta gd_modswitch
 
-st12	jsr gd_spron	; Sprites wieder an
+st12	jsr initreu
+	jsr gd_spron	; Sprites wieder an
 	sec		; Leave-Flag
 	rts		; fertig
 
@@ -1013,6 +1015,16 @@ ag0	dey		; auf 12 verkürzen
 	bne ag0
 	beq ag5		; unbed. Sprung
 
+; ---------------------------------------- Init rm_werte
+
+initreu	ldx #6
+	lda #0		; RM_WERTE (am Ende): 
+sl01	sta rm_werte,x	; $00, $c0, $00, $00, 0, 0, 0
+	dex		; - C64 - | -  REU   - | Anzahl 
+	bpl sl01
+	lda #$c0
+	sta rm_werte+1
+	rts
 ; ------------------------------------------------ Wenn keine REU vorhanden
 
 noreu	ldy #2		; rot

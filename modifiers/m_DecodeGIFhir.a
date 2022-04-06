@@ -15,6 +15,7 @@
 ;   1.04, 05.04.18, bugfix: flush bottommost line
 ;   1.05, 26.11.18, bugfix: wrong start of line after topskip
 ;   1.06, 12.09.21, added: break loading process with STOP key
+;   1.07, 06.04.22, bugfix: didn't reset reu record
 ; 
 ; -------------------------------------------------- 
 
@@ -88,8 +89,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "gif: LoadSection"
-	!pet "1.06"
-	!pet "12.09.21"
+	!pet "1.07"
+	!pet "06.04.22"
 	!pet "A.Dettke/W.Kling"
 addtxt	!pet "viva D. Jansen!!"
 	!by 0
@@ -547,6 +548,7 @@ dc1	sta convmode	; set routine entries accordingly
 	bne je2
 	jsr crunch	; ### 1.04, flush read buffer
 	jsr doundo	; Re-get from RAM (to $4000)
+	jsr initreu
 	jsr decrunch	; convert to card graphics
 	lda mundo
 	sta rm_ramundo
@@ -1267,6 +1269,16 @@ getundo	ldx #8		; und GetUndo
 xtablo	!by $a0,$40,$e0,$80,$20,$c0,$60,$00
 xtabhi	!by $00,$01,$01,$02,$03,$03,$04,$05
 
+; ---------------------------------------- Init rm_werte
+
+initreu	ldx #6
+	lda #0		; RM_WERTE (am Ende): 
+sl0	sta rm_werte,x	; $00, $c0, $00, $00, 0, 0, 0
+	dex		; - C64 - | -  REU   - | Anzahl 
+	bpl sl0
+	lda #$c0
+	sta rm_werte+1
+	rts
 ; -------------------------------------- 
 
 decrunch	ldx #24		; Message: "Cnvrt"

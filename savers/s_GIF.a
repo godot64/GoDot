@@ -26,6 +26,7 @@
 ; 1.11: 08.08.19 - Default Aspect Ratio festgelegt (1:1)
 ; 1.12: 01.08.21 - Palette Brix gegen Ptoing ausgetauscht
 ; 1.13: 31.03.22 - Palette Wheels gegen PALette_v1 ausgetauscht
+; 1.14, 06.04.22 - bugfix, didn't reset reu record
 ;
 ; -------------------------------------------------------------- Header
 ;
@@ -37,8 +38,8 @@
 	!wo modend		; Endadresse+1 des Moduls
 	!wo 0			; unused
 	!pet "GIF 89a saver   "	; description
-cvers	!pet "1.13"		; Versionsnummer
-	!pet "31.03.22"		; Datum
+cvers	!pet "1.14"		; Versionsnummer
+	!pet "06.04.22"		; Datum
 	!pet "A.Dettke        "	; author
 
 ; -------------------------------------------------------------- Definitionen
@@ -163,7 +164,8 @@ st2	jsr clrch		; Bus freigeben
 st1	pla		; Modularea wieder setzen
 	sta gd_modswitch
 
-st12	jsr canc
+st12	jsr initreu
+	jsr canc
 	jsr gd_spron	; Sprites wieder an
 	sec		; Leave-Flag
 	rts		; fertig
@@ -1115,6 +1117,16 @@ ag0	dey		; auf 12 verkürzen
 	bne ag0
 	beq ag5		; unbed. Sprung		#--- 1.06
 
+; ---------------------------------------- Init rm_werte
+
+initreu	ldx #6
+	lda #0		; RM_WERTE (am Ende): 
+sl01	sta rm_werte,x	; $00, $c0, $00, $00, 0, 0, 0
+	dex		; - C64 - | -  REU   - | Anzahl 
+	bpl sl01
+	lda #$c0
+	sta rm_werte+1
+	rts
 ; ----------------------------------------------------- 
 
 noreu	ldx #<warnlst

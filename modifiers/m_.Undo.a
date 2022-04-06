@@ -11,6 +11,7 @@
 ;
 ;  1.00, 18.05.21, first release
 ;  1.01, 19.05.21, bugfix, didn't reset pattern correctly
+;  1.02, 06.04.22, bugfix, didn't reset reu record
 ;
 ; ----------------------------------------- 
 
@@ -36,8 +37,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "Undo Service REU"
-	!tx "1.01"
-	!tx "19.05.21"
+	!tx "1.02"
+	!tx "06.04.22"
 	!tx "A.Dettke        "
 
 ; ----------------------------------------- Main 
@@ -71,6 +72,7 @@ start	jsr check4reu
 ; ----------------------------------------- Event: Leave Module
 
 evleave	jsr repairchr
+	jsr initreu
 	lda drive
 	sta ls_drive
 canc	sec
@@ -331,6 +333,17 @@ chk4stemp	lda #$34
 	lda #$36
 	sta pport
 	plp
+	rts
+
+; ---------------------------------------- Init rm_werte
+
+initreu	ldx #6
+	lda #0		; RM_WERTE (am Ende): 
+sl0	sta rm_werte,x	; $00, $c0, $00, $00, 0, 0, 0
+	dex		; - C64 - | -  REU   - | Anzahl 
+	bpl sl0
+	lda #$c0
+	sta rm_werte+1
 	rts
 
 ; -------------------------------------- Check for REU

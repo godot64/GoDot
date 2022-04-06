@@ -15,6 +15,7 @@
 ;   1.02, 30.08.19, added double buffering
 ;   1.03, 31.08.19, added undo of 4bit
 ;   1.04, 04.04.22, code revised for better convenience with device
+;   1.05, 06.04.22, bugfix, didn't reset reu record
 ;
 ; ------------------------------------------------ 
 
@@ -48,8 +49,8 @@
 	!wo modend
 	!wo 0
 	!tx "Animator        "
-	!tx "1.04"
-	!tx "04.04.22"
+	!tx "1.05"
+	!tx "06.04.22"
 	!tx "A.Dettke        "
 
 ; ------------------------------------------------ 
@@ -145,6 +146,7 @@ leave	ldx #$13		; ja, grafik aus
 	sta rahmen
 	sta backgr
 	jsr getundo
+	jsr initreu
 	jsr gd_spron	; Maus an
 	lda mswitch
 	sta gd_modswitch
@@ -377,6 +379,17 @@ store	ldy #20		; zuerst sichern
 	dey 
 	bpl -
 	rts 
+
+; ---------------------------------------- Init rm_werte
+
+initreu	ldx #6
+	lda #0		; RM_WERTE (am Ende): 
+sl0	sta rm_werte,x	; $00, $c0, $00, $00, 0, 0, 0
+	dex		; - C64 - | -  REU   - | Anzahl 
+	bpl sl0
+	lda #$c0
+	sta rm_werte+1
+	rts
 
 ; ------------------------------------------------ 
 

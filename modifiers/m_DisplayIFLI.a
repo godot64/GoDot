@@ -14,6 +14,7 @@
 ;   1.02, 10.06.18, added: visible reaction when no REU, set re-render flag
 ;   1.03, 12.06.18, bugfix: wrong unpatch in fallback routine
 ;   1.04, 03.12.18, changed: activity bar starts immediately
+;   1.05, 06.04.22, bugfix, didn't reset reu record
 ;
 ; ------------------------------------------------------------ 
 
@@ -93,8 +94,8 @@ header 	jmp start
 	!wo modend
 	!wo 0
 	!tx "IFLI Display    "
-	!tx "1.04"
-	!tx "03.12.18"
+	!tx "1.05"
+	!tx "06.04.22"
 	!tx "AD/Manfred Trenz"
 
 ; --------------------------------------- Main
@@ -105,6 +106,7 @@ start	lda gd_modswitch
 	bne +
 	jsr savec64
 	jsr writeifli
+	jsr initreu
 	jsr clearad
 	jsr getjpz	; display ifli, doesn't return if successful
 

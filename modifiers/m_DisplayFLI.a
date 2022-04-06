@@ -19,6 +19,7 @@
 ;                   so changed FLI display routine
 ;   1.03, 21.12.18, bugfix: wrong end of display
 ;   1.04, 05.01.19, bugfix: rendered though no REU attached
+;   1.05, 06.04.22, bugfix, didn't reset reu record
 ;
 ; ------------------------------------------------------------ 
 
@@ -105,8 +106,8 @@ header 	jmp start
 	!wo modend
 	!wo 0
 	!tx "FLI Display     "
-	!tx "1.04"
-	!tx "05.01.19"
+	!tx "1.05"
+	!tx "06.04.22"
 	!tx "A.Dettke        "
 
 ; --------------------------------------- Main
@@ -125,6 +126,7 @@ start	lda gd_modswitch
 
 	jsr savec64	; save virtual C64
 	jsr writenfli	; write FLI data to virtual C64
+	jsr initreu
 	jsr clearad	; end activity display
 	jsr getjpz	; display fli, doesn't return if successful
 

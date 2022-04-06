@@ -13,6 +13,7 @@
 ;  1.00, 13.05.21, first release
 ;  1.01, 14.05.21, added option to use masks
 ;  1.02, 16.05.21, added option to load Undo Rendered 
+;  1.03, 06.04.22, bugfix, didn't reset reu record
 ;
 ; ----------------------------------------- 
 
@@ -60,8 +61,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "Loader Backdrop "
-	!tx "1.02"
-	!tx "16.05.21"
+	!tx "1.03"
+	!tx "06.04.22"
 	!tx "A.Dettke        "
 
 ; ----------------------------------------- Main
@@ -225,6 +226,7 @@ mapply	jsr onepixm
 ; ----------------------------------------- Event: Leave Module
 
 evcancel	jsr clearad	; reset sprites
+	jsr initreu
 	jsr gd_spron	; only mousepointer stays active
 	sta gr_redisp
 	sec		; then leave loader
@@ -788,6 +790,16 @@ encolor	sta sc_chgcol
 	ldx #4
 	jmp gd_fcol	; colorize area (1x1)
 
+; ---------------------------------------- Init rm_werte
+
+initreu	ldx #6
+	lda #0		; RM_WERTE (am Ende): 
+sl0	sta rm_werte,x	; $00, $c0, $00, $00, 0, 0, 0
+	dex		; - C64 - | -  REU   - | Anzahl 
+	bpl sl0
+	lda #$c0
+	sta rm_werte+1
+	rts
 ; ----------------------------------------- Counters
 
 count 	inc sc_vekt20
