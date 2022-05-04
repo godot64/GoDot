@@ -16,6 +16,7 @@
 ;  1.04, 16.07.98:
 ;  1.05, 28.05.17: re-organized, some minor changes
 ;  1.06, 12.09.21: added: break loading process with STOP key
+;  1.07, 04.05.22: added: set render mode automatically
 ;
 ; -------------------------------------------------- 
 
@@ -35,6 +36,7 @@
 	offx		= ls_adrmisc
 	offy		= offx+1
 
+	patch		= $17af
 	vrbuf		= $c600
 	crbuf		= vrbuf+$0400
 	col0		= vrbuf+$0800
@@ -47,9 +49,9 @@
 	!by $00
 	!wo modend
 	!wo $00
-	!pet "Doodle (even JJ)"
-	!pet "1.06"
-	!pet "12.09.21"
+	!pet "Doodle DD and JJ"
+	!pet "1.07"
+	!pet "04.05.22"
 	!pet "A.Dettke        "
 
 ; ----------------------------------------- Main
@@ -121,6 +123,7 @@ read2	lda #0		; 8192 Bytes nach $a000 laden
 ; ----------------------------------------- Abschluss
 
 	jsr setinfo	; Image Information
+	jsr tog2hires	; set render mode ### 1.07
 
 sk11	ldx #18		; out: "Bitmap" (reset messages)
 	jsr tcopy
@@ -371,6 +374,21 @@ ml2	lda (ls_vekta8),y	; Byte aus vrbuf holen
 	inc sc_texttab+1
 	dec merk		; 4 Pages zählen
 	bne ml2
+	rts
+
+; ----------------------------------------- Set Render Mode
+
+tog2hires	lda #2		; für Umschalten auf Hires
+	!by $2c
+tog2multi	lda #0		; für Umschalten auf Multi    
+	sta gr_cmode
+	lda #16
+	sta sc_br
+	lda #$4c		; self modifying
+	sta patch
+	jsr ev_sccont	; Modus setzen und Anzeige anpassen
+	lda #$20		; unpatch
+	sta patch
 	rts
 
 ; ----------------------------------------- Data
