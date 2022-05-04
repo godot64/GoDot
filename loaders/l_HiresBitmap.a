@@ -14,6 +14,7 @@
 ;                  bugfixes: in merge and in getcols
 ;  1.02, 07.05.20, added: stop read on EOF
 ;  1.03, 12.09.21, added: break loading process with STOP key
+;  1.04, 04.05.22, added: set render mode automatically
 ;
 ; ----------------------------------------- 
 
@@ -28,6 +29,7 @@
 	col3	= $3a
 	btbuf	= $3b
 
+	patch	= $17af
 	offx	= ls_adrmisc
 	offy	= offx+1
 
@@ -40,8 +42,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "HiBitmapSpecial!"
-	!tx "1.03"
-	!tx "12.09.21"
+	!tx "1.04"
+	!tx "04.05.22"
 	!tx "A.Dettke/W.Kling"
 
 ; ----------------------------------------- 
@@ -120,6 +122,7 @@ ld3	jsr cancel	; reset recursion flag
 	ldx which		; Replace or Compose?
 	bne ld7
 	jsr setinfo	; on Replace: set Image Information
+	jsr tog2hires	; ### 1.04
 
 ld7	jsr gd_xclose	; close file
 	jsr gd_spron	; mouse pointer on
@@ -407,6 +410,21 @@ mrt3	lda ratenum,x
 	jsr gettab
 	ldy #6
 	jmp gd_xtxout1
+
+; ----------------------------------------- Set Render Mode
+
+tog2hires	lda #2		; für Umschalten auf Hires
+	!by $2c
+tog2multi	lda #0		; für Umschalten auf Multi    
+	sta gr_cmode
+	lda #16
+	sta sc_br
+	lda #$4c		; self modifying
+	sta patch
+	jsr ev_sccont	; Modus setzen und Anzeige anpassen
+	lda #$20		; unpatch
+	sta patch
+	rts
 
 ; ----------------------------------------- Text Output Handler
 

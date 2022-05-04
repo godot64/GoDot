@@ -1,6 +1,8 @@
 
-	*= $c000
 	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
 
 ; ----------------------------------------- 
 ;
@@ -13,6 +15,7 @@
 ;  1.07, 30.10.05:  added storage of original file background color
 ;  1.08, 16.08.08:  bugfix, filenames of 16 chars get retrieved now
 ;  1.09, 11.09.21:  added: break loading process with STOP key
+;  1.10, 04.05.22:  added: set render mode automatically
 ;
 ; ----------------------------------------- 
 
@@ -34,6 +37,7 @@
 	offx		= ls_adrmisc
 	offy		= offx+1
 
+	patch		= $17af
 	vrbuf		= $c600
 	crbuf		= vrbuf+1000
 	col0		= vrbuf+2000
@@ -46,8 +50,8 @@
 	!by <(modend),>(modend)
 	!by $00,$00
 	!pet "Koala (even GG) "
-	!pet "1.09"
-	!pet "11.09.21"
+	!pet "1.10"
+	!pet "04.05.22"
 	!pet "W.Kling/A.Dettke"
 
 ; ----------------------------------------- Main
@@ -258,6 +262,7 @@ sk9	dec ls_vekta8
 ; ----------------------------------------- Abschluss
 
 	jsr setinfo	; set image information
+	jsr tog2multi	; ### 1.10
 
 sk10	jsr gd_xmess	; floppy message
 	jsr gd_spron	; mouse pointer on
@@ -291,6 +296,21 @@ getit2	dec counter	; write result
 error	jsr gd_xclose	; close file
 	jsr sk10		; Abschluss
 	clc		; stay in loader
+	rts
+
+; ----------------------------------------- Set Render Mode
+
+tog2hires	lda #2		; für Umschalten auf Hires
+	!by $2c
+tog2multi	lda #0		; für Umschalten auf Multi    
+	sta gr_cmode
+	lda #16
+	sta sc_br
+	lda #$4c		; self modifying
+	sta patch
+	jsr ev_sccont	; Modus setzen und Anzeige anpassen
+	lda #$20		; unpatch
+	sta patch
 	rts
 
 ; ----------------------------------------- Message Handling

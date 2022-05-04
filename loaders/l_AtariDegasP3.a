@@ -13,6 +13,7 @@
 ;    1.00,
 ;    1.01, 
 ;    1.02, 12.08.93, 
+;    1.03, 04.05.22, added: set render mode automatically
 ;
 ; ------------------------------------------------ 
 
@@ -30,6 +31,7 @@
 	offy		= ls_adrmisc
 	bcnt1		= offy+1
 ;
+	patch		= $17af
 	buf		= $c400
 	buf0		= buf
 	buf1		= buf0+80
@@ -43,8 +45,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "DegasPI3Resample"
-	!tx "1.02"
-	!tx "12.08.93"
+	!tx "1.03"
+	!tx "04.05.22"
 	!tx "W.Kling/A.Dettke"
 
 ; ------------------------------------------------ 
@@ -88,6 +90,7 @@ dl2	jsr sethi
 dl3	jsr getplane	; get image
 
 	jsr setinfo
+	jsr tog2multi	; ### 1.03
 	jsr cancel
 
 err	jsr gd_xclose
@@ -125,6 +128,21 @@ higrey	inc used
 	sec 
 	rts 
 ;
+; ----------------------------------------- Set Render Mode
+
+tog2hires	lda #2		; für Umschalten auf Hires
+	!by $2c
+tog2multi	lda #0		; für Umschalten auf Multi    
+	sta gr_cmode
+	lda #16
+	sta sc_br
+	lda #$4c		; self modifying
+	sta patch
+	jsr ev_sccont	; Modus setzen und Anzeige anpassen
+	lda #$20		; unpatch
+	sta patch
+	rts
+
 ; ------------------------------------------------ 
 
 adinc	ldy offy

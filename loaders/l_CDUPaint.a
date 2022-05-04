@@ -1,6 +1,8 @@
 
-!src "godotlib.lib"
-*	= $c000
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
 
 ; ---------------------------
 ;
@@ -9,7 +11,8 @@
 ;
 ;  1.00: 14.05.02, first release
 ;  1.01: 30.10.05,
-;  1.01: 09.01.17, saves original bg color
+;  1.02: 09.01.17, saves original bg color
+;  1.03: 04.05.22, added: set render mode automatically
 ;
 ; ---------------------------
 
@@ -26,6 +29,7 @@
 	offx		= $b2
 	offy		= offx+1
 ;
+	patch		= $17af
 	vrbuf		= $c600
 	crbuf		= vrbuf+1000
 	col0		= vrbuf+2000
@@ -39,8 +43,8 @@
 	!by <(modend),>(modend)
 	!by $00,$00
 	!pet "CDU Paint       "
-	!pet "1.01"
-	!pet "09.01.17"
+	!pet "1.03"
+	!pet "04.05.22"
 	!pet "A.Dettke        "
 
 ; --------------------------- Main
@@ -250,6 +254,7 @@ sk9	dec ls_vekta8
 sk11	ldx #30		; reset text to default ("Bitmap")
 	jsr tcopy
 	jsr setinfo	; set filename
+	jsr tog2multi	; ### 1.03
 ;
 sk10	jsr gd_xmess	; error message from drive
 	jsr gd_spron	; sprite pointer on
@@ -260,6 +265,21 @@ sk10	jsr gd_xmess	; error message from drive
 error	jsr gd_xclose
 	jsr sk10
 	clc
+	rts
+
+; ----------------------------------------- Set Render Mode
+
+tog2hires	lda #2		; für Umschalten auf Hires
+	!by $2c
+tog2multi	lda #0		; für Umschalten auf Multi    
+	sta gr_cmode
+	lda #16
+	sta sc_br
+	lda #$4c		; self modifying
+	sta patch
+	jsr ev_sccont	; Modus setzen und Anzeige anpassen
+	lda #$20		; unpatch
+	sta patch
 	rts
 
 ; --------------------------- Activity Display
@@ -280,8 +300,11 @@ action	dec $ff
 	bne ld4
 	lda cntwert
 	sta $ff
-	ldy offy
-	ldx offx
+	ldy offy		; bar at maximum?
+	cpy clrmess+1
+	bne act0
+	jsr clrmess	; yes, clear
+act0	ldx offx		; write bar to output
 	lda filltab,x
 	sta mess,y
 	jsr messout

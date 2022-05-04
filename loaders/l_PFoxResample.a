@@ -13,6 +13,7 @@
 ;    0.99, 13.05.92, first release
 ;    1.00, 12.08.93, minor bugfixes
 ;    1.01, 15.09.21, restored, reorganized and renewed code
+;    1.02, 04.05.22, added: set render mode automatically
 ;
 ; ---------------------------
 
@@ -35,6 +36,7 @@
 	offy		= ls_adrmisc
 	offx		= offy+1
 
+	patch		= $17af
 	z01		= $c600
 	z02		= z01+80
 	z03		= z02+80
@@ -61,8 +63,8 @@ header	jmp start
 	!wo modend
 	!by 0,0
 	!tx "Pagefox.Resample"
-	!tx "1.00"
-	!tx "12.08.93"
+	!tx "1.02"
+	!tx "04.05.22"
 	!tx "W.Kling/A.Dettke"
 
 ; ----------------------------------------- 
@@ -95,6 +97,7 @@ start	ldx used
 dl2	jsr sethi
 dl3	jsr getplane
 	jsr setinfo
+	jsr tog2multi	; ### 1.02
 
 	jsr cancel
 err	jsr gd_xclose
@@ -124,6 +127,21 @@ higrey	inc used
 	lda #3
 	sta used
 	sec
+	rts
+
+; ----------------------------------------- Set Render Mode
+
+tog2hires	lda #2		; für Umschalten auf Hires
+	!by $2c
+tog2multi	lda #0		; für Umschalten auf Multi    
+	sta gr_cmode
+	lda #16
+	sta sc_br
+	lda #$4c		; self modifying
+	sta patch
+	jsr ev_sccont	; Modus setzen und Anzeige anpassen
+	lda #$20		; unpatch
+	sta patch
 	rts
 
 ; --------------------------- Activity Gauge

@@ -11,6 +11,7 @@
 ;    (a Scanntronik Pagefox clone)
 ; 
 ;  1.00, 31.10.93, first release
+;  1.01, 04.05.22, added: set render mode automatically
 ;
 ; ------------------------------------------------ 
 
@@ -39,6 +40,7 @@
 	hsign		= gr_pattern
 	vsign		= gr_pattern+8
 	esign		= gr_pattern+16
+	patch		= $17af
 
 ; Konstanten
 
@@ -56,8 +58,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "PageSetter-Plus4"
-	!tx "1.00"
-	!tx "31.10.93"
+	!tx "1.01"
+	!tx "04.05.22"
 	!tx "A.Dettke/W.Kling"
 
 ; ----------------------------------- Main
@@ -295,6 +297,7 @@ skip0	dec nibcnt
 ; -----------------------------------
 
 ld3	jsr setinfo
+	jsr tog2hires	; ### 1.01
 ld5 	jsr gd_xclose
 	jsr gd_spron
 	jsr gd_xmess
@@ -306,6 +309,21 @@ ld5 	jsr gd_xclose
 onebyte	jsr basin
 	ldx status
 	rts 
+
+; ----------------------------------------- Set Render Mode
+
+tog2hires	lda #2		; für Umschalten auf Hires
+	!by $2c
+tog2multi	lda #0		; für Umschalten auf Multi    
+	sta gr_cmode
+	lda #16
+	sta sc_br
+	lda #$4c		; self modifying
+	sta patch
+	jsr ev_sccont	; Modus setzen und Anzeige anpassen
+	lda #$20		; unpatch
+	sta patch
+	rts
 
 ; ----------------------------------- Messages
 

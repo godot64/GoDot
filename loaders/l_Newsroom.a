@@ -6,19 +6,21 @@
 
 ; ----------------------------------- 
 ;
-; Loader Newsroom Photos and Banners
+; Loader for Newsroom Photos and Banners
+;
 ;     1.00: 04.07.01, first release
 ;     1.01: 08.07.01, bug: hang on wrong header fixed
 ;     1.02: 11.07.01, bug: reject on no clip included fixed
+;     1.03: 04.05.22, added: set render mode automatically
 ;
 ; ----------------------------------- 
 
 ; ----------------------------------- Equates
 
 	width		= $30	; width in tiles
-	height		= $31	; height in pixels
+	height		= $31
 	col0		= $32	; paper color (black)
-	col1		= $33	; 3 ink colors (white)
+	col1		= $33	; ink colors (white)
 	col2		= $34
 	col3		= $35
 
@@ -37,6 +39,8 @@
 	blcnt		= $45
 	num		= $46
 
+	patch		= $17af
+
 ; ----------------------------------- Header
 
 godheader	jmp start
@@ -46,8 +50,8 @@ godheader	jmp start
 	!wo modend
 	!wo 0
 	!tx "Newsroom Clips  "
-	!tx "1.02"
-	!tx "11.07.01"
+	!tx "1.03"
+	!tx "04.05.22"
 	!tx "A.Dettke        "
 
 ; ----------------------------------- 
@@ -58,7 +62,7 @@ fail	jmp faila
 ; ----------------------------------- Main
 
 start	jsr getcols	; set color assignments
-	jsr getname	; store name of file
+	jsr getname	; save name of file
 	
 	jsr gd_xopen	; open file for input
 	ldx #0		; Start at $4000
@@ -73,7 +77,7 @@ start	jsr getcols	; set color assignments
 	inx 		; activity to 1: start right off
 	stx adcnt
 
-	jsr onebyte	; get first byte (of address: $a000)
+	jsr onebyte	; get first byte (of file start address $a000)
 	bne jerror
 	sta header
 	jsr onebyte	; get second byte
@@ -81,7 +85,7 @@ start	jsr getcols	; set color assignments
 	sta header+1
 
 	ldy #2
-st1	jsr onebyte	; get newsroom header
+st1	jsr onebyte	; get header
 	sta header,y
 	bne jerror
 	iny
@@ -92,7 +96,7 @@ st1	jsr onebyte	; get newsroom header
 	beq st3
 	jmp fail		; no, fail
 
-st3	sec		; compute width (in tiles)
+st3	sec		; compute width (in pixels and tiles+1)
 	lda right
 	sbc left
 	lsr
@@ -105,21 +109,21 @@ st3	sec		; compute width (in tiles)
 	sbc top
 	cmp #200
 	bcc st21
-	lda #200		; delimit to 200
+	lda #200		; (begrenzen auf 200)
 st21	sta height
-	jsr evalheader	; check further header info
+	jsr evalheader
 
 st2	lda #8		; set # of lines per tile (8)
 	sta lines
-	lda height	; height (in pixels) bigger?
+	lda height
 	cmp #9
-	bcs ld6
-	sta lines		; then last block line, set lines value!
+	bcs ld6		; smaller than height?
+	sta lines		; then already last line, set height as value!
 
 ld6	jsr gd_clrms	; clear gauge
-	jsr tcopy		; set output text
+	jsr tcopy
 
-	lda #25		; set counter for screen height (25 block lines)
+	lda #25		; set counter for screen height
 	sta blcnt
 	lda #4		; preset 4bit-Byte counter to 4
 	sta btcnt
@@ -131,8 +135,8 @@ ld02	lda width		; WIDTH tiles per row
 	sta tilecnt
 
 ld03	ldy #0		; must be 0 for 1 tile
-	jsr getbyte	; get 1 byte (8 pixels)
-ld01	jsr cnvbyte	; convert to 8 4bit pixels (4 bytes)
+	jsr getbyte	; get 1 byte
+ld01	jsr cnvbyte	; convert to 4 bytes
 	sta (dst),y	; store to 4bit memory
 	sty merky
 	jsr action
@@ -141,11 +145,11 @@ ld01	jsr cnvbyte	; convert to 8 4bit pixels (4 bytes)
 	dec btcnt		; all bits?
 	bne ld01		; no, loop
 
-	lda #4		; set counter to 4 again
+	lda #4		; counter to 4 again
 	sta btcnt
 
 	clc
-	lda dst		; inc vector to 4bit (next tile)
+	lda dst		; inc vector to 4bit
 	adc #32
 	sta dst
 	bcc ld10
@@ -178,7 +182,7 @@ ld13	sec		; yes, subtract 8 from height
 	sta lines		; yes, don't fill last row completely 
 	inc lines
 
-ld12	clc		; add 1280 to start address (for next row)
+ld12	clc		; add 1280 to start address for next row
 	lda dst00+1
 	adc #5
 	sta dst00+1
@@ -191,21 +195,22 @@ ld12	clc		; add 1280 to start address (for next row)
 	dec blcnt		; bottom of screen?
 	bne ld0		; no, loop
 
-ld3	jsr setinfo	; set fileinfo
+ld3	jsr setinfo	; yes, set fileinfo
+	jsr tog2hires	; ### 1.03
 ld7	jsr gd_xclose	; close file
-	jsr gd_spron	; pointer on
+	jsr gd_spron	; mouse pointer on
 	jsr gd_xmess	; display floppy message
+
 cancel	sec		; leave loader
 	rts
 
-; ----------------------------------- Get Byte from File
+; ----------------------------------- 
 
 getbyte	jsr basin		; uncompressed image: get byte
-;	eor #$ff
 getdata	sta gbyte		; and store 
 	rts
 
-; ----------------------------------- Colorize
+; ----------------------------------- Convert to 4Bit
 
 cnvbyte	lda #0		; convert:
 	asl gbyte		; fetch 2 pixels
@@ -222,21 +227,20 @@ error	jsr ld7
 	clc
 	rts
 
-; ----------------------------------- Get 1 Byte from Header
+; ----------------------------------- Get 1 Byte for Header
 
 onebyte	jsr basin
 	ldx status
 	rts
 
-; ----------------------------------- Evaluate Newsroom Header
+; ----------------------------------- Evaluate File Header
 
-evalheader
-	ldy #1
+evalheader  ldy #1
 	jsr onebyte	; get # of clips included
 	tax
-	beq noclip	; if 0: short header or no clip?
-	sta num		; if not: store number
+	beq noclip	; if $00: short header or no clip?
 
+	sta num		; store number of clips in file
 	ldy #12		; header is 13 times # of clips...
 ehd0	clc
 	adc num
@@ -244,15 +248,13 @@ ehd0	clc
 	bne ehd0
 	tay
 	iny
-
-ehd4	jsr onebyte	; skip all header
+ehd4	jsr onebyte	; now skip header
 	dey
 	bne ehd4
 
 	tay		; ends with $00?
 	bne fail2
 	ldy #0		; yes, followed by signature...?
-
 ehd1	jsr onebyte
 	cmp signature,y
 	bne fail2
@@ -260,12 +262,12 @@ ehd1	jsr onebyte
 	cpy #8
 	bne ehd1
 
-ehd3	jsr onebyte	; yes, followed by 7 times $00 and then one $ff?
+ehd3	jsr onebyte	; yes, followed by 7 times $00 and then $ff?
 	dey
 	bne ehd3
 	cmp #$ff
 	bne fail2
-	rts		; yes, header valid
+	rts		; yes, finished header
 
 ; ----------------------------------- 
 
@@ -277,15 +279,16 @@ noclip	dey
 	bne fail2		; no short header: fail
 	rts
 
+; ----------------------------------- 
+
 fail2	pla		; if fail: error message
 	pla
 	jsr error
 	jmp faila
 
-	
-; ----------------------------------- Newsroom Header
+; ----------------------------------- Header Area
 
-header	!by 0,0	; dummy values (overwritten on load)
+header	!by 0,0
 	!wo 0
 top	!by 0
 bottom	!by 0
@@ -296,7 +299,7 @@ signature	!tx "newsroom"
 
 cntwert	!by 200
 
-; ----------------------------------- Error Message
+; ----------------------------------- Show Error Message
 
 faila	lda #0
 	pha
@@ -312,6 +315,21 @@ fl0	lda err1,x
 	bne fl0
 	jsr gd_clrms
 	  
+; ----------------------------------------- Set Render Mode
+
+tog2hires	lda #2		; für Umschalten auf Hires
+	!by $2c
+tog2multi	lda #0		; für Umschalten auf Multi    
+	sta gr_cmode
+	lda #16
+	sta sc_br
+	lda #$4c		; self modifying
+	sta patch
+	jsr ev_sccont	; Modus setzen und Anzeige anpassen
+	lda #$20		; unpatch
+	sta patch
+	rts
+
 ; ----------------------------------- Text Output Handler
 
 messout	ldx #<(message)
@@ -322,11 +340,11 @@ action	dec adcnt
 	bne ld4
 	lda cntwert
 	sta adcnt
-	ldy offy
-	cpy #20		; this value must be the same as at CLRMESS
+	ldy offy		; bar at maximum?
+	cpy clrmess+1
 	bne act0
-	jsr clrmess
-act0	ldx offx
+	jsr clrmess	; yes, clear
+act0	ldx offx		; write bar to output
 	lda filltab,x
 	sta mess,y
 	jsr messout
@@ -357,8 +375,8 @@ cl0	sta mess,x
 	rts
 
 filltab	!by 160,93,103,127,126,124,105,109
-message	!scr " NR Photo  "
-mess	!fi 21,32		; this value determines CLRMESS (value minus 1)
+message	!fill 11,32
+mess	!fill 21,32
 	!by 0
 txt	!scr " NR Photo  @" ; 0
 err1	!scr " ERROR: No valid Newsroom image."
@@ -371,7 +389,7 @@ getcols	lda #0		; %00: black
 	and #$0f
 	tax
 	bne gc0
-	ldx #1		; (white; alternatively, an .x value of 15 would be lgrey)
+	ldx #1		; (white; a value 15 would be lgrey)
 gc0	lda gdcols,x	; %11: comes from PICKED 
 	sta col3
 	tax		; %01: same as %11
@@ -382,12 +400,12 @@ gc0	lda gdcols,x	; %11: comes from PICKED
 	sta col2
 	rts
 
-; ----------------------------------- 
+; ----------------------------------- C64 Colors in GoDot Order
 
 gdcols	!by $00,$ff,$44,$cc,$55,$aa,$11,$dd
 	!by $66,$22,$99,$33,$77,$ee,$88,$bb
 
-; ----------------------------------- Store Filename
+; ----------------------------------- Image Information Handler
 
 getname	ldx #0
 si0	lda ls_lastname,x
@@ -398,7 +416,7 @@ si0	lda ls_lastname,x
 	bcc si0
 si1	rts
 
-; ----------------------------------- Image Information Handler
+; ----------------------------------- 
 
 setinfo	jsr setname
 	jsr setloader
@@ -432,11 +450,13 @@ si4	lda nbuf,x
 	bne si4
 si5	rts
 
-nbuf	!fi 16,32
+nbuf	!fill 16,32
 	!by 0
-	!scr "NewsRm @"
+	!scr "Newsrm @"
 modetx	!scr "320x200@"
 datatype	!scr "Color@"
+
+; ----------------------------------- 
 
 modend	!eof
 

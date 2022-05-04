@@ -13,6 +13,7 @@
 ; 1.00, 16.01.99, first release
 ; 1.01, 17.08.18, reorganized
 ; 1.02, 13.09.21, added: break loading process with STOP key
+; 1.03, 04.05.22, added: set render mode automatically
 ;
 ; ----------------------------------- 
 
@@ -28,6 +29,7 @@
 	offy	= $b3
 	offx	= $b2
 
+	patch	= $17af
 	vrbuf	= $c600
 	crbuf	= vrbuf+$0400
 	col0	= vrbuf+$0800
@@ -40,8 +42,8 @@
 	!wo modend
 	!wo 0
 	!tx "Hi-Eddi Scanntr."
-	!tx "1.02"
-	!tx "13.09.21"
+	!tx "1.03"
+	!tx "04.05.22"
 	!tx "A.Dettke        "
 
 ; ----------------------------------- 
@@ -114,6 +116,7 @@ sk11	ldx #18		; reset text to "Bitmap"
 
 sk10	jsr gd_xmess	; show disk error message
 	jsr setinfo	; set image information
+	jsr tog2hires	; ### 1.03
 	jsr gd_spron	; mouse pointer on
 	sec		; leave loader
 	rts
@@ -153,6 +156,21 @@ rl2	dec ls_vekta8
 	ora ls_vekta8+1
 	bne rloop
 rl3	rts
+
+; ----------------------------------------- Set Render Mode
+
+tog2hires	lda #2		; für Umschalten auf Hires
+	!by $2c
+tog2multi	lda #0		; für Umschalten auf Multi    
+	sta gr_cmode
+	lda #16
+	sta sc_br
+	lda #$4c		; self modifying
+	sta patch
+	jsr ev_sccont	; Modus setzen und Anzeige anpassen
+	lda #$20		; unpatch
+	sta patch
+	rts
 
 ; ----------------------------------- Message Handler
 

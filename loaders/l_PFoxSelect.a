@@ -11,6 +11,7 @@
 ;
 ;    1.00: 08.11.92, first release
 ;    1.01: 12.09.21, added: break loading process with STOP key
+;    1.02: 04.05.22, added: set render mode automatically
 ;
 ; ------------------------------------------------ 
 
@@ -45,6 +46,8 @@
 	offx		= ls_adrmisc
 	offy		= offx+1
 
+	patch		= $17af
+
 ; ------------------------------------------------ 
 
 header	jmp start
@@ -54,8 +57,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "PFoxSelect&Cut  "
-	!tx "1.01"
-	!tx "12.09.21"
+	!tx "1.02"
+	!tx "04.05.22"
 	!tx "A.Dettke/W.Kling"
 
 ; ------------------------------------------------ 
@@ -262,10 +265,26 @@ je1	rts
 ; ------------------------------------------------ End Sequence
 
 ld3	jsr setinfo
+	jsr tog2hires	; ### 1.02
 ld5	jsr gd_xclose	; close file
 	jsr gd_spron	; mouse on
 	jsr gd_xmess	; floppy message (flash)
 	sec		; leave module
+	rts
+
+; ----------------------------------------- Set Render Mode
+
+tog2hires	lda #2		; für Umschalten auf Hires
+	!by $2c
+tog2multi	lda #0		; für Umschalten auf Multi    
+	sta gr_cmode
+	lda #16
+	sta sc_br
+	lda #$4c		; self modifying
+	sta patch
+	jsr ev_sccont	; Modus setzen und Anzeige anpassen
+	lda #$20		; unpatch
+	sta patch
 	rts
 
 ; ------------------------------------------------ 

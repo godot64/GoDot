@@ -13,6 +13,7 @@
 ;    1.01:         , 
 ;    1.02: 08.10.95, added version 3
 ;    1.03: 18.10.95, bugfix in decode
+;    1.04: 04.05.22, added: set render mode automatically
 ;
 ; ------------------------------------------------ 
 
@@ -51,6 +52,7 @@
 	offx		= ls_adrmisc
 	offy		= offx+1
 
+	patch		= $17af
 	buf		= $c900
 
 ; ------------------------------------------------ 
@@ -62,8 +64,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "VBM res.320x200 "
-	!tx "1.03"
-	!tx "18.10.95"
+	!tx "1.04"
+	!tx "04.05.22"
 	!tx "A.Dettke/W.Kling"
 
 ; ------------------------------------------------ 
@@ -140,6 +142,11 @@ ld6	jsr gd_clrms
 	sta adcnt
 	sta btcnt
 	jsr getplane
+	lda which
+	bne +
+	jsr tog2hires
+	bne ld3
++	jsr tog2multi
 
 ld3	ldx #6
 ld74	lda which
@@ -573,6 +580,21 @@ set0	sty modevek
 	stx which
 	jsr tcopy
 	jmp getfile
+
+; ----------------------------------------- Set Render Mode
+
+tog2hires	lda #2		; für Umschalten auf Hires
+	!by $2c
+tog2multi	lda #0		; für Umschalten auf Multi    
+	sta gr_cmode
+	lda #16
+	sta sc_br
+	lda #$4c		; self modifying
+	sta patch
+	jsr ev_sccont	; Modus setzen und Anzeige anpassen
+	lda #$20		; unpatch
+	sta patch
+	rts
 
 ; ------------------------------------------------ 
 

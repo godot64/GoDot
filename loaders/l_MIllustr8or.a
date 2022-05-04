@@ -13,6 +13,7 @@
 ;    1.01: 03.10.18, optimized code
 ;                    added: recognition of compressed files
 ;                    added: decompression of files type 1 and 2
+;    1.02: 04.05.22, added: set render mode automatically
 ;
 ; ------------------------------------------------ 
 
@@ -42,6 +43,7 @@
 	offx		= ls_adrmisc
 	offy		= offx+1
 
+	patch		= $17af
 	vrbuf		= $c600
 	crbuf		= vrbuf+1000
 	col0		= vrbuf+2000
@@ -55,8 +57,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "MicroIllustr8tor"
-	!tx "1.01"
-	!tx "03.10.18"
+	!tx "1.02"
+	!tx "04.05.22"
 	!tx "A.Dettke        "
 
 ; ------------------------------------------------ 
@@ -251,6 +253,7 @@ sk8	jsr count
 sk11	ldx #30		; reset text to default ("Bitmap")
 	jsr tcopy
 	jsr setinfo	; set filename
+	jsr tog2multi	; ### 1.02
 
 sk10	jsr gd_xmess	; error message from drive
 	jsr gd_spron	; sprite pointer on
@@ -472,6 +475,21 @@ count 	lda ls_vekta8	; count bytes
 sk4	dec ls_vekta8
 	lda ls_vekta8
 	ora ls_vekta8+1
+	rts
+
+; ----------------------------------------- Set Render Mode
+
+tog2hires	lda #2		; für Umschalten auf Hires
+	!by $2c
+tog2multi	lda #0		; für Umschalten auf Multi    
+	sta gr_cmode
+	lda #16
+	sta sc_br
+	lda #$4c		; self modifying
+	sta patch
+	jsr ev_sccont	; Modus setzen und Anzeige anpassen
+	lda #$20		; unpatch
+	sta patch
 	rts
 
 ; --------------------------- Activity Display

@@ -13,6 +13,7 @@
 ;        1.02, 05.05.01: added safe filetype destinction
 ;        1.03, 14.08.18: added another PM filetype
 ;                        changed image information display
+;        1.04, 04.05.22: added: set render mode automatically
 ;
 ; ----------------------------------- 
 
@@ -40,6 +41,7 @@
 	gbyte		= $45
 	ftype		= $46
 
+	patch		= $17af
 	flen		= $bd20	; /$bd21: filelength
 	load		= $ffd5	; kernal LOAD 
 
@@ -52,8 +54,8 @@ godheader	jmp start
 	!wo modend
 	!wo 0
 	!tx "PMaster/PShopA&B"
-	!tx "1.03"
-	!tx "14.08.18"
+	!tx "1.04"
+	!tx "04.05.22"
 	!tx "A.Dettke        "
 
 ; ----------------------------------- 
@@ -228,6 +230,7 @@ ld12	clc		; add 1280 to start address for next row
 	bne ld00
 
 ld3	jsr setinfo	; then, set fileinfo
+	jsr tog2hires	; ### 1.04
 ld7	jsr gd_xclose	; close file
 	jsr gd_spron	; mouse pointer on
 	jsr gd_xmess	; display floppy message
@@ -275,6 +278,23 @@ fl0	lda err1,x	; set message text
 	bne fl0
 	jsr gd_clrms	; clear output line
 	  
+; ----------------------------------------- Set Render Mode
+
+tog2hires	lda #2		; für Umschalten auf Hires
+	!by $2c
+tog2multi	lda #0		; für Umschalten auf Multi    
+	sta gr_cmode
+	lda #16
+	sta sc_br
+	lda #$4c		; self modifying
+	sta patch
+	jsr ev_sccont	; Modus setzen und Anzeige anpassen
+	lda #$20		; unpatch
+	sta patch
+	rts
+
+; ----------------------------------- 
+
 messout	ldx #<(message)	; output message
 	ldy #>(message)
 	jmp gd_xtxout2
@@ -283,8 +303,11 @@ action	dec adcnt		; activity gauge
 	bne ld4
 	lda cntwert
 	sta adcnt
-	ldy offy		; (no safety here)
-	ldx offx
+	ldy offy		; bar at maximum?
+	cpy clrmess+1
+	bne act0
+	jsr clrmess	; yes, clear
+act0	ldx offx		; write bar to output
 	lda filltab,x
 	sta mess,y
 	jsr messout

@@ -7,11 +7,13 @@
 ; ------------------------------------------------ 
 ;
 ;    ldr.DrazLace
+;      loader for DrazLace or DrazPaint images
 ;
 ;
 ;    1.00: ?       , first release
 ;    1.01: 16.10.99, ?
 ;    1.02: 30.07.08, added storage of original bg color
+;    1.03: 04.05.22, added: set render mode automatically
 ;
 ; ------------------------------------------------ 
 
@@ -35,6 +37,7 @@
 	offx		= ls_adrmisc
 	offy		= offx+1
 
+	patch		= $17af
 	col0		= $c900
 	colff		= col0-1
 	cram		= $ca00
@@ -49,8 +52,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "DrazLace/Paint  "
-	!tx "1.02"
-	!tx "30.07.08"
+	!tx "1.03"
+	!tx "04.05.22"
 	!tx "A.Dettke        "
 
 ; ------------------------------------------------ 
@@ -532,7 +535,10 @@ gdcols	!by $00,$ff,$44,$cc
 
 break	jsr gd_xmess
 	jsr setinfo
-	jsr gd_xclose
+	lda version
+	bne +
+	jsr tog2multi
++	jsr gd_xclose
 	jsr gd_spron
 	sec
 	rts
@@ -548,6 +554,21 @@ onebyte	jsr basin
 error	jsr gd_xclose
 	jsr break
 	clc
+	rts
+
+; ----------------------------------------- Set Render Mode
+
+tog2hires	lda #2		; für Umschalten auf Hires
+	!by $2c
+tog2multi	lda #0		; für Umschalten auf Multi    
+	sta gr_cmode
+	lda #16
+	sta sc_br
+	lda #$4c		; self modifying
+	sta patch
+	jsr ev_sccont	; Modus setzen und Anzeige anpassen
+	lda #$20		; unpatch
+	sta patch
 	rts
 
 ; ----------------------------------------- 

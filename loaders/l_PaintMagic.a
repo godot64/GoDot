@@ -12,6 +12,7 @@
 ;  1.00: 01.08.94, first release
 ;  1.01: 09.01.17, saves original bg color
 ;  1.02: 31.10.18, bugfix: garbage in Image Info Display
+;  1.03: 04.05.22, added: set render mode automatically
 ;
 ; ---------------------------
 
@@ -30,6 +31,7 @@
 	offx		= ls_adrmisc
 	offy		= offx+1
 
+	patch		= $17af
 	vrbuf		= $c600
 	crbuf		= vrbuf+1000
 	col0		= vrbuf+2000
@@ -43,8 +45,8 @@
 	!wo modend
 	!by $00,$00
 	!pet "PaintMagic Multi"
-	!pet "1.02"
-	!pet "31.10.18"
+	!pet "1.03"
+	!pet "04.05.22"
 	!pet "A.Dettke/W.Kling"
 
 ; --------------------------- Main
@@ -249,6 +251,7 @@ sk10	jsr gd_xmess	; error message from drive
 	lda fflag
 	bne ll6
 	jsr setinfo
+	jsr tog2multi	; ### 1.03
 ll6	jsr gd_spron	; sprite pointer on
 	sec 
 	rts 
@@ -264,6 +267,21 @@ error	jsr gd_xclose
 	dec fflag
 	clc 
 	rts 
+
+; ----------------------------------------- Set Render Mode
+
+tog2hires	lda #2		; für Umschalten auf Hires
+	!by $2c
+tog2multi	lda #0		; für Umschalten auf Multi    
+	sta gr_cmode
+	lda #16
+	sta sc_br
+	lda #$4c		; self modifying
+	sta patch
+	jsr ev_sccont	; Modus setzen und Anzeige anpassen
+	lda #$20		; unpatch
+	sta patch
+	rts
 
 ; --------------------------- Activity Display
 
@@ -283,8 +301,11 @@ action	dec cntac
 	bne ld4
 	lda cntwert
 	sta cntac
-	ldy offy
-	ldx offx
+	ldy offy		; bar at maximum?
+	cpy clrmess+1
+	bne act0
+	jsr clrmess	; yes, clear
+act0	ldx offx		; write bar to output
 	lda filltab,x
 	sta mess,y
 	jsr messout

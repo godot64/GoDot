@@ -16,6 +16,7 @@
 ;    1.04: 27.04.95 
 ;    1.05: 04.09.05, added file background color storage
 ;    1.06: 12.09.21, added: break loading process with STOP key
+;    1.07, 04.05.22: added: set render mode automatically
 ;
 ; ---------------------------
 
@@ -36,6 +37,7 @@
 	offx		= $b2
 	offy		= offx+1
 
+	patch		= $17af
 	vrbuf		= $c600
 	crbuf		= vrbuf+1000
 	col0		= vrbuf+2000
@@ -48,8 +50,8 @@
 	!wo modend
 	!by $00,$00
 	!tx "Amica Paint ldr "
-	!tx "1.06"
-	!tx "12.09.21"
+	!tx "1.07"
+	!tx "04.05.22"
 	!tx "W.Kling/A.Dettke"
 
 ; --------------------------- main
@@ -232,6 +234,7 @@ sk9	dec ls_vekta8
 	ldx #18		; re-init tcopy
 	jsr tcopy
 	jsr setinfo
+	jsr tog2multi	; ### 1.07
 
 sk10	jsr gd_xmess
 	jsr gd_spron
@@ -266,6 +269,21 @@ getit2	dec counter
 	ldx status
 	rts
 	
+; ----------------------------------------- Set Render Mode
+
+tog2hires	lda #2		; für Umschalten auf Hires
+	!by $2c
+tog2multi	lda #0		; für Umschalten auf Multi    
+	sta gr_cmode
+	lda #16
+	sta sc_br
+	lda #$4c		; self modifying
+	sta patch
+	jsr ev_sccont	; Modus setzen und Anzeige anpassen
+	lda #$20		; unpatch
+	sta patch
+	rts
+
 ; --------------------------- messages on screen
 
 messout	ldx #<(message)

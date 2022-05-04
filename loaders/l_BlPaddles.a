@@ -15,6 +15,7 @@
 ;  1.03: 13.02.92,
 ;  1.04: 05.10.18, optimized code
 ;  1.05: 12.09.21, added: break loading process with STOP key
+;  1.06: 04.05.22, added: set render mode automatically
 ;
 ; ---------------------------
 
@@ -30,6 +31,7 @@
 	offx		= ls_adrmisc
 	offy		= offx+1
 
+	patch		= $17af
 	vrbuf		= $c600
 	crbuf		= vrbuf+1024
 	col0		= crbuf+1024
@@ -43,8 +45,8 @@
 	!wo modend
 	!wo 0
 	!tx "Blazing Paddles "
-	!tx "1.05"
-	!tx "12.09.21"
+	!tx "1.06"
+	!tx "04.05.22"
 	!tx "W.Kling/A.Dettke"
 
 ; --------------------------- Main
@@ -260,6 +262,7 @@ sk8	jsr count		; 1000 tiles
 sk11	ldx #30		; reset text to default ("Bitmap")
 	jsr tcopy
 	jsr setinfo	; set filename
+	jsr tog2multi	; ### 1.06
 
 sk10	jsr gd_xmess	; error message from drive
 	jsr gd_spron	; sprite pointer on
@@ -281,6 +284,21 @@ count 	lda ls_vekta8	; count bytes
 +	dec ls_vekta8
 	lda ls_vekta8
 	ora ls_vekta8+1
+	rts
+
+; ----------------------------------------- Set Render Mode
+
+tog2hires	lda #2		; für Umschalten auf Hires
+	!by $2c
+tog2multi	lda #0		; für Umschalten auf Multi    
+	sta gr_cmode
+	lda #16
+	sta sc_br
+	lda #$4c		; self modifying
+	sta patch
+	jsr ev_sccont	; Modus setzen und Anzeige anpassen
+	lda #$20		; unpatch
+	sta patch
 	rts
 
 ; --------------------------- Activity Display

@@ -19,6 +19,7 @@
 ; 1.02, 27.04.01: added handling of wide images (>40 tiles)
 ; 1.03, 10.10.18: bugfix: stop reading file on EOF
 ;                 added: pointing to correct loader on "g."-files
+; 1.04, 04.05.22: added: set render mode automatically
 ;
 ; ----------------------------------- 
 
@@ -49,6 +50,8 @@
 	skip		= $47
 	eof		= $48
 
+	patch		= $17af
+
 ; ----------------------------------- Header
 
 godheader	jmp start
@@ -58,8 +61,8 @@ godheader	jmp start
 	!wo modend
 	!wo 0
 	!tx "FGM ClipArt Pix "
-	!tx "1.03"
-	!tx "10.10.18"
+	!tx "1.04"
+	!tx "04.05.22"
 	!tx "A.Dettke        "
 
 ; ----------------------------------- 
@@ -227,6 +230,7 @@ ld12	clc		; add 1280 to start address for next row
 	jmp ld0		; no, loop
 
 ld3	jsr setinfo	; set fileinfo
+	jsr tog2hires	; ### 1.04
 ld7	jsr gd_xclose	; close file
 	jsr gd_spron	; pointer on
 	jsr gd_xmess	; display floppy message
@@ -321,6 +325,21 @@ fl0	lda err1,x
 	bne fl0
 	jsr gd_clrms
 	  
+; ----------------------------------------- Set Render Mode
+
+tog2hires	lda #2		; für Umschalten auf Hires
+	!by $2c
+tog2multi	lda #0		; für Umschalten auf Multi    
+	sta gr_cmode
+	lda #16
+	sta sc_br
+	lda #$4c		; self modifying
+	sta patch
+	jsr ev_sccont	; Modus setzen und Anzeige anpassen
+	lda #$20		; unpatch
+	sta patch
+	rts
+
 ; ----------------------------------- 
 
 messout	ldx #<message
@@ -451,7 +470,7 @@ nbuf	!fill 16,32
 	!scr "FGMClip@"
 
 modetx	!scr "320x200@"
-datatype	!scr "monochr@"
+datatype	!scr "Color@"
 
 ; ----------------------------------- 
 

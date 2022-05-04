@@ -16,6 +16,7 @@
 ;                        bugfix: finally reads geopaint images correctly!
 ;        1.04, 11.04.20, bugfix: recognize geopaint image correctly
 ;        1.05, 19.04.20, bugfix: didn't read from track 80 on 1581
+;        1.06, 04.05.22, added: set render mode automatically
 ;
 ; ----------------------------------- 
 
@@ -68,6 +69,7 @@
 	cgrn	= cred+16
 	cblu	= cgrn+16
 
+	patch	= $17af
 	readbuf	= $2000
 	colors	= $2508
 	colors2	= $2558
@@ -100,8 +102,8 @@ godheader	jmp start
 	!wo modend
 	!wo 0
 	!tx "geoPaint 1:1 ldr"
-	!tx "1.05"
-	!tx "19.04.20"
+	!tx "1.06"
+	!tx "04.05.22"
 	!tx "A.Dettke        "
 
 ; ----------------------------------- Main
@@ -189,6 +191,7 @@ spx0	sta (dst),y
 	jsr tobcode
 
 ld3	jsr setinfo
+	jsr tog2hires	; ### 1.06
 ld5	jsr gd_xclose	; close file
 	jsr gd_spron
 	jsr gd_xmess
@@ -534,6 +537,21 @@ fl0	lda err1,x
 	bne fl0
 	jsr gd_clrms
 	  
+; ----------------------------------------- Set Render Mode
+
+tog2hires	lda #2		; für Umschalten auf Hires
+	!by $2c
+tog2multi	lda #0		; für Umschalten auf Multi    
+	sta gr_cmode
+	lda #16
+	sta sc_br
+	lda #$4c		; self modifying
+	sta patch
+	jsr ev_sccont	; Modus setzen und Anzeige anpassen
+	lda #$20		; unpatch
+	sta patch
+	rts
+
 ; ----------------------------------- Message Handler
 
 messout	ldx #<message

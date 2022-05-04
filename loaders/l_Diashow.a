@@ -15,6 +15,7 @@
 ; 1.04, 13.02.92, latest release
 ; 1.05: 30.07.08, added storage of original bg color
 ; 1.06, 12.09.21: added: break loading process with STOP key
+; 1.07, 04.05.22: added: set render mode automatically
 ;
 ; ----------------------------------------- 
 
@@ -34,6 +35,7 @@
 	offy	= $b3
 
 	nambuf	= $0200
+	patch	= $17af
 
 	vrbuf	= $c600
 	crbuf	= $ca00
@@ -50,8 +52,8 @@
 	!wo modend
 	!wo 0
 	!tx "Diashow         "
-	!tx "1.06"
-	!tx "12.09.21"
+	!tx "1.07"
+	!tx "04.05.22"
 	!tx "W.Kling/A.Dettke"
 	
 ; ------------------------------------------------------------ 
@@ -155,6 +157,12 @@ mloop	ldx #8		; get 8 pages (2048 bytes colors)
 
 ; ----------------------------------------- 
 
+	ldx #6		; prepare info text
+cls0	lda mtext,x
+	sta modetx,x
+	dex 
+	bpl cls0
+
 	lda $4a11		; is graphics mode active? 
 	and #$20
 	bne cols0
@@ -166,16 +174,12 @@ cols0	lda $4a16		; is it multicolor mode?
 	jsr conhir	; no, process hires data
 	jsr hires
 	jsr setinfoc
+	jsr tog2hires	; ### 1.07
 	jmp sk11
 
 ; ----------------------------------------- Multicolor data
 
-cols	ldx #$06		; prepare info text
-cls0	lda mtext,x
-	sta modetx,x
-	dex 
-	bpl cls0
-	lda #$32
+cols	lda #$32
 	sta cntwert
 	sta cnttemp
 	ldx #$00		; "Colors"
@@ -289,6 +293,7 @@ sk9	dec ls_vekta8
 	ora ls_vekta8+1
 	bne loop2
 	jsr setinfoc
+	jsr tog2multi	; ### 1.07
 
 ; ----------------------------------------- 
 
@@ -662,6 +667,21 @@ mc0	lda (ls_vekta8),y
 	dec merk
 	bne mc0
 	rts 
+
+; ----------------------------------------- Set Render Mode
+
+tog2hires	lda #2		; für Umschalten auf Hires
+	!by $2c
+tog2multi	lda #0		; für Umschalten auf Multi    
+	sta gr_cmode
+	lda #16
+	sta sc_br
+	lda #$4c		; self modifying
+	sta patch
+	jsr ev_sccont	; Modus setzen und Anzeige anpassen
+	lda #$20		; unpatch
+	sta patch
+	rts
 
 ; ----------------------------------------- 
 

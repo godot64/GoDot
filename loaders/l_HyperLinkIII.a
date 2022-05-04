@@ -12,6 +12,7 @@
 ;  1.00,         , first release
 ;  1.01,         ,
 ;  1.02, 25.09.99
+;  1.03, 04.05.22, added: set render mode automatically
 ;
 ; ------------------------------------------------ 
 
@@ -34,6 +35,7 @@
 	offx		= ls_adrmisc
 	offy		= offx+1
 
+	patch		= $17af
 	vrbuf		= $c600
 	crbuf		= vrbuf+$0400
 	col0		= vrbuf+$0800
@@ -49,8 +51,8 @@
 	!wo modend
 	!wo 0
 	!tx "Hyperlink's III "
-	!tx "1.02"
-	!tx "25.09.99"
+	!tx "1.03"
+	!tx "04.05.22"
 	!tx "A.Dettke        "
 ;
 ; ------------------------------------------------ 
@@ -183,6 +185,7 @@ jerror	jsr gd_xclose	; then close file
 	jsr conhir	; hires
 	jsr hires
 	jsr setinfo	; set image information
+	jsr tog2hires	; ### 1.03
 
 ; ------------------------------------------------ 
 
@@ -301,6 +304,21 @@ fl1	ldx sc_texttab
 	jsr count
 	bne floop
 fl3	rts
+
+; ----------------------------------------- Set Render Mode
+
+tog2hires	lda #2		; für Umschalten auf Hires
+	!by $2c
+tog2multi	lda #0		; für Umschalten auf Multi    
+	sta gr_cmode
+	lda #16
+	sta sc_br
+	lda #$4c		; self modifying
+	sta patch
+	jsr ev_sccont	; Modus setzen und Anzeige anpassen
+	lda #$20		; unpatch
+	sta patch
+	rts
 
 ; ------------------------------------------------ 
 
