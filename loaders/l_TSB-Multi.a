@@ -1,0 +1,458 @@
+	!to "ldr.tsb-multi.prg", cbm
+
+	*= $c000
+	!src "godotlib.lib"
+	!ct pet
+;	!sl "labels.txt"
+
+; ----------------------------------------- 
+;
+;  ldr.TSB-Multi
+;  Loader for Multicolor Images from TSB
+;
+;  1.00, 05.05.2022:  first release
+;
+; ----------------------------------------- 
+
+
+; ----------------------------------------- Equates
+
+	counter		= $31
+	gbyte		= $32
+	byte		= $33
+	cnt 		= $34
+	vr    		= $35	; /$36
+	cr	    	= $37	; /$38
+	adcnt		= $39
+	dst0		= $3a	; /$3b
+	cflag   	= $f7
+	int			= $14
+
+	offx		= ls_adrmisc
+	offy		= offx+1
+
+	patch   	= $17af
+	vrbuf		= $c600
+	crbuf		= vrbuf+1024	; $ca00
+	col0		= crbuf+1024	; $ce00
+
+; ----------------------------------------- Header
+
+	jmp start
+	!by $80
+	!by $00,$00
+	!by <(modend),>(modend)
+	!by $00,$00
+	!pet "TSB-Multi       "
+	!pet "1.00"
+	!pet "04.05.2022"
+	!pet "P.Hagemann      "
+
+; ----------------------------------------- Main
+
+jerror	jmp error
+
+start	lda #50		; activity counter
+	sta cntwert
+	ldx #1
+	stx adcnt
+	dex         	; init break by STOP
+	stx sc_stop
+
+	ldx sc_vekt20	; set destination address ($4000)
+	stx counter 	; init compress counter
+	ldy sc_vekt20+1
+	stx sc_texttab
+	sty sc_texttab+1
+	
+; check last two chars of filename
+; if digits, then use them as background color
+	
+	ldx ls_flen 	; namelength
+	dex
+	lda ls_nambuf,x	; last char of filenaame
+	jsr	chkdigits	; if digit then value in int and Y=1
+	cpy #0
+	beq read1
+	dex 
+	beq read1    	; no digits
+	lda ls_nambuf,x ; previous char
+	sta int+1
+	cmp #$31    	; "1" is legal
+	beq ok
+	cmp #$30    	; "0" is legal
+	beq ok
+	bcs read1
+	cmp #$20    	; space is legal
+	bne	read1   	; else no digit
+ok	lda int+1
+    cmp #$31    	; if = "1" 
+	bne +
+	lda #10 		; add 10
+	bne ++
++	lda #0			; else ("0" or space) add 0
+++	clc
+	adc int
+	and #$0f
+	sta int
+	sta col0
+	sta gr_fbkcol	
+
+; ----------------------------------------- Read Bitmap
+
+read1	jsr gd_xopen	; open file
+	jsr onebyte	; skip start address ($e000)
+	bne jerror
+	jsr onebyte
+	bne jerror
+
+	jsr gd_clrms	; init gauge
+	ldx #18	    	; out: "Bitmap"
+	jsr tcopy
+	lda #$00
+	sta ls_vekta8
+	lda #$20    	; $2000 = 8192 bytes
+	sta ls_vekta8+1
+
+loop	jsr onebyte	; read bitmap
+l1	bne jerror
+	ldx sc_stop	; STOP pressed?
+	bne jerror
+	sta byte
+	jsr action	; activity
+	ldy #0
+	ldx #4		; make 4 bytes from 1 (= 8 pixels)
+bloop	lda #0		; pre-convert to 4bit
+	asl byte
+	rol
+	asl byte
+	rol
+	sta (sc_texttab),y
+	inc sc_texttab
+	bne sk
+	inc sc_texttab+1
+sk	dex
+	bne bloop
+
+	lda ls_vekta8	; count
+	bne sk1
+	dec ls_vekta8+1
+sk1	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	beq sk2
+
+	lda status	; floppy error?
+	beq loop		; no
+
+; ----------------------------------------- Read Colors
+
+sk2	lda #<(2000)	; 2000 bytes
+	sta ls_vekta8
+	lda #>(2000)
+	sta ls_vekta8+1
+	lda #<(vrbuf)	; set buffer address for videoram
+	sta vr
+	lda #>(vrbuf)
+	sta vr+1
+	lda #<(crbuf)	; set buffer adress for colorram
+	sta cr
+	lda #>(crbuf)
+	sta cr+1
+
+	lda #13	    	; out: "Colors"
+	sta cntwert
+	ldx #1
+	sta adcnt
+	dex
+	jsr tcopy
+	
+	lda #0
+	sta cflag
+rcloop	ldy #0
+	jsr onebyte		; get byte
+	bit cflag
+	bpl cram   		; each second byte is videoram
+	sta (vr),y  	; store videoram
+	inc vr			; proceed videoram
+	bne	c1
+	inc vr+1
+	bne c1  		; unconditionally
+cram	sta (cr),y  ; each first byte is colorram
+	inc cr  	; proceed colorram
+	bne c1
+	inc cr+1
+c1	txa         	; disk error?
+	and #$bf
+	bne c3
+	ldx sc_stop		; STOP pressed?	
+	bne c3
+	jsr action		; no, activity (changes .y !)
+	lda cflag
+	eor #$ff    	; toggle cflag
+	sta cflag
+	lda ls_vekta8	; and count
+	bne c2
+	dec ls_vekta8+1
+c2	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1	
+	bne rcloop
+c3	beq clf
+    jmp error	
+
+; ----------------------------------------- Convert to 4Bit
+
+clf	jsr gd_xclose	; close file
+
+	lda #<(vrbuf)	; init buffer addresses
+	sta vr
+	lda #>(vrbuf)
+	sta vr+1
+	lda #<(crbuf)
+	sta cr
+	lda #>(crbuf)
+	sta cr+1
+	lda #<($4000)	; set 4bit address
+	sta sc_texttab
+	lda #>($4000)
+	sta sc_texttab+1
+	lda #<(1000)	; count (to 1000)
+	sta ls_vekta8
+	lda #>(1000)
+	sta ls_vekta8+1
+
+	lda #200		; out: "Convert"
+	sta cntwert
+	ldx #9
+	stx adcnt
+	jsr tcopy
+
+loop2	lda (vr),y	; convert video ram to VIC regs
+	pha
+	lsr
+	lsr
+	lsr
+	lsr
+	sta col0+1	; ink
+	pla
+	and #$0f
+	sta col0+2	; paper
+	lda (cr),y	; convert color ram to...
+	and #$0f
+	sta col0+3	; ...individual color
+
+	lda #32		; one tile
+	sta cnt
+bloop1	jsr action
+	ldy #0
+	lda (sc_texttab),y	; get pre-rendered 4bit data
+	tax
+	lda col0,x	; convert to 4bit
+	tax
+	lda dnib,x	; (make double nibs)
+	sta (sc_texttab),y
+	inc sc_texttab	; proceed in tile
+	bne sk6
+	inc sc_texttab+1
+sk6	dec cnt
+	bne bloop1
+
+	inc vr		; advance in buffers (next tile)
+	bne sk7
+	inc vr+1
+sk7	inc cr
+	bne sk8
+	inc cr+1
+
+sk8	lda ls_vekta8	; count 1000 tiles
+	bne sk9
+	dec ls_vekta8+1
+sk9	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	bne loop2
+
+	ldx #18		; reset text output
+	jsr tcopy
+
+; ----------------------------------------- Abschluss
+
+	jsr setinfo	; set image information
+	jsr tog2multi	; set graphics mode
+
+sk10	jsr gd_xmess	; floppy message
+	jsr gd_spron	; mouse pointer on
+	sec		; leave loader
+	rts
+
+; ----------------------------------------- Prüft auf Ziffer	
+; Byte in .A, Ergebnis in .Y 
+	
+chkdigits	ldy #0
+	cmp #$30 	; kleiner 0?
+	bcc	+
+	cmp	#$3a    	; größer 9? (dann .C=1)
+	bcs +
+	sec
+	sbc	#$30
+	sta int
+	ldy #1
++	rts		
+
+; ----------------------------------- Read File
+
+onebyte	jsr basin
+	ldx status
+	rts
+
+; ----------------------------------------- File Error
+
+error	jsr gd_xclose	; close file
+	jsr sk10		; Abschluss
+	clc		; stay in loader
+	rts
+
+; ----------------------------------------- Message Handling
+
+messout	ldx #<(message)	; ausgeben
+	ldy #>(message)
+	jmp gd_xtxout2
+
+tcopy	ldy #0		; anwählen
+tc0	lda txt,x
+	beq clrmess
+	sta message,y
+	inx 
+	iny 
+	bne tc0
+
+action	dec adcnt		; Gauge-Bar bewegen
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	cpy #22
+	bne act0
+	jsr clrmess
+act0	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts 
+
+clrmess	ldx #20		; Message initialisieren
+	lda #32
+cl0	sta mess,x
+	dex 
+	bpl cl0
+	ldy #0
+	ldx #7
+	sty offy
+	stx offx
+	rts 
+
+filltab	!by 160,93,103,127,126,124,105,109
+
+txt	!scr " Colors @"	; 0
+	!scr " Convert@"	; 9
+	!scr " Bitmap @"	; 18
+
+message	!fill 11,32
+mess	!fill 21,32
+	!by 0
+
+; ----------------------------------------- Data
+
+dnib	!by $00,$ff,$44,$cc,$55,$aa,$11,$dd
+	!by $66,$22,$99,$33,$77,$ee,$88,$bb
+
+cntwert	!by 50
+
+; ----------------------------------------- Set Graphics Mode
+
+tog2hires	lda #2	; für Umschalten auf Hires
+	!by $2c
+tog2multi	lda #0	; für Umschalten auf Multi    
+	sta gr_cmode
+	lda #16
+	sta sc_br
+	lda #$4c    	; self modifying
+	sta patch
+	jsr ev_sccont	; Modus setzen und Anzeige anpassen
+	lda #$20    	; unpatch
+	sta patch
+	rts
+
+; ----------------------------------------- Image Information Handler
+
+getname	ldx #0
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx 
+	cpx #16
+	bcc si0
+si1	rts 
+
+getdatac	ldx #4
+	!by $2c
+getdatag	ldx #9
+	ldy #4
+sinfo0	lda dtextc,x
+	sta datatype,y
+	dex 
+	dey 
+	bpl sinfo0
+	rts 
+
+setinfo	jsr getdatac
+	jsr setname
+	jsr setloader
+	jsr setmode
+	jmp setdata
+
+setname	lda #0
+	ldx #<(ls_picname)
+	ldy #>(ls_picname)
+	bne si3
+setloader	lda #17
+	ldx #<(ls_iloader)
+	ldy #>(ls_iloader)
+	bne si3
+setmode	lda #25
+	ldx #<(ls_imode)
+	ldy #>(ls_imode)
+	bne si3
+setdata	lda #33
+	ldx #<(ls_idrive)
+	ldy #>(ls_idrive)
+si3	stx dst0
+	sty dst0+1
+	tax 
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (dst0),y
+	inx 
+	iny 
+	bne si4
+si5	rts 
+
+nbuf	!fill 16,32
+	!by 0
+
+	!scr "TSB-MCP@"
+
+modetx	!scr "160x200@"
+datatype	!scr "Color@"
+dtextc	!scr "Color"
+
+; ----------------------------------------- 
+
+modend	!eof
