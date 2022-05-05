@@ -1,6 +1,8 @@
 
-!src "godotlib.lib"
-*= $c000
+	*= $c000
+	!src "godotlib.lib"
+	!ct pet
+;	!sl "labels.txt"
 
 ; ------------------------------------------------------------ 
 ;
@@ -12,6 +14,7 @@
 ; 1.00, 24.07.17, bugfixes:
 ;                 Hires sampling: Pixel vertauscht
 ;                 File-Ende nicht erkannt
+; 1.01, 04.05.22, added: set render mode automatically
 ;
 ; ------------------------------------------------------------ 
 
@@ -34,6 +37,7 @@
 	offy		= ls_adrmisc
 	offx		= offy+1
 
+	patch		= $17af
 	buf		= sy_bigbuffer
 	b0		= buf
 	b1		= b0+80
@@ -64,8 +68,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "StPntr128.Resmpl"
-	!pet "1.00"
-	!pet "02.06.92"
+	!pet "1.01"
+	!pet "04.05.22"
 	!pet "W.Kling/A.Dettke"
 
 ; ----------------------------------------- Main
@@ -103,6 +107,7 @@ dl3	jsr getplane	; Bild einlesen und resamplen
 	bmi +
 dl2	jsr setmodem
 +	jsr setinfo
+	jsr tog2multi	; ### 1.01
 
 ; ----------------------------------------- Abschluss bei Fehler
 
@@ -167,6 +172,21 @@ act0	ldx offx
 	lda #7
 	sta offx
 ld4 	rts
+
+; ----------------------------------------- Set Render Mode
+
+tog2hires	lda #2		; für Umschalten auf Hires
+	!by $2c
+tog2multi	lda #0		; für Umschalten auf Multi    
+	sta gr_cmode
+	lda #16
+	sta sc_br
+	lda #$4c		; self modifying
+	sta patch
+	jsr ev_sccont	; Modus setzen und Anzeige anpassen
+	lda #$20		; unpatch
+	sta patch
+	rts
 
 ; ----------------------------------------- Message Handling
 
