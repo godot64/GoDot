@@ -10,9 +10,10 @@
 ;  ldr.TSB-Multi
 ;  Loader for Multicolor Images from TSB
 ;
-;  1.00, 05.05.22:  first release
-;  1.01, 05.05.22:  bugfix: missing GETNAME,
-;                   shorter recognition of digits
+;  1.00, 05.05.22: first release
+;  1.01, 05.05.22: bugfix: missing GETNAME,
+;                  shorter recognition of digits
+;  1.02, 05.05.22: bugfix: digits not safely recognized
 ;
 ; ----------------------------------------- 
 
@@ -47,7 +48,7 @@
 	!by <(modend),>(modend)
 	!by $00,$00
 	!pet "TSB-Multi       "
-	!pet "1.01"
+	!pet "1.02"
 	!pet "05.05.2022"
 	!pet "P.Hagemann/AD   "
 
@@ -272,14 +273,16 @@ getbgcol	ldx #0
 	dey
 	beq ++		; only 1 char? (then skip all)
 	lda ls_nambuf,y	; 2nd but last:
+	cmp #$32		; (accept only 0 or 1)
+	bcs +		; (if more, skip)
 	jsr chkdigs	; digit?
 	bcs +		; no, skip (only 1 digit?)
-	cmp #$32		; (accept only 0 or 1)
-	bcs ++		; (if more, skip all)
 	and #15		; 0 or 1 remain (to .x)
 	tax
 +	iny
 	lda ls_nambuf,y	; last char:
+	cmp #$3a		; (accept only 0 or 1)
+	bcs ++		; (if more, skip)
 	jsr chkdigs
 	bcs ++		; no digit, skip all
 	and #15
