@@ -10,7 +10,9 @@
 ;  ldr.TSB-Multi
 ;  Loader for Multicolor Images from TSB
 ;
-;  1.00, 05.05.2022:  first release
+;  1.00, 05.05.22:  first release
+;  1.01, 05.05.22:  bugfix: missing GETNAME,
+;                   shorter recognition of digits
 ;
 ; ----------------------------------------- 
 
@@ -25,13 +27,14 @@
 	cr	    	= $37	; /$38
 	adcnt		= $39
 	dst0		= $3a	; /$3b
-	cflag   	= $f7
-	int			= $14
+	cflag   		= $f7
+	int		= $14
 
 	offx		= ls_adrmisc
 	offy		= offx+1
 
-	patch   	= $17af
+	chkdigs		= $0084
+	patch   		= $17af
 	vrbuf		= $c600
 	crbuf		= vrbuf+1024	; $ca00
 	col0		= crbuf+1024	; $ce00
@@ -44,13 +47,14 @@
 	!by <(modend),>(modend)
 	!by $00,$00
 	!pet "TSB-Multi       "
-	!pet "1.00"
-	!pet "04.05.2022"
-	!pet "P.Hagemann      "
+	!pet "1.01"
+	!pet "05.05.2022"
+	!pet "P.Hagemann/AD   "
 
 ; ----------------------------------------- Main
 
 jerror	jmp error
+wascancel	jmp sk11
 
 start	lda #50		; activity counter
 	sta cntwert
@@ -64,43 +68,15 @@ start	lda #50		; activity counter
 	ldy sc_vekt20+1
 	stx sc_texttab
 	sty sc_texttab+1
-	
-; check last two chars of filename
-; if digits, then use them as background color
-	
-	ldx ls_flen 	; namelength
-	dex
-	lda ls_nambuf,x	; last char of filenaame
-	jsr	chkdigits	; if digit then value in int and Y=1
-	cpy #0
-	beq read1
-	dex 
-	beq read1    	; no digits
-	lda ls_nambuf,x ; previous char
-	sta int+1
-	cmp #$31    	; "1" is legal
-	beq ok
-	cmp #$30    	; "0" is legal
-	beq ok
-	bcs read1
-	cmp #$20    	; space is legal
-	bne	read1   	; else no digit
-ok	lda int+1
-    cmp #$31    	; if = "1" 
-	bne +
-	lda #10 		; add 10
-	bne ++
-+	lda #0			; else ("0" or space) add 0
-++	clc
-	adc int
-	and #$0f
-	sta int
-	sta col0
-	sta gr_fbkcol	
+
+	ldy ls_flen	; was cancelled?
+	beq wascancel	; yes, leave
+	jsr getbgcol	; check for digits
 
 ; ----------------------------------------- Read Bitmap
 
-read1	jsr gd_xopen	; open file
+	jsr getname	; save name for image info
+	jsr gd_xopen	; open file
 	jsr onebyte	; skip start address ($e000)
 	bne jerror
 	jsr onebyte
@@ -170,24 +146,24 @@ sk2	lda #<(2000)	; 2000 bytes
 	lda #0
 	sta cflag
 rcloop	ldy #0
-	jsr onebyte		; get byte
+	jsr onebyte	; get byte
 	bit cflag
-	bpl cram   		; each second byte is videoram
+	bpl cram   	; each second byte is videoram
 	sta (vr),y  	; store videoram
-	inc vr			; proceed videoram
+	inc vr		; proceed videoram
 	bne	c1
 	inc vr+1
 	bne c1  		; unconditionally
-cram	sta (cr),y  ; each first byte is colorram
-	inc cr  	; proceed colorram
+cram	sta (cr),y	; each first byte is colorram
+	inc cr		; proceed colorram
 	bne c1
 	inc cr+1
 c1	txa         	; disk error?
 	and #$bf
 	bne c3
-	ldx sc_stop		; STOP pressed?	
+	ldx sc_stop	; STOP pressed?	
 	bne c3
-	jsr action		; no, activity (changes .y !)
+	jsr action	; no, activity (changes .y!)
 	lda cflag
 	eor #$ff    	; toggle cflag
 	sta cflag
@@ -199,7 +175,7 @@ c2	dec ls_vekta8
 	ora ls_vekta8+1	
 	bne rcloop
 c3	beq clf
-    jmp error	
+	jmp error	
 
 ; ----------------------------------------- Convert to 4Bit
 
@@ -282,23 +258,43 @@ sk9	dec ls_vekta8
 	jsr tog2multi	; set graphics mode
 
 sk10	jsr gd_xmess	; floppy message
-	jsr gd_spron	; mouse pointer on
+sk11	jsr gd_spron	; mouse pointer on
 	sec		; leave loader
 	rts
 
 ; ----------------------------------------- Prüft auf Ziffer	
-; Byte in .A, Ergebnis in .Y 
+; check last two chars of filename
+; if digits, then use them as background color
 	
-chkdigits	ldy #0
-	cmp #$30 	; kleiner 0?
-	bcc	+
-	cmp	#$3a    	; größer 9? (dann .C=1)
-	bcs +
-	sec
-	sbc	#$30
-	sta int
-	ldy #1
-+	rts		
+getbgcol	ldx #0
+	stx int		; preset black
+	dey		; last two chars: digits?
+	dey
+	beq ++		; only 1 char? (then skip all)
+	lda ls_nambuf,y	; 2nd but last:
+	jsr chkdigs	; digit?
+	bcs +		; no, skip (only 1 digit?)
+	cmp #$32		; (accept only 0 or 1)
+	bcs ++		; (if more, skip all)
+	and #15		; 0 or 1 remain (to .x)
+	tax
++	iny
+	lda ls_nambuf,y	; last char:
+	jsr chkdigs
+	bcs ++		; no digit, skip all
+	and #15
+	sta int		; store value
+	txa
+	beq ++
+
+	lda #10 		; add 10 (if 2nd but last was a 1)
+	!by $2c
+++	lda #0		; else ("0" or space) add 0
+	clc
+	adc int
+	sta col0
+	sta gr_fbkcol
+	rts
 
 ; ----------------------------------- Read File
 
@@ -376,9 +372,9 @@ cntwert	!by 50
 
 ; ----------------------------------------- Set Graphics Mode
 
-tog2hires	lda #2	; für Umschalten auf Hires
+tog2hires	lda #2		; für Umschalten auf Hires
 	!by $2c
-tog2multi	lda #0	; für Umschalten auf Multi    
+tog2multi	lda #0		; für Umschalten auf Multi    
 	sta gr_cmode
 	lda #16
 	sta sc_br
