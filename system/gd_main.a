@@ -18,6 +18,7 @@
 ;                 sprites have x-positions >255
 ; 1.35, 13.10.20, added: STOP while reading DIR now ends DIR
 ; 1.36, 25.12.20, bugfix: stop permanent error message after Delete
+; 1.37, 22.05.22, bugfix: stop perm. floppy error mess. after error
 ;
 ; -------------------------------------------------- 
 
@@ -613,7 +614,7 @@ most	txa		; ### 1.34
 ; -------------------------------------------------- Version Number
 
 gd_version
-	!by $01,$36	; version number, SED-mode
+	!by $01,$37	; version number, SED-mode
 
 ; -------------------------------------------------- 
 ; -------------------------------------------------- Entry to GoDot, Main Loop
@@ -1803,16 +1804,21 @@ dir4	dex
 dir2	lda sc_zl
 	pha
 	jsr dirstop
+	and #$0f		; ### 1.37...
+	tax
 	pla
 	sta sc_zl
-	lda ls_err2
-	and #$0f
+	txa		; ### ...1.37
 	bne dir3
 	jsr gd_makedir	; process data and display
 	bne dir2
 dir3	jsr gd_spron	; pointer on again
 	clc		; continue until window filled or last dir block processed
 	rts
+
+; -------------------------------------------------- 
+
+	!by 0		; Padding
 
 ; -------------------------------------------------- Process Directory Data
 
@@ -2090,10 +2096,10 @@ messu1	!pet "u1:13 0"
 ; -------------------------------------------------- 
 
 dirstop	jsr gd_sproff	; pointer off
-	stx ls_sector	; ### 1.49
+	stx ls_sector	; ### 1.35
 	jsr getdir
 	lda sc_stop
-	sta ls_err2
+	ora ls_err2	; ### 1.37
 	rts
 
 ; -------------------------------------------------- 
