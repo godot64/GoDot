@@ -1,0 +1,571 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ----------------------------------------- 
+;
+; ldr.PETSCII
+; loader for Petmate text screen files
+; 
+; 1.00, 07.01.23, first release
+;
+; ----------------------------------------- 
+
+; ----------------------------------------- Equates
+
+	pport	= $01
+
+	width	= $30	; unused, default: 40
+	height	= $31	; unused, default: 25
+	bcolor	= $32	; unused: border color
+	bgcolor	= $33
+	cset	= $34	; charset: 1=upper, 0=lower
+	vram	= $35	; /$36
+	cram	= $37	; /$38
+
+	rows	= $39	; unused  yet
+	cols	= $3a	; unused yet
+	cnttemp	= $3b
+	merk	= $3c
+	vv	= $3d	; /$3e
+	byte	= $3f
+
+	offx	= ls_adrmisc
+	offy	= offx+1
+
+	nambuf	= $0200
+	patch	= $17af
+
+	vrbuf	= $c600
+	crbuf	= $ca00
+	col0	= $ce00
+
+; ------------------------------------------------------------ 
+
+	jmp start
+
+	!by $80
+	!by 0,0
+	!wo modend
+	!wo 0
+	!tx "PETSCII (.pet)  "
+	!tx "1.00"
+	!tx "07.01.23"
+	!tx "A.Dettke        "
+	
+; ------------------------------------------------------------ 
+
+jerror	jmp error
+
+; ----------------------------------------- Main
+
+start	jsr getname
+	lda #12
+	sta cntwert
+	sta cnttemp
+	ldx sc_vekt20	; contains $4000
+	ldy sc_vekt20+1
+	stx sc_texttab	; as destination
+	sty sc_texttab+1
+
+	lda #0
+	sta sc_stop	; init break by STOP
+	jsr gd_xopen
+
+	ldy #0
+-	jsr onebyte	; read .pet file header
+	bne jerror
+	sta width,y
+	iny
+	cpy #5
+	bne -
+	tax		; last byte is charset indicator
+	beq +
+	lda #$d0		; 1: upper ($d000)
+	!by $2c
++	lda #$d8		; 0: lower ($d800)
+	sta cset
+
+; ----------------------------------------- 
+
+	jsr gd_clrms	; Activity vorbereiten
+	ldx #18		; Text: "Screen"
+	jsr tcopy
+
+read	jsr readdata	; read chars (1000 bytes)
+	lda #$00
+	sta sc_texttab
+	lda #$44
+	sta sc_texttab+1
+	jsr readdata	; read colors (1000 bytes)
+
+rl3	jsr gd_xclose	; then close file
+
+; ----------------------------------------- 
+
+	lda #12
+	sta cntwert
+	sta cnttemp
+	ldx #36		; Offset to text "Move"
+	jsr tcopy
+
+mloop	ldx #4		; get 4 pages (1000 bytes chars)
+	lda #>vrbuf	; write to $c600
+	sta ls_vekta8+1
+	lda #$40		; read from $4000
+	sta sc_texttab+1
+	jsr move
+
+	lda bgcolor	; background color (to $ce00)
+	and #$0f
+	sta col0
+	sta gr_fbkcol	; store it to system
+
+	ldx #4		; get 4 pages (1000 bytes colors)
+	lda #>crbuf	; write to $ca00
+	sta ls_vekta8+1
+	lda #$44		; read from $4400
+	sta sc_texttab+1
+	jsr move
+
+; ----------------------------------------- 
+
+	jsr context	; convert text to hires graphics
+
+cols0	jsr conhir	; process hires data
+	jsr hires
+	jsr setinfo
+	jsr tog2hires	; set render mode to Hires
+	jmp sk11
+
+; ----------------------------------------- Read Data
+
+readdata	lda #$e8		; 1000 Bytes einlesen
+	sta ls_vekta8
+	lda #$03
+	sta ls_vekta8+1
+
+rloop	jsr onebyte	; read screen data
+	sta (sc_texttab),y
+	ldy sc_stop	; STOP pressed?
+	bne jerror2
+	txa 		; READ error?
+	and #$bf
+	bne jerror2
+	jsr action	; gauge
+
+	ldy #$00
+	inc sc_texttab	; inc destination
+	bne rl1
+	inc sc_texttab+1
+rl1	lda ls_vekta8	; count bytes
+	bne rl2
+	dec ls_vekta8+1
+rl2	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	bne rloop		; until finished
+	rts
+
+jerror2	pla
+	pla
+	jmp error
+
+; ----------------------------------------- Convert to hires
+
+hires	lda #50
+	sta cntwert
+	sta cnttemp
+	ldx #27		; "4Bit"
+	jsr tcopy
+
+	lda #$40		; convert 8000 bytes from $a000 to $4000
+	sta ls_vekta8
+	lda #$1f
+	sta ls_vekta8+1
+	lda #$00
+	tay 
+	sta vram
+	sta cram
+	sta sc_texttab
+	sta vv
+	lda #$a0
+	sta cram+1
+	asl
+	sta sc_texttab+1
+	lda #>vrbuf
+	sta vram+1
+	lda #>crbuf
+	sta vv+1
+
+hloop1	ldx #$08
+	stx merk
+hilp	lda (cram),y
+	sta byte
+	jsr action
+	ldy #$00
+	ldx #$04
+hl2	asl byte
+	bcc hl3
+	lda (vv),y
+	!by $2c
+hl3	lda (vram),y
+	and #$0f
+	tay 
+	lda dnib,y
+	and #$f0
+	sta col0
+	ldy #$00
+	asl byte
+	bcc hl4
+	lda (vv),y
+	!by $2c
+hl4	lda (vram),y
+	and #$0f
+	tay 
+	lda dnib,y
+	and #$0f
+	ora col0
+	ldy #$00
+	sta (sc_texttab),y
+	inc sc_texttab
+	bne lh5
+	inc sc_texttab+1
+lh5	dex 
+	bne hl2
+	inc cram
+	bne hl6
+	inc cram+1
+hl6	lda ls_vekta8
+	bne hl7
+	dec ls_vekta8+1
+hl7	dec ls_vekta8
+	dec merk
+	bne hilp
+	inc vram
+	bne hl8
+	inc vram+1
+hl8	inc vv
+	bne hl9
+	inc vv+1
+hl9	lda ls_vekta8
+	ora ls_vekta8+1
+	bne hloop1
+	rts 
+
+; ----------------------------------------- 
+
+conhir	lda #7		; convert hires to 4bit
+	sta cntwert
+	sta cnttemp
+	ldx #0		; "Colors"
+	jsr tcopy
+
+	ldx #$04		; convert colors
+	stx merk
+	lda #$00
+	tay 
+	sta ls_vekta8
+	sta sc_texttab
+	lda #>vrbuf
+	sta ls_vekta8+1
+	lda #>crbuf
+	sta sc_texttab+1
+ml2	lda (ls_vekta8),y
+	sty vv
+	asl
+	rol vv
+	asl
+	rol vv
+	asl
+	rol vv
+	asl
+	rol vv
+	ora vv
+	sta (sc_texttab),y
+	tya 
+	pha 
+	jsr action
+	pla 
+	tay 
+	iny 
+	bne ml2
+	inc ls_vekta8+1
+	inc sc_texttab+1
+	dec merk
+	bne ml2
+	rts 
+
+; ----------------------------------------- 
+
+context	lda #13
+	sta cntwert
+	sta cnttemp
+	ldx #9		; Text: "Convert"
+	jsr tcopy
+
+	tya 
+	ldx #4		; convert 4 pages (1000 bytes characters)
+	stx merk
+	tax 
+	sta ls_vekta8
+	sta sc_texttab
+	lda #$a0		; chars at $c600 to $a000
+	sta ls_vekta8+1
+	lda #>vrbuf
+	sta sc_texttab+1
+
+ctl	txa 		; page counter
+	pha 
+	jsr action
+	pla 
+	tax
+	ldy #$00
+	sty sc_pos+1
+	lda (sc_texttab),y	; get char
+	sta sc_pos
+	asl sc_pos
+	rol sc_pos+1
+	asl sc_pos
+	rol sc_pos+1
+	asl sc_pos
+	rol sc_pos+1
+	clc 
+	lda sc_pos+1
+	adc cset
+	sta sc_pos+1
+	sei
+	lda #$33
+	sta pport
+	ldy #$07
+ct0	lda (sc_pos),y	; get char definition
+	sta (ls_vekta8),y	; store
+	dey 
+	bpl ct0
+	lda #$36
+	sta pport
+	cli
+	clc 
+	lda ls_vekta8	; next storage position
+	adc #$08
+	sta ls_vekta8
+	bcc ct1
+	inc ls_vekta8+1
+ct1	inc sc_texttab	; next char
+	bne ct2
+	inc sc_texttab+1
+ct2	inx 		; count bytes (256)
+	bne ctl
+	dec merk		; count pages (4)
+	bne ctl
+
+; ----------------------------------------- 
+
+movecol	ldx #4		; don't forget the colors
+	stx merk
+	lda #0
+	sta ls_vekta8
+	sta sc_texttab
+	tay 
+	lda #>crbuf
+	sta ls_vekta8+1
+	lda #>vrbuf
+	sta sc_texttab+1
+mc0	lda (ls_vekta8),y
+	asl
+	asl
+	asl
+	asl
+	ora col0
+	sta (sc_texttab),y
+	tya 
+	pha 
+	jsr action
+	pla 
+	tay 
+	iny 
+	bne mc0
+	inc ls_vekta8+1
+	inc sc_texttab+1
+	dec merk
+	bne mc0
+	rts 
+
+; ----------------------------------------- 
+
+sk11	ldx #18		; set back to "Screen"
+	jsr tcopy
+
+sk10	jsr gd_xmess	; finish 
+	jsr gd_spron
+	sec 
+	rts 
+
+; ----------------------------------------- Service routines
+
+onebyte	jsr basin
+	ldx status
+	rts 
+
+; ----------------------------------------- 
+
+error	jsr gd_xclose
+	jsr sk10
+	clc 
+	rts 
+
+; ----------------------------------------- 
+
+messout	ldx #<message
+	ldy #>message
+	jmp gd_xtxout2
+
+tcopy	ldy #$00
+tc0	lda txt,x
+	beq clrmess
+	sta message,y
+	inx 
+	iny 
+	bne tc0
+
+action	dec cnttemp
+	bne ld4
+	lda cntwert
+	sta cnttemp
+	ldy offy
+	cpy clrmess+1
+	bne act0
+	jsr clrmess
+act0	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #$07
+	sta offx
+ld4	rts 
+
+clrmess	ldx #22		; clear message buffer
+	lda #$20
+cl0	sta mess,x
+	dex 
+	bpl cl0
+	ldy #0
+	ldx #7
+	sty offy
+	stx offx
+leave	rts 
+
+; ----------------------------------------- Move pages
+
+move	stx merk		; move data, x-reg	: number of pages
+	lda #$00		;		sc_texttab: source
+	tay 		;		ls_vekta8 : destination 
+	sta ls_vekta8
+	sta sc_texttab
+ml1	lda (sc_texttab),y
+	sta (ls_vekta8),y
+	tya 
+	pha 
+	jsr action
+	pla 
+	tay 
+	iny 
+	bne ml1
+	inc ls_vekta8+1
+	inc sc_texttab+1
+	dec merk
+	bne ml1
+	rts 
+
+; ----------------------------------------- Set Render Mode
+
+tog2hires	lda #2		; für Umschalten auf Hires
+	!by $2c
+tog2multi	lda #0		; für Umschalten auf Multi    
+	sta gr_cmode
+	lda #16
+	sta sc_br
+	lda #$4c		; self modifying
+	sta patch
+	jsr ev_sccont	; Modus setzen und Anzeige anpassen
+	lda #$20		; unpatch
+	sta patch
+	rts
+
+; ----------------------------------------- 
+
+filltab	!by $a0,$5d,$67,$7f,$7e,$7c,$69,$6d
+
+cntwert	!by $32
+
+txt	!scr " Colors @"	; 0
+	!scr " Convert@"	; 9
+	!scr " Screen @"	; 18
+	!scr " 4Bit   @"	; 27
+	!scr " Move   @"	; 36
+
+message	!scr " ......  "
+mess	!fill 23,32
+	!by $00
+
+dnib	!by $00,$ff,$44,$cc,$55,$aa,$11,$dd,$66,$22
+	!by $99,$33,$77,$ee,$88,$bb
+
+; ----------------------------------------- Write Screen Info
+
+getname	ldx #$00
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx 
+	cpx #$10
+	bcc si0
+si1	rts 
+
+setinfo	jsr setname
+	jsr setload
+	jsr setmode
+	beq setdata
+
+setname	lda #$00
+	ldx #<ls_picname
+	ldy #>ls_picname
+	bne si3
+setload	lda #$11
+	ldx #<ls_iloader
+	ldy #>ls_iloader
+	bne si3
+setmode	lda #$19
+	ldx #<ls_imode
+	ldy #>ls_imode
+	bne si3
+setdata	lda #$21
+	ldx #<ls_idrive
+	ldy #>ls_idrive
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax 
+	ldy #$00
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx 
+	iny 
+	bne si4
+si5	rts 
+
+nbuf	!fill 16,32
+	!by $00
+
+	!scr "PETSCII@" 
+modetx	!scr "320x200@"
+datatype	!scr "Color@"
+
+; ----------------------------------------- 
+
+modend	!eof
