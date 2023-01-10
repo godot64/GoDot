@@ -29,7 +29,7 @@
 	dselect		= $32
 
 	dithertype	= $1e30
-	dtpat		= $f996	; take care on changes there!!!
+	dtpat		= $f994	; take care on changes there!!!
 
 ; ----------------------------------------- Header
 
