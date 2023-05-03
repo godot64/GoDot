@@ -16,6 +16,7 @@
 ;   1.05, 26.11.18, bugfix: wrong start of line after topskip
 ;   1.06, 12.09.21, added: break loading process with STOP key
 ;   1.07, 06.04.22, bugfix: didn't reset reu record
+;   1.08, 03.05.23, bugfix: last line flush corrupted Rendered Undo
 ; 
 ; -------------------------------------------------- 
 
@@ -89,8 +90,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "gif: LoadSection"
-	!pet "1.07"
-	!pet "06.04.22"
+	!pet "1.08"
+	!pet "03.05.23"
 	!pet "A.Dettke/W.Kling"
 addtxt	!pet "viva D. Jansen!!"
 	!by 0
@@ -546,8 +547,11 @@ dc1	sta convmode	; set routine entries accordingly
 	jsr readgif	; retrieve GIF data (image) to RAM
 	ldx sc_stop	; STOP pressed?		### 1.06
 	bne je2
-	jsr crunch	; ### 1.04, flush read buffer
-	jsr doundo	; Re-get from RAM (to $4000)
+	lda linenr 
+	cmp #200		; all lines retrieved?	### 1.08
+	beq +		; yes, skip flushing
+	jsr crunch	; no: ### 1.04, flush read buffer
++	jsr doundo	; Re-get from RAM (to $4000)
 	jsr initreu
 	jsr decrunch	; convert to card graphics
 	lda mundo
