@@ -12,12 +12,13 @@
 ;     1.01: 08.07.01, bug: hang on wrong header fixed
 ;     1.02: 11.07.01, bug: reject on no clip included fixed
 ;     1.03: 04.05.22, added: set render mode automatically
+;     1.04: 31.07.23, new: correct header evaluation
 ;
 ; ----------------------------------- 
 
 ; ----------------------------------- Equates
 
-	width		= $30	; width in tiles
+	width		= $30	; width in tiles (max: 29, max height: 21)
 	height		= $31
 	col0		= $32	; paper color (black)
 	col1		= $33	; ink colors (white)
@@ -49,9 +50,9 @@ godheader	jmp start
 	!by 0
 	!wo modend
 	!wo 0
-	!tx "Newsroom Clips  "
-	!tx "1.03"
-	!tx "04.05.22"
+	!tx "Newsroom Photo  "
+	!tx "1.04"
+	!tx "31.07.23"
 	!tx "A.Dettke        "
 
 ; ----------------------------------- 
@@ -91,6 +92,7 @@ st1	jsr onebyte	; get header
 	iny
 	cpy #8		; 8 bytes header
 	bne st1
+
 	lda header+1	; is second byte $a0?
 	cmp #$a0
 	beq st3
@@ -111,7 +113,8 @@ st3	sec		; compute width (in pixels and tiles+1)
 	bcc st21
 	lda #200		; (begrenzen auf 200)
 st21	sta height
-	jsr evalheader
+
+	jsr evalheader	; header auswerten (Clips vorhanden?)
 
 st2	lda #8		; set # of lines per tile (8)
 	sta lines
@@ -235,49 +238,36 @@ onebyte	jsr basin
 
 ; ----------------------------------- Evaluate File Header
 
-evalheader  ldy #1
+evalheader
+	ldy #1
 	jsr onebyte	; get # of clips included
 	tax
-	beq noclip	; if $00: short header or no clip?
+	beq ehd3		; if $00: no clips, image data following
 
 	sta num		; store number of clips in file
-	ldy #12		; header is 13 times # of clips...
+	ldy #12		; clip-header is 12 times # of clips...
 ehd0	clc
 	adc num
 	dey
 	bne ehd0
 	tay
 	iny
-ehd4	jsr onebyte	; now skip header
+ehd4	jsr onebyte	; (now skip header)
 	dey
 	bne ehd4
 
-	tay		; ends with $00?
-	bne fail2
-	ldy #0		; yes, followed by signature...?
+	ldy #15		; ...plus 15 remaining bytes
 ehd1	jsr onebyte
-	cmp signature,y
-	bne fail2
-	iny
-	cpy #8
+	dey
 	bne ehd1
+	iny		; last byte is $00
 
-ehd3	jsr onebyte	; yes, followed by 7 times $00 and then $ff?
+ehd3	jsr onebyte	; yes, followed by $ff?
 	dey
 	bne ehd3
 	cmp #$ff
 	bne fail2
 	rts		; yes, finished header
-
-; ----------------------------------- 
-
-noclip	dey
-	jsr onebyte	; next byte $00?
-	tax
-	beq ehd1		; yes, no clip, now check signature
-	inx		; no, check for short header
-	bne fail2		; no short header: fail
-	rts
 
 ; ----------------------------------- 
 
@@ -288,14 +278,12 @@ fail2	pla		; if fail: error message
 
 ; ----------------------------------- Header Area
 
-header	!by 0,0
-	!wo 0
-top	!by 0
-bottom	!by 0
-left	!by 0
-right	!by 0
-
-signature	!tx "newsroom"
+header	!by 0,0		; $a000
+	!wo 0		; len of data
+top	!by 0		; first line, may be 0
+bottom	!by 0		; last line, max   $a7
+left	!by 0		; first column, should be 8 (!)
+right	!by 0		; last column, max $ef
 
 cntwert	!by 200
 
