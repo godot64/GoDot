@@ -14,14 +14,17 @@
 ;
 ;   1.00, 11.11.92, first release
 ;   1.01, 03.09.20, added GUI to choose between gray and color
+;   1.02, 15.11.23, new: inversion of inversion is original again
 ;
 ; ------------------------------------------------------------ 
 
 	adcnt		= $30 	; (activity counter, sample location)
 	palette		= $31	; /$32
 	dest		= $33	; /$34
-	merky		= $35
-	merka		= $36
+	scan		= $35	; /$36
+	merky		= $37
+	merka		= $38
+	countb		= $39
 
 	sprptr		= $07f8
 	spr255		= $3fc0
@@ -43,13 +46,15 @@ header 	jmp start
 	!wo modend
 	!wo 0
 	!tx "Revert 4Bit Data" 
-	!tx "1.01"
-	!tx "03.09.20"
+	!tx "1.02"
+	!tx "15.11.23"
 	!tx "A.Dettke/W.Kling"
 
 ; ----------------------------------------- Main
 
 start	jsr makechr	; Listkringel definieren
+	lda #3
+	sta cntwert
 	ldx mode		; Palette vorbesetzen
 	beq +
 	jsr dth2
@@ -130,8 +135,86 @@ evexec	jsr initad	; prepare activity
 	lda dest+1
 	cmp #>sy_bigbuffer	; until end of 4Bit
 	bne -
-	sta gr_redisp	; Render-Flag für System setzen
 
+; ----------------------------------------- Now search IFLI colors
+
+	jsr initad	; init activity
+	lda #1
+	sta cntwert
+
+	lda #>sy_4bit
+	ldy #<sy_4bit	; .y=0
+	sta scan+1
+	sty scan
+	sty countb	; set counter to 40
+
+---	lda #<800		; set counter from 800
+	sta ls_vekta8
+	lda #>800
+	sta ls_vekta8+1
+
+--	lda (scan),y	; scan 4bit
+
+	ldx #$ff		; index in xchange list
+-	inx
+	cmp fcols,x	; now check colors
+	bne +
+	lda tcols,x	; if found, exchange
+	sta (scan),y
+	bne ++		; and proceed to next
++	cpx #6
+	bne -
+
+++	inc scan		; count scanned bytes:
+	bne +
+	inc scan+1
++	jsr count		; 800 x 40 = 32000 
+	bne --
+	jsr adinc
+	inc countb
+	lda countb
+	cmp #40
+	bcc ---
+
+; ----------------------------------------- Oddswap
+
+	lda #3
+	sta cntwert
+	jsr initad	; init activity
+	lda #<sy_4bit
+	ldy #>sy_4bit
+	sta dest
+	sty dest+1
+
+	ldy #0
+-	tya 
+	and #4		; choose every other raster line..
+	beq +
+
+	lda (dest),y	; ...and exchange nibbles there
+	lsr
+	lsr
+	lsr
+	lsr
+	sta merka
+	lda (dest),y
+	asl
+	asl
+	asl
+	asl
+	ora merka
+	sta (dest),y
+
++	iny 
+	bne -
+
+	jsr adinc		; activity
+	inc dest+1	; next page
+	lda dest+1
+	cmp #>sy_bigbuffer	; until end of 4bit
+	bne -
+
+	sta gr_redisp	; Render-Flag für System setzen
 	jsr clearad	; clear activity display
 
 ; ----------------------------------------- Event: Exit
@@ -162,6 +245,16 @@ gt0	jsr gd_setpos
 	stx sc_ho
 	jsr gd_trim
 	jmp gd_initmove
+
+; ----------------------------------------- Counters
+
+count 	lda ls_vekta8	; decrement ls_vekta8/9 by 1
+	bne cou7
+	dec ls_vekta8+1
+cou7 	dec ls_vekta8
+	lda ls_vekta8	; and check if 0 (sets .e)
+	ora ls_vekta8+1
+	rts
 
 ; ----------------------------------------- Abschluss Activity
 
@@ -214,7 +307,7 @@ initad	ldy #60		; Spriteblock 255 vorbereiten
 	ora #$0c		; Activity-Balken aktivieren
 	sta spren
 
-setadcnt	lda #3		; Zähler (3 x 40 = 120 pages)
+setadcnt	lda cntwert	; Zähler (3 x 40 = 120 pages)
 	sta adcnt
 +	rts
 
@@ -257,8 +350,12 @@ chschr	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
 godpal	!by $ff,$ee,$dd,$cc,$bb,$aa,$99,$88
 	!by $77,$66,$55,$44,$33,$22,$11,$00
 colpal	!by $ff,$dd,$bc,$bb,$cc,$aa,$88,$77
-	!by $66,$c8,$55,$33,$44,$11,$15,$00
+	!by $66,$c7,$55,$33,$44,$11,$15,$00
 
+fcols	!by $74,$47,$43,$34,$da,$ad
+tcols	!by $99,$99,$22,$22,$ee,$ee
+
+cntwert	!by 3
 mode	!by 0
 gadoffs	!by 5,11
 modetxts	!scr 223," Gray"
