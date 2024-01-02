@@ -614,8 +614,8 @@ lftx	!scr "lf:    @"
 ; -------------------------------------- Data
 ; -------------------------------------- 
 
-ptypes	!by $80,$,40,$00	; seriell, parallel, Wiesemann
-type	!by $80		; aktuell: seriell
+ptypes	!by $80,$40,$00	; Wiesemann, parallel, seriell
+type	!by $80		; aktuell: Wiesemann
 tflag	!by $00
 
 ; -------------------------------------- Texte
