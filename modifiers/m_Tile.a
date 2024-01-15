@@ -6,7 +6,7 @@
 
 ; --------------------------------------
 ;
-;     mod.Tile
+;     mod.Halve
 ;       Modifier to scale the whole screen down to
 ;       one quarter (half width, half height: 160x100)
 ;       and write it back four times to each quarter
@@ -15,6 +15,7 @@
 ;     1.00, 30.10.93, first release
 ;     1.01, 22.03.18, added: optional restriction to only one quarter
 ;     1.02, 23.11.20, added: forced re-render in full screen
+;     1.03, 14.01.24, renamed from mod.Tile to mod.Halve
 ;
 ; -------------------------------------- 
 
@@ -24,8 +25,8 @@
 	!wo modend
 	!by $00,$00
 	!tx "Quarter & Tile  "
-	!tx "1.02"
-	!tx "23.11.20"
+	!tx "1.03"
+	!tx "14.01.24"
 	!tx "W.Kling/A.Dettke"
 
 ; -------------------------------------- Equates
@@ -65,7 +66,11 @@
 start	jsr makech	; Make Kringel
 	ldx #<tlst	; Requester
 	ldy #>tlst
-	jmp gd_xmloop	; Wait
+	jsr gd_screen
+	lda #$6e
+	sta $05ac
+	sta $0674
+	jmp gd_eloop	; Wait
 
 ; -------------------------------------- Event: Execute Tile
 
@@ -633,32 +638,32 @@ mc0	lda char,x
 ; -------------------------------------- Screenlist
 
 tlst	!by 0
-	!by 5,11,17,16,$91,0,0
-	!scr "Tile to Quarter@"
-mirror	!by 8,11,17,3,$ca
+	!by 6,12,17,13,$81,0,0
+	!scr "Halve the Edges",0
+mirror	!by 8,12,17,3,$ca
 	!wo sevtmirr
 mirrtx	!by 223
-	!scr "    Tile      @"
-color	!by 11,11,17,3,$ca
+	!scr "    Halve     ",0
+color	!by 10,12,17,3,$ca
 	!wo sevcolgr
 coltx	!by 223
-	!scr "    Color     @"
-	!by 14,11,17,3,$ca
+	!scr "    Color     ",0
+	!by 13,12,17,3,$da
 	!wo sevexec
-	!scr "    Execute    @"
-	!by 17,11,17,3,$ca
+	!scr "    Execute    ",0
+	!by 15,12,17,3,$ca
 	!wo sevcan
-	!scr "    Cancel     @"
+	!scr "     Leave     ",0
 	!by $80
 
 ; -------------------------------------- 
 
 whichmirr	!by 223
-	!scr "    Tile      "
+	!scr "    Halve     "
 	!by 223
-	!scr "  Tile & Fill "
+	!scr " Halve & Fill "
 	!by 223
-	!scr " Tile & Mirror"
+	!scr "Halve & Mirror"
 whichcol	!by 223
 	!scr "    Color     "
 	!by 223
