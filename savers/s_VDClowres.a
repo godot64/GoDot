@@ -9,9 +9,11 @@
 ; svr.VDClowres
 ;
 ; 1.00, 14.01.24, first release
+; 1.01, 24.01.24, added requester to choose filetype
 ;
 ;       creates 8000 bytes for a 160x100 pixel
 ;       cga-style vdc image (like Basic8 mode 1)
+;       or 320x100 pixel double width scroll image
 ;
 ; -----------------------------------------
 
@@ -27,6 +29,10 @@
 	ymerk	= $35
 	byte	= $36
 	getdata	= $37		; /38
+	height	= $39		; Anzahl Rasterlinien (50/100)
+	width	= $3a		; Breite in Kacheln (20/40)
+	doit	= $3b		; Auftragsübermittlung
+	cntset	= $3c
 
 	offx	= ls_adrmisc	; gauge counters
 	offy	= offx+1
@@ -40,9 +46,9 @@
 	!by 0			; Dirty Flag (1 = dirty, 0 = clean)
 	!wo modend		; Endadresse+1 des Moduls
 	!wo 0			; reserviert
-	!tx "VDC lowres Saver"	; Beschreibung (16 Zeichen)
-	!tx "1.00"		; Versionsnummer (4 Zeichen)
-	!tx "14.01.24"		; Datum (8 Zeichen tt.mm.jj)
+	!tx "VDC Lowres Saver"	; Beschreibung (16 Zeichen)
+	!tx "1.01"		; Versionsnummer (4 Zeichen)
+	!tx "24.01.24"		; Datum (8 Zeichen tt.mm.jj)
 	!tx "A.Dettke        "	; Autor (16 Zeichen)
 
 ; ----------------------------------------- 
@@ -68,35 +74,14 @@ saver
 st11	lda gd_modswitch	; Memory Management
 	pha
 
-	jsr gd_sproff
-	lda ls_flen	; Filename wurde vom Filerequester übergeben?
-	beq st1		; nein (dann Cancel)
+	jsr makechr	; Listbox-Kringel erzeugen
+	stx doit		; .x=$ff
+	ldx #<vdclst	; build requester
+	ldy #>vdclst
+	jsr gd_screen
+	jsr gd_eloop	; wait for clicks
 
-	sta wflen		; sonst: Länge sichern
-	jsr addsig	; Namenskürzel anhängen ("vdc")
-	jsr wopen		; Datei zum Schreiben öffnen
-	bne st2		; wenn Diskettenfehler: Ende
-
-	jsr getname	; Filenamen für Image Information sichern
-	ldx #12		; OPEN #12, out
-	jsr ckout
-	jsr gd_clrms	; Fortschrittsbalken und Statusausgaben vorbereiten
-	ldx #0		; Anzeigetext #1 (Offset .x=0) eintragen
-	jsr tcopy
-	iny		; .y=1
-	sty adcnt		; Activity (Fortschrittsbalken) starten (.y=1)
-
-	jsr write		; jetzt Bild speichern
-
-st2	jsr clrch		; danach Bus freigeben
-	lda #12		; Datei #12 schließen
-	jsr close
-	jsr err9		; Floppystatus zeigen (nur sehr kurz)
-	bne st1
-
-	jsr setname	; nur wenn fehlerfrei: Image Information aufbereiten
-
-st1	pla		; dann Saver abwickeln: Memory Management
+	pla		; dann Saver abwickeln: Memory Management
 	sta gd_modswitch
 
 st12	jsr gd_spron	; Mauszeiger wieder an
@@ -114,18 +99,29 @@ st12	jsr gd_spron	; Mauszeiger wieder an
 ; ----------------------------------------- Write File
 ; ----------------------------------------- 
 
-write	lda #$80		; start address: $3e80 (in VDC)
+write	lda #100		; set height in rasterlines
+	ldx #20		; set width in tiles
+wrdouble	sta height
+	stx width
+
+pass2	lda #$80		; start address: $3e80 (in VDC)
 	jsr bsout
 	lda #$3e
 	jsr bsout
 	lda #0
 	sta cnt0		; init double pixel counter (to 4)
-	sta cnt1		; init tile counter (to 20)
-	sta cnt2		; init tile line counter (to 8)
-	sta cnt3		; init line counter (to 100)
+	sta cnt1		; init tile counter (to 20/40)
+	sta cnt3		; init line counter (to 50/100)
 	sta byte		; init data byte
-	jsr setclip	; set 4bit start address
+	lda cntset
+	sta cnt2		; init tile line counter (to 8 passes)
 
+	inc doit		; pass 1: 0
+	lda doit
+	bne +
+	jsr setclip	; 1st pass: set 4bit start address
+
++
 ---	lda getdata+1	; save current vector to start of clip
 	pha
 	lda getdata
@@ -161,9 +157,9 @@ write	lda #$80		; start address: $3e80 (in VDC)
 	sta getdata
 	bcc +
 	inc getdata+1
-+	inc cnt1		; cnt tiles to 20
++	inc cnt1		; cnt tiles to 20/40
 	lda cnt1
-	cmp #20
+	cmp width
 	bcc --
 
 	ldy #0
@@ -181,9 +177,9 @@ write	lda #$80		; start address: $3e80 (in VDC)
 	bcc +
 	inc getdata+1
 
-+	inc cnt3		; count to 100
-	lda cnt3		; already 100 lines?
-	cmp #100
++	inc cnt3		; count to 50/100
+	lda cnt3		; already 50/100 lines?
+	cmp height
 	bcs ++		; yes, image finished
 
 	inc cnt2		; already 8 lines (of a tile)?
@@ -194,17 +190,107 @@ write	lda #$80		; start address: $3e80 (in VDC)
 	sty cnt2		; .y=0, re-init cnt
 + 	lda getdata	; one row finished
 	clc
-	adc #$e0		; add 640 for next row
+	adc #$e0		; add 1248 for next row
 	sta getdata
 	lda getdata+1
 	adc #4
 	sta getdata+1
 	bne ---		; and turn over
 
+; ----------------------------------------- 
+; ----------------------------------------- Event: Cancel
+; ----------------------------------------- 
+
+evcancel
 ++	sec
 	rts		; finished
 
-; ---------------------------------------- Compute Start address of Clip
+; ----------------------------------------- Event: Mode
+
+evmode	ldy lowmode	; 0: 320x200
+	cpy #1		; 1: 640x200
+	bne +
+	ldy #$ff
++	iny
+	sty lowmode
+
+	ldx loffs,y	; change texts
+	ldy #1
+-	lda lowtext,x
+	sta lowtx,y
+	dex
+	dey
+	bpl -
+
+	lda #$31
+	sta sigtx+4	; reset file count to "1"
+	sta sigtxs+4
+	ldy lowmode
+	ldx lsig,y	; change suffixes
+	stx ag5+1
+	iny
+	iny
+	ldx lsig,y
+	stx lsg0+1
+	stx lsg1+1
+	inc lsg0+1	; and...
+	
+; ----------------------------------------- Output Text
+
+textout	ldy #0		; .y: offset index in tabigad
+out2	jsr settxt
+	ldy #6		; offset to gadget text area
+	jmp gd_xtxout1	; and show text
+
+; ----------------------------------------- Event: Save
+
+evsave	jsr gd_sproff	; .a=0
+	lda ls_flen	; Filename wurde vom Filerequester übergeben?
+	beq st2		; nein (dann Cancel)
+
+	sta wflen		; sonst: Länge sichern
+	jsr addsig	; Namenskürzel anhängen (".vdc")
+	jsr fileopen	; Datei zum Schreiben öffnen
+	ldx #0		; Anzeigetext #1 (Offset .x=0) eintragen
+	stx cntset
+	jsr tcopy
+	iny		; .y=1
+	sty adcnt		; Activity (Fortschrittsbalken) starten (.y=1)
+
+	lda lowmode
+	bne +
+	jsr write		; Bild 320x200 speichern
+	bcs st2
++	lda #50		; set height in rasterlines
+	ldx #40		; set width in tiles
+	jsr wrdouble	; Bild 640x200 speichern
+
+st2	jsr endfile	; Datei schließen
+	bne ++		; bei Fehler: Ende
+
+	lda lowmode	; Modus checken, 640x200?
+	beq ++
+
+	ldx #2
+	stx cntset
+	inc sigtx+4	; ja, increment file count (to "2", "3"...)
+	inc sigtxs+4
+	sec
+	lda ls_flen
+	sbc #5
+	bmi +
+	tay
+	jsr ag5
++	jsr fileopen
+	jsr pass2
+	jsr endfile
+	bne ++
+
+	jsr setname	; nur wenn fehlerfrei: Image Information aufbereiten
+
+++	jmp st12
+
+; ---------------------------------------- Set Start address of Image
 
 setclip	lda #>sy_4bit	; 4Bit starting from $4000
 	sta getdata+1
@@ -212,13 +298,31 @@ setclip	lda #>sy_4bit	; 4Bit starting from $4000
 	sty getdata
 	rts
 
+; ----------------------------------------- Open Files for Writing
+
+fileopen	jsr wopen		; Datei zum Schreiben öffnen
+	beq +
+	pla		; wenn Diskettenfehler: Ende
+	pla
+	jmp st2
+
++	jsr getname	; Filenamen für Image Information sichern
+	ldx #12		; OPEN #12, out
+	jsr ckout
+	jmp gd_clrms	; Fortschrittsbalken und Statusausgaben vorbereiten
+
+endfile	jsr clrch		; nach Laden Bus freigeben
+	lda #12		; Datei #12 schließen
+	jsr close
+	jmp err9		; Floppystatus zeigen (nur sehr kurz)
+
 ; ----------------------------------------- 
 ; ----------------------------------------- Disk Access Routines
 ; ----------------------------------------- 
 
 pw	!pet "w,p,"
-sigtx	!pet "cdv."	; Signatur ".vdc"
-sigtxs	!scr "cdv."
+sigtx	!pet "cdv.1"	; Signatur ".vdc"
+sigtxs	!scr "cdv.1"
 drinit	!pet "i0"
 wflen	!by 0
 
@@ -255,6 +359,41 @@ err9	jsr gd_xmess
 	and #15		; und zwar als Bytewert (wenn <>0, dann Fehler)
 err8 	sec
 	rts
+
+; --------------------------- Kringel definieren
+
+makechr	ldx #7
+-	lda chschr,x
+	sta sc_undochar,x
+	dex
+	bpl -
+	rts
+
+; ----------------------------------------- 
+; ----------------------------------------- Text Output Handler
+; ----------------------------------------- 
+
+tabigad	!wo lowgad	; .y: 0	(Offset)
+
+settxt	lda #<tabigad
+	sta sc_texttab
+	lda #>tabigad
+	sta sc_texttab+1
+
+gettab	lda (sc_texttab),y
+	sta sc_screentab
+	iny
+	lda (sc_texttab),y
+	sta sc_screentab+1
+
+	lda #0
+	tax
+	tay
+gt0	jsr gd_setpos	; prepare gui addresses
+	cpx #4
+	bne gt0
+	jsr gd_trim
+	jmp gd_initmove	; returns sc_vekt20 and .x=0
 
 ; ----------------------------------------- 
 ; ----------------------------------------- Activity Handler
@@ -361,11 +500,11 @@ ag4	lda ls_nambuf,y	; endet auf ".vdc"?
 	rts
 
 ag2	pla
-	tay		; Name länger als 12 Zeichen?
-	cpy #13
+	tay		; Name länger als 12/11 Zeichen?
+lsg0	cpy #13
 	bcs ag0		; ja, behandeln
 
-ag5	ldx #3		; nein, ".vdc" anhängen
+ag5	ldx #3		; nein, "1.vdc" anhängen
 ag1	lda sigtx,x
 ag3	sta ls_nambuf,y
 	lda sigtxs,x	; auch für Image Information
@@ -377,8 +516,8 @@ ag3	sta ls_nambuf,y
 	sty ls_flen
 	rts
 
-ag0	dey		; auf 12 verkürzen
-	cpy #12
+ag0	dey		; auf 12/11 verkürzen
+lsg1	cpy #12
 	bne ag0
 	beq ag5		; unbed. Sprung
 
@@ -389,6 +528,34 @@ ag0	dey		; auf 12 verkürzen
 convert	!by $00,$22,$cc,$11,$88,$aa,$dd,$11
 	!by $33,$99,$44,$ee,$77,$dd,$55,$ff
 
-	; godot colors to vdc colors (ora and mgr missing in c128 palette!)
+chschr	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
+
+lowtext	!scr "3264"
+loffs	!by 1,3
+lowmode	!by 0
+lsig	!by 3,4,12,11
+
+; ----------------------------------------- 
+; ----------------------------------------- Requester
+; ----------------------------------------- 
+
+vdclst	!by 0
+	!by 7,14,12,11,$81,0,0
+	!scr "VDC Lowres",0
+lowgad	!by 11,14,12,3,$ca
+	!wo evmode
+	!by 223,32
+lowtx	!scr "320x200 ",0
+	!by 13,14,12,3,$cb
+	!wo evsave
+	!scr "   Save   ",0
+	!by 15,14,12,3,$cb
+	!wo evcancel
+	!scr "  Cancel  ",0
+	!by $c0,9,15,7
+	!scr "Save as",0
+	!by $80
+
+; ----------------------------------------- 
 
 modend 	!eof
