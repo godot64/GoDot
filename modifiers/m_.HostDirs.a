@@ -1,0 +1,891 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; !!!	tab is set to 10 in all GoDot sources     !!!
+
+; ----------------------------------------- 
+;
+;  mod..HostDirs
+;   Module to navigate emulated drives
+;
+;  1.00, 05.01.24: first release
+;
+; ----------------------------------------- 
+
+; ----------------------------------------- Equates
+
+	pport	= $01
+
+	istype	= $30	; 	flag for dir type
+	files	= $31	; /2	file counter
+	fbuffer	= $33	; /4	index in filename buffer
+	fbuf2	= $35	; /6	copy of fbuffer
+	count	= $37	; 	page counter
+	pages	= $38	; 	current page
+	savep	= $39	; 	copy of pages
+	fnum	= $3a	; /b	number of selected file in list
+	count2	= $3c	; /d	de-counts fnum
+	fnlen	= $3e	; 	len of filename
+	indiec	= $3f	; 	flag for SD2IEC
+	isdir	= $40	; 	flag for directory type	
+	typetext	= $41	; /2	dir type text
+
+	zeile	= sc_merk	; row of cursor
+	spalte	= zeile+1	; column of cursor
+	help	= $b5	; intermediate value
+	lfname	= $b7	; length of filename
+
+	clickon	= $1588	; init double click
+	sevch15	= $1690	; read error channel
+	se_input	= $174d	; Input from Screen
+	dirbuf	= $2000	; buffer (1280 entries max, up to $bfff)
+
+	load	= $ffd5
+
+; ----------------------------------------- Header
+
+header	jmp start
+	!by $20
+	!by 0
+	!by 0
+	!wo modend
+	!wo 0
+	!tx "Host Directories"
+	!tx "1.00"
+	!tx "05.01.24"
+	!tx "A.Dettke        "
+
+; ----------------------------------------- Main 
+
+start	ldy #0
+	sty fnlen
+	jsr blankout	; clear (last) filename
+	ldx #<dnavlst	; build requester
+	ldy #>dnavlst
+	jsr gd_screen
+	lda #5		; set default iec indent (5)
+	sta indiec
+	jsr areacol	; colorize
+	jsr hilite
+	jsr loaddir	; load directory of current drive
+	jmp gd_eloop	; now wait for gadget clicks
+
+; ----------------------------------------- Event: Input Manually
+
+evmaninp	lda gd_modswitch	; save ram handler
+	pha
+
+	jsr se_input	; perform input
+	jsr displace	; set cursor to "enter dir"
+
+	pla		; restore ram handler
+	sta gd_modswitch
+
+	ldy ls_len	; store input to filename buffer
+	dey
+	sty fnlen
+	lda #0
+	beq +
+-	lda ls_nambuf,y
++	sta filename,y
+	dey
+	bpl -
+	clc		; stay in requester
+	rts
+
+; ----------------------------------------- Events: Choose Enter/Leave
+
+evinout	lda zeile		; left arrow: enter dir
+	cmp #5
+	beq evmount
+	cmp #7		; right arrow: leave dir
+	beq evunmount
+	clc
+	rts
+
+; ----------------------------------------- Event: Enter Directory
+
+evmount	lda #":"
+	sta unmntcom	; set colon
+	lda fnlen		; add 3 to len (for "cd:")
+	beq ++
+	clc
+	adc #3
+	sta lfname
+	tax
+	bne +
+
+; ----------------------------------------- Event: Leave Directory
+
+evunmount	ldx #3
+	stx lfname
+	lda #$5f		; set left arrow
+	sta unmntcom
++	lda #0
+-	sta ls_nambuf,x
+	dex
+	bmi +
+	lda mountcom,x
+	bne -
++	jsr sendcmd	; send disk command from ls_nambuf
+	lda ls_err1	; Error?
+	and #15
+	bne ++
+	jsr loaddir	; no, show new directory
+	jsr repair	; then, clear message
+++	clc
+	rts
+
+; ----------------------------------------- Event: Select File from List
+
+evfselect	lda sc_clicked	; double click?
+	beq +
+	jmp evmount	; yes, enter new dir
++	jsr clickon	; no, init double click
+
+	lda #0		; init select result
+	sta fnum
+	sta fnum+1
+	lda zeile		; get row of click on screen
+	sec
+	sbc #3		; minus top offset
+	sta fnum		; is result low (on 1st page)
+	ldx count
+	beq ++
+
+	clc		; next pages: 1st plus 16...
+-	adc #16
+	bcc +
+	inc fnum+1
++	dex
+	bne -
+	sta fnum
+	lda fnum		; ...minus 1 (because of 1st page)
+	bne +
+	dec fnum+1
++	dec fnum
+
+++	lda fnum
+	sta count2
+	lda fnum+1
+	sta count2+1
+	jsr repair
+	lda #0		; init scan
+	jsr is2
+-	jsr add32		; go to next file (skips 1st)
+	dec count2	; de-count filenames
+	bne -
+	dec count2+1
+	bpl -		; until found
+
+fileout	jsr indent	; compute start of filename
+	ldx #0
+	ldy #0
+-	lda (fbuffer,x)	; get name from directory buffer...
+	cmp #$22
+	beq nameout
+	sta sc_movetab,y	; ...to output buffer (len: max 39 chars)
+	sta filename,y	; also to petscii namebuffer
+	jsr incfbuf
+	iny
+	sty fnlen
+	cpy #39
+	bcc -
+
+nameout	cpy #16		; delimit to 16 chars for output
+	bcc +
+	ldy #16
++	lda #0		; set delimiter $00
+	tax
+	sta sc_movetab,y
+	sta sc_loop	; output goes to text screen (not color	ram)
+	sty sc_br		; width (len)
+	tya		; len: 0?
+	beq ++		; yes, skip
+	jsr gd_cnvbc	; no, convert to screen code
+	tay
+-	lda sc_movetab,y	; transfer to gui screenlist
+	sta nstx,y
+	iny
+	cpy sc_br
+	bcc -
+	jsr blankout	; blank output buffer remainders
++	jsr textout	; and output filename on screen, returns .x=0
+	jsr findtype	; show type of file
+
+++	ldx count		; get page count (minus 1)
+	inx
+	jmp top1		; then output the latest dir page
+
+; ----------------------------------------- Event: Select Drive
+
+evdselect	ldy #8		; drv 8/9
+	lda #4		; oben geklickt?
+	cmp zeile
+	beq +		; nein, unten
+	ldy #10		; unten: drv 10/11
++	lda #31		; links/rechts?
+	cmp spalte
+	bcs +
+	iny
++	sty ls_drive	; neuer Drive in .y
+	jsr hilite
+	jsr repair	; clear message
+	jsr showtype	; show drive type
+	jmp loaddir	; show directory
+
+; ----------------------------------------- Event: Leave Requester
+
+evcancel	sec
+	rts
+
+; ----------------------------------------- Event: Change Indent
+
+evsetind	ldx indiec	; if 5: set to 6 and hilite
+	cpx #5
+	beq +
+	dex		; if 6: set back to 5
+	!by $24
++	inx
+	stx indiec
+	ldy #16
+	cpx #5		; if 6: hilite
+	beq +
+	jmp hiout
++	jsr out2		; if 5: norm
+	ldx #2
+	jmp gd_fcol
+
+; ----------------------------------------- Event: Clear Floppy Message
+
+evclear	jsr repair
+	clc
+	rts
+
+; ----------------------------------------- Events: Next/Previous Dir Page
+
+evnext	ldx zeile		; clicked: where in gadget (top or bottom)
+	cpx #7
+	bcs tonext
+
+toprev	ldx pages		; top: back to previous page
+	dex
+	beq stay
+	ldx count
+top1	stx savep		; decrease page counter
+	dex
+	stx pages
+	beq filesout
+	jsr tonext	; show that page
+	ldx savep		; restore counter
+	stx pages
+	bne stay		; stay in main loop
+
+tonext	jsr initscan	; set buffer addresses
+	jsr blanklist	; init out window
+-	jsr add32		; skip 1st entry (dir header)
+	jsr checkend	; end of dir?
+	beq stay
+	inc ls_lines	; no, count entries
+	lda ls_lines
+	cmp #16		; 16 entries?
+	bcc -		; no, loop
+	lda #0		; yes, reset for next page
+	sta ls_lines
++	inc count		; count pages
+	lda count
+	cmp pages		; until at wanted page
+	bcc -
+	jsr showf		; now show filenames of that page
+stay	clc		; don't leave main loop
+	rts
+
+; ----------------------------------------- Event: Send Disk Command
+
+evcommand	ldx fnlen
+	stx lfname
+	lda #0
+	sta ls_nambuf,x
+	jsr sendcmd	; send disk command from ls_nambuf
+	clc
+mdr9	rts
+
+; ----------------------------------------- 
+; ----------------------------------------- 
+; ----------------------------------------- 
+
+; ----------------------------------------- Load Directory to Buffer
+
+loaddir	lda #1		; LOAD "$",drive
+	ldx #<dollar 	; option: LOAD "$:*=c",dr (c for "cbm")
+	ldy #>dollar
+	jsr filnam
+	lda #1		; 1,dr,0
+	ldx ls_drive
+	ldy #0
+	jsr filpar
+	jsr gd_sproff	; sprites off
+	jsr initscan
+	sta files		; init file counters
+	sta files+1
+	sta pages
+	jsr load		; load directory
+	php
+	jsr gd_spron	; sprites on 
+	plp
+	bcs stay
+	jsr cntfiles	; count files and show amount
+
+; ----------------------------------------- Out Filenames
+
+filesout	jsr blanklist	; blank list: set output vector ($20/1)
+	jsr initscan
+	beq ++		; uncond. branch
+
+fnout	lda ls_lines	; loop: 16 on screen?
+	cmp #16
+	bcc ++
+	inc pages		; yes, count as page
+-	clc		; (leave filesout, stay in main loop)
+	rts
+
+++	jsr add32		; no, go to next file (skips 1st: dir header)
+	jsr checkend
+	beq -		; leave if end of list
+
+showf	jsr indent	; compute start of filename
+	inc ls_lines	; count entries
+	ldx #0
+	stx isdir
+	ldy #0
+-	lda (fbuffer,x)	; name from text buffer...
+	cmp #$22
+	beq listout
+	sta sc_movetab,y	; ...to output buffer
+	jsr incfbuf
+	iny		; max length: 39 chars
+	cpy #39
+	bcc -
+
+listout	jsr finddir	; is entry a DIR? (set flag "isdir")
+	cpy #16		; delimit to 16 chars for list output
+	bcc +
+	ldy #16
++	lda #0		; set delimiter $00
+	sta sc_movetab,y
+	sty sc_br
+	tya
+	beq +
+	jsr gd_cnvbc	; convert to screen code
+	jsr gd_xtxout3	; and output on screen
+	ldx isdir
+	beq +
+	ldx #1		; 1: light color if entry a DIR
+	jsr gd_fcol
++	inc sc_zl
+	bne fnout		; loop, go to next (uncond. branch)
+
+; ----------------------------------------- Send Disk Command
+
+sendcmd	jsr gaugeout	; init message
+	jsr gd_sproff	; switch Sprites off
+	ldx #<ls_nambuf
+	ldy #>ls_nambuf
+	lda lfname
+	jsr gd_sendcom	; send command
+	jsr sevch15	; get answer
+	jmp gd_spron	; switch Sprites on again
+
+; ----------------------------------------- Init vectors
+
+initscan	ldx #<dirbuf+2	; load address ($2002)
+	lda #0		; page counter
+	sta count
+is2	ldy #>dirbuf
+	sta sc_stop	; unused (yet)
+	sta ls_lines	; list window entry counter
+	sta fbuffer	; buffer address ($2000)
+	sty fbuffer+1
+	sta fbuf2		; copy of buffer address
+	sty fbuf2+1
+	rts
+
+; ----------------------------------------- Count all Files
+
+cntfiles	jsr add32		; skip dir header/next file
+	jsr checkend
+	beq shamount	; leave if end of list and show number
+	inc files		; count files in directory
+	bne cntfiles
+	inc files+1
+	bne cntfiles
+
+; ----------------------------------------- Show Number of Files
+
+shamount	lda #32		; show amount of files in list
+	ldx #4
+-	sta fnumtx,x	; init output
+	dex
+	bpl -
+	lda files+1	; get amount
+	ldx files
+	jsr cnvwa		; convert to digits
+	jsr rightb	; set right bound
+	ldy #14		; out to screen
+	jmp out2
+	
+; ----------------------------------------- Scan Directory Buffer
+
+add32	clc		; proceed to next entry: add 32 (or more)
+	lda fbuf2
+	adc #31		; first add 31
+	sta fbuf2
+	bcc +
+	inc fbuf2+1
+
++	ldy #$ff		; then search for $00xx01 (end marker and link address)
+-	iny
+--	lda (fbuf2),y	; search, found if 0 and ...
+	bne -
+	iny
+	iny
+	lda (fbuf2),y	; ... 1
+	dey
+	cmp #1
+	bne --
+
++	clc		; then add 1 (or more)
+	tya		; step one back and add .y (offset to $01xx)
+	adc fbuf2		; set address buffer
+	sta fbuf2
+	sta fbuffer	; set filename scan address
+	bcc +
+	inc fbuf2+1
++	lda fbuf2+1
+	sta fbuffer+1
+	rts
+
+; ----------------------------------------- Check for End of List
+
+checkend	ldy #29		; $0000? (end of directory buffer)
+	lda (fbuffer),y
+	iny
+	ora (fbuffer),y	; returns zeroflag set if true
+	rts
+
+; ----------------------------------------- Search Start of Filename
+
+indent	ldx #6		; 6: init indent to begin of filename
+	ldy #2
+	lda (fbuffer),y	; len low
+	sta help
+	iny
+	lda (fbuffer),y	; len hi <256? (dreistellig oder weniger?)
+	beq +		; ja
+	cmp #3		; nein, mehr als 999?
+	bcs +++		; ja, unten weiter
+	cmp #1		; mindestens dreistellig?
+	bcs ++		; ja, indent: 6
++	lda help		; dreistellig? (indent: 6)
+	cmp #100
+	bcs ++
+	inx		; nein, weniger
+	cmp #10		; len zweistellig? (indent: 7)
+	bcs ++
+	inx		; nein, einstellig (indent: 8)
+
+++
+-	txa
+	clc
+	adc fbuffer	; Scan-Adresse anpassen
+	sta fbuffer
+	bcc +
+	inc fbuffer+1
++	rts
+
++++	cmp #4
+	bcs sd2iec
+	lda help
+	cmp #$e8
+	bcc -		; nein, dreistellig
+sd2iec	ldx indiec	; ja, vierstellig (indent= 5)
+	bne -
+
+
+; ----------------------------------------- Blanks
+
+blanklist	ldy #10		; re-init output window
+	jsr settxt
+	sty sc_loop
+	sty sc_stop
+	jsr gd_initmove
+	lda #32
+	jmp gd_fi0
+
+blankout	lda #32		; blank (rest of) filename
+-	cpy #16
+	beq +
+	sta nstx,y
+	iny
+	bne -
++	rts
+
+; ----------------------------------------- Highlite Drive Numbers
+
+hilite	ldy #4		; alle entfärben:
+	jsr settxt
+	ldx #2		; Init mit norm Farbe
+	jsr gd_fcol
+	lda ls_drive	; Hilight active Drive:
+	and #3		; Drivenummer minus 8 als Index
+	tax 
+	sec 
+	lda sc_vekt20
+	sbc off,x
+	sta sc_vekt20
+	bcs os2
+	dec sc_vekt20+1
+os2	ldy #0
+	ldx #2		; Hilite-Farbe anwählen
+	lda sc_light,x
+os3	sta (sc_vekt20),y	; und direkt in den Screen
+	iny
+	dex 
+	bne os3
+	rts
+
+; ----------------------------------------- Find Directory
+
+finddir	jsr incfbuf
+	cmp #$20
+	beq finddir
+	cmp #$44		; "D"?
+	bne +
+	jsr incfbuf
+	cmp #$49		; "I"?
+	bne +
+	jsr incfbuf
+	cmp #$52		; "R"?
+	bne +
+	sty isdir
++	rts
+
+; ----------------------------------------- Find Type of Dir
+
+findtype	tya		; save .y
+	pha
+	stx istype	; init type (to 0: Drive)
+	sec
+	lda fbuffer	; found type, check which
+	sbc #3
+	sta typetext
+	lda fbuffer+1
+	sbc #0
+	sta typetext+1
+
+	ldx #8
+	jsr chktype	; 1: D64
+	beq +
+	ldx #13
+	jsr chktype	; 2: D71
+	beq +
+	ldx #18
+	jsr chktype	; 3: D81
+	beq +
+	ldx #0		; none of these: Drive
+	stx istype
+
++	ldy ls_drive
+	lda istype
+	sta dtypes-8,y
+	jsr showtype
+	pla		; restore .y
+	tay
+++	rts
+
+; ----------------------------------------- Show Type of Drive
+
+showtype	lda ls_drive	; get active Drive
+	and #3		; Drivenummer minus 8 als Index
+	tax 
+	lda dtypes,x	; get its type
+	tax
+	lda toffs,x	; get according text offset
+	tax
+	ldy #4
+-	lda types,x	; write to gui screen list
+	sta dttx,y
+	dex
+	dey
+	bpl -
+	ldy #2		; and output to screen
+hiout	jsr out2
+	ldx #3		; 3: hilite text
+	jmp gd_fcol
+
+; ----------------------------------------- Recolor some Areas
+
+areacol	ldy #6
+	jsr setcols	; text: "Units"
+	ldy #8
+	jsr setcols	; text: "Type"
+	ldy #12
+	
+setcols	jsr settxt	; text: "Files"
+ed3	ldy #6
+	jsr gd_xtxout1
+	ldx #2		; 2: norm color
+	jmp gd_fcol
+
+; ----------------------------------------- Show number of files
+
+cnvwa	pha
+	lda #32		; prepare result buffer (because of rightbound)
+	ldy #5
+-	sta sy_numbers,y
+	dey
+	bpl -
+	pla
+	sta $62		; hi
+	stx $63		; lo
+	inc pport
+	ldx #$90		; convert to digits
+	sec
+	jsr $bc49
+	jsr $bddf
+	dec pport
+	rts
+
+rightb	ldy #6		; get end of result digits (in .y)
+di2	dey
+	lda sy_numbers,y
+	bne di2
+	dey
+	ldx #3		; transfer into gui gadget
+di3	lda sy_numbers,y	; from right to left
+	sta fnumtx,x
+	dex
+	dey
+	bpl di3
+	rts
+
+; ----------------------------------------- Displace Cursor
+
+displace	clc
+	lda $d003
+	adc #16
+	sta $d003
+	tay
+	dey
+	dey
+	sty $d001
+	rts 
+
+; ----------------------------------------- Repair Main Screen
+
+repair	ldx #<repairlst	; repair bottom
+	ldy #>repairlst
+	jsr gd_screen
+	lda #$20
+	sta $07d4
+	lda #$64
+	sta $074c
+	bne +		; uncond. branch
+
+; ----------------------------------------- Gauge 
+
+gaugeout	ldx #<gaugelst	; show gauge
+	ldy #>gaugelst
+	jsr gd_screen
++	lda #<dnavlst
+	sta sc_screenvek
+	lda #>dnavlst
+	sta sc_screenvek+1
+	rts
+
+
+; ----------------------------------------- Check for correct Filetypes 
+
+chktype	inc istype
+	ldy #2
+-	lda (typetext),y	; if .y=0: match
+	and #$7f
+	cmp #$44		; searches "Dxx"
+	beq +
+	cmp types,x
+	bne +
+	dex
+	dey
+	bpl -
++	rts
+
+; ----------------------------------------- Advance if Filename Buffer 
+
+incfbuf	inc fbuffer
+	bne +
+	inc fbuffer+1
++	lda (fbuffer,x)
+	rts
+
+; ----------------------------------------- Texts Output Handler
+
+tabigad	!wo nsgad		; .y: 0	(Offsets)
+	!wo dtgad		;     2
+	!wo ungad		;     4
+	!wo untx2		;     6
+	!wo tytx2		;     8
+	!wo list		;    10
+	!wo flstx2	;    12
+	!wo fnumgad	;    14
+	!wo iecgad	;    16
+
+settxt	lda #<tabigad
+	sta sc_texttab
+	lda #>tabigad
+	sta sc_texttab+1
+
+gettab	lda (sc_texttab),y
+	sta sc_screentab
+	iny
+	lda (sc_texttab),y
+	sta sc_screentab+1
+
+	lda #0
+	tax
+	tay
+gt0	jsr gd_setpos	; prepare gui addresses
+	cpx #4
+	bne gt0
+	jsr gd_trim
+	jmp gd_initmove	; returns sc_vekt20 and .x=0
+
+; ----------------------------------------- Output Text
+
+textout	ldy #0		; .y: offset index in tabigad
+out2	jsr settxt
+	ldy #6		; offset to gadget text area
+	jmp gd_xtxout1	; and show text
+
+; ----------------------------------------- Data
+
+off	!by 80,77,40,37	; offsets of drv nums
+types	!scr "Drive D64  D71  D81  Dxx " ; 0,1,2,3,4
+toffs	!by 4,9,14,19,24	; offsets of type texts
+dtypes	!by 0,0,0,0	; types for drives 8..11
+dollar	!tx "$:*=c"
+mountcom	!tx "cd"		; command "cd:..." or "cd'leftarrow'"
+unmntcom	!tx ":"		; gets changed to left arrow
+filename	!fill 39,32
+	!by 0
+
+; ----------------------------------------- Screenlist
+
+dnavlst	!by 0		; don't clear
+
+	!by 1,4		; requester: position (row,col)
+	!by 32,23		; dimension (width,height)
+	!by $11		; gadget type (1=Requester)
+	!wo 0		; dummy, ($11: no caption, no event)
+
+list	!by 3,5,18,18,$60	; directory window
+	!wo evfselect
+
+nsgad	!by 21,5,18,3,$cc	; diskname/command gadget
+	!wo evmaninp
+nstx	!fill 16,32	; (empty)
+	!by 0
+
+inout	!by 4,23,3,5,$50	; choose if enter/leave
+	!wo evinout
+
+updwn	!by 4,25,3,5,$50	; next/prev gadget
+	!wo evnext
+
+	!by 4,23,5,5,$90	; overlay
+	!wo 0
+	!by $5b,32,$1e	; left arrow (enter)
+	!by 0		; up arrow (leave)
+
+	!by 9,23,5,3,$c0
+	!wo evclear
+	!scr"clr",0
+
+iecgad	!by 12,23,5,3,$c0
+	!wo evsetind
+	!scr "d81",0
+
+ungad	!by 3,28,7,4,$e0	; select drive gadget
+	!wo evdselect
+untx	!scr " 8  9",0
+
+dtgad	!by 8,28,7,3,$b0	; show drive type 
+	!wo 0
+dttx	!scr "Drive",0
+
+fnumgad	!by 12,28,7,3,$a0	; show amount of files
+	!wo 0
+fnumtx	!scr "   0 ",0
+
+	!by 15,25,11,3,$cd	; mount command gadget
+	!wo evmount
+	!scr "Enter Dir",0
+
+	!by 17,25,11,3,$ce	; unmount command gadget
+	!wo evunmount
+	!scr "Leave Dir",0
+
+	!by 19,25,11,3,$ce	; write any command gadget
+	!wo evcommand
+	!scr "Send Cmnd",0
+
+	!by 21,25,11,3,$ce	; leave requester gadget
+	!wo evcancel
+	!scr "  Leave  ",0
+
+	!by $c0,1,5,16	; additional captions
+	!scr "Host Directories",0
+	!by $c0,1,28,5
+	!scr "Unit:",0
+	!by $c0,6,28,5
+	!scr "Type:",0
+	!by $c0,4,28,5	; drives 10 and 11
+	!scr "10 11",0
+	!by $c0,6,23,3
+	!by $5e,32	; right arrow
+	!by $1f,0		; down arrow
+	!by $c0,10,28,5
+	!scr "Files",0
+	!by $80
+
+untx2	!by 1,28,7,3,0,0,0	; addresses for area color
+	!scr "Unit:",0	; 0,0,0: dummy
+tytx2	!by 6,28,7,3,0,0,0
+	!scr "Type:",0
+flstx2	!by 10,28,7,3,0,0,0
+	!scr "Files",0
+
+; ----------------------------------------- Screenlist for Gauge
+
+gaugelst	!by 0,22,3,34,3,$02
+	!wo 0
+	!by $80
+
+; ----------------------------------------- Repair Screenlist
+
+repairlst	!by 0
+	!by 22,0,20,3,$09,0,0	; bottom of Screen Controls
+	!by 22,21,19,3,$0b,0,0	; bottom of Image Ops
+	!by 21,4,32,3,$01,0,0	; bottom of HostDir requester
+	!by 21,5,18,3,$0c,0,0	; Input gadget
+	!by 21,25,11,3,$8e,0,0	; Leave gadget
+	!scr "  Leave  ",0
+	!by $c0,20,22,2		; clear remainders
+	!scr "  ",0
+	!by $80
+
+; ----------------------------------------- 
+
+modend	!eof
