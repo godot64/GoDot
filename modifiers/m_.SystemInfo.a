@@ -26,7 +26,7 @@
 	fast		= $d030
 	vupmem		= $f01a
 	dupmem		= $f01e
-	releasenm		= $fffa	; stores release date (in upmem)
+	releasenm		= $fffd	; stores release date (in upmem)
 
 ; ------------------------------------------------ Header
 

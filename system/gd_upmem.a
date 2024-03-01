@@ -2,7 +2,7 @@
 	!src "godotlib.lib"
 	*= $c000
 
-;    ---------------------------------------------------   
+;    ---------------------------------------------------
 ; ***                                                   ***
 ; ***  GoDot UpMem                                      ***
 ; ***                                                   ***
@@ -19,8 +19,9 @@
 ; ***  1.15, 04.12.17, optimized code to gain space,    ***
 ; ***                  added: set amnt of colors in pal ***
 ; ***  1.16, 14.07.21, added: automatic default pals    ***
+; ***  1.17, 01.03.24, added: automatic Ultimate turbo  ***
 ; ***                                                   ***
-;    ---------------------------------------------------   
+;    ---------------------------------------------------
 ;
 
 ; -------------------------------------------------- Declarations
@@ -91,6 +92,7 @@
 	charreg		= $d018
 	border		= $d020
 	backgr		= $d021
+	turbo		= $d030
 
 	oszi3		= $d40e
 	wave		= $d412
@@ -136,9 +138,8 @@ list	!wo 0
 breit1	!by $12
 breit2	!by $24
 	!pet "GoDot f000 slot4"
-created	!pet "1.16"
-	!pet "14.07.21"		; date changed to 18.02.96 (start of NA distribution)
-				; date changed again to 22.11.16 (re-start of GoDot-ing)
+created	!pet "1.17"
+	!pet "01.03.24"
 	!pet "A.Dettke/W.Kling"
 ;
 ; -------------------------------------------------- Module Management
@@ -178,9 +179,9 @@ jevprviu    jmp evprviu	; 6
 jevdisp2    jmp evdisp2	; 7
 jevinfo     jmp evinfo	; 5
 
-; -------------------------------------------------- 
+; --------------------------------------------------
 ; -------------------------------------------------- Show graphics
-; -------------------------------------------------- 
+; --------------------------------------------------
 
 redisplay	ldx gr_palette	; bordercolor is palette entry 0
 	stx border
@@ -217,7 +218,9 @@ dp5	pla		; rebuild palette requester
 	pla
 	tax
 	jsr gd_screen
-dp3	clc		; finished (stay in list)
+dp3	lda #0		; deactivate turbo on Ultimate64
+	sta turbo
+	clc		; finished (stay in list)
 	rts
 
 ; -------------------------------------------------- Switch Textmode on
@@ -360,9 +363,9 @@ stc4	lda (sc_vekt20),y
 	jsr setlast
 	beq stc4
 
-; -------------------------------------------------- 
+; --------------------------------------------------
 ; -------------------------------------------------- Palette Management
-; -------------------------------------------------- 
+; --------------------------------------------------
 
 tabigad	!wo pickbox	; text output routines
 	!wo palbox
@@ -388,7 +391,7 @@ gettab	lda (sc_texttab),y
 
 se_paldis	jsr evdisplay	; switch graphics mode on
 
-; -------------------------------------------------- 
+; --------------------------------------------------
 
 palcols	inx		; .x was 0; set index to Normal Text color
 	inx
@@ -407,7 +410,7 @@ ep0	jsr gettab
 	bne ep0
 
 ppal	jsr settab	; re-set output vector
-	ldy #$00		; start with upper palette gadget 
+	ldy #$00		; start with upper palette gadget
 	sty sc_chgcol	; and with black
 	ldx #$0f		; 16 colors
 	jsr gettab
@@ -477,7 +480,7 @@ se_lessc	lda #$4c		; JMP
 +	lda #$20		; JSR
 	sta patch2
 
-; -------------------------------------------------- 
+; --------------------------------------------------
 
 buildreq	lda gr_howmany	; compute width of GoDot palette gadget
 	asl
@@ -534,7 +537,7 @@ dpl1	dex		; no, index minus 2
 	dex
 	lda defphi,x	; get flagword for this particular palette
 	sta sc_merk+1
-	lda gr_defpals,x	
+	lda gr_defpals,x
 dpl2	sta sc_merk
 
 	ldy #$00		; palettes are coded bitwise
@@ -622,7 +625,7 @@ eps8	dex		; .x=$ff now
 	stx gr_redisp	; flag: re-render graphics
 	jmp ppal		; show new palette
 
-; -------------------------------------------------- 
+; --------------------------------------------------
 
 setundo	ldx #$0f		; save current palette
 su1	lda gr_palette,x
@@ -631,9 +634,9 @@ su1	lda gr_palette,x
 	bpl su1
 	rts
 
-; -------------------------------------------------- 
+; --------------------------------------------------
 ; -------------------------------------------------- Event Re-Display Graphics
-; -------------------------------------------------- 
+; --------------------------------------------------
 
 evdisp2	lda gr_redisp	; save current re-display status
 	pha
@@ -651,15 +654,15 @@ evdisp2	lda gr_redisp	; save current re-display status
 
 evdisplay	jsr redisplay	; display graphics
 
-	lda #$80		; initialize noise (random) values
-	sta filter
-	sta oszi3
-	sta oszi3+1
 	lda #$00
-	sta wave
 	sta sc_stop
-	lda #$81
-	sta wave
+	ldx #$80		; initialize noise (random) values
+	stx oszi3+1
+	stx filter
+	inx
+	stx wave		; activate noise
+
+	inc turbo		; activate turbo on Ultimate64
 
 	lda gr_howmany	; number of colors to be rendered
 	sta hmzp		; store in zeropage
@@ -689,7 +692,7 @@ evdisplay	jsr redisplay	; display graphics
 	lda routtabhi,x
 	sta sc_pos+1
 
-; -------------------------------------------------- 
+; --------------------------------------------------
 
 mainpix	lda sc_clipho	; height
 	sta sc_ho
@@ -727,7 +730,7 @@ mcskip	and #$0f		; isolate 4b pixel
 	lda gr_btab,x	; balancing, .y still valid
 	jsr pixel		; dither, returns a bitpattern
 	and bitcnt	; isolate bm pixel
-	ora (dest),y	; and set 
+	ora (dest),y	; and set
 	sta (dest),y
 
 	inc sc_merk	; inc index into tile
@@ -762,7 +765,7 @@ dhb3	lda sc_stop	; STOP pressed?
 	dec sc_br		; decrement width value
 	bne dhb1		; until zero
 
-; -------------------------------------------------- 
+; --------------------------------------------------
 
 	clc		; to tile below first:
 	lda vblock1	; add 40 to video RAM
@@ -795,15 +798,15 @@ dhb3	lda sc_stop	; STOP pressed?
 
 	jmp dhb4		; else loop
 
-; -------------------------------------------------- 
+; --------------------------------------------------
 
 break	sta gr_redisp	; force re-render
 	sta sc_keyprs	; simulate keypressed
 dhb9	jmp dp1		; end sequence (graphics off...)
 
-; -------------------------------------------------- 
+; --------------------------------------------------
 ; -------------------------------------------------- Dither Routines
-; -------------------------------------------------- 
+; --------------------------------------------------
 
 pixel	jmp (sc_pos)	; entry for dither routines
 
@@ -865,7 +868,7 @@ dithoff	tax		; regard quantization table
 	lda htab,x
 	rts
 
-; -------------------------------------------------- Dith type: Ordered 
+; -------------------------------------------------- Dith type: Ordered
 
 dithhab	sta zp1
 	tax		; regard quantized colors
@@ -928,7 +931,7 @@ nold	lda hold
 	cmp zp1		; bigger?
 	bcs fgr
 
-; -------------------------------------------------- 
+; --------------------------------------------------
 
 bgr	lda htab0,x	; pixel not set, get pixel pattern
 	rts
@@ -948,9 +951,9 @@ gr00	lda rausch	; hires, get random value
 	sta zp1
 gr01	rts
 
-; -------------------------------------------------- 
+; --------------------------------------------------
 ; -------------------------------------------------- Clip Routines
-; -------------------------------------------------- 
+; --------------------------------------------------
 
 
 ; -------------------------------------------------- Get start values
@@ -1000,7 +1003,7 @@ cc3	sta sc_pos
 	lda dest+1
 	pha
 
-cc0	tya		; .y=0 
+cc0	tya		; .y=0
 	sta (dest),y	; clear bytes (to black)
 	inc dest
 	bne cc1
@@ -1030,7 +1033,7 @@ cc4	dec sc_pos
 	sta dest
 	stx dest+1
 
-; -------------------------------------------------- 
+; --------------------------------------------------
 
 	lda gr_dither	; any dither?
 	beq hist0		; no, compute histograms
@@ -1039,7 +1042,7 @@ cc4	dec sc_pos
 	cmp #$02		; b&w?
 	bne makeetab	; no, create etab and compute histograms
 
-; -------------------------------------------------- 
+; --------------------------------------------------
 
 	lda cmzp		; yes, b&w, graphics mode?
 	beq mcb
@@ -1068,7 +1071,7 @@ hm2l	sta htab,y	; put to table of pixel patterns
 	sta pbuf		; store value (faster rendering now)
 	rts
 
-; -------------------------------------------------- 
+; --------------------------------------------------
 
 makeetab	ldy #$01
 	ldx #$00
@@ -1161,7 +1164,7 @@ s4 	lda src+1
 	cmp #$bd		; end of 4bit?
 	bne hloop
 
-; -------------------------------------------------- 
+; --------------------------------------------------
 
 	lda #$00		; yes, retrieve most frequent color
 	sta max
@@ -1192,7 +1195,7 @@ s5	dex
 	sta backgr
 	rts
 
-; -------------------------------------------------- 
+; --------------------------------------------------
 
 clrhist1	ldx hmzp
 	dex
@@ -1216,7 +1219,7 @@ histo	lda gr_dither	; any dither?
 	sta (vblock),y
 	rts
 
-; -------------------------------------------------- 
+; --------------------------------------------------
 
 dohist	jsr clrhist1	; clear histogram
 ;
@@ -1485,9 +1488,9 @@ mcpat	!by $00,$03,$0c,$0f,$30,$33,$3c,$3f
 rdtab	!by $f0,$78,$50,$3c,$30,$28,$22
 	!by $1e,$1b,$18,$16,$14,$12,$11,$10
 
-; -------------------------------------------------- 
+; --------------------------------------------------
 ; -------------------------------------------------- Event: Toggle Clip/Full
-; -------------------------------------------------- 
+; --------------------------------------------------
 
 
 evarea	lda sc_clipped	; is clipped?
@@ -1513,16 +1516,16 @@ area2	stx sc_clipped	; flag: clipped
 	sty gr_redisp	; force re-render
 	jmp sh3		; show new status
 
-; -------------------------------------------------- 
+; --------------------------------------------------
 
 atype	!scr "ClipFull"
 routtablo	!by <(dithoff),<(dithhab),<(dithpat),<(dithnoi),<(dithrnd)
 routtabhi	!by >(dithoff),>(dithhab),>(dithpat),>(dithnoi),>(dithrnd)
 offs	!by $00,$10,$20,$30,$00,$10,$20,$30
 
-; -------------------------------------------------- 
+; --------------------------------------------------
 ; -------------------------------------------------- Event: Toggle Dither Type
-; -------------------------------------------------- 
+; --------------------------------------------------
 
 evdith	ldx gr_dither	; get current dither type
 	lda sc_merk+1	; where did the mouseclick occur?
@@ -1530,7 +1533,7 @@ evdith	ldx gr_dither	; get current dither type
 	bcs dth0
 	dex		; left: decrement downto 0
 	bpl dth1
-	ldx #$04		; start over at 4 
+	ldx #$04		; start over at 4
 	bne dth1
 dth0	inx		; increment up to 4
 	cpx #$05
@@ -1551,7 +1554,7 @@ dth1	stx gr_dither	; set dither type
 	sta gr_redisp
 	jmp gd_xtxtggl
 
-; -------------------------------------------------- 
+; --------------------------------------------------
 
 dtadr	!wo dtoff,dthab
 	!wo dtpat,dtnoi,dtrnd
@@ -1601,9 +1604,9 @@ palbox	!by $0d,$03,$06,$04,$60
 	!by $1f,0
 	!by $80
 
-; -------------------------------------------------- 
+; --------------------------------------------------
 ; -------------------------------------------------- Event: Balancing Requester
-; -------------------------------------------------- 
+; --------------------------------------------------
 
 evbal	jsr gd_savescvek	; save vector to main list
 	ldx #<(balreq)	; show balancing requester
@@ -1683,7 +1686,7 @@ show	lda brttmp,x	; get value
 	cmp #$10		; is at least 16? (median; shows as 0)
 	bmi nega		; no, lower (show as negative values)
 
-; -------------------------------------------------- 
+; --------------------------------------------------
 
 posi	sbc #$10		; yes, subtract 16
 sh0	sty sc_movetab
@@ -1712,7 +1715,7 @@ sh2	lda gr_btab,y
 sh3	ldy #$06		; show pattern
 	jmp gd_xtxout1
 
-; -------------------------------------------------- 
+; --------------------------------------------------
 
 nega	sta sc_merk	; subtract value from 16
 	lda #$10
@@ -1863,7 +1866,7 @@ mbloop2	lda bttab,x
 	bne mbloop2
 	rts
 
-; -------------------------------------------------- 
+; --------------------------------------------------
 
 bktmp	!by 0
 pdis	!by 0
@@ -1919,11 +1922,11 @@ tpatbox	!by $e0,$e1,$e2,$e3,$e4,$e5,$e6,$e7
 	!scr "Contrast@"
 	!by $80
 
-; -------------------------------------------------- 
+; --------------------------------------------------
 ; -------------------------------------------------- Event: Display Preview
-; -------------------------------------------------- 
+; --------------------------------------------------
 ;
-; When entering this event routine you have just clicked the 
+; When entering this event routine you have just clicked the
 ; appropriate gadget. So, all values are still set here and now.
 ; The event routine first reverts the gadget's background.
 ;
@@ -1982,7 +1985,7 @@ ploop	tya
 ;
 ; Now rendering the 4Bit Area to the sprites. Will be done as three
 ; bands of 12 tiles down from left to right.
-; 
+;
 	ldx #$02		; three times 12 tiles (20 rows down)
 m0loop	txa
 	pha
@@ -2003,7 +2006,7 @@ m0loop	txa
 	bpl m0loop	; and the next two
 ;
 ; now rendered, wait for click to shut down sprites
-; 
+;
 	inx		; wait for click
 	stx sc_keyprs
 wait	lda sc_keyprs
@@ -2046,7 +2049,7 @@ dzloop	lda #$03		; flag: 3 passes across
 	sta brttmp
 
 zloop	ldy #$60		; 4 tiles from right to left
-	lda lflag		; on 2nd pass (tile): 
+	lda lflag		; on 2nd pass (tile):
 	bpl bloop
 	ldy #$70		; indent to 4 pixels below
 
@@ -2132,9 +2135,9 @@ xytab	!by $07,$91,$07,$a6
 	!by $37,$91,$37,$a6
 	!by $00
 
-; -------------------------------------------------- 
+; --------------------------------------------------
 ; -------------------------------------------------- Event: GoDot Guru
-; -------------------------------------------------- 
+; --------------------------------------------------
 
 evinfo	jsr gd_sproff	; pointer off
 
@@ -2158,7 +2161,7 @@ scrloop	jsr home		; be sure to be at home position
 	jsr text		; show Guru text ("GoDot Creation Nr...")
 tastean	lda sy_tbuffer	; wait for key
 	bne ok		; key pressed, finish
-	jsr blink		; otherwise: blink box 
+	jsr blink		; otherwise: blink box
 	lda jf2		; fire on joystick?
 	and #$10
 	bne tastean	; no, wait
@@ -2219,7 +2222,7 @@ rasterirq	sei
 	cli
 	jmp (oldirq)
 
-; -------------------------------------------------- 
+; --------------------------------------------------
 
 gskip	ldx #$09
 irqwait	nop
@@ -2364,6 +2367,6 @@ bl1	lda #$00		; and black (background color)
 	sta sc_chgcol
 	rts
 
-; -------------------------------------------------- 
+; --------------------------------------------------
 
 modend	!eof		; end of upmem routines

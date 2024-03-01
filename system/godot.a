@@ -110,7 +110,7 @@ b2	sta booter,y
 	bootinit		= $c012
 	ram		= $ca64	; start address of dev.REU
 	ramstart		= $cab0	; header address of dev.REU
-	releasenm		= $fffa	; stores release date (in upmem)
+	releasenm		= $fffd	; stores release date (in upmem)
 	
 	spr0x		= $d000
 	spr0y		= $d001
