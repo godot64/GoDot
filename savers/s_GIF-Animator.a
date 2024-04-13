@@ -1,0 +1,697 @@
+
+	!src "godotlib.lib"	; Label-Library einbinden
+	*= $c000		; generelle Startadresse für alle Module
+	!ct pet		; Texte werden in PETSCII assembliert
+
+; -----------------------------------------
+;
+; svr.GIF-Animator
+;     Saver for GIF_Animations
+;
+; 1.00: 13.04.24
+;
+; -----------------------------------------
+
+; ----------------------------------------- Saver Header
+;
+ 	jmp start
+
+	!by $40
+	!by 0
+	!by 1
+	!wo modend
+	!wo 0
+	!pet "GIF Animator    "
+cvers	!pet "1.00"
+	!pet "13.04.24"
+	!pet "A.Dettke        "
+
+; ----------------------------------------- Definitionen
+
+	frame	= $4000
+	datacnt	= frame+$6d	; where 1st chunk-len is
+
+	int	= $14
+	filenum	= $30
+	gifbuffer	= $31	; /$32
+	adcnt	= $33
+	outcnt	= $34
+	lastone	= $35
+	chunkout	= $36	; /$37
+	ymerk	= $38
+
+	offy	= $4f
+	offx	= $50
+
+; -----------------------------------------
+
+start	ldx gr_nr		; Funktionsnummer testen
+	dex
+	bne st0		; Null, dann "Speichern"
+	jmp initinp	; eins, "Input"
+
+; ----------------------------------------- Main
+
+st0	jsr requester	; display requester
+	lda used		; cancelled?
+	cmp #3
+	bcs st12
+
+st11	jsr gd_sproff	; Sprites aus
+	lda gd_modswitch	; Slotindex retten
+	pha
+	lda ls_flen	; wurde Filename übergeben?
+	beq st1		; nein
+
+	sta wflen		; sonst: retten
+	jsr addgif	; Namen mit Suffix erweitern
+	lda #1		; Counter für Activity setzen
+	sta adcnt
+	sta cntwert
+	ldx #"0"		; reset file counter to "01"
+	stx current
+	inx
+	stx current+1
+
+	ldx #3		; Versionsnummer eintragen
+-	lda cvers,x
+	sta version,x
+	dex
+	bpl -
+
+	jsr getanim	; load 1st animfile to 4bit area
+	bne st2		; Fehler?
+
+	inc once		; nein, set flag for movedata
+	jsr wopen		; Writefile öffnen
+	bne st2		; wenn Fehler: Ende
+	jsr getname	; Filenamen sichern
+	jsr gd_clrms	; Anzeige initialisieren
+	ldx #0		; Activity-Text eintragen
+	jsr tcopy
+	jsr write		; GIF-Animation speichern
+	jsr setname	; Fileinfo aufbereiten
+
+st2	jsr clrch		; Bus freigeben
+	lda #12
+	jsr close
+	jsr err9		; Floppystatus zeigen (kurz)
+
+st1	pla		; Slotindex zurückholen
+	sta gd_modswitch
+
+st12	jsr canc
+	jsr gd_spron	; Sprites wieder an
+	sec		; Leave-Requester-Flag
+	rts		; fertig
+
+; ---------------------------
+; --------------------------- Input Routines
+
+!src "input.inc"
+
+; ---------------------------
+; ---------------------------
+
+; ----------------------------------------- Event: Save Animation
+
+evsavgif	inc used
+	sec
+	rts
+
+; ----------------------------------------- Event: Set Frame Speed
+
+evspeed	ldx #15
+-	lda ls_nambuf,x	; Filennamen retten
+	sta second,x
+	dex
+	bpl -
+	ldx #10		; init input (only digits)
+	stx sc_iflag
+	ldx #<digits
+	lda #>digits
+	stx ls_vekta8
+	sta ls_vekta8+1
+	lda ls_flen
+	pha
+	lda sc_br
+	sta ls_flen
+	jsr initinp	; input
+	pla
+	sta ls_flen
+	lda #0		; re-init input
+	sta sc_iflag
+	lda sc_br
+	tax
+	tay
+-	lda ls_nambuf-1,y	; make result value right bound
+	cmp #32
+	beq +
+	sta speedtx-1,x
+	dex
++	dey
+	bne -
+	dex
+	bmi +
+	lda #32
+	sta speedtx
++	ldy #2		; output on screen
+	jsr dpi2
+	ldx #<speedtx	; convert to 16bit value
+	lda #>speedtx
+	stx ls_vekta8
+	sta ls_vekta8+1
+	jsr gword
+	sta frspeed	; set as new anim speed
+	lda int+1
+	sta frspeed+1
+	ldx #15		; restore filename
+-	lda second,x
+	sta ls_nambuf,x
+	dex
+	bpl -
+	clc
+	rts
+
+; ------------------------------------ Text-Output on Screen
+
+out2	ldy #0
+dpi2	jsr settext
+	ldy #6
+	jmp gd_xtxout1
+
+; ----------------------------------------- Activity
+
+messout	jsr gd_setmess
+	ldx #<message	; Textausgabe
+	ldy #>message
+	jmp gd_xtxout2
+
+tcopy	ldy #0		; Text zur Ausgabe puffern
+tc0 	lda txt,x		; Offset in .x!
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+
+action	dec adcnt		; Activity, wenn bei 0
+	bne ld4
+	lda cntwert	; dann: Reload des Zählers
+	sta adcnt
+	ldy offy		; Offset auf Balkenende
+	cpy clrmess+1	; Ende der Ausgabezeile erreicht?
+	bne act0
+	jsr clrmess	; ja, re-Init des Status-Bereichs
+act0	ldx offx		; Dicke des Balkenendes
+	lda filltab,x
+	sta mess,y
+	jsr messout	; Balken ausgeben
+	dec offx		; Ende nächstes Mal dicker
+	bpl ld4		; bis gefüllt
+	inc offy		; dann Balken länger
+	lda #7		; Ende wieder dünn
+	sta offx
+ld4 	rts
+
+clrmess	ldx #25		; Puffer für Balken löschen
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0		; Balkenlänge 0
+	ldx #7		; Dicke am Ende 0
+	sty offy
+	stx offx
+	rts
+
+filltab	!by 160,93,103,127,126,124,105,109
+cntwert	!by 1
+txt	!scr " Anim"
+	!by 0
+message	!fill 6,32
+mess	!fill 26,32
+	!by 0
+
+; ----------------------------------------- Image Info
+
+getname	ldx #0		; aktuellen Filenamen sichern
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+setname	lda #0		; Namen in Image Info eintragen
+	ldx #<ls_picname
+	ldy #>ls_picname
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!fill 16,32
+	!by 0
+
+; ----------------------------------------- Startup requester
+
+requ 	inc used		; used=0
+	ldx #<sgiflst
+	ldy #>sgiflst
+	jmp gd_xmloop
+
+; ----------------------------------------- Requester management
+
+requester	ldx used
+	bmi requ
+	rts
+
+; ----------------------------------------- Leave saver
+
+cn2 	lda #3
+	!by $2c
+canc 	lda #$ff		; reset used (and once)
+	sta used
+	sta once
+	sec
+	rts
+
+; -------------------------------------- Convert Digits to Word (Byte in INT)
+; address of digits in ls_vekta8, digit strings like " 654"
+
+gword	ldy #0
+	sty int
+	sty int+1
+	beq +
+
+-	jsr inca8
++	lda (ls_vekta8),y
+	cmp #$20
+	beq -
+
+	cmp #$3a
+	bcs +
+	sec
+	sbc #$30
+	sec
+	sbc #$d0
+	bcs +
+	sbc #$2f
+	sta sc_merk
+	lda int+1
+	sta ls_temp
+	cmp #$19		; delimit value to max. 63999 (next pass would exceed 64K)
+	bcs +
+
+	lda int		; value times 10:
+	asl
+	rol ls_temp
+	asl
+	rol ls_temp
+	adc int
+	sta int
+	lda ls_temp
+	adc int+1
+	sta int+1
+	asl int
+	rol int+1
+	lda int
+	adc sc_merk
+	sta int
+	bcc -
+	inc int+1
+	bne -
+
++	lda int		; result in INT and INT+1
+	rts
+
+; -----------------------------------------
+
+inca8	inc ls_vekta8
+	bne +
+	inc ls_vekta8+1
++	rts
+
+; ----------------------------------------- Output gadget text routines
+
+tabigad	!wo animgad
+	!wo speedgad
+
+settext	lda #<tabigad
+	sta ls_vekta8
+	lda #>tabigad
+	sta ls_vekta8+1
+
+	lda (ls_vekta8),y
+	sta sc_screentab
+	iny
+	lda (ls_vekta8),y
+	sta sc_screentab+1
+	lda #0
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #3
+	bne gt0
+	stx sc_ho
+	jsr gd_trim
+	jmp gd_initmove
+
+; ----------------------------------------- Screenlist
+
+sgiflst	!by 0
+	!by 7,13,15,11,$91
+	!wo 0
+	!scr "GIF Animator",0
+animgad	!by 9,23,5,3,$8d
+	!wo 0
+animtx	!tx " 01",0
+speedgad	!by 11,23,5,3,$ce
+	!wo evspeed
+speedtx	!tx " 25",0
+	!by 13,13,15,3,$cb
+	!wo evsavgif
+	!scr " Save Anim",0
+	!by 15,13,15,3,$cb
+	!wo cn2
+	!scr " Cancel Save ",0
+	!by $c0,9,13,9
+	!scr "AnimFrame",0
+	!by $c0,11,13,9
+	!scr "AnimSpeed",0
+	!by $80
+
+; ----------------------------------------- Data
+
+pw	!pet "w,p,"
+giftx	!pet "fig."
+giftxs	!scr "fig."
+drinit	!pet "i0"
+wflen	!by 0
+
+used	!by $ff
+once	!by $ff
+loaded	!by 0
+digits	!tx " 0123456789"
+second	!fill 16,32
+
+gifname	!pet "anim"
+current	!pet "01."
+ftype	!pet "gif"
+
+; --------------------------------------------------------------
+; -------------------------------------------------------------- Disk Access
+; --------------------------------------------------------------
+
+; ----------------------------------------- Read File Open
+
+ropen	lda #13		; OPEN 13,dr,13,"animxx.gif"
+	tay
+	ldx ls_drive
+	jsr filpar
+	lda #10
+	ldx #<gifname
+	ldy #>gifname
+	jsr filnam
+	jsr copen
+	ldx #13
+	jmp chkin
+
+; ----------------------------------------- Write File Open
+
+wopen	jsr inull		; Initialize
+	bne err8
+	ldy wflen		; ",p,w" anhängen
+	ldx #3
+wo1	lda pw,x
+	sta ls_nambuf,y
+	iny
+	dex
+	bpl wo1
+	sty wflen
+	lda #12		; OPEN 12,drive,12,"name,p,w"
+	tay
+	ldx ls_drive
+	jsr filpar
+	lda wflen
+	ldx #<ls_nambuf
+	ldy #>ls_nambuf
+	jsr filnam
+	jsr copen
+	jmp err9
+
+inull	ldx #<drinit
+	ldy #>drinit
+	lda #2
+	jsr gd_sendcom
+err9	jsr gd_xmess
+	lda ls_err2
+	and #15
+err8 	sec
+	rts
+
+; ----------------------------------------- Read Anim Frame
+
+read	lda #>frame	; ($4000) anim file buffer
+	sta gifbuffer+1
+	ldy #<frame	; .y=0
+	sty gifbuffer
+	jsr basin		; file exists? (determine end of anim)
+	tax
+	lda status
+	and #%10111111
+	beq +
+	sta loaded	; no, set flag
++	txa
+	sta (gifbuffer),y
+	iny
+-	jsr basin		; now, read file to $4000
+	sta (gifbuffer),y
+	lda status	; until EOF (or error)
+	bne rcl
+	iny
+	bne -
+	inc gifbuffer+1
+	bne -
+rcl	lda #13		; CLOSE 13
+	jmp close
+
+; ----------------------------------------- Proceed to Next Frame
+
+nextframe	ldx current
+	inc current+1	; inc number in filename
+	lda current+1
+	cmp #":"
+	bcc getanim
+	lda #"0"
+	sta current+1
+	inc current	; max is 99
+	ldx current
+	cpx #":"
+	beq rcl		; more: error!
+
+; ----------------------------------------- Read Data Part of Anim
+
+getanim	lda #0
+	sta loaded	; set flag for last frame
+	jsr ropen		; (Nächstes) Readfile öffnen (Animation)
+	jsr read		; erfolgreich, also einlesen nach $4000
+	lda status
+	and #%10111111	; Fehler? (Bit 6 ist EOF)
+	bne +		; ja, rts
+	lda once		; erstes Anim-File?
+	beq +		; nein, Folgefile, also rts
+
+; ----------------------------------------- Write Frame Config to Anim
+
+movedata	ldx #47		; ja, get palette and dimensions from anim
+-	lda frame+13,x
+	sta palette,x	; and write to anim header
+	dex
+	bpl -
+	ldx #3
+-	lda frame+6,x
+	sta width1,x
+	sta width2,x
+	dex
+	bpl -
+	inx
++	rts
+
+; ----------------------------------------- Write Frames to Anim
+
+write	ldx #12		; OPEN #12, out
+	jsr ckout
+	ldx #0		; GIF-Header ausgeben
+wr0	lda gifheader,x
+	jsr bsout
+	inx
+	cpx #(framehead-gifheader)
+	bne wr0
+
+-	lda current+1	; Anzeige der aktuellen Frame-Nummer
+	ldx current
+	sta animtx+2
+	stx animtx+1
+	jsr out2
+	jsr wfrheader	; Frame-Header ausgeben (18 Bytes)
+	jsr wfrchunks	; write all chunks of a frame
+	jsr nextframe	; get next frame file
+	lda loaded	; no, was last one?
+	beq -		; no, loop
+
+	ldx #12		; #12, out
+	jsr ckout
+	lda #$3b		; GIF-Terminator ";" dahinter
+	jsr bsout
+	sec		; Leave-Flag
+	rts		; Animfile abgespeichert
+
+; ----------------------------------------- Write each Anim Frame Header
+
+wfrheader	ldx #12		; OPEN #12, out
+	jsr ckout
+	ldx #0
+-	lda framehead,x
+	jsr bsout
+	inx
+	cpx #(addgif-framehead)
+	bcc -
+	rts
+
+; ----------------------------------------- Write Frame Chunks
+
+wfrchunks	lda #<datacnt	; set position of 1st chunk len indicator
+	ldy #>datacnt
+	sta chunkout
+	sty chunkout+1
+	ldy #0
+	sty lastone	; init flag for last chunk
+	lda (chunkout),y	; get chunk len (normally $ff)
+--	sta outcnt	; and set as a counter
+-	lda (chunkout),y	; write chunk data
+	jsr bsout
+	iny
+	cpy outcnt
+	bcc -
+	lda (chunkout),y	; write last byte in chunk
+	jsr bsout
+	sty ymerk
+	jsr action
+	ldy ymerk
+	lda lastone	; check flag: last chunk written?
+	bne +		; yes, finish
+	inc chunkout+1	; no, next chunk
+	iny
+	lda (chunkout),y	; last chunk? (value less than $ff)
+	cmp #$ff
+	beq --		; no, set next one
+	sta lastone	; yes, set flag for last chunk
+	bne --		; uncond. branch
++	lda #0		; mark end of frame
+	jmp bsout		; (gets overwritten if frame follows)
+
+; ----------------------------------------- Anim Header
+
+gifheader	!by $47,$49,$46,$38,$39,$61	; GIF89a
+width1	!wo 320			; Breite des Bildes
+height1	!wo 200			; Höhe des Bildes
+	!by %10110011		; Global, 8 Bit/Color, 4 Bit/Pixel
+	!by 0			; Backgroundcolor (Offset)
+	!by $31			; default aspect ratio (1:1)
+
+palette	!by $00,$00,$00	; schwarz		(PALette v1)
+	!by $32,$2d,$ab	; blau
+	!by $52,$3d,$01	; braun
+	!by $4e,$4e,$4e	; dunkelgrau
+	!by $8a,$32,$3d	; rot
+	!by $8d,$36,$a1	; purpur
+	!by $8e,$50,$1a	; orange
+	!by $76,$76,$76	; mittelgrau
+	!by $6b,$66,$e4	; hellblau
+	!by $bc,$63,$6e	; hellrot
+	!by $4b,$a6,$48	; grün
+	!by $a3,$a3,$a3	; hellgrau
+	!by $67,$bf,$b3	; cyan
+	!by $cd,$d2,$56	; gelb
+	!by $8e,$e9,$8b	; hellgrün
+	!by $ff,$ff,$ff	; weiß
+
+	!by $21,$fe	; comment follows
+	!by 36		; length of comment
+	!tx "saved by c64 godot gif animator "
+version	!tx "1.00"
+	!by 0		; end of comment
+
+	!by $21,$ff	; application extension follows
+	!by $0b		; always 11
+	!pet "netscape2.0"	; introduces every animation
+	!by 3		; len of data
+	!by 1		; always 1
+repeat	!wo 0		; num of repetions (0=endless)
+	!by 0		; end of data
+
+framehead	!by $21,$f9	; Graphic Control Extension follows
+	!by 4		; len of data
+	!by 4		; control byte
+frspeed	!wo 25		; frame duration
+	!by 0		; index of transparent color (when set)
+	!by 0 		; end of data
+
+imagehead	!by $2c		; start of image
+	!wo 0,0		; top left corner on Screen (0,0)
+width2	!wo 320
+height2	!wo 200		; screen size (equals image size)
+	!by 3		; no interlace, 4 bits/pixel
+	!by 4		; codesize 4 bits
+
+; ----------------------------------------- Add Suffix
+
+addgif	pha		; Länge merken
+	tay
+	dey
+	ldx #0
+ag4	lda ls_nambuf,y	; endet auf ".GIF"?
+	cmp giftx,x
+	bne ag2		; nein
+	dey
+	inx
+	cpx #4
+	bcc ag4
+	pla		; ja, fertig
+	rts
+
+ag2	pla
+	tay		; Name länger als 12 Zeichen?
+	cpy #13
+	bcs ag0		; ja, behandeln
+
+ag5	ldx #3		; nein, ".gif" anhängen
+ag1	lda giftx,x
+ag3	sta ls_nambuf,y
+	lda giftxs,x	; auch für Image Info
+	sta ls_lastname,y
+	iny
+	dex
+	bpl ag1
+	sty wflen		; neue Länge merken, fertig
+	sty ls_flen
+	rts
+
+ag0	dey		; auf 12 verkürzen
+	cpy #12
+	bne ag0
+	beq ag5		; unbed. Sprung
+
+; -----------------------------------------------------
+
+modend 	!eof
