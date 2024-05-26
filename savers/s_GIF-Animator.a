@@ -8,7 +8,9 @@
 ; svr.GIF-Animator
 ;     Saver for GIF_Animations
 ;
-; 1.00: 13.04.24
+; 1.00: 13.04.24	first release
+; 1.01: 09.05.24	bugfix in evspeed
+; 1.02: 26.05.24	re-added transparency option
 ;
 ; -----------------------------------------
 
@@ -22,8 +24,8 @@
 	!wo modend
 	!wo 0
 	!pet "GIF Animator    "
-cvers	!pet "1.00"
-	!pet "13.04.24"
+cvers	!pet "1.02"
+	!pet "26.05.24"
 	!pet "A.Dettke        "
 
 ; ----------------------------------------- Definitionen
@@ -39,9 +41,11 @@ cvers	!pet "1.00"
 	lastone	= $35
 	chunkout	= $36	; /$37
 	ymerk	= $38
+	spalte	= sc_merk+1
 
 	offy	= $4f
 	offx	= $50
+
 
 ; -----------------------------------------
 
@@ -52,7 +56,9 @@ start	ldx gr_nr		; Funktionsnummer testen
 
 ; ----------------------------------------- Main
 
-st0	jsr requester	; display requester
+st0	inx
+	stx already
+	jsr requester	; display requester
 	lda used		; cancelled?
 	cmp #3
 	bcs st12
@@ -65,9 +71,9 @@ st11	jsr gd_sproff	; Sprites aus
 
 	sta wflen		; sonst: retten
 	jsr addgif	; Namen mit Suffix erweitern
-	lda #1		; Counter für Activity setzen
-	sta adcnt
-	sta cntwert
+	ldx #1		; Counter für Activity setzen
+	stx adcnt
+	stx cntwert
 	ldx #"0"		; reset file counter to "01"
 	stx current
 	inx
@@ -126,7 +132,8 @@ evspeed	ldx #15
 	sta second,x
 	dex
 	bpl -
-	ldx #10		; init input (only digits)
+
+	ldx #10		; init input (for only digits)
 	stx sc_iflag
 	ldx #<digits
 	lda #>digits
@@ -136,27 +143,32 @@ evspeed	ldx #15
 	pha
 	lda sc_br
 	sta ls_flen
-	jsr initinp	; input
+	jsr initinp	; perform input
 	pla
 	sta ls_flen
 	lda #0		; re-init input
 	sta sc_iflag
+
 	lda sc_br
 	tax
 	tay
 -	lda ls_nambuf-1,y	; make result value right bound
+	bit already
+	bmi +
 	cmp #32
-	beq +
-	sta speedtx-1,x
+	beq ++
+	dec already
++	sta speedtx-1,x
 	dex
-+	dey
+++	dey
 	bne -
 	dex
 	bmi +
 	lda #32
 	sta speedtx
 +	ldy #2		; output on screen
-	jsr dpi2
+	jsr out2
+
 	ldx #<speedtx	; convert to 16bit value
 	lda #>speedtx
 	stx ls_vekta8
@@ -165,20 +177,70 @@ evspeed	ldx #15
 	sta frspeed	; set as new anim speed
 	lda int+1
 	sta frspeed+1
+
 	ldx #15		; restore filename
 -	lda second,x
 	sta ls_nambuf,x
 	dex
 	bpl -
+	inx
+	stx already
 	clc
 	rts
 
+; ----------------------------------------- Event: Save Animation
+
+evtrans	ldx wtrans	; change transparency color
+	lda spalte	; inc?
+	cmp #25
+	bcs +
+	dex		; no, dec
+	bpl ++		; below 0?
+	ldx #15		; yes, make 16 (=no transparency)
++	inx
+++	cpx #17		; beyond 16?
+	bcc +
+	ldx #0		; yes, start over at 0
+
++	stx wtrans	; and set value
+	cpx #16		; is 16?
+	beq +
+	ldx #5		; no, indicate "no"
+	!by $2c
++	ldx #2		; yes, indicate color bar
+	ldy #2
+-	lda trtext,x
+	sta transtx,y
+	dex
+	dey
+	bpl -
+
+	lda wtrans
+	cmp #16
+	bne +
+	ldx #0
+	txa
+	!by $2c
++	ldx #9
+	stx trans
+	sta transi
+
+shtrans	ldy #4		; show gadget content
+	jsr out2
+	ldx wtrans	; and set current color
+	lda godpal,x
+	sta sc_chgcol
+	ldx #4
+	stx sc_loop
+	jmp gd_fcol
+
 ; ------------------------------------ Text-Output on Screen
 
-out2	ldy #0
-dpi2	jsr settext
+out	ldy #0
+out2	jsr settext
 	ldy #6
 	jmp gd_xtxout1
+
 
 ; ----------------------------------------- Activity
 
@@ -264,10 +326,15 @@ nbuf	!fill 16,32
 
 ; ----------------------------------------- Startup requester
 
-requ 	inc used		; used=0
+requ	lda #"0"
+	sta animtx+1
+	sta animtx+2
+ 	inc used		; used=0
 	ldx #<sgiflst
 	ldy #>sgiflst
-	jmp gd_xmloop
+	jsr gd_screen
+	jsr shtrans	; show transparency color
+	jmp gd_eloop
 
 ; ----------------------------------------- Requester management
 
@@ -343,8 +410,9 @@ inca8	inc ls_vekta8
 
 ; ----------------------------------------- Output gadget text routines
 
-tabigad	!wo animgad
-	!wo speedgad
+tabigad	!wo animgad	; .y=0
+	!wo speedgad	; 2
+	!wo transgad	; 4
 
 settext	lda #<tabigad
 	sta ls_vekta8
@@ -369,7 +437,7 @@ gt0	jsr gd_setpos
 ; ----------------------------------------- Screenlist
 
 sgiflst	!by 0
-	!by 7,13,15,11,$91
+	!by 7,13,15,13,$91
 	!wo 0
 	!scr "GIF Animator",0
 animgad	!by 9,23,5,3,$8d
@@ -378,16 +446,21 @@ animtx	!tx " 01",0
 speedgad	!by 11,23,5,3,$ce
 	!wo evspeed
 speedtx	!tx " 25",0
-	!by 13,13,15,3,$cb
+transgad	!by 13,23,5,3,$ce
+	!wo evtrans
+transtx	!scr " no",0
+	!by 15,13,15,3,$cb
 	!wo evsavgif
 	!scr " Save Anim",0
-	!by 15,13,15,3,$cb
+	!by 17,13,15,3,$cb
 	!wo cn2
 	!scr " Cancel Save ",0
 	!by $c0,9,13,9
 	!scr "AnimFrame",0
 	!by $c0,11,13,9
 	!scr "AnimSpeed",0
+	!by $c0,13,13,9
+	!scr "Transpncy",0
 	!by $80
 
 ; ----------------------------------------- Data
@@ -401,8 +474,13 @@ wflen	!by 0
 used	!by $ff
 once	!by $ff
 loaded	!by 0
+already	!by 0
 digits	!tx " 0123456789"
 second	!fill 16,32
+wtrans	!by 16
+trtext	!scr " no",160,160,160
+godpal	!by $00,$06,$09,$0b,$02,$04,$08,$0c
+	!by $0e,$0a,$05,$0f,$03,$07,$0d,$01,$0b
 
 gifname	!pet "anim"
 current	!pet "01."
@@ -542,7 +620,7 @@ wr0	lda gifheader,x
 	ldx current
 	sta animtx+2
 	stx animtx+1
-	jsr out2
+	jsr out
 	jsr wfrheader	; Frame-Header ausgeben (18 Bytes)
 	jsr wfrchunks	; write all chunks of a frame
 	jsr nextframe	; get next frame file
@@ -577,6 +655,8 @@ wfrchunks	lda #<datacnt	; set position of 1st chunk len indicator
 	ldy #0
 	sty lastone	; init flag for last chunk
 	lda (chunkout),y	; get chunk len (normally $ff)
+	cmp #$ff
+	bne ++
 --	sta outcnt	; and set as a counter
 -	lda (chunkout),y	; write chunk data
 	jsr bsout
@@ -595,7 +675,7 @@ wfrchunks	lda #<datacnt	; set position of 1st chunk len indicator
 	lda (chunkout),y	; last chunk? (value less than $ff)
 	cmp #$ff
 	beq --		; no, set next one
-	sta lastone	; yes, set flag for last chunk
+++	sta lastone	; yes, set flag for last chunk
 	bne --		; uncond. branch
 +	lda #0		; mark end of frame
 	jmp bsout		; (gets overwritten if frame follows)
@@ -606,25 +686,25 @@ gifheader	!by $47,$49,$46,$38,$39,$61	; GIF89a
 width1	!wo 320			; Breite des Bildes
 height1	!wo 200			; Höhe des Bildes
 	!by %10110011		; Global, 8 Bit/Color, 4 Bit/Pixel
-	!by 0			; Backgroundcolor (Offset)
+	!by 7			; Backgroundcolor (index)
 	!by $31			; default aspect ratio (1:1)
 
-palette	!by $00,$00,$00	; schwarz		(PALette v1)
-	!by $32,$2d,$ab	; blau
-	!by $52,$3d,$01	; braun
-	!by $4e,$4e,$4e	; dunkelgrau
-	!by $8a,$32,$3d	; rot
-	!by $8d,$36,$a1	; purpur
-	!by $8e,$50,$1a	; orange
-	!by $76,$76,$76	; mittelgrau
-	!by $6b,$66,$e4	; hellblau
-	!by $bc,$63,$6e	; hellrot
-	!by $4b,$a6,$48	; grün
-	!by $a3,$a3,$a3	; hellgrau
-	!by $67,$bf,$b3	; cyan
-	!by $cd,$d2,$56	; gelb
-	!by $8e,$e9,$8b	; hellgrün
-	!by $ff,$ff,$ff	; weiß
+palette	!by $00,$00,$00	; 0 schwarz	(PALette v1)
+	!by $32,$2d,$ab	; 1 blau
+	!by $52,$3d,$01	; 2 braun
+	!by $4e,$4e,$4e	; 3 dunkelgrau
+	!by $8a,$32,$3d	; 4 rot
+	!by $8d,$36,$a1	; 5 purpur
+	!by $8e,$50,$1a	; 6 orange
+	!by $76,$76,$76	; 7 mittelgrau
+	!by $6b,$66,$e4	; 8 hellblau
+	!by $bc,$63,$6e	; 9 hellrot
+	!by $4b,$a6,$48	; a grün
+	!by $a3,$a3,$a3	; b hellgrau
+	!by $67,$bf,$b3	; c cyan
+	!by $cd,$d2,$56	; d gelb
+	!by $8e,$e9,$8b	; e hellgrün
+	!by $ff,$ff,$ff	; f weiß
 
 	!by $21,$fe	; comment follows
 	!by 36		; length of comment
@@ -642,9 +722,9 @@ repeat	!wo 0		; num of repetions (0=endless)
 
 framehead	!by $21,$f9	; Graphic Control Extension follows
 	!by 4		; len of data
-	!by 4		; control byte
+trans	!by 0		; transparency control byte (on when 9)
 frspeed	!wo 25		; frame duration
-	!by 0		; index of transparent color (when set)
+transi	!by 0		; index of transparent color (when trans set)
 	!by 0 		; end of data
 
 imagehead	!by $2c		; start of image
