@@ -4,18 +4,20 @@
 	!ct pet
 ;	!sl "labels.txt"
 
-; ------------------------------------------------------------ 
+; ------------------------------------------------------------
 ;
 ; mod..ChangeParts
 ; Modul zum Wechseln zwischen Partitionen auf CMD-Drives
 ; fuer die GO64! aufbereitet als Kurs
 ;
-;    1.00, 10.4.97: first release
-;    1.01, 14.1.02, added: highlight name of current partition
+;    1.00, 10.04.97, first release
+;    1.01, 14.01.02, added: highlight name of current partition
+;    1.02, 04.06.24, bugfix in highlighting
+;    1.03: 06.06.24, recognition of CMD partition #13 added
 ;
-; ------------------------------------------------------------ 
+; ------------------------------------------------------------
 
-; ------------------------------------------------------------ 
+; ------------------------------------------------------------
 
 	modend		= drives+32
 	pbuffer		= drives+32
@@ -41,7 +43,7 @@
 	basin2		= $f1ad
 	untalk		= $ffab
 
-; ------------------------------------------------------------ 
+; ------------------------------------------------------------
 
 header	jmp start
 	!by $20
@@ -50,8 +52,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "ChangePartitions"
-	!tx "1.01"
-	!tx "14.01.02"
+	!tx "1.03"
+	!tx "06.06.24"
 	!tx "A. Dettke	 "
 
 ; ------------------------------------------------------------ Main
@@ -63,28 +65,24 @@ start	jsr checkram	; active drive is RAM?
 	ldy #>(changelst)
 	jsr gd_screen
 	jsr shdrives	; display drive types
-	lda #255		; get # of current partition
-	jsr getparts
-	lda gpbuffer+2
-	sta cpart		; and store
 	jsr shall		; display partitions
 	jsr gd_eloop	; wait...
 	jsr svlname	; restore ls_lastname
 evleave	sec		; leave module
 	rts
 
-; ------------------------------------------------------------ 
+; ------------------------------------------------------------
 
 setunits	ldx #30		; get information from GoDot's kernel
 	lda #$80
 	bne su1
 su0	lda filetype+29,x	; add to screenlist
-su1	sta drives,x	; last byte $80 (end of screenlist) 
+su1	sta drives,x	; last byte $80 (end of screenlist)
 	dex
 	bpl su0
 	rts
 
-; ------------------------------------------------------------ 
+; ------------------------------------------------------------
 
 shdrives	lda #$60		; patch GoDot's kernel (RTS)
 	sta cmdpt		; (don't show: "RAM" Unit)
@@ -98,7 +96,7 @@ shdrives	lda #$60		; patch GoDot's kernel (RTS)
 	inc decpt
 	rts
 
-; ------------------------------------------------------------ 
+; ------------------------------------------------------------
 
 checkram	lda ls_drive	; get current drive number
 	cmp #12
@@ -107,7 +105,7 @@ checkram	lda ls_drive	; get current drive number
 	sta ls_drive
 cr0	rts
 
-; ------------------------------------------------------------ 
+; ------------------------------------------------------------
 
 svlname	ldx #15		; exchange ls_lastname and buffer
 sl0	ldy ls_lastname,x
@@ -136,7 +134,7 @@ evscrlvw	jsr checkpt	; CMD partition? (no return if not)
 	bcc noscroll
 	ldx #8		; 8: second part of dirlist
 
-; ------------------------------------------------------------ 
+; ------------------------------------------------------------
 
 scroll	jsr setbuffer
 	ldy #1
@@ -184,7 +182,7 @@ shparts	jsr gd_sproff	; mouse pointer off
 	sta counter	; counter to zero
 
 gp2	lda allparts	; current partition number
-	cmp #255		; skip 255 (# for current part)
+	cmp #255		; skip 255 (# for system partition)
 	beq gp4
 	jsr getparts	; get partition info (current # in .a)
 	lda gpbuffer	; get partition type
@@ -315,6 +313,10 @@ evunits	jsr gd_prepdir	; clear dir window
 	jsr shunits	; display drives
 shall	jsr shinfo	; display device types
 	jsr checkpt	; CMD? (doesn't return if not)
+	lda #255		; get # of current partition
+	jsr getparts
+	lda gpbuffer+2
+	sta cpart		; and store
 	ldx #01		; yes, start at #1
 	stx allparts
 	dex		; and set previous to zero
@@ -447,7 +449,7 @@ evchange	lda ls_flen	; Partition selected?
 	bne ec4
 	jmp mess5		; no, error message
 
-ec4	lda ptype		; get patition type
+ec4	lda ptype		; get partition type
 	cmp #7		; check if legal partition
 	bne ec0
 	jmp mess4
@@ -488,9 +490,9 @@ ec3	ldx ptype		; no, set parameters for new partition
 ; ------------------------------------------------------------ Retrieve Partition data
 
 getparts	sta gpcom+3
+	lda #5
 	ldx #<(gpcom)
 	ldy #>(gpcom)
-	lda #5
 	jsr gd_sendcom
 	lda ls_drive
 	ldy #$6f
@@ -543,8 +545,7 @@ boxline	!by 1
 currline	!by 0
 counter	!by 0
 allparts	!by 1
-gpcom	!tx "g-p"
-	!by 1,13
+gpcom	!tx "g-p",1,13
 cpcom	!tx "cP."
 
 ptoffs	!by 0,4,8,12,16,20,24
