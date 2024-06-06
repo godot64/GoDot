@@ -4,18 +4,20 @@
 	!ct pet
 ;	!sl "labels.txt"
 
-; ------------------------------------------------------------ 
+; ------------------------------------------------------------
 ;
 ;  mod.ScanDrives
 ;
-;  Module to re-scan attached devices and drive types, important for 
+;  Module to re-scan attached devices and drive types, important for
 ;  use with CMD drives which are able to change their types at runtime
 ;  or if you attach one more drive at runtime
 ;
 ;  1.00: 19.07.01, first release
 ;  1.01: 13.08.01, added message window
+;  1.02: 05.06.24, bugfix in CMD recognition
+;  1.03: 06.06.24, recognition of CMD partition #13 added
 ;
-; ------------------------------------------------------------ 
+; ------------------------------------------------------------
 
 ; ------------------------------------------------------------ Declarations
 
@@ -38,8 +40,8 @@ modul	jmp start
 	!wo modend
 	!by $00,$00
 	!tx "Re-Scan Drives  "
-	!tx "1.01"
-	!tx "13.08.01"
+	!tx "1.03"
+	!tx "06.06.24"
 	!tx "A.Dettke        "
 
 ; ------------------------------------------------------------ Drivetest
@@ -51,7 +53,7 @@ start	jsr messout
 	lda ls_drive	; alle ab 8 (bis 11) checken
 	pha
 	ldx #$08
-wh2	lda #$02		; Zähler für Bytes
+wh2	lda #$02		; ZÃ¤hler fÃ¼r Bytes
 	sta cntreads
 
 	ldy #$00		; Drive da?
@@ -66,30 +68,31 @@ wh4	lda mess,y
 	dey
 	bpl wh4
 
-; ------------------------------------------------------------ 
+; ------------------------------------------------------------
 ;		  dieser Teil wird mehrfach verwendet
-; ------------------------------------------------------------ 
+; ------------------------------------------------------------
 
-wh3	lda #<(sc_movetab)	
+wh3	lda #<(sc_movetab)
 	sta namepos
 	lda #>(sc_movetab)
 	sta namepos+1
 wh32	lda #$06		; #$06 wird modifiziert
 	sta namelen
 	txa
+	sta $ba
 	jsr sendcom1	; Kommando an Drive senden
 	txa
 	ldy #$6f
 	jsr gd_talk
-	jsr iecin		; Antwort holen
+	jsr iecin		; Antwort holen (in merk/merk+1)
 	sta merk
 	jsr iecin
 	sta merk+1
 wh31	jsr untalk	; JSR wird modifiziert
 
-; ------------------------------------------------------------ 
+; ------------------------------------------------------------
 ;				  bis hierhin
-; ------------------------------------------------------------ 
+; ------------------------------------------------------------
 
 	lda merk		; Zahl? (aus 1541, 71, 70): 7 oder 4
 	and #$f0
@@ -181,17 +184,17 @@ w1581	dec cntreads	; Fremdhersteller?
 	sta sc_movetab+3
 	lda #$fe
 	sta sc_movetab+4
-	lda #$4c		; Code für JMP
+	lda #$4c		; Code fÃ¼r JMP
 	sta wh31		; modifizieren
 	jsr wh3
 
 	lda merk		; Drivetypen merken
 	sta ls_cmdtypes-8,x
-	cmp #$48		; "H" für HD
+	cmp #$48		; "H" fÃ¼r HD
 	beq setcmd
-	cmp #$46		; "F" für FD
+	cmp #$46		; "F" fÃ¼r FD
 	beq setcmd
-	cmp #$52		; "R" für RAMLink
+	cmp #$52		; "R" fÃ¼r RAMLink
 	bne n81
 
 setcmd	lda cmdoff-8,x	; CMD-Drive kennzeichnen mit ">"
@@ -199,48 +202,63 @@ setcmd	lda cmdoff-8,x	; CMD-Drive kennzeichnen mit ">"
 	lda #$3e
 	sta filtype,y
 
-	lda #"g"		; "g-p" ausführen (Partitionstyp holen)
-	sta sc_movetab
-	lda #"p"
-	sta sc_movetab+2
-	lda #3
-	sta wh32+1
-	jsr wh3
+; -----------------------------------------
+;
+; Partitionstypen:
+;   0 = not created
+;   1 = native
+;   2 = 1541
+;   3 = 1571
+;   4 = 1581
+; 255 = system
+;
+; -----------------------------------------
 
-	lda #6		; und auswerten:
-	sta wh32+1
-	ldy merk		; null= foreign
-	beq none
-	dey		; eins= Native
-	beq natv
-	dey		; zwei= 1541
-	beq none
-	lda #1		; drei= 1571 
+	ldy #4		; "g-p" aufbereiten (Partitionstyp holen)
+-	lda partinfo,y
+	sta sc_movetab,y
 	dey
-	sta merk+1
-	beq none
-	dey		; vier= 1581
-	beq f81
+	bpl -
+	lda #5		; LÃ¤nge: 5 Zeichen
+	sta wh32+1
+	jsr wh3		; "g-p" n <return> senden
+	lda #6		; LÃ¤nge rekonstruieren
+	sta wh32+1
 
-none	lda #4		; entsprechende Typen eintragen
+	ldy merk		; Antwort: 0
+	beq none
+	dey		; 1 = Native
+	beq natv
+	dey		; 2 = 1541
+	beq none
+	dey		; 3 = 1571
+	beq seven
+	dey		; 4 = 1581
+	beq f81
+	cpy #$fb		; 255 = system
+	beq natv		; ja, also Native
+	bne none		; sonst: 1541
+
+seven	lda #1		; 3 = 1571
+	sta merk+1	; 1571
+none	lda #4		; 1541
 	!by $2c
-natv	lda #2
+natv	lda #2		; native
 	!by $2c
-f81	lda #8
+f81	lda #8		; 1581
 	sta merk
-	lda #$20		; Code für JSR
-	sta wh31		; Modifikation rückgängig machen
+-	lda #$20		; Code fÃ¼r JSR
+	sta wh31		; Modifikation rÃ¼ckgÃ¤ngig machen
 	jmp wh5		; weiter im Drivecheck
 
-; ------------------------------------------------------------ 
+; ------------------------------------------------------------
 
-n81	lda #$e9		; Position für 1581-Meldung: $a6e9
+n81	lda #$e9		; Position fÃ¼r 1581-Meldung: $a6e9
 	sta sc_movetab+3
 	lda #$a6
 	sta sc_movetab+4
-	lda #$20		; Code für JSR
-	sta wh31		; Modifikation rückgängig machen
-	jmp wh3
+	jsr wh3
+	jmp -
 
 ; ------------------------------------------------------------ Message
 
@@ -248,14 +266,15 @@ messout	ldx #<messlst
 	ldy #>messlst
 	jmp gd_screen
 
-; ------------------------------------------------------------ 
+; ------------------------------------------------------------
 
 mess	!by $4d,$2d,$52,$c6,$e5,$02 	; "m-r" 2 bytes from $e5c6
+partinfo	!by $47,$2d,$50,$ff,$0d	; "g-p"+chr$(255) nach sc_movetab
 m1571	!tx "u0>m1"		; 1571 auf doppelseitig schalten
 
-; ------------------------------------------------------------ 
+; ------------------------------------------------------------
 
-cmdoff	 !by 34,41,49,57,66	; Positionen für ">"
+cmdoff	 !by 34,41,49,57,66	; Positionen fÃ¼r ">"
 
 ; ------------------------------------------------------------ Check Command Channel
 
@@ -268,7 +287,7 @@ ld10	jsr gd_xmess
 
 done	!scr "  Done. (Click here to leave.)@"
 
-; ------------------------------------------------------------ Screenlist für Message
+; ------------------------------------------------------------ Screenlist fÃ¼r Message
 
 messlst	!by 0
 messg	!by 22,3,34,3	; Position: Execute-Gadget im Mainscreen
@@ -277,7 +296,7 @@ messg	!by 22,3,34,3	; Position: Execute-Gadget im Mainscreen
 	!scr "Working...@"
 	!by $80
 
-; ------------------------------------------------------------ 
+; ------------------------------------------------------------
 
-modend	 !eof 
+modend	 !eof
 
