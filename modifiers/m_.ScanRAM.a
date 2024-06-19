@@ -1,0 +1,454 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ------------------------------------------------------------
+;
+;  mod.ScanRAM
+;
+;  Module to re-scan attached RAM devices of any known kind
+;
+;  1.00: 19.06.24, first release
+;
+; ------------------------------------------------------------
+
+
+; ------------------------------------------------------------ Declarations
+
+	pport		= $01
+
+	devs		= $0fa2
+	filtype		= $1d29 	; selfmodifying kernel!
+	ramtype		= $1d8f
+	ramstart		= $cab0	; header address of dev.REU
+	fast		= $d030
+	vdc		= $d600	; VDC base address
+	vdcdata		= $d601
+	pfox		= $de80	; Pagefox control register
+	reupres		= $df09	; REU register
+
+; ------------------------------------------------------------ Header
+
+modul	jmp start
+	!by $20
+	!wo 0
+	!wo modend
+	!by $00,$00
+	!tx "Re-Scan RAM Devs"
+	!tx "1.00"
+	!tx "19.06.24"
+	!tx "A.Dettke        "
+
+; ---------------------------------------
+
+start	lda gd_modswitch	; RAM Handler
+	pha
+
+	lda rm_ramvec+1	; get flag wether REU already active
+	sta isactive
+	jsr lockdev	; Zugang zum REU-Device vorsorglich sperren
+	jsr testvdc
+	tya		; VDC vorhanden?
+	beq +
+	jsr vdctype	; ja, Typ ermitteln
++	jsr testscpu	; SuperCPU vorhanden?
+	jsr pagefox	; Pagefox vorhanden?
+	cmp #$23
+	beq +		; ja, REU kann nicht angeschlossen sein
+	jsr testreu	; REU vorhanden?
+
++	pla		; RAM Handler
+	sta gd_modswitch
+	sec		; leave operator
+	rts
+
+; --------------------------------------- Check C128 VDC
+
+testvdc	sei		; VDC vorhanden?
+	lda vdc
+	pha
+	lda vdcdata
+	pha
+	ldx #18		; Reg 18
+	lda #$40		; Prüfwert $40 auf VDC-Register 18 legen
+	jsr setd600
+	ldy #$f5		; warten
+	ldx #$00
+tv0	inx
+	bne tv0
+	iny
+	bne tv0		; .y=0
+
+	lda fast		; meanwhile: Fast-Bit in $d030 gesetzt?
+	and #1
+	beq +		; ja, C64II
+	lda #14		; dann C64II kennzeichnen ("C64n")
+	sta ramtype+7
+
++	lda vdcdata	; dann: Prüfwert $40 immer noch da?
+	cmp #$40
+	bne tv4
+	tay		; ja, VDC vorhanden, Flag setzen für Check
+tv4	pla		; sonst: Ende des Tests
+	sta vdcdata
+	pla
+	sta vdc
+	cli
+	rts
+;
+; ---------------------------------------
+
+vdctype	jsr vdcinit	; 640x200-VDC initialisieren
+	jsr clrareg
+	ldx #31
+	jsr readvdc
+	pha
+	ldx #18
+	lda #$80		; address $8000
+	jsr setvdc
+	jsr clrlo
+	ldx #31
+	jsr readvdc	; read value there
+	pha
+
+	jsr test64k	; 64K-VDC? (dann .a=$00)
+	bne vt3		; nein, skip
+
+	ldx #28
+	lda #$3f		; sonst: initialisieren (Bit 4 an)
+	jsr setvdc
+	bmi vt0		; uncond. branch
+
+vt3	lda #$21		; 16K-VDC: dann kein GoDot-Undo möglich (Flag)
+	bne vt1
+vt0	lda #$81		; 64K-VDC
+vt1	sta rm_vdcflag	; GoDot-Flag setzen
+	bpl vt2
+
+	lda #$32		; fürs Directory kennzeichnen
+	sta ramtype+11
+
+vt2	ldx #18		; VDC-Inhalt rekonstruieren:
+	lda #$80
+	jsr setvdc
+	jsr clrlo
+	ldx #31		; Wert aus $8000 zurückschreiben
+	pla
+	jsr setvdc
+	jsr clrareg	; Wert aus $0000 zurückschreiben
+	ldx #31
+	pla
+	jmp setvdc	; abschließen
+
+; ---------------------------------------
+
+setd600	stx vdc		; Register wählen
+	ldx #$00
+tv1	inx
+	bne tv1
+	sta vdcdata	; Daten eintragen
+	rts
+;
+; ---------------------------------------
+
+readvdc	stx vdc		; Register wählen
+tv2	bit vdc
+	bpl tv2
+	lda vdcdata	; Daten abholen
+	rts
+;
+; ---------------------------------------
+
+clrareg	ldx #18		; Register löschen (18 und 19)
+	jsr clr
+clrlo	inx
+clr	lda #$00
+setvdc	stx vdc
+tv5	bit vdc
+	bpl tv5
+	sta vdcdata
+	rts
+
+; ---------------------------------------
+
+vdcinit	ldx #$00		; 640x200 einstellen
+vi0	lda vdctab,x
+	jsr setvdc
+	inx
+	cpx #37
+	bne vi0
+	rts
+
+; ---------------------------------------
+
+test64k	jsr clrareg	; Byte $00 an $0000 schreiben und lesen
+	ldx #31
+	jsr clr
+	ldx #18
+	lda #$80		; Byte $ff an $8000 schreiben
+	jsr setvdc
+	jsr clrlo
+	ldx #31
+	lda #$ff
+	jsr setvdc
+	jsr clrareg	; Byte an $0000 lesen
+	ldx #31
+	jmp readvdc	; wenn $ff: 16K-VDC ($8000 nicht erreichbar)
+
+; --------------------------------------- Check SuperCPU
+
+testscpu	sed		; dann SuperCPU: Fehler in 6502 erzeugen
+	lda #$99
+	adc #1		; wird negativ auf 6502
+	cld
+	bmi no65816
+	lda $d0bc		; Supercpu?
+	bmi no65816	; nein, dann nicht beachten
+
+	sta $d07b		; ja, dann Turbo an!
+	ldy cmdoff+4	; RAM-Drive kennzeichnen mit ">"
+	lda #$3e		; (einziges sichtbares SCPU-Flag!)
+	sta filtype,y
+
+	lda rm_usesram	; shall SuperRAM be used?
+	beq no65816	; nein (=0), nicht beachten
+
+	ldx #$30		; ja, dann mit " 0" vorbesetzen
+	ldy #$20
+	lda $d27f		; letze RAM-Bank holen
+	beq nosram	; kein SuperRAM, dann auf REU testen
+
+	cmp #$f6		; 16 MB?
+	bcc ts04
+	ldx #$36		; ja
+	ldy #$31
+	lda #11
+	bne ts00
+
+ts04	cmp #$80		; 8 MB?
+	bcc ts01
+	ldx #$38		; ja
+	lda #10
+	bne ts00
+
+ts01	cmp #$40		; 4 MB?
+	bcc ts02
+	ldx #$34		; ja
+	lda #9
+	bne ts00
+
+ts02	cmp #$10		; 1 MB?
+	bne ts06
+	ldx #$31		; ja
+	lda #7
+	!by $2c
+ts06	lda #0		; ansonsten: 0 MB
+
+ts00	stx ramtype+13	; Wert eintragen
+	sty ramtype+12
+	sta rm_sram	; Größe eintragen
+	lda #$4d		; M
+	sta ramtype+14
+	lda #$42		; B
+	sta ramtype+15
+	bne hasboth
+
+nosram	sta rm_sram	; set size of SuperRAM to 0
+
+hasboth	jsr testreu	; check for REU
+	pla		; don't check REU again
+	pla
+
+usesr	lda rm_sram	; sowohl SRAM als auch REU?
+	tax
+	ora ls_adrmisc
+	beq ts03		; nein, no additional RAM
+	txa		; kein SRAM, aber REU?
+	beq ts05		; dann dev.REU installieren
+	lda #7		; doch, mit SRAM
+	!by $2c
+ts03	lda #9		; kein REU oder SRAM, set "no ram" ("C64n")
+ts05	sta ls_adrmisc
+	jmp testend	; und dev.REU (nicht) installieren
+
+no65816	rts
+
+; --------------------------------------- Check Pagefox
+
+pagefox	lda pport		; nein, Pagefox vorhanden?
+	pha
+	lda #$37		; Basic an
+	sta pport
+	ldy #$00
+	ldx #$09		; Flag vorbesetzen
+	sty pfox		; Pagefox einblenden
+	lda $8000,x	; Modulkennung da ("PF")?
+	cmp #$50
+	bne tr0
+	inx
+	lda $8000,x
+	cmp #$46
+	bne tr0
+	ldx #$03		; ja, Flag aktivieren
+tr0	pla
+	sta pport		; Basic wieder aus
+	dey
+	sty pfox		; Pagefox wieder ausblenden
+	cpx #$0a
+	bne tr1
+	dex
+tr1	stx ls_adrmisc
+	lda rm_vdcflag	; Pagefox im C128?
+	beq tr11
+	cpx #9		; ja, dann hat PFox Vorrang
+	bne tr11
+	lda #2
+	sta ls_adrmisc
+tr11	cpx #9
+	bcc te0
+	rts
+
+; --------------------------------------- Check REU
+
+testreu	ldx #0
+	stx ls_adrmisc	; temp_gd_modswitch vorbesetzen
+	lda reupres	; REU vorhanden?
+	cmp #$1f
+	bne tr2
+	lda reupres+1
+	cmp #$3f
+	bne tr2
+	ldx #2
+tr2	txa
+	bne +
+	ldx #9		; no, set: no RAM available ### 1.44
+	stx ls_adrmisc
+te0	jmp testend	; nein, eintragen
+
++	asl		; ja, Typflag setzen (.a=4)
+	sta ls_adrmisc
+
+	jsr unlockdev	; REU freischalten
+
+	lda reubase	; Kapazität feststellen
+	and #$10		; ist REU 1700? (Bug in VICE!)
+	bne tr4
+	asl ls_adrmisc	; ja, Typflag auf 8
+tend0	bne testend	; und fertig (eintragen)
+
+tr4	ldy #$91		; sonst: Check der Größe ($91=FETCH)
+	jsr setreu0	; ein Byte von $000000 nach $ae lesen
+	inc werte0	; neues Ziel: $af
+	lda #4		; neue Bank: 4
+	sta werte0+4
+	jsr setreu0	; ein Byte von $040000 nach $af lesen
+
+	inc werte0	; dann: neue C64-Adresse ($b0=sc_merk)
+	ldx $af		; anderen Wert bestimmen
+	inx
+	stx sc_merk	; geänderten Wert nach $b0 schreiben
+	dey		; .y=$90 (STASH)
+	jsr setreu0	; diesen Wert nach $040000 schreiben
+
+	iny		; .y wieder $91 (FETCH)
+	lda #0		; Bank wieder 0
+	sta werte0+4
+	jsr setreu0	; auslesen aus $000000 nach $b0 (sollte $ae sein)
+
+	dec werte0	; Wert in $af zurückschreiben nach $040000
+	dey		; .y=$90
+	lda #4		; Bank 4
+	sta werte0+4
+	jsr setreu0
+	dec werte0	; Wert in $ae zurückschreiben nach $000000
+	lda #0		; Bank 0
+	sta werte0+4
+	jsr setreu0
+
+	lda $af		; Emulator?
+	cmp #$ff
+	beq testend	; ja, REU 1764 einsetzen
+
+	lda $ae		; $ae (Bank 0) und $b0 (Bank 0 neu) vergleichen
+	eor sc_merk	; (sollte bei 1750 gleich sein)
+	bne testend	; ungleich: REU 1764 (keine Bank 4)
+	inc ls_adrmisc	; sonst: REU 1750 (8 Banks)
+
+testend	ldx #12
+	lda ls_bootdrive
+	sta ls_sysdrive	; preset bootdrive as Sysdrive
+	lda ls_adrmisc	; get ram type
+	cmp #4		; REU found?
+	bcc +		; no, Pagefox or VDC, so lock
+	cmp #7		; or SuperRAM?
+	beq +		; yes, lock (no device)
+	pha
+	bit isactive
+	pla
+	bvs +
+	stx ls_sysdrive	; REU, now set REU as Sysdrive
+	bne ++
++	jsr lockdev
+++	sta rm_reusize	; als Größe propagieren
+	ora #$20
+	sta devs,x	; und Ergebnis in Drivelist eintragen
+	sec
+	rts
+
+; ---------------------------------------
+
+setreu0	ldx #8		; REU aktivieren,
+sre00	lda werte0,x	; Kommando in Y
+	sta reubase+2,x
+	dex
+	bpl sre00
+	sty reucom
+	rts
+
+; ---------------------------------------
+
+unlockdev	lda #$4c		; Einsprung ins dev.REU aktivieren
+	sta rm_ramvec
+	lda #<ramstart
+	sta rm_ramvec+1
+	rts
+
+lockdev	ldx #$18		; REU sperren: mit CLC...
+	stx rm_ramvec
+	ldx #$60		; ...und RTS
+	stx rm_ramvec+1
+	ldx #12
+	rts
+
+; --------------------------------------- DATA
+
+isactive	!byte 0
+merktype	!byte $00
+noparse	!byte 0
+
+; ---------------------------------------
+
+cmdoff	!byte 34,41,49,57,66	; Positionen für ">"
+
+; --------------------------------------- Werte für REU-Test
+
+werte0	!byte $ae,$00	; C64-Adresse
+	!byte $00,$00,$00	; REU-Adresse und Bank
+	!byte $01,$00	; Anzahl Bytes für übertragung
+	!byte $1f,$00
+
+; ---------------------------------------
+
+vdctab	!byte $7f,$50,$66,$49,$26,$e0,$19,$20	; $26= 38 (Zeilen)
+	!byte $fc,$e7,$a0,$e7,$00,$00,$00,$00
+	!byte $00,$00,$00,$00,$08,$00,$78,$e8
+	!byte $20,$87,$f0,$00,$2f,$e7,$00,$00	; $2f= VDC 16KB
+	!byte $00,$00,$7d,$64
+	!byte $f5
+
+; ---------------------------------------
+
+modend	 !eof
+
