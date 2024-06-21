@@ -11,6 +11,7 @@
 ;  Module to re-scan attached RAM devices of any known kind
 ;
 ;  1.00: 19.06.24, first release
+;  1.01: 21.06.24, bugfixes
 ;
 ; ------------------------------------------------------------
 
@@ -37,8 +38,8 @@ modul	jmp start
 	!wo modend
 	!by $00,$00
 	!tx "Re-Scan RAM Devs"
-	!tx "1.00"
-	!tx "19.06.24"
+	!tx "1.01"
+	!tx "21.06.24"
 	!tx "A.Dettke        "
 
 ; ---------------------------------------
@@ -49,10 +50,12 @@ start	lda gd_modswitch	; RAM Handler
 	lda rm_ramvec+1	; get flag wether REU already active
 	sta isactive
 	jsr lockdev	; Zugang zum REU-Device vorsorglich sperren
+	ldx #0		; RAMTyp vorbesetzen
+	stx ls_adrmisc
 	jsr testvdc
 	tya		; VDC vorhanden?
 	beq +
-	jsr vdctype	; ja, Typ ermitteln
+	jsr vdctype	; ja, VDC-Typ ermitteln
 +	jsr testscpu	; SuperCPU vorhanden?
 	jsr pagefox	; Pagefox vorhanden?
 	cmp #$23
@@ -282,7 +285,7 @@ pagefox	lda pport		; nein, Pagefox vorhanden?
 	lda #$37		; Basic an
 	sta pport
 	ldy #$00
-	ldx #$09		; Flag vorbesetzen
+	ldx #$09		; Flag vorbesetzen: 9
 	sty pfox		; Pagefox einblenden
 	lda $8000,x	; Modulkennung da ("PF")?
 	cmp #$50
@@ -291,20 +294,20 @@ pagefox	lda pport		; nein, Pagefox vorhanden?
 	lda $8000,x
 	cmp #$46
 	bne tr0
-	ldx #$03		; ja, Flag aktivieren
+	ldx #$03		; ja, Flag aktivieren: 3
 tr0	pla
 	sta pport		; Basic wieder aus
 	dey
 	sty pfox		; Pagefox wieder ausblenden
-	cpx #$0a
+	cpx #$0a		; wenn nicht 3: 9 erzwingen
 	bne tr1
 	dex
 tr1	stx ls_adrmisc
-	lda rm_vdcflag	; Pagefox im C128?
+	lda rm_vdcflag	; Pagefox im C128? (wenn $81)
 	beq tr11
-	cpx #9		; ja, dann hat PFox Vorrang
+	cpx #9		; ja, dann hat PFox Vorrang (wenn 3)
 	bne tr11
-	lda #2
+	lda #2		; sonst VDC (=2)
 	sta ls_adrmisc
 tr11	cpx #9
 	bcc te0
@@ -313,19 +316,20 @@ tr11	cpx #9
 ; --------------------------------------- Check REU
 
 testreu	ldx #0
-	stx ls_adrmisc	; temp_gd_modswitch vorbesetzen
 	lda reupres	; REU vorhanden?
 	cmp #$1f
 	bne tr2
 	lda reupres+1
 	cmp #$3f
 	bne tr2
-	ldx #2
+	ldx #2		; ja, .x=2
 tr2	txa
 	bne +
-	ldx #9		; no, set: no RAM available ### 1.44
+	ldx ls_adrmisc
+	bne te0
+	ldx #9		; nein, set to "no RAM available"
 	stx ls_adrmisc
-te0	jmp testend	; nein, eintragen
+te0	jmp testend	; und eintragen
 
 +	asl		; ja, Typflag setzen (.a=4)
 	sta ls_adrmisc
@@ -374,20 +378,20 @@ tr4	ldy #$91		; sonst: Check der Größe ($91=FETCH)
 	lda $ae		; $ae (Bank 0) und $b0 (Bank 0 neu) vergleichen
 	eor sc_merk	; (sollte bei 1750 gleich sein)
 	bne testend	; ungleich: REU 1764 (keine Bank 4)
-	inc ls_adrmisc	; sonst: REU 1750 (8 Banks)
+	inc ls_adrmisc	; sonst: REU 1750 (8 Banks), Flag auf 5
 
 testend	ldx #12
 	lda ls_bootdrive
 	sta ls_sysdrive	; preset bootdrive as Sysdrive
-	lda ls_adrmisc	; get ram type
+	lda ls_adrmisc	; get ram type (2, 4, 5, 7 oder 9)
 	cmp #4		; REU found?
 	bcc +		; no, Pagefox or VDC, so lock
 	cmp #7		; or SuperRAM?
 	beq +		; yes, lock (no device)
 	pha
-	bit isactive
+	bit isactive	; no device?
 	pla
-	bvs +
+	bvs +		; yes, lock, future version:  load REU device
 	stx ls_sysdrive	; REU, now set REU as Sysdrive
 	bne ++
 +	jsr lockdev
@@ -444,7 +448,7 @@ werte0	!byte $ae,$00	; C64-Adresse
 vdctab	!byte $7f,$50,$66,$49,$26,$e0,$19,$20	; $26= 38 (Zeilen)
 	!byte $fc,$e7,$a0,$e7,$00,$00,$00,$00
 	!byte $00,$00,$00,$00,$08,$00,$78,$e8
-	!byte $20,$87,$f0,$00,$2f,$e7,$00,$00	; $2f= VDC 16KB
+	!byte $20,$87,$f0,$00,$3f,$e7,$00,$00	; $3f= VDC 64KB
 	!byte $00,$00,$7d,$64
 	!byte $f5
 
