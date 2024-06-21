@@ -13,6 +13,7 @@
 ; 1.00, 19.12.93, bug im VDC-Treiber: fixed
 ; 1.01, 23.04.18, neu: present flag (header+8), added on 14.07.17 (für dev.REU)
 ;                 bug in Overwrite, liefert falsches Flag zurück: fixed
+; 1.02, 21.06.24, bug in Save to VDC (wrong start address)
 ; 
 ; ------------------------------------------------ 
 
@@ -44,12 +45,12 @@ header	jmp start
 	!wo modend
 	!wo $0040			; ### 1.01: svr.Temp present
 	!pet "TEMP for all Ram"
-	!pet "1.01"
-	!pet "23.04.18"
+	!pet "1.02"
+	!pet "21.06.24"
 	!pet "A.Dettke        "
 
 addtxt	!pet "Offset: $8300 in"
-	!pet "last RAM-Bank   "
+	!pet "VDC (2nd half)  "
 	!by 0
 
 ; ------------------------------------------------ Main
@@ -342,16 +343,17 @@ svdc	lda rm_tmpsaved	; temp in use?
 	bne over3
 
 	jsr failh
-	lda #$40
-	jsr gd_sproff	; pointer off
+	jsr gd_sproff	; pointer off     ###  1.02 -
+	tay		; 
+	lda #>sy_4bit	; save from $4000 ### -1.02
 	sta sc_vekt20+1
 	sty sc_vekt20
 	sei		; init VDC registers ### 1.00
 	ldx #$12
-	lda #$83
+	lda #$83		; save to $8300 in VDC
 	jsr setvdc
 	jsr clrlo
-	lda #$7d		; set counter
+	lda #$7d		; set counter (32000 bytes)
 	sta ls_vekta8+1
 	sty ls_vekta8
 	ldx #31
@@ -573,4 +575,3 @@ overlst	!by 0
 ; ------------------------------------------------ 
 
 modend	!eof
-
