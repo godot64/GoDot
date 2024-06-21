@@ -535,11 +535,11 @@ toggles	!by $ff,$ff,0, 1, 2, 3,$ff,$ff, 4
 txoffs	!by $ff,$ff,0,20,40,60,$ff,$ff,80
 rams	!by 2,3,4,5,8
 typereu	!by 0,0,0,0,3,7,0,0,1,0
-ttexts	!pet "       vdc 64       "
-	!pet "      Pagefox       "
-	!pet "      reu 1764      "
-	!pet "      reu 1750      "
-	!pet "      reu 1700      "
+ttexts	!scr "       VDC 64       "
+	!scr "      Pagefox       "
+	!scr "      REU 1764      "
+	!scr "      REU 1750      "
+	!scr "      REU 1700      "
 txflag	!by 0
 failtype	!by $ff
 ramtype	!by 0
