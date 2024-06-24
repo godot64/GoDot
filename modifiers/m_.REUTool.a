@@ -3,7 +3,7 @@
 	*= $c000
 	!ct pet
 
-; ------------------------------------------------------------ 
+; ------------------------------------------------------------
 ;
 ; mod..REUTool
 ; tool to get information about the status of your REU content,
@@ -21,8 +21,10 @@
 ;    2.01, 30.01.21, added: set ReloadOnBoot-flag (REUClear)
 ;    2.02, 26.01.22, added: recover UNDO of former sessions
 ;    2.03, 28.03.22, added: recover REU-TEMP of former sessions
+;    2.04, 23.06.24, added: recover VDC-TEMP
+;    2.05, 24.06.24, added: show VDC temp even if no REU
 ;
-; ------------------------------------------------------------ 
+; ------------------------------------------------------------
 
 ; ----------------------------------------- Equates
 
@@ -39,7 +41,7 @@
 	banknval		= $3e
 	bankcval		= $3f
 	curbank		= $40
-	
+
 	swappfox		= $1714	; swap slots of 4KB
 	func3		= $186f	; !! self modifying the kernel !!
 	ramtype		= $1d8f	; ### 1.04
@@ -64,34 +66,25 @@
 	!wo modend
 	!wo 0
 	!pet "Tool for REUs   "
-	!pet "2.03"
-	!pet "28.03.22"
+	!pet "2.05"
+	!pet "24.06.24"
 	!pet "A.Dettke        "
 
-; ----------------------------------------------- Main 
+; ----------------------------------------------- Main
 
 start	ldx sc_screenvek	; rette Main-Screenlist
 	ldy sc_screenvek+1
 	stx list
 	sty list+1
 	jsr makech	; erzeuge Kringel-Char
-	jsr ramcheck	; welche RAMs sind angeschlossen?
-	jsr newsize	; ermittele REU-Größe
-	lda rm_nextram
-	sta nextentry
-	jsr reustat	; berechne verfügbaren Space
-	jsr setram	; Anzeige des RAM-Typen vorbereiten
-
-	ldx #<reulst	; Requester ausgeben
-	ldy #>reulst
-	jsr gd_screen
+	jsr examram
 	ldx sc_screenvek	; und sich dies merken
 	ldy sc_screenvek+1
 	stx last
 	sty last+1
 	jsr gd_eloop	; warten
 
-; ----------------------------------------------- Event: Cancel 
+; ----------------------------------------------- Event: Cancel
 
 evcan	sec		; Modul verlassen
 	rts
@@ -136,31 +129,51 @@ st5	ora #$30
 	sta numttx2+1
 	rts
 
-; ----------------------------------------------- 
+; -----------------------------------------------
 
 setram	ldx ramflag	; get RAM type value (0-11)
 	cpx #11		; ### 1.04/1.06 --
 	bne +
-	lda ramtype+12	; get amount
+	lda ramtype+12	; SCPU: get amount
 	sta scpumem+1
 	lda ramtype+13
-	sta scpumem+2	; ### bis hier --
+	sta scpumem+2
+	bne ++		; ### bis hier --
 
-	lda #3		; ### 1.08 -- allow DEV
++	txa		; ### 2.04 --
+	bmi +		; Ã¼berhaupt RAM? Nein, DEV nicht zulassen
+	cmp #4		; ja, ist REU 1764 oder 1750 oder grÃ¶ÃŸer?
+	bcc +		; nein, DEV nicht zulassen
+	bit rm_ramvec+1	; REU erkannt, aber nicht eingebunden?
+	bvc +		; doch, DEV nicht zulassen  ### bis hier --
+
+++	lda #3		; ### 1.08 -- ja, DEV zulassen
 	!by $2c
-+	lda #2
++	lda #2		; nein, DEV nicht zulassen
 	sta choomax	; ### --
 
 	inx
 	lda ramind,x	; write text to gadget
 	tax
 sr0	ldy #3
-sr1	lda mega,x	; Anzeigetexte für RAM-Größe
+sr1	lda mega,x	; Anzeigetexte fï¿½r RAM-Grï¿½ï¿½e
 	sta megatx,y
 	dex
 	dey
 	bpl sr1
 	rts
+
+; -----------------------------------------------
+
+examram	jsr ramcheck	; welche RAMs sind angeschlossen?
+	jsr newsize	; ermittele REU-Grï¿½ï¿½e
+	lda rm_nextram
+	sta nextentry
+	jsr reustat	; berechne verfï¿½gbaren Space
+	jsr setram	; Anzeige des RAM-Typen vorbereiten
+	ldx #<reulst	; Requester ausgeben
+	ldy #>reulst
+	jmp gd_screen
 
 ; ----------------------------------------------- Kringel
 
@@ -185,8 +198,8 @@ ok1	cpx #11		; ### 1.04 (SuperCPU?)
 
 ; ----------------------------------------------- Event: Install module to REU
 
-evinst	jsr isreu		; Check RAM, kehrt bei fail nicht zurück
-	beq supercpu	; if SuperRAM, ### 1.04, load differently ### 1.08
+evinst	jsr isreu		; Check RAM, kehrt bei fail nicht zurï¿½ck
+	jmp supercpu	; if SuperRAM, ### 1.04, load differently ### 1.08 ### 2.04
 
 ei1	jsr chgdrv	; is REU: care for bootdrive
 	jsr swapmt	; save $2000 to REU Swapfile...
@@ -235,6 +248,8 @@ supercpu	lda gd_modswitch
 	cmp #7
 	beq fail2
 
+	pla
+	sta gd_modswitch
 	jmp ei1		; no, load the other ones
 
 +	jsr chgdrv
@@ -280,9 +295,9 @@ fl0	lda err1,x
 
 	jmp ei0
 
-; ----------------------------------------------- 
+; -----------------------------------------------
 
-initdev1	ldx #16		; Area löschen (mit $c0)
+initdev1	ldx #16		; Area lï¿½schen (mit $c0)
 	ldy #0
 	sty sc_merk
 	lda #>devarea
@@ -323,14 +338,14 @@ initdev2	ldy #0
 
 ; ----------------------------------------------- GoDot: Load Misc
 
-lddir	lda #<chootype	; Kürzel angeben
+lddir	lda #<chootype	; Kï¿½rzel angeben
 	pha
 	lda #>chootype
 	pha
 	lda #8
 	jmp gd_xloadm	; Filrequester
 
-; ----------------------------------------------- 
+; -----------------------------------------------
 
 loadrequ	lda #$f5		; patch vector to function ForceOff
 	sta func3+1	; (now init ls_flen to 0 instead)
@@ -370,7 +385,7 @@ lderr	jsr gd_xclose
 	sec
 	rts
 
-; ----------------------------------------------- 
+; -----------------------------------------------
 
 setfile	lda success	; transfer file to REU: status?
 	beq nofile	; no file, so leave
@@ -400,7 +415,7 @@ msf	lda #>devarea	; swap $2000 and $c000
 nofile	sec		; transfer complete
 	rts
 
-; ----------------------------------------------- 
+; -----------------------------------------------
 
 setdevice	lda rdinit+79	; yes, try to install dev.REU:
 	cmp #$10		; is it a DEV?	 ### 1.08
@@ -415,9 +430,9 @@ sd0	lda msd,x
 	sta dirblock,x
 	dex
 	bpl sd0
-	jmp dirblock	; ...und ausführen
+	jmp dirblock	; ...und ausfï¿½hren
 
-msd	ldx #3		; neue RAM-Größe ermitteln
+msd	ldx #3		; neue RAM-Grï¿½ï¿½e ermitteln
 	stx ramflag
 	jsr tr3
 	jsr setram	; und eintragen
@@ -434,8 +449,8 @@ msd	ldx #3		; neue RAM-Größe ermitteln
 
 	lda #5		; ersten freien Dir-Eintrag ansteuern
 	sta rm_nextram
-	lda ramflag	; und REU bekannt machen
-	ora #$20
+;	lda ramflag
+	ora #$20		; und REU bekannt machen
 	sta ls_ramdrive
 	lda #12
 	sta ls_bootdrive	; fertig, Device installiert
@@ -456,7 +471,7 @@ waiton	lda joy		; wait for click or STOP
 	beq waiton
 	rts
 
-; ----------------------------------------------- 
+; -----------------------------------------------
 
 chgdrv	ldx ls_bootdrive
 	lda ls_sysdrive
@@ -464,14 +479,14 @@ chgdrv	ldx ls_bootdrive
 	stx ls_sysdrive
 	rts
 
-; ----------------------------------------------- 
+; -----------------------------------------------
 
 onebyte	jsr basin
 	ldy #0
 	ldx status
 	rts
 
-; ----------------------------------------------- Swap 
+; ----------------------------------------------- Swap
 
 swapmt	ldx #6		; Swapwerte retten
 sw0	lda rm_swapw,x
@@ -480,7 +495,7 @@ sw0	lda rm_swapw,x
 	sta rm_swapw,x
 	dex
 	bpl sw0
-	jsr gd_swapd	; ausführen (4096 Bytes nach Swapfile)
+	jsr gd_swapd	; ausfï¿½hren (4096 Bytes nach Swapfile)
 	ldx #6		; Swapwerte rekonstruieren
 sw1	lda swold,x
 	sta rm_swapw,x
@@ -502,11 +517,11 @@ mhex	tay		; Eingang: .a
 	lsr
 	tax
 	lda hex,x
-	tay		; zurück in .a und .y
+	tay		; zurï¿½ck in .a und .y
 	pla
 	rts
 
-; ----------------------------------------------- 
+; -----------------------------------------------
 
 gstat	jsr gd_swapd	; get offsets for next mod entry
 	lda modul+1
@@ -528,7 +543,7 @@ rs1	lda gstat,x
 	sta sy_global,x
 	dex
 	bpl rs1
-	jsr sy_global	; execute 
+	jsr sy_global	; execute
 
 	lda rmbk		; bank of next entry
 	jsr mhex
@@ -578,7 +593,7 @@ rs4	jsr gd_swapd
 
 ; ----------------------------------------------- Check for more RAM
 
-newsize	jsr isreu		; Check RAM, kehrt bei fail nicht zurück
+newsize	jsr isreu		; Check RAM, kehrt bei fail nicht zurï¿½ck
 	bne tr77		; ### 1.04/1.05, returns RAMFLAG in .x
 	rts
 
@@ -587,7 +602,7 @@ tr3	lda banks,x	; check if more RAM available: next bank
 	sta werte0+4
 	ldy #$91		; FETCH 2nd byte from next bank to MERK
 	jsr setreu0
-	lda sc_merk	; save result 
+	lda sc_merk	; save result
 	sta sc_merk+1
 
 	inc sc_merk	; change value
@@ -626,7 +641,7 @@ tr4	ldx ramflag	; check for limits
 tr5	dex
 	dec ramflag
 tr8	stx rm_reusize	; set bank value
-	jmp setsize		
+	jmp setsize
 
 tr7	lda #0
 	sta werte0+4
@@ -662,7 +677,7 @@ tr6	lda werte0,x
 
 ; ----------------------------------------------- publish size of RAM
 
-setsize	jsr isreu		; Check RAM, kehrt bei fail nicht zurück
+setsize	jsr isreu		; Check RAM, kehrt bei fail nicht zurï¿½ck
 	beq -		; ### 1.04
 	ldx ramflag	; get RAM size value
 	lda banks,x	; get # of banks available
@@ -706,7 +721,7 @@ evchdel	ldx delwhat	; $ff = last
 	ldy #4
 	jmp evc3
 
-; ----------------------------------------------- Event: Delete 
+; ----------------------------------------------- Event: Delete
 
 evdelete	ldx delwhat
 	beq +
@@ -715,24 +730,24 @@ evdelete	ldx delwhat
 	beq ++
 +	jsr delall	; delete all entries
 ++	ldx nextentry
-	stx rm_nextram	; adjust device system 
+	stx rm_nextram	; adjust device system
 	jsr reustat	; recalculate
 	jmp show		; and display
 
 ; ----------------------------------------------- Delete All
 
-delall	jsr setnext	; nächsten Eintrag anpeilen
-	ldx #5		; bis zum fünften löschen
+delall	jsr setnext	; nï¿½chsten Eintrag anpeilen
+	ldx #5		; bis zum fï¿½nften lï¿½schen
 	bne del0
 
 ; ----------------------------------------------- Delete Last
 
-dellast	jsr setnext	; nächsten Eintrag anpeilen
+dellast	jsr setnext	; nï¿½chsten Eintrag anpeilen
 del0	stx tentry	; und setzen
 	jsr isreu		; ### 1.04
 	beq +
 	ldx tentry
-	cpx #5		; letztmöglicher Eintrag erreicht?
+	cpx #5		; letztmï¿½glicher Eintrag erreicht?
 	bcs rd6
 	inc nextentry	; ja, anpassen
 +	rts
@@ -799,11 +814,11 @@ ramcheck	jsr stats		; set status of Undo and Temp
 	bne rc00
 	lda rm_vdcflag	; which VDC?
 	bmi rc02
-	lda #0		; eq 16K
+	lda #0		; eq 16K (0)
 	!by $2c
-rc02	lda #2		; eq 64K
+rc02	lda #2		; eq 64K (2)
 
-rc00	cpx #3		; Pagefox?
+rc00	cpx #3		; Pagefox? (1)
 	bne rc01
 	lda #1
 
@@ -811,17 +826,17 @@ rc01	cpx #9		; no extra RAM?
 	bne rc0
 	lda #$ff		; eq 0KB
 
-rc0	cpx #8		; REU 1700?
+rc0	cpx #8		; REU 1700? (3)
 	bne rc1
 	lda #3		; eq 128K
-rc1	cpx #4		; REU 1764?
+rc1	cpx #4		; REU 1764? (4)
 	bne rc2
 	lda #4		; eq 256K
-rc2	cpx #5		; REU 1750?
+rc2	cpx #5		; REU 1750? (5)
 	bne rc3
 	lda #5		; eq 512K
 
-rc3	cpx #7		; is SuperCPU? ### 1.04
+rc3	cpx #7		; is SuperCPU? (11) ### 1.04
 	bne rc4
 	lda #11		; yes, set flg ### 1.06
 
@@ -853,7 +868,13 @@ evc3	jsr settab
 
 ; ----------------------------------------------- Event: Switch REUClear
 
-evswclear	ldx reuclflg	; get current value of REUClear
+evswclear	lda thisram	; REU attached?
+	and #$0d
+	cmp #4
+	bcc ++
+	cmp #9
+	bcs ++
+	ldx reuclflg	; get current value of REUClear
 	beq +
 	ldx #$ff
 +	inx
@@ -878,12 +899,18 @@ swc2	lda yesno,x
 	jsr stashit	; stash new value
 	lda #1		; re-init record
 	sta werte0+2
-	clc
+++	clc
 	rts
 
 ; ----------------------------------------------- Event: Recover Undo 4Bit
 
-evrecu1	ldx #2
+evrecu1	lda thisram	; REU attached?
+	and #$0d
+	cmp #4
+	bcc +
+	cmp #9
+	bcs +
+	ldx #2
 ru1	lda yesno,x
 	sta un4tx1,x
 	sta un4tx2,x
@@ -896,12 +923,18 @@ ru1	lda yesno,x
 	ora #1		; finally set value
 	sta rm_ramundo
 
-	clc
++	clc
 	rts
 
 ; ----------------------------------------------- Event: Recover Undo Rendered
 
-evrecu2	ldx #2
+evrecu2	lda thisram	; REU attached?
+	and #$0d
+	cmp #4
+	bcc +
+	cmp #9
+	bcs +
+	ldx #2
 ru2	lda yesno,x
 	sta unrtx1,x
 	sta unrtx2,x
@@ -914,7 +947,7 @@ ru2	lda yesno,x
 	ora #2		; finally set value
 	sta rm_ramundo
 
-	clc
++	clc
 	rts
 
 ; ----------------------------------------------- Event: Recover Temp
@@ -922,20 +955,28 @@ ru2	lda yesno,x
 evrectmp	lda thisram	; REU attached?
 	and #$0d
 	cmp #4
-	bcc +
+	bcc ++
 	cmp #9
-	bcs +
+	bcs ++
 	lda rm_tmpsaved	; yes, set value for "activate temp"
-	ora #1
-	sta rm_tmpsaved
+	ldy rm_vdcflag	; VDC 64k?      ### 2.04
+	bpl +
+	ora #3		; yes, activate too
++	ora #1		; no, activate only REU temp-
+-	sta rm_tmpsaved
 	jsr tstat
 	ldy #12		; and show
-	jsr evc3
+	jmp evc3
 
+++	lda rm_tmpsaved	; yes, set value for "activate temp"
+	bit rm_vdcflag
+	bpl +
+	ora #2
+	bne -
 +	clc
 	rts
 
-; ----------------------------------------------- 
+; -----------------------------------------------
 
 tabigad	!wo choosegad,ramgad,delgad,cleargad	; 0,2,4,6
 	!wo recu1gad,recu2gad,rectmpgad	; 8,10,12
@@ -961,7 +1002,7 @@ gt0	jsr gd_setpos
 	jsr gd_trim
 	jmp gd_initmove
 
-; ----------------------------------------- Gauge 
+; ----------------------------------------- Gauge
 
 gaugeout	lda sc_screenvek	; show "requester"
 	pha
@@ -982,7 +1023,7 @@ gaugelst	!by 0,22,3,34,3,$02
 	!wo 0
 	!by $80
 
-; ----------------------------------------------- 
+; -----------------------------------------------
 
 char	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
 delete	!scr "last all"
@@ -993,7 +1034,7 @@ mega	!scr "  0K"		; 0 no RAM
 	!scr " 64K"		; 3 VDC 2
 	!scr "128K"		; 4 REU 1700
 	!scr "256K"		; 5 REU 1764
-	!scr "512K"		; 6 REU 1700
+	!scr "512K"		; 6 REU 1750
 	!scr "  1M"		; 7
 	!scr "  2M"		; 8
 	!scr "  4M"		; 9
@@ -1031,7 +1072,7 @@ message	!fill 32,32
 ; --------------------------------------- Default RAM Entries
 
 rentries	!byte 0			; REU-Flag (immer $00)
-	!byte $1c,$c2,$00		; entry 0: 
+	!byte $1c,$c2,$00		; entry 0:
 	!pet "RM.Handler    "	;    RAM-Handler-Header
 bbu	!byte 32			;    (darin: Anim-Counter und REUClear-Flag "bbu")
 	!byte 0,$00,$10		; entry 1:
@@ -1040,11 +1081,11 @@ bbu	!byte 32			;    (darin: Anim-Counter und REUClear-Flag "bbu")
 	!pet "Undo Rendered   "	;    Undo Rendered
 	!byte $f0,$1c,$b2		; entry 3:
 	!pet "swp.file        "	;    Swapfile
-	!byte $07,0,$83		; 
+	!byte $07,0,$83		;
 	!pet "temp00          "	; entry 4:
 				;    Temp (so, first user entry: 5)
 
-; ----------------------------------------------- 
+; -----------------------------------------------
 
 reulst	!by 0
 	!by 1,11,18,23,$81,0,0
@@ -1058,10 +1099,10 @@ recu1gad	!by 10,23,5,3,$d0		; Recover Undo 4Bit
 un4tx1	!scr " no",0
 recu2gad	!by 11,23,5,3,$d0		; Recover Undo Rendered
 	!wo evrecu2
-unrtx1	!scr " no",0	
+unrtx1	!scr " no",0
 rectmpgad	!by 12,23,5,3,$d0		; Recover Temp
 	!wo evrectmp
-numttx1	!scr "  0",0	
+numttx1	!scr "  0",0
 
 	!by 3,12,16,12,$b0,0,0	; Statusfenster
 	!scr "Status@"
@@ -1071,7 +1112,7 @@ numttx1	!scr "  0",0
 delgad	!by 15,21,7,3,$c0
 	!wo evchdel
 	!by 223			; Listbox-Kringel
-deltx	!scr"last@"
+deltx	!scr "last@"
 	!by 18,12,9,3,$d0
 	!wo evinst
 	!scr "Install@"
@@ -1110,6 +1151,6 @@ unrtx2	!scr " no@"
 numttx2	!scr " 0@"
 	!by $80
 
-; ----------------------------------------------- 
+; -----------------------------------------------
 
 modend	!eof
