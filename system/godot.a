@@ -35,6 +35,8 @@
 ;   1.52, 06.06.21 ; bugfix: prevent trouble in POINTER, and in default palette 16
 ;   1.53, 05.06.24 ; re-worked cmd recognition
 ;   1.54, 06.06.24 ; CMD recognition now correct
+;   1.55, 23.06.24 ; VDC recognition now visible
+;   1.56, 14.08.24 ; bugfix: C64c computers would hang on VDC VIC recognition
 ;
 ; ------------------------------------------------------------
 
@@ -45,7 +47,7 @@
 	!word $0814	; Basic-Line: SYS 2070
 	!word 100
 	!byte $9e
-	!pet " 2070 : ad 21"
+	!pet " 2070 : ad 24"
 	!byte 0,0,0
 
 	lda #$35		; transfer 20 blocks of data to $2000...
@@ -235,8 +237,8 @@ mkt0	lda tabs-$40,x
 
 ; ---------------------------------------
 
-version	!byte $01,$54	; Versionsnummer in SED-Format
-release	!byte 06,06,24	; Kernel Release Date in Byte-Format
+version	!byte $01,$56	; Versionsnummer in SED-Format
+release	!byte 14,08,24	; Kernel Release Date in Byte-Format
 
 ; ---------------------------------------
 
@@ -302,14 +304,14 @@ sprdata	!byte $c0,$00,$00,$e0,$00,$00,$70,$00	; Systemzeiger ### 1.47
 	!byte $00,$00,$00,$00,$00,$00,$00,$00
 	!byte $00,$00,$00,$00,$00,$00,$00,$00,0
 
-soffx	!byte 24		; Offsets f�r linke obere Ecke
+soffx	!byte 24		; Offsets für linke obere Ecke
 soffy	!byte 50		; des sichtbaren Screens
 
-; --------------------------------------- Werte f�r REU-Test
+; --------------------------------------- Werte für REU-Test
 
 werte0	!byte $ae,$00	; C64-Adresse
 	!byte $00,$00,$00	; REU-Adresse und Bank
-	!byte $01,$00	; Anzahl Bytes f�r �bertragung
+	!byte $01,$00	; Anzahl Bytes für übertragung
 	!byte $1f,$00
 
 ; ---------------------------------------
@@ -331,6 +333,7 @@ godini2	!pet "god.ini"
 ini	!pet "ini."
 godlen	!byte $07
 rboot	!byte $ff
+isactive	!byte 0
 
 ; ---------------------------------------
 
@@ -365,7 +368,7 @@ setscreen	lda #$12		; GoDot-Boot-Screen ausgeben
 
 ; ---------------------------------------
 
-scolor	ldx #7		; Logo einf�rben
+scolor	ldx #7		; Logo einfärben
 	ldy #26
 	jsr sm2
 	ldx #5
@@ -378,7 +381,7 @@ scolor	ldx #7		; Logo einf�rben
 ; ---------------------------------------
 
 	a=224	; Definition des Boot-Screens
-	b=a+1	; a - p: Chars f�r Logo ($e0..$ef)
+	b=a+1	; a - p: Chars für Logo ($e0..$ef)
 	c=a+2
 	d=a+3
 	e=a+4
@@ -516,7 +519,7 @@ load4	lda chlen		; zuerst Zeichensatz (god.set)
 	jsr load
 	bcs error
 
-	lda godlen	; und schlie�lich die INI-Datei (god.ini)
+	lda godlen	; und schließlich die INI-Datei (god.ini)
 	ldx #<godini
 	ldy #>godini
 	jsr filnam
@@ -560,7 +563,14 @@ sa1	lda sprdata,y
 
 ; --------------------------------------- RAM-Check
 
-testfox	jsr vdctest	; zuerst: VDC
+testfox	lda rm_ramvec+1	; get flag wether REU already active
+	sta isactive
+	ldx #0
+	stx ls_adrmisc
+	jsr vdctest	; zuerst: VDC
+	tya
+	beq testscpu
+	jsr vdctype
 
 testscpu	sed		; dann SuperCPU: Fehler in 6502 erzeugen
 	lda #$99
@@ -611,7 +621,7 @@ ts06	lda #0		; ansonsten: 0 MB
 
 ts00	stx ramtype+13	; Wert eintragen
 	sty ramtype+12
-	sta rm_sram	; Gr��e eintragen
+	sta rm_sram	; Größe eintragen
 	lda #$4d		; M
 	sta ramtype+14
 	lda #$42		; B
@@ -621,15 +631,19 @@ ts00	stx ramtype+13	; Wert eintragen
 nosram	sta rm_sram	; set size of SuperRAM to 0
 
 hasboth	jsr testreu	; check for REU
+	pla
+	pla
+
 usesr	lda rm_sram	; sowohl SRAM als auch REU?
-	ora gd_modswitch
+	tax
+	ora ls_adrmisc
 	beq ts03		; nein, no additional RAM
-	ldx rm_sram	; kein SRAM?
+	txa		; kein SRAM,aber REU?
 	beq ts05		; dann dev.REU installieren
 	lda #7		; doch, mit SRAM
 	!by $2c
 ts03	lda #9		; kein REU oder SRAM, set "no ram" ("C64n")
-ts05	sta gd_modswitch
+ts05	sta ls_adrmisc
 	jmp testend	; und dev.REU (nicht) installieren
 
 ; ---------------------------------------
@@ -656,20 +670,19 @@ tr0	pla
 	cpx #$0a
 	bne tr1
 	dex
-tr1	stx gd_modswitch
+tr1	stx ls_adrmisc
 	lda rm_vdcflag	; Pagefox im C128?
 	beq tr11
 	cpx #9		; ja, dann hat PFox Vorrang
 	bne tr11
 	lda #2
-	sta gd_modswitch
+	sta ls_adrmisc
 tr11	cpx #9
 	bcc te0
 
 ; --------------------------------------- Test REUs
 
 testreu	ldx #0
-	stx gd_modswitch	; vorbesetzen
 	lda reupres	; REU vorhanden?
 	cmp #$1f
 	bne tr2
@@ -679,25 +692,27 @@ testreu	ldx #0
 	ldx #2
 tr2	txa
 	bne +
+	ldx ls_adrmisc
+	bne te0
 	ldx #9		; no, set: no RAM available ### 1.44
-	stx gd_modswitch
+	stx ls_adrmisc
 te0	jmp testend	; nein, eintragen
 
 +	asl		; ja, Typflag setzen (.a=4)
-	sta gd_modswitch
+	sta ls_adrmisc
 
 	lda #$4c		; Einsprung ins dev.REU aktivieren
 	sta ramvec
 	lda #<ramstart
 	sta ramvec+1
 
-	lda reubase	; Kapazit�t feststellen
+	lda reubase	; Kapazität feststellen
 	and #$10		; ist REU 1700? (Bug in VICE!)
 	bne tr4
-	asl gd_modswitch	; ja, Typflag auf 8
+	asl ls_adrmisc	; ja, Typflag auf 8
 tend0	bne testend	; und fertig (eintragen)
 
-tr4	ldy #$91		; sonst: Check der Gr��e ($91=FETCH)
+tr4	ldy #$91		; sonst: Check der Größe ($91=FETCH)
 	jsr setreu0	; ein Byte von $000000 nach $ae lesen
 	inc werte0	; neues Ziel: $af
 	lda #4		; neue Bank: 4
@@ -707,7 +722,7 @@ tr4	ldy #$91		; sonst: Check der Gr��e ($91=FETCH)
 	inc werte0	; dann: neue C64-Adresse ($b0=sc_merk)
 	ldx $af		; anderen Wert bestimmen
 	inx
-	stx sc_merk	; ge�nderten Wert nach $b0 schreiben
+	stx sc_merk	; geänderten Wert nach $b0 schreiben
 	dey		; .y=$90 (STASH)
 	jsr setreu0	; diesen Wert nach $040000 schreiben
 
@@ -716,12 +731,12 @@ tr4	ldy #$91		; sonst: Check der Gr��e ($91=FETCH)
 	sta werte0+4
 	jsr setreu0	; auslesen aus $000000 nach $b0 (sollte $ae sein)
 
-	dec werte0	; Wert in $af zur�ckschreiben nach $040000
+	dec werte0	; Wert in $af zurückschreiben nach $040000
 	dey		; .y=$90
 	lda #4		; Bank 4
 	sta werte0+4
 	jsr setreu0
-	dec werte0	; Wert in $ae zur�ckschreiben nach $000000
+	dec werte0	; Wert in $ae zurückschreiben nach $000000
 	lda #0		; Bank 0
 	sta werte0+4
 	jsr setreu0
@@ -733,11 +748,28 @@ tr4	ldy #$91		; sonst: Check der Gr��e ($91=FETCH)
 	lda $ae		; $ae (Bank 0) und $b0 (Bank 0 neu) vergleichen
 	eor sc_merk	; (sollte bei 1750 gleich sein)
 	bne testend	; ungleich: REU 1764 (keine Bank 4)
-	inc gd_modswitch	; sonst: REU 1750 (8 Banks)
+	inc ls_adrmisc	; sonst: REU 1750 (8 Banks)
 
 testend	ldx #12
-	lda gd_modswitch
-	sta rm_reusize	; als Gr��e propagieren
+	lda ls_bootdrive
+	sta ls_sysdrive	; preset bootdrive as Sysdrive
+	lda ls_adrmisc
+	cmp #4		; REU found?
+	bcc +		; no, Pagefox or VDC, so lock
+	cmp #7		; or SuperRAM?
+	beq +		; yes, lock (no device)
+	pha
+	bit isactive	; no device?
+	pla
+	bvs +		; yes, lock, future version:  load REU device
+	stx ls_sysdrive	; REU, now set REU as Sysdrive
+	bne ++
++	ldx #$18		; REU sperren: mit CLC...
+	stx rm_ramvec
+	ldx #$60		; ...und RTS
+	stx rm_ramvec+1
+	ldx #12
+++	sta rm_reusize	; als GrÃ¶ÃŸe propagieren
 	ora #$20
 	sta devs,x	; und Ergebnis in Drivelist eintragen
 	sec
@@ -758,10 +790,10 @@ sre00	lda werte0,x	; Kommando in Y
 what	jsr gd_which	; welche sind angeschlossen?
 
 	lda ls_drive	; alle ab 8 (bis 11) checken
-	pha		; zur�ckholen: nach TESTFOX (s.u.)
+	pha		; zurückholen: nach TESTFOX (s.u.)
 
 	ldx #8
-wh2	lda #2		; Z�hler f�r Bytes
+wh2	lda #2		; Zähler für Bytes
 	sta cntreads
 
 	ldy #0		; Drive da?
@@ -847,7 +879,7 @@ whw0	lda m1571,y
 	dey
 	bpl whw0
 
-whw1	lda devs,x	; R�ckmeldung von 1571 holen
+whw1	lda devs,x	; Rückmeldung von 1571 holen
 	and #$10		; 1571?
 	beq whw2
 
@@ -867,7 +899,7 @@ whw2	inx		; alle Drives durch
 
 	jsr testfox	; nun: RAM-Check
 
-	tax		; Current Drive zur�ck
+	tax		; Current Drive zurück
 	pla		; .a gesetzt in WHAT (s.o.)
 	sta ls_drive
 	txa		; kein Zusatz-RAM?
@@ -877,14 +909,14 @@ whw2	inx		; alle Drives durch
 
 	jsr ldramdev	; doch, RAM-Device laden
 	bne whx		; Fehler, fertig
-	lda rm_nextram	; schon Eintr�ge vorhanden?
+	lda rm_nextram	; schon Einträge vorhanden?
 	cmp #6
-	bcs mr2		; ja, Init Directory �bergehen
+	bcs mr2		; ja, Init Directory übergehen
 
 	lda #$ff		; Rebootflag bearbeiten
 	ldx bbu		; RAM-Header eintragen
 	bne mr1		; Re-Init erlaubt?
-	lda #3		; nein, nur Zeiger zur�cksetzen
+	lda #3		; nein, nur Zeiger zurücksetzen
 mr1	sta rboot
 	ldx #94
 mr0	lda rentries,x	; Header in RAM-Directory schreiben
@@ -912,11 +944,11 @@ w1581	dec cntreads	; Fremdhersteller?
 	jsr wh3
 	lda sc_merk	; Drivetypen merken
 	sta ls_cmdtypes-8,x
-	cmp #$48		; "H" f�r HD
+	cmp #$48		; "H" für HD
 	beq setcmd
-	cmp #$46		; "F" f�r FD
+	cmp #$46		; "F" für FD
 	beq setcmd
-	cmp #$52		; "R" f�r RAMLink
+	cmp #$52		; "R" für RAMLink
 	bne n81
 setcmd	lda cmdoff-8,x	; Drive kennzeichnen mit ">"
 	tay
@@ -961,7 +993,7 @@ f81	lda #8
 
 ; ---------------------------------------
 
-n81	lda #$e9		; Position f�r 1581-Meldung
+n81	lda #$e9		; Position für 1581-Meldung
 	sta sc_movetab+3
 	lda #$a6
 	sta sc_movetab+4
@@ -970,7 +1002,7 @@ n81	lda #$e9		; Position f�r 1581-Meldung
 
 ; ---------------------------------------
 
-cmdoff	!byte 34,41,49,57,66	; Positionen f�r ">"
+cmdoff	!byte 34,41,49,57,66	; Positionen für ">"
 
 ; --------------------------------------- Module laden
 
@@ -1008,11 +1040,11 @@ df00	sta sc_vekt20+1
 df0	lda defmod,x	; Filenamen eintragen
 	sta ls_nambuf,x
 	lda bcmod+4,x	; auch im Bildschirmcode
-	sta ls_lastname,x	; auch f�r die Anzeige
-	sta mess1,x	; und f�r die Aktivit�tsanzeige
+	sta ls_lastname,x	; auch für die Anzeige
+	sta mess1,x	; und für die Aktivitätsanzeige
 	dex
 	bpl df0
-	jsr putmess	; Aktivit�tsanzeige
+	jsr putmess	; Aktivitätsanzeige
 	jsr ld11		; und Modul laden
 
 	jsr setmess
@@ -1060,8 +1092,14 @@ vdctest	sei		; VDC vorhanden?
 	pha
 	lda vdcdata
 	pha
-	ldx #$12
-	lda #$40		; Pr�fwert auf VDC-Register 18 legen
+
+	ldy #0		; Check auf C128
+	sty vdc
+	ldy vdc
+	beq tv4		; nicht da ($d600 müsste negativ sein)
+
+	ldx #$12		; wirklich ein C128?
+	lda #$40		; Prüfwert $40 via $d601 auf VDC-Register 18 legen
 	jsr setd600
 	ldy #$f5		; warten
 	ldx #$00
@@ -1069,30 +1107,40 @@ tv0	inx
 	bne tv0
 	iny
 	bne tv0
+
 	lda vdcdata	; immer noch da?
 	cmp #$40
-	beq vdctype	; ja, VDC vorhanden
-tv4	pla		; sonst, Ende des Tests
+	bne tv4
+	tay		; ja, VDC vorhanden, Flag an für Init (.y>0)
+	bne +
+
+tv4	lda fast		; zuletzt: Fast-Bit in $d030 aus?
+	and #1
+	bne +
+	lda #14		; ja, C64II
+	sta ramtype+7	; dann kennzeichnen ("C64n")
+
++	pla		; sonst, Ende des Tests
 	sta vdcdata
 	pla
 	sta vdc
 	cli
 	rts
 ;
-setd600	stx vdc		; Register w�hlen
+setd600	stx vdc		; Register wählen
 	ldx #$00
 tv1	inx
 	bne tv1
 	sta vdcdata	; Daten eintragen
 	rts
 ;
-readvdc	stx vdc		; Register w�hlen
+readvdc	stx vdc		; Register wählen
 tv2	bit vdc
 	bpl tv2
 	lda vdcdata	; Daten abholen
 	rts
 ;
-clrareg	ldx #$12		; Register l�schen (18 und 19)
+clrareg	ldx #$12		; Register löschen (18 und 19)
 	jsr clr
 clrlo	inx
 clr	lda #$00
@@ -1110,11 +1158,7 @@ tv6	lda #14		; C64II kennzeichnen
 
 ; ---------------------------------------
 
-vdctype	lda fast		; Fast-Bit in $d030 gesetzt?
-	and #1
-	bne tv6		; ja, C64II
-
-	jsr vdcinit	; 640x200-VDC initialisieren
+vdctype	jsr vdcinit	; 640x200-VDC initialisieren
 	jsr clrareg
 	ldx #$1f
 	jsr readvdc
@@ -1135,15 +1179,13 @@ vdctype	lda fast		; Fast-Bit in $d030 gesetzt?
 	jsr setvdc
 	bmi vt0
 
-vt3	lda #$21		; 16K-VDC: kein Undo m�glich (Flag)
+vt3	lda #$21		; 16K-VDC: kein Undo möglich (Flag)
 	bne vt1
 
 vt0	lda #$81		; 64K-VDC, Flags setzen
 vt1	sta rm_vdcflag
 	bpl vt2
-	ldx #28
-	lda #$3f
-	jsr setvdc
+
 	lda #$32
 	sta ramtype+11
 
@@ -1157,8 +1199,7 @@ vt2	ldx #$12		; VDC-Inhalt rekonstruieren
 	jsr clrareg
 	ldx #$1f
 	pla
-	jsr setvdc
-	jmp tv4		; abschlie�en
+	jmp setvdc	; abschließen
 
 ; ---------------------------------------
 
@@ -1221,7 +1262,7 @@ cblu	!byte 11,7,3,0,15
 baltab	!byte $00,$01,$02,$03,$04,$05,$06,$07	; Default Balancing: 0,0 ($03b0)
 	!byte $08,$09,$0a,$0b,$0c,$0d,$0e,$0f
 ;
-palhi	!byte $80				; Defaultpaletten (14 St�ck an $03c0)
+palhi	!byte $80				; Defaultpaletten (14 Stück an $03c0)
 	!byte $81,$91,$91,$90,$d0,$aa,$ab,$b3
 	!byte $b1,$ff,$bf,$ef,$ff
 pallo	!byte 1,1,1
@@ -1290,10 +1331,10 @@ pms2	rts		; nichts gefunden, fertig
 
 ; ---------------------------------------
 
-pms0	cpy #80		; au�erhalb einer BASIC-Zeile?
+pms0	cpy #80		; außerhalb einer BASIC-Zeile?
 	bcs pms2		; ja, fertig
 
-	jsr readeq	; Anf�hrungszeichen?
+	jsr readeq	; Anführungszeichen?
 	iny
 	jsr addy
 	ldy #0
@@ -1308,7 +1349,7 @@ pms6	lda (ls_vekta8),y
 	bne pms7		; nein, gleich weiter
 	inx
 	iny
-	cpy #4		; ja, "ini." �berlesen
+	cpy #4		; ja, "ini." überlesen
 	bne pms6
 	!byte $2c
 
@@ -1320,7 +1361,7 @@ pms9	lda ini,x
 	cpx #4
 	bne pms9
 
-pms4	lda (ls_vekta8),y	; die n�chsten Zeichen dahinter holen
+pms4	lda (ls_vekta8),y	; die nächsten Zeichen dahinter holen
 	beq pms3
 	cmp #34
 	beq pms3
@@ -1338,8 +1379,8 @@ pms5	lda godini2,y
 	bpl pms5
 	rts
 
-pms3	stx godlen	; sonst Namensl�nge eintragen
-	rts		; und zur�ck zur Auswertung
+pms3	stx godlen	; sonst Namenslänge eintragen
+	rts		; und zurück zur Auswertung
 
 ; ---------------------------------------
 ; --------------------------------------- Interpreter
@@ -1355,11 +1396,11 @@ parseinit	lda #<godinit	; Zeiger auf INI-Datei setzen (an $3800)
 	sta ls_vekta8+1
 	bne parse
 
-pnext	jsr addy		; n�chstes Zeichen
+pnext	jsr addy		; nächstes Zeichen
 parse	ldy #0		; Flags initialisieren
 	sty endflag
 	sty flag34
-	jsr find34	; Anf�hrungszeichen finden
+	jsr find34	; Anführungszeichen finden
 	cpx #3		; alle Zeilen durch?
 	beq fertig	; dann fertig
 
@@ -1373,35 +1414,35 @@ next	iny		; Zeilenende?
 p0	cmp #$41		; kein Buchstabe?
 	bcc next
 	cmp #$5b
-	bcs next		; dann �bergehen
+	bcs next		; dann übergehen
 
 	sty sc_merk	; Offset auf Zeichen merken
 	ldx #<keylist	; Keywordtabelle anpeilen
 	stx sc_texttab
 	ldx #>keylist
 	stx sc_texttab+1
-	ldx #0		; Z�hler auf Null
+	ldx #0		; Zähler auf Null
 	stx count
 comp	sec		; Keyword checken
 	sbc (sc_texttab,x)
-	beq p1		; �bereinstimmung
+	beq p1		; übereinstimmung
 
 	cmp #$80		; letztes Zeichen erreicht?
-	beq p6		; ja, Keyword ausf�hren
+	beq p6		; ja, Keyword ausführen
 
 p5	lda (sc_texttab,x)	; Ende der Keywordtabelle?
-	beq pnext		; ja, n�chstes Quellzeichen anpeilen
-	bmi p4		; Ende eines Keywords, z�hlen
-	inc sc_texttab	; Keywordrest �berlesen
+	beq pnext		; ja, nächstes Quellzeichen anpeilen
+	bmi p4		; Ende eines Keywords, zählen
+	inc sc_texttab	; Keywordrest überlesen
 	bne p5
 	inc sc_texttab+1
 	bne p5
 
-p4	inc count		; z�hlen der �berlesenen Keywords
-	ldy sc_merk	; Zeiger zur�ck auf Anfang des Quellwortes
+p4	inc count		; zählen der überlesenen Keywords
+	ldy sc_merk	; Zeiger zurück auf Anfang des Quellwortes
 	!byte $a9
 
-p1	iny		; n�chstes Zeichen vergleichen
+p1	iny		; nächstes Zeichen vergleichen
 	lda (ls_vekta8),y
 	and #$7f
 	inc sc_texttab
@@ -1410,39 +1451,39 @@ p1	iny		; n�chstes Zeichen vergleichen
 	bne comp
 
 p6	cpy sc_merk	; Zeiger hat sich nicht bewegt?
-	beq next		; dann n�chstes Quellzeichen
+	beq next		; dann nächstes Quellzeichen
 
 	jsr readeq	; Zeiger auf Keyword-Parameter setzen
-	jsr execute	; Befehl ausf�hren
-	ldy #0		; Befehlsende mit Anf�hrungszeichen?
+	jsr execute	; Befehl ausführen
+	ldy #0		; Befehlsende mit Anführungszeichen?
 	lda (ls_vekta8),y
 	cmp #34
 	bne p7		; nein
-p8	jsr inca8		; ja, �berlesen
+p8	jsr inca8		; ja, überlesen
 p7	jmp parse		; und weiterparsen
 
-; --------------------------------------- Befehlsausf�hrung
+; --------------------------------------- Befehlsausführung
 
-execute	jsr addy		; Zeiger in INI vorr�cken (auf Parameter)
+execute	jsr addy		; Zeiger in INI vorrücken (auf Parameter)
 	ldy #0
-	lda count		; Z�hler ist Befehlstoken
+	lda count		; Zähler ist Befehlstoken
 	asl
 	tax		; Vektor holen
 	lda beflist+1,x
 	pha
 	lda beflist,x
 	pha
-fertig	rts		; Befehl ausf�hren
+fertig	rts		; Befehl ausführen
 
 ; ---------------------------------------
 
-find34	ldx #0		; Anf�hrungszeichen suchen (bzw. Zeilenende)
+find34	ldx #0		; Anführungszeichen suchen (bzw. Zeilenende)
 f0	lda (ls_vekta8),y
 	beq f4		; Zeilenende?
 	cmp #13		; RETURN (Zeilenende in SEQ-File)?
 	beq f4		; ja, Flags checken
 
-	cmp #34		; erstes Anf�hrungszeichen?
+	cmp #34		; erstes Anführungszeichen?
 	beq f1		; ja, Flags setzen
 
 	sty endflag
@@ -1452,11 +1493,11 @@ f4	inc endflag	; Ende einer Zeile markieren
 	ldx endflag	; Ende des Quelltextes (3 mal Null)?
 	cpx #3
 	beq f5		; ja, fertig
-	ora flag34	; nein, kein Anf�hrungszeichen bisher?
+	ora flag34	; nein, kein Anführungszeichen bisher?
 	beq f3		; ja, weiter checken
 
-f1	inc flag34	; Flag f�r Anf�hrungszeichen
-	lda #0		; Flag f�r *kein* Ende der Zeile
+f1	inc flag34	; Flag für Anführungszeichen
+	lda #0		; Flag für *kein* Ende der Zeile
 	sta endflag
 f5	rts
 
@@ -1473,7 +1514,7 @@ readeq	iny		; Zeiger hinter Gleichheitszeichen setzen
 
 ; ---------------------------------------
 
-inca8	inc ls_vekta8	; Quellzeiger vorr�cken
+inca8	inc ls_vekta8	; Quellzeiger vorrücken
 	bne in0
 	inc ls_vekta8+1
 in0	rts
@@ -1883,9 +1924,9 @@ rm2	pla
 ; ---------------------------------------
 
 befptr	jsr getname	; POINTER "ptr.xy"
-	beq ptr3		; kein name �bergeben worden
+	beq ptr3		; kein name übergeben worden
 
-	sta ls_temp	; doch, l�nge setzen
+	sta ls_temp	; doch, länge setzen
 	lda #0
 	sta bytes+1
 	ldx #81		; anzahl zu lesender bytes
@@ -2001,7 +2042,7 @@ initrdir	lda #4		; Auf jeden Fall nextram korrekt setzen:
 	sta sc_merk
 	iny		; .y=0
 	inx		; .x=0
-bss1	inc sc_merk	; Eintr�ge z�hlen...
+bss1	inc sc_merk	; Einträge zählen...
 	lda sc_merk
 	jsr mal19
 	lda (entry),y
@@ -2185,16 +2226,16 @@ bbu	!byte 32			;    (darin: Anim-Counter und REUClear-Flag)
 	!byte 0,$00,$8d		; 2:
 	!pet "Undo Rendered   "	;    Undo Rendered
 	!byte $f0,$1c,$b2		; 3:
-	!pet "swp.file        "	;    Swapfile (v1.36: neue L�nge von 4096)
+	!pet "swp.file        "	;    Swapfile (v1.36: neue Länge von 4096)
 	!byte $07,0,$83		;    (v1.33: Temp activated (vorher $17 statt $07))
 	!pet "temp00          "	; 4:
 				;    Temp (first user entry: 5)
 
 ; ---------------------------------------
 
-devname	!byte 7			; L�nge des Filenamens
-	!pet "UER.ved"		; dev.REU (Filename r�ckw�rts)
-	!wo 1360			; max. L�nge des Files
+devname	!byte 7			; Länge des Filenamens
+	!pet "UER.ved"		; dev.REU (Filename rückwärts)
+	!wo 1360			; max. Länge des Files
 	!byte 8
 	!pet "xoFP.ved"		; dev.PFox
 	!word 1360
@@ -2228,7 +2269,7 @@ ldramdev	pha		; Typflag retten (0 bis 9)
 	sta rm_nextram
 	ldx #$ff
 	ldy #$ff
-	jsr initrdir	; sonst: Directory zur Verf�gung stellen
+	jsr initrdir	; sonst: Directory zur Verfügung stellen
 	jsr gd_swapd	; und wieder einblenden
 	pla		; und fertig
 	inx		; .x=0
@@ -2237,7 +2278,7 @@ ldramdev	pha		; Typflag retten (0 bis 9)
 ; ---------------------------------------
 
 initdir	jsr gd_swapd	; RAM ausblenden
-	ldx #16		; RAM-Directory l�schen
+	ldx #16		; RAM-Directory löschen
 	ldy #0
 	sty sc_merk
 	lda #$c0
@@ -2257,7 +2298,7 @@ ln2	lda swapw,x
 	tax
 	lda offsets,x
 	bmi notok		; Fehler?
-	tax		; nein, Namensl�nge holen
+	tax		; nein, Namenslänge holen
 	lda devname,x
 	sta ls_temp
 	sta sc_br
@@ -2268,7 +2309,7 @@ ln0	lda devname,x	; Namen puffern
 	inx
 	dey
 	bne ln0
-	lda devname,x	; max. Filel�nge holen
+	lda devname,x	; max. Filelänge holen
 	sta bytes+1
 	inx
 	lda devname,x
@@ -2291,7 +2332,7 @@ ldok	lda #12		; Sysdrive ist nun RAM
 	bne +
 	lda #5		; ersten freien Dir-Eintrag ansteuern
 +	sta rm_nextram
-	txa		; .x ist Flag f�r Erfolg (=0)
+	txa		; .x ist Flag für Erfolg (=0)
 ln3	rts
 
 ; ---------------------------------------
