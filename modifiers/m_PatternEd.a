@@ -17,6 +17,7 @@
 ;  1.09, 28.01.21: added: publish name after SAVE,
 ;                  bugfix when leaving modifier via Cancel
 ;  1.10, 06.02.21: bugfix: only publish new name if selected
+;  1.11, 06.10.24: bugfix: crash after accepting a new pattern
 ;
 ; ----------------------------------------- 
 
@@ -29,7 +30,7 @@
 	dselect		= $32
 
 	dithertype	= $1e30
-	dtpat		= $f994	; take care on changes there!!!
+	dtpat		= $f995	; take care on changes there!!! ### 1.11
 
 ; ----------------------------------------- Header
 
