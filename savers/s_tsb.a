@@ -1,0 +1,502 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; --------------------------------------------------
+;
+; svr.TSB
+; Saver for Multicolor or Hires Mode Images
+; ready for TSB Basic Extension
+; The images have first to be rendered, because
+; the saver uses the *rendered* image data to save,
+; *not* the 4Bit data
+;
+; 1.00: 08.10.24, first release
+;
+; --------------------------------------------------
+
+; ----------------------------------------- Equates
+
+	adcnt		= $30
+	cnt		= $31
+	farben		= $32
+
+	offx		= ls_adrmisc
+	offy		= offx+1
+
+	colors		= $c82f
+	vid1		= colors
+	vid2		= $ca23
+	colram		= $cc17
+	back		= $cfff
+
+; -----------------------------------------
+
+header	jmp start
+	!by $40
+	!by 0
+	!by 1
+	!wo modend
+	!wo 0
+	!pet "TSB images m/h  "
+	!pet "1.00"
+	!pet "08.10.24"
+	!pet "A.Dettke        "
+
+; ----------------------------------------- Main
+
+start	ldx gr_nr
+	dex
+	bne st0
+	jmp initinp
+
+; ----------------------------------------- Saver TSBMulti
+
+st0	lda gd_modswitch	; memory management
+	pha
+
+	lda ls_flen	; no filename?
+	sta wflen
+	beq st01		; yes, leave
+
+	ldx #<tsblst
+	ldy #>tsblst
+	jsr gd_xmloop
+
+st01	pla		; finished
+	sta gd_modswitch
+
+; ----------------------------------------- Event: Leave saver
+
+evcancel	sec
+	rts
+
+; ---------------------------
+; --------------------------- Input Routines
+
+!src "input.inc"
+
+; ---------------------------
+; ---------------------------
+
+pw	!pet "w,p,"
+drinit	!pet "i0"
+wflen	!by 0
+suftx	!pet "mit."	; suffix (".tim" or ".tih")
+suftxs	!scr "mit."
+
+; ----------------------------------------- Open Files for SAVE
+
+wopen	lda wflen		; first: add suffix to filename
+	jsr addsuffix
+
+	ldy wflen		; now convert to screen code for GoDot screen
+	sty sc_br
+-	dey
+	bmi +
+	lda ls_nambuf,y	; copy to convert buffer
+	sta sc_movetab,y
+	bne -
++	jsr gd_cnvbc	; convert, returns .a=0
+	tay
+-	lda sc_movetab,y	; copy to GoDot screenlist for proper display
+	sta ls_lastname,y
+	iny
+	cpy wflen
+	bcc -
+
+; -----------------------------------------
+
+wo6	jsr inull		; now open file, first: init disk
+	bne err8
+	ldy wflen
+	ldx #3
+wo1	lda pw,x
+	sta ls_nambuf,y	; add ",p,w" to filename
+	iny
+	dex
+	bpl wo1
+	sty wflen
+	lda #12		; open 12,dr,12,"name,p,w"
+	tay
+	ldx ls_drive
+	jsr filpar
+	lda wflen
+	ldx #<ls_nambuf
+	ldy #>ls_nambuf
+	jsr filnam
+	jsr copen
+	jmp err9
+
+; ----------------------------------------- Init Disk
+
+inull	ldx #<drinit
+	ldy #>drinit
+	lda #2
+	jsr gd_sendcom
+err9	jsr gd_xmess	; show floppy message
+	lda ls_err2	; any error? (0 if not)
+	and #15
+err8	sec
+	rts
+
+; ----------------------------------------- Message Handling
+
+messout	ldx #<message
+	ldy #>message
+	jmp gd_xtxout2
+
+tcopy	ldy #0
+tc0	lda txt,x
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+
+action	dec adcnt
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	cpy clrmess+1	; #1.03: catch Gauge Overflow
+	bne act0
+	jsr clrmess
+act0	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts
+
+clrmess	ldx #23
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0
+	ldx #7
+	sty offy
+	stx offx
+	rts
+
+filltab	!by 160,93,103,127,126,124,105,109
+
+txt	!scr " Bitmap@"
+	!scr " Colors@"
+
+message	!fill 8,32
+mess	!fill 24,32
+	!by 0
+
+; -----------------------------------------
+
+mode	!by 0
+cntwert	!by 50
+
+; ----------------------------------------- Image Information Handler
+
+getname	ldx #0
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+setname	lda #0
+	ldx #<ls_picname
+	ldy #>ls_picname
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!fill 16,32
+	!by 0
+
+; ----------------------------------------- Event: Save Image
+
+evhires	ldx #0
+	!by $2c
+evmulti	ldx #1
+	stx mode
+	jsr gd_sproff	; no, mouse pointer off
+	sta cnt		; .a=0, init compression counter
+
+	lda #1		; init save pic
+	sta adcnt
+	lda #50
+	sta cntwert
+	jsr getpic	; first gather image data
+
+	jsr wopen		; now open file
+	bne st2
+	jsr getname	; get filename
+	ldx #12
+	jsr ckout
+	jsr gd_clrms
+	ldx #0
+	jsr tcopy
+
+	jsr write		; save pic
+
+st2	jsr clrch		; close file
+	lda #12
+	jsr close
+	jsr gd_spron
+	jsr err9
+	bne st1
+
+	jsr setname	; set image information if successful
+
+st1	rts		; .c is set, so leave requester
+
+; ----------------------------------------- Screenlist
+
+tsblst	!by 0
+	!by 6,16,9,11,$81,0,0
+	!scr "TSB",0
+	!by 10,16,9,3,$ca
+	!wo evhires
+	!scr " Hires ",0
+	!by 12,16,9,3,$cb
+	!wo evmulti
+	!scr " Multi ",0
+	!by 14,16,9,3,$cb
+	!wo evcancel
+	!scr " Leave ",0
+	!by $c0,8,16,7
+	!scr "Save as",0
+	!by $80
+
+; ----------------------------------------- Gather Image Colors
+
+getpic	lda #$0b		; gather 2001 bytes at $c82f:
+	sta sc_texttab
+	lda #<(vid1)
+	ldx #>(vid1)
+	ldy #$ce		; Videoram pt 1 from $ce0b
+	jsr move
+	lda #$0b
+	sta sc_texttab
+	lda #<(vid2)
+	ldx #>(vid2)
+	ldy #$ee		; pt 2 from $ee0b
+	jsr move
+	lda #$0b
+	sta sc_texttab
+	lda #<(colram)
+	ldx #>(colram)
+	ldy #$de		; colorram from $de0b
+	jsr movec
+	lda gr_bkcol	; and background color
+	and #15
+	sta back
+	rts
+
+; ----------------------------------------- Move Video RAM data
+
+move	sty sc_texttab+1
+	sta sc_vekt20
+	stx sc_vekt20+1
+	lda #<(500)
+	ldx #>(500)
+	sta ls_vekta8
+	stx ls_vekta8+1
+	sei
+	lda #$30
+	sta 1
+	ldy #0
+mv0	lda (sc_texttab),y
+	sta (sc_vekt20),y
+	jsr count
+	bne mv0
+	lda #$36
+	sta 1
+	cli
+	rts
+
+; ----------------------------------------- Move Color RAM data
+
+movec	sty sc_texttab+1
+	sta sc_vekt20
+	stx sc_vekt20+1
+	lda #<(500)		; color ram is compacted to 500 bytes
+	ldx #>(500)
+	sta ls_vekta8
+	stx ls_vekta8+1
+	sei
+	lda #$30
+	sta 1
+	ldy #0
+mv1	sty sc_merk
+	lda (sc_texttab),y		; make 1000 bytes
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	lsr
+	rol sc_merk
+	sta (sc_vekt20),y
+	inc sc_vekt20
+	bne mv2
+	inc sc_vekt20+1
+mv2	lda sc_merk
+	sta (sc_vekt20),y
+	jsr count
+	bne mv1
+	lda #$36
+	sta 1
+	cli
+	rts
+
+; ----------------------------------------- Counters
+
+count	inc sc_vekt20
+	bne cou5
+	inc sc_vekt20+1
+cou5	inc sc_texttab
+	bne cou6
+	inc sc_texttab+1
+cou6	lda ls_vekta8
+	bne cou7
+	dec ls_vekta8+1
+cou7	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	rts
+
+; ----------------------------------------- Write Image
+
+write	lda #0		; Start address $e000
+	jsr bsout
+	lda #$e0
+	jsr bsout		; 8192 bytes bitmap
+	lda #<8192
+	ldx #>8192
+	sta ls_vekta8
+	stx ls_vekta8+1
+	lda #<$2000	; source adress: $2000
+	ldx #>$2000
+	sta sc_texttab
+	stx sc_texttab+1
+
+wr0	ldy #0		; write loop
+	lda (sc_texttab),y
+	jsr bsout		; write data
+	jsr action	; activity
+	jsr cou5		; count until last byte
+	bne wr0
+
+	ldx #8
+	jsr tcopy
+	lda #6
+	sta cntwert
+	lda #<1000	; now 2*1000 bytes colors
+	ldx #>1000
+	sta ls_vekta8
+	stx ls_vekta8+1
+	lda #<vid1	; data from videoram
+	ldx #>vid1
+	sta sc_texttab
+	stx sc_texttab+1
+	lda #<colram	; data from colorram
+	ldx #>colram
+	sta farben
+	stx farben+1
+
+wr1	ldy #0		; write loop:
+	lda (farben),y	; colorram
+	jsr bsout
+	lda (sc_texttab),y	; videoram
+	jsr bsout
+	jsr action	; activity
+	inc farben
+	bne +
+	inc farben+1
++	jsr cou5		; count
+	bne wr1
+
+	lda #<23		; now 2*23 bytes padding
+	ldx #>23
+	sta ls_vekta8
+	stx ls_vekta8+1
+wr2	lda #0
+	jsr bsout
+	jsr bsout
+	jsr action	; activity
+	jsr cou6		; count
+	bne wr2
+
+	lda back		; then 2 bytes background color
+	ldy mode
+	beq +
+	ora #$80
++	jsr bsout
+	jsr bsout
+
+	lda #<vid1	; reconstruction of video ram 1 area
+	sta sc_texttab
+	lda #$0b
+	ldx #$ce
+	ldy #>vid1
+	jmp move
+
+; ----------------------------------------- Namen verlängern
+
+addsuffix	pha		; Länge merken
+	tay
+	dey
+	ldx #0
+ag4	lda ls_nambuf,y	; endet auf ".tsb"?
+	cmp suftx,x
+	bne ag2		; nein
+	dey
+	inx
+	cpx #4
+	bcc ag4
+	pla		; ja, fertig (Länge zurückholen)
+	rts
+
+ag2	pla
+	tay		; Name länger als 12 Zeichen?
+	cpy #13
+	bcs ag0		; ja, behandeln
+
+ag5	ldx #3		; nein, ".tsb" anhängen
+ag1	lda suftx,x
+ag3	sta ls_nambuf,y
+	lda suftxs,x	; auch für Image Info
+	sta ls_lastname,y
+	iny
+	dex
+	bpl ag1
+	sty wflen		; neue Länge merken, fertig
+	sty ls_flen
+	rts
+
+ag0	dey		; auf 12 verkürzen
+	cpy #12
+	bne ag0
+	beq ag5		; unbed. Sprung
+
+; -----------------------------------------
+
+modend	!eof
