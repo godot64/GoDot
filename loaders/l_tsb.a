@@ -15,11 +15,14 @@
 ;                  shorter recognition of digits
 ;  1.02, 05.05.22: bugfix: digits not safely recognized
 ;  1.03, 08.10.24: reworked to general TSB format loader
+;  1.04, 10.10.24: retrieving bg color from filename discarded
 ;
 ; -----------------------------------------
 
 
 ; ----------------------------------------- Equates
+
+	int		= $14
 
 	ifhires		= $30	; /$31
 	gbyte		= $32
@@ -33,7 +36,6 @@
 	cntmerk		= $3e
 	bgmerk		= $3f
 	cflag   		= $f7
-	int		= $14
 
 	offx		= ls_adrmisc
 	offy		= offx+1
@@ -53,8 +55,8 @@
 	!wo modend
 	!wo $00
 	!pet "TSB Multi/Hires "
-	!pet "1.03"
-	!pet "08.10.24"
+	!pet "1.04"
+	!pet "10.10.24"
 	!pet "P.Hagemann/AD   "
 
 ; ----------------------------------------- Main
@@ -76,7 +78,6 @@ start	lda #50		; activity counter
 
 	ldy ls_flen	; was cancelled?
 	beq wascancel	; yes, leave
-	jsr getbgcol	; check for digits in filename
 
 ; ----------------------------------------- Read Bitmap
 
@@ -188,7 +189,7 @@ clf	jsr gd_xclose	; close file
 	bmi +
 	jsr conhir
 	jsr hires
-	beq resettx
+	beq resettx	; uncond. branch
 
 +	and #15		; if present: set bgcolor
 	jsr setbg
@@ -409,38 +410,8 @@ hl9	lda ls_vekta8	; finished?
 
 	rts		; yes
 
-; ----------------------------------------- Prüft auf Ziffern
-; check last two chars of filename
-; if digits, use them as background color
+; ----------------------------------------- Hintergrundfarbe setzen
 
-getbgcol	ldx #0
-	stx int		; preset black
-	dey		; last two chars: digits?
-	dey
-	beq ++		; only 1 char? (then skip all)
-	lda ls_nambuf,y	; 2nd but last:
-	cmp #$32		; (accept only 0 or 1)
-	bcs +		; (if more, skip)
-	jsr chkdigs	; digit?
-	bcs +		; no, skip (only 1 digit?)
-	and #15		; 0 or 1 remain (to .x)
-	tax
-+	iny
-	lda ls_nambuf,y	; last char:
-	cmp #$3a		; (accept only 0 or 1)
-	bcs ++		; (if more, skip)
-	jsr chkdigs
-	bcs ++		; no digit, skip all
-	and #15
-	sta int		; store value
-	txa
-	beq ++
-
-	lda #10 		; add 10 (if 2nd but last was a 1)
-	!by $2c
-++	lda #0		; else ("0" or space) add 0
-	clc
-	adc int
 setbg	sta col0
 	sta gr_fbkcol
 	rts
