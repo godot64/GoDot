@@ -14,13 +14,13 @@
 ; *not* the 4Bit data
 ;
 ; 1.00: 08.10.24, first release
+; 1.01: 10.10.24, minor changes
 ;
 ; --------------------------------------------------
 
 ; ----------------------------------------- Equates
 
 	adcnt		= $30
-	cnt		= $31
 	farben		= $32
 
 	offx		= ls_adrmisc
@@ -41,8 +41,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "TSB images m/h  "
-	!pet "1.00"
-	!pet "08.10.24"
+	!pet "1.01"
+	!pet "10.10.24"
 	!pet "A.Dettke        "
 
 ; ----------------------------------------- Main
@@ -52,7 +52,7 @@ start	ldx gr_nr
 	bne st0
 	jmp initinp
 
-; ----------------------------------------- Saver TSBMulti
+; ----------------------------------------- Saver TSB
 
 st0	lda gd_modswitch	; memory management
 	pha
@@ -84,7 +84,7 @@ evcancel	sec
 pw	!pet "w,p,"
 drinit	!pet "i0"
 wflen	!by 0
-suftx	!pet "mit."	; suffix (".tim" or ".tih")
+suftx	!pet "mit."	; suffix (".tim")
 suftxs	!scr "mit."
 
 ; ----------------------------------------- Open Files for SAVE
@@ -161,7 +161,7 @@ action	dec adcnt
 	lda cntwert
 	sta adcnt
 	ldy offy
-	cpy clrmess+1	; #1.03: catch Gauge Overflow
+	cpy clrmess+1	; catch Gauge Overflow
 	bne act0
 	jsr clrmess
 act0	ldx offx
@@ -236,7 +236,6 @@ evhires	ldx #0
 evmulti	ldx #1
 	stx mode
 	jsr gd_sproff	; no, mouse pointer off
-	sta cnt		; .a=0, init compression counter
 
 	lda #1		; init save pic
 	sta adcnt
@@ -311,7 +310,7 @@ getpic	lda #$0b		; gather 2001 bytes at $c82f:
 
 ; ----------------------------------------- Move Video RAM data
 
-move	sty sc_texttab+1
+move	sty sc_texttab+1	; twice 500 bytes
 	sta sc_vekt20
 	stx sc_vekt20+1
 	lda #<(500)
@@ -336,7 +335,7 @@ mv0	lda (sc_texttab),y
 movec	sty sc_texttab+1
 	sta sc_vekt20
 	stx sc_vekt20+1
-	lda #<(500)		; color ram is compacted to 500 bytes
+	lda #<(500)	; color ram is compacted to 500 bytes
 	ldx #>(500)
 	sta ls_vekta8
 	stx ls_vekta8+1
@@ -345,7 +344,7 @@ movec	sty sc_texttab+1
 	sta 1
 	ldy #0
 mv1	sty sc_merk
-	lda (sc_texttab),y		; make 1000 bytes
+	lda (sc_texttab),y	; make 1000 bytes
 	lsr
 	rol sc_merk
 	lsr
@@ -423,9 +422,9 @@ wr0	ldy #0		; write loop
 	stx farben+1
 
 wr1	ldy #0		; write loop:
-	lda (farben),y	; colorram
+	lda (farben),y	; even bytes: colorram
 	jsr bsout
-	lda (sc_texttab),y	; videoram
+	lda (sc_texttab),y	; odd bytes:  videoram
 	jsr bsout
 	jsr action	; activity
 	inc farben
@@ -446,7 +445,7 @@ wr2	lda #0
 	bne wr2
 
 	lda back		; then 2 bytes background color
-	ldy mode
+	ldy mode		; bit 7 set on multi
 	beq +
 	ora #$80
 +	jsr bsout
@@ -459,7 +458,7 @@ wr2	lda #0
 	ldy #>vid1
 	jmp move
 
-; ----------------------------------------- Namen verlängern
+; ----------------------------------------- Add Suffix
 
 addsuffix	pha		; Länge merken
 	tay
