@@ -16,8 +16,9 @@
 ;   1.05, 12.09.21, added: break loading process with STOP key
 ;   1.06, 30.03.22, changed base palette
 ;   1.07, 23.06.22, re-organized palette, fixed black hole bug
-; 
-; -------------------------------------- 
+;   1.08, 04.11.24, added automatical OddSwap
+;
+; --------------------------------------
 
 ; -------------------------------------- Equates
 
@@ -51,7 +52,7 @@
 	gpy		= $55
 	minx		= $56
 
-	numicols		= 64		; Konstante für Anzahl IFLI-Farben
+	numicols		= 64		; Konstante fï¿½r Anzahl IFLI-Farben
 
 	status		= $90
 	offx		= $b2
@@ -64,7 +65,7 @@
 	dcbuf2		= $3000
 	dcbuf3		= $4000
 
-	variables		= $3fe0		; Parameterübergabe
+	variables		= $3fe0		; Parameterï¿½bergabe
 	hori		= variables+4
 	vert		= variables+6
 	level		= variables+11
@@ -90,7 +91,7 @@
 
 	modname		= $e00a
 
-; -------------------------------------- 
+; --------------------------------------
 
 header	jmp start
 	!by $20
@@ -99,11 +100,9 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "gif: LoadSection"
-	!pet "1.07"
-	!pet "23.06.22"
+	!pet "1.08"
+	!pet "04.11.24"
 	!pet "A.Dettke/W.Kling"
-addtxt	!pet "viva D. Jansen!!"
-	!by 0
 
 ; -------------------------------------- Start module
 
@@ -252,7 +251,7 @@ pconv	pha		; R, G, or B values
 
 ; -------------------------------------- Get one color index byte from file
 
-getpal	ldy #$bd		; palette buffers (set vectors): 
+getpal	ldy #$bd		; palette buffers (set vectors):
 	sty palbuf1+1	; 1: $bd00 (red)
 	iny
 	sty palbuf2+1	; 2: $be00 (green)
@@ -370,7 +369,7 @@ grok	tay
 	lda cpref,y	; for GoDot's palette at $cd00
 	rts
 
-; -------------------------------------- 
+; --------------------------------------
 
 quad	!by 0,1,4,9,16,25,36,49,64,81,100,121,144,169,196,225
 
@@ -472,7 +471,7 @@ rgbtab	!by $01,02,01,05	; blk-blu, 16	# --- 1.02
 	!by $fb,13,13,13	; wht-lgr, 62
 	!by $fd,14,15,11	; wht-yel, 63
 
-; -------------------------------------- 
+; --------------------------------------
 
 cnibs	!by $00,$11,$22,$33
 	!by $44,$55,$66,$77
@@ -529,7 +528,7 @@ gs51	asl
 grok0	tay
 	rts
 
-; -------------------------------------- 
+; --------------------------------------
 
 rtab	!by $00,$00,$4d,$00
 	!by $9a,$00,$e7,$00
@@ -597,7 +596,8 @@ dc1	sta convmode	; set routine entries accordingly
 	jsr makeitab	; compute interleave table
 	jsr decrunch	; decrunch 6bit to 4bit
 
-je2	ldy #16		; finished, reset Balancing
+je2	jsr oddswap
+	ldy #16		; finished, reset Balancing
 	sty gr_ctr
 	sty gr_brt
 dc8	dey
@@ -707,7 +707,7 @@ gg9	jmp decdloop
 
 gg10	rts
 
-; -------------------------------------- 
+; --------------------------------------
 
 maketabs	lda tablo+1
 	cmp #>dcbuf2
@@ -778,7 +778,7 @@ gg14	lda tablo
 	sta presssize+1
 gg15	rts
 
-; -------------------------------------- 
+; --------------------------------------
 
 pdecode	ldy codesize
 	lda bitshi,y
@@ -817,7 +817,7 @@ gg17	sty tablo
 	ldy #>decodebuf
 	ldx #$30
 
-; -------------------------------------- 
+; --------------------------------------
 
 erase	sty sc_merk+1
 	ldy #0
@@ -830,7 +830,7 @@ era0	sta (sc_merk),y
 	bne era0
 	rts
 
-; -------------------------------------- 
+; --------------------------------------
 
 makebytes	lda #$00
 	sta code
@@ -857,7 +857,7 @@ gg19	dex
 	pla
 	rts
 
-; -------------------------------------- 
+; --------------------------------------
 
 issize	jsr basin
 	sta current
@@ -868,7 +868,7 @@ iss0	iny
 	stx bitcount
 	rts
 
-; -------------------------------------- 
+; --------------------------------------
 
 bitslo	!by $01,$02,$04,$08,$10,$20,$40,$80,$00,$00,$00,$00,$00
 bitshi	!by $00,$00,$00,$00,$00,$00,$00,$00,$01,$02,$04,$08,$10
@@ -881,11 +881,11 @@ eoicode	!wo 0
 presssize	!wo 0
 csizepl1	!by 0
 
-; -------------------------------------- 
+; --------------------------------------
 ;
 ;...meanwhile, in the accumulator
 ;
-; -------------------------------------- 
+; --------------------------------------
 
 render	tay		; save code byte to .Y (Index in Palette)
 
@@ -903,7 +903,7 @@ next	lda pxlcnt	; no, dec pixel counter
 s1	dec pxlcnt
 	rts
 
-; -------------------------------------- 
+; --------------------------------------
 
 newline	lda xs		; restore pixel counter
 	ldx xs+1
@@ -940,7 +940,7 @@ lread	lda lskip		; skip on the left?
 s3	dec lskip
 	rts
 
-; -------------------------------------- 
+; --------------------------------------
 
 mread	ldx bufptr	; all pixels of a line?
 	cpx px2read
@@ -956,7 +956,7 @@ mread	ldx bufptr	; all pixels of a line?
 	bne s5
 	jmp adinc
 
-; -------------------------------------- 
+; --------------------------------------
 
 rread	lda rskip		; skip on the right?
 	ora rskip+1
@@ -967,7 +967,7 @@ rread	lda rskip		; skip on the right?
 s4	dec rskip
 	rts
 
-; -------------------------------------- 
+; --------------------------------------
 
 newline1	jsr initread	; ------> init skip counters
 	dec yskip		; skip vertically?
@@ -983,7 +983,7 @@ newline1	jsr initread	; ------> init skip counters
 	beq exit		; ------> leave decode
 next1	jmp again
 
-; -------------------------------------- 
+; --------------------------------------
 
 exit	pla
 	pla
@@ -1010,7 +1010,7 @@ initread	lda xo
 	sta bufptr
 	rts
 
-; -------------------------------------- 
+; --------------------------------------
 
 crunch	jsr make423
 	lda double
@@ -1064,7 +1064,7 @@ l423	lda buf0,x	; first index: xxxxxx.. (bits 7 and 6 are empty)
 	ora bbuf
 	sta (dst),y	; store, now crunched to 3 bytes
 	iny
-	inx 
+	inx
 	dec cnt1		; until 40 bytes (1 line)
 	bne l423
 	lda dst		; add 120 to $6000+
@@ -1075,7 +1075,7 @@ l423	lda buf0,x	; first index: xxxxxx.. (bits 7 and 6 are empty)
 	inc dst+1
 s6	rts
 
-; -------------------------------------- 
+; --------------------------------------
 
 init	lda #0		; start at line #0
 	sta linenr
@@ -1109,7 +1109,7 @@ s71	sta (dst),y
 	stx dst+1		; restore address
 	rts
 
-; -------------------------------------- 
+; --------------------------------------
 
 scalex	!by 0
 scaley	!by 0
@@ -1205,7 +1205,7 @@ dc7	sec
 	sta xr+1
 	rts
 
-; -------------------------------------- 
+; --------------------------------------
 
 dc3	lda hori
 	sta breite
@@ -1255,7 +1255,7 @@ dc35	sta px2read
 	inc xo+1
 dc31	jmp dc7
 
-; -------------------------------------- 
+; --------------------------------------
 
 makeitab	ldx #0
 	ldy #0
@@ -1271,7 +1271,7 @@ mkt1	sta itab,y
 	bne mkt0
 	rts
 
-; -------------------------------------- 
+; --------------------------------------
 
 mstrt	!by 0,4,2,1
 factor	!by 8,8,4,2
@@ -1279,7 +1279,7 @@ factor	!by 8,8,4,2
 xtablo	!by $a0,$40,$e0,$80,$20,$c0,$60,$00
 xtabhi	!by $00,$01,$01,$02,$03,$03,$04,$05
 
-; -------------------------------------- 
+; --------------------------------------
 
 double	!by 0
 iflg	!by 0
@@ -1290,16 +1290,16 @@ line8	!by $20,$25,$2a,$2f,$34
 	!by $6b,$70,$75,$7a,$7f
 	!by $84,$89,$8e,$93,$98
 
-; -------------------------------------- 
+; --------------------------------------
 ;decrunch 6bit line to 4bitline
-; -------------------------------------- 
+; --------------------------------------
 
 decrunch	lda #<buf1	; from $6000+
 	ldx #>buf1
 	sta src
 	stx src+1
 
-	lda #$00		; compute address of line 
+	lda #$00		; compute address of line
 	sta linenr	; starting at #0
 
 loop00	ldx iflg
@@ -1415,7 +1415,7 @@ mv0	lda (src),y
 	bne mv0
 	rts
 
-; -------------------------------------- 
+; --------------------------------------
 
 store	lda modus
 	beq skp01
@@ -1427,6 +1427,42 @@ skp01	lda cnibs,x
 skp02	sta (dst),y
 	rts
 
-; -------------------------------------- 
+; ----------------------------------------- OddSwap
+
+oddswap	ldy #<sy_4bit	; all 4Bit
+	lda #>sy_4bit
+	sty dst
+	sta dst+1		; .y=0
+
+-	tya
+	and #4		; choose every other raster line..
+	beq +
+
+	lda (dst),y	; ...and exchange nibbles there
+	lsr
+	lsr
+	lsr
+	lsr
+	sta buffer
+	lda (dst),y
+	asl
+	asl
+	asl
+	asl
+	ora buffer
+	sta (dst),y
+
++	iny
+	bne -
+	inc dst+1		; next page
+	sty ymrk
+	jsr adinc
+	ldy ymrk
+	lda dst+1
+	cmp #>sy_bigbuffer	; until end of 4bit
+	bne -
+	rts		; finished
+
+; --------------------------------------
 
 modend	!eof
