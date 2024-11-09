@@ -2,10 +2,10 @@
 	!src "godotlib.lib"
 	*= $c000
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 ;
 ; mod..FileCopy
-; Systemmodul zur Arbeit mit Datenträgern 
+; Systemmodul zur Arbeit mit DatentrÃ¤gern
 ;
 ; 1.04, 12.09.92
 ; 1.05, 24.10.92
@@ -19,7 +19,7 @@
 ; 1.14, 13.10.20, changed: location of DSPALTE in god.main has changed
 ; 1.15, 26.03.22, bugfix: d81 dir stopped before end
 ;
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 
 ; ------------------------------------------------ Declarations
@@ -84,19 +84,19 @@ start	lda #0		; schwarzer Rahmen
 	stx adrive	; aktueller Drive: 12? (RAM)
 	cpx #12		; ### 1.08
 	bne st01
-	ldx ls_bootdrive	; dann: Bootdrive
+	ldx ls_bootdrive	; dann: Bootdrive anwÃ¤hlen
 st01	sta ls_flen
 	lda sdrive
 	bne st0
-	txa 
+	txa
 st0	sta sdrive	; Source Drive setzen
-	sta ls_showfiles	; Show all aktivieren
+	sta ls_showfiles	; "Show all" aktivieren
 	lda ddrive
 	bne st1
-	txa 
+	txa
 st1	sta ddrive	; Destination Drive setzen
 
-	ldx #<copylst	; UI ausgeben
+	ldx #<copylst	; "UI" ausgeben
 	ldy #>copylst
 	jsr gd_screen
 	jsr shddrv	; Drives zeigen
@@ -104,13 +104,13 @@ st1	sta ddrive	; Destination Drive setzen
 	ldx #0
 	ldy sdrive
 	jsr sdr0		; Source Drive: Info
-	jsr chkdrvpar	; System Dir Records 
+	jsr chkdrvpar	; System Dir Records
 
 	lda gd_modswitch
 	sta aswitch
-	jsr gd_eloop	; wait for clicks
+	jsr gd_eloop	; now wait for clicks
 
-	lda adrive	; dann: alles restaurieren
+	lda adrive	; Ende: alles restaurieren
 	sta ls_drive
 	lda aflen
 	sta ls_flen
@@ -121,10 +121,10 @@ st1	sta ddrive	; Destination Drive setzen
 	lda aswitch
 	sta gd_modswitch
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 sevquit	sec 		; leave module
-	rts 
+	rts
 
 ; ------------------------------------------------ Text Output Handler
 
@@ -144,19 +144,19 @@ settab	lda #<(tabigad)
 	sta sc_texttab
 	lda #>(tabigad)
 	sta sc_texttab+1
-	rts 
+	rts
 
 gettab	lda (sc_texttab),y
 	sta sc_screentab
-	iny 
+	iny
 	lda (sc_texttab),y
 	sta sc_screentab+1
-	iny 
+	iny
 	sty sc_merk
 	stx sc_merk+1
 	lda #0
-	tax 
-	tay 
+	tax
+	tay
 gt0	jsr gd_setpos
 	cpx #3
 	bne gt0
@@ -174,33 +174,33 @@ shddrv	ldy #2
 	lda ddrive	; select destination
 
 sh0	sty which
-	pha 
+	pha
 	ldx #0
 	stx sc_loop
 	jsr settab
 	jsr gettab
-	pla 
+	pla
 	jsr gd_xcnvdez
 	ldy #5
 	sta (sc_screentab),y; Unit-Number eintragen
-	txa 
-	dey 
+	txa
+	dey
 	sta (sc_screentab),y
 	ldy #2
 	jsr gd_xtxout1	; und anzeigen
 
-	jsr a		; Selektor-Fenster Source färben
+	jsr a		; Selektor-Fenster Source fÃ¤rben
 	ldy which
 	bne cls1
 	jsr offset	; mark active drive
 cls1	ldy #8
 
-	jsr b		; Selektor-Fenster Destination färben
+	jsr b		; Selektor-Fenster Destination fÃ¤rben
 	ldy which
 	beq cls4
 	jsr offset	; mark active drive
-cls4	clc 
-	rts 
+cls4	clc
+	rts
 
 ; ------------------------------------------------ Show Status of Source
 
@@ -210,12 +210,12 @@ sevsstat	lda sdrive
 ; ------------------------------------------------ Show Status of Destination
 
 sevdstat	lda ddrive
-sds0	tay 
+sds0	tay
 	lda ls_drive
 	sty ls_drive
-error	pha 
+error	pha
 	jsr gd_xmess	; Floppy-Status ausgeben
-	pla 
+	pla
 	sta ls_drive
 	jmp gd_spron
 
@@ -230,17 +230,17 @@ sdr3	ldy #8
 	beq sdr0
 	ldy #10
 	bne sdr0
-sdr2	iny 
+sdr2	iny
 	dec sc_merk
 	beq sdr0
 	ldy #11
 
-sdr0	tya 
+sdr0	tya
 	sta ls_drive
 	sta sdrive,x
 	jsr gd_sproff
 	sta ls_flen
-	txa 
+	txa
 	beq sdr1
 	jsr shddrv
 	jsr dirinfo
@@ -266,7 +266,7 @@ sevddrive	jsr swap
 
 sdir	lda #1
 	ldy sdrive	; Source
-sdir0	sta dspalte	; System-Indent fürs Dir-Fenster ändern
+sdir0	sta dspalte	; System-Indent fÃ¼rs Dir-Fenster Ã¤ndern
 	sty ls_drive
 	jsr prepdir
 	dec sc_zl
@@ -280,30 +280,30 @@ sdir3	lda ls_cblocks
 	sta block+$2e
 sdir1	lda #5		; System-Indent restaurieren
 	sta dspalte
-sdir2	clc 
-	rts 
+sdir2	clc
+	rts
 
 ; ------------------------------------------------ Directory of Destination
 
-ddir	lda #23		; Dirfenster Destination löschen
+ddir	lda #23		; Dirfenster Destination lÃ¶schen
 	ldy ddrive
 	bne sdir0
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
-prepdir	ldx #3		; Dirfenster Source löschen
+prepdir	ldx #3		; Dirfenster Source lÃ¶schen
 	cmp #23
 	bcc pd0
 pd1	lda ddirwin,x
 	sta sc_zl,x
-	dex 
+	dex
 	bpl pd1
 	bmi pd2
 pd0	lda sdirwin,x
 	sta sc_zl,x
-	dex 
+	dex
 	bpl pd0
-pd2	inx 
+pd2	inx
 	stx sc_loop
 	ldy #16
 	jsr gd_blank
@@ -312,10 +312,10 @@ pd2	inx
 	ldx sc_ho
 	jmp gd_fi1
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 err	pla 		; leave last routine
-	pla 
+	pla
 	jsr err8		; "ERROR" in title bar
 	jsr cnva7
 	jmp sterr		; Floppy-Status ausgeben
@@ -328,7 +328,7 @@ getdirin	lda #3		; 2 Zeichen ("$: ") ### 1.13
 
 getfilin	pha 		; .a: Anzahl Zeichen
 	jsr gd_sproff	; ### 1.12
-	pla 
+	pla
 	ldx #<dollar	; LOAD "$: " (looks for file " ", won't most likely find it)
 	ldy #>dollar
 	jsr filnam
@@ -337,11 +337,11 @@ getfilin	pha 		; .a: Anzahl Zeichen
 	ldy #0
 	jsr filpar
 	lda #0
-	tax 
+	tax
 	ldy #>dirbuffer	; in den Directory-Puffer
-	sei 
+	sei
 	jsr load		; laden bis EOF (Achtung: VICE-Bug!)
-	cli 
+	cli
 	jmp gd_spron	; ### 1.12
 
 ; ------------------------------------------------ Get Diskname and Blocks Free
@@ -361,7 +361,7 @@ filin	ldy #24		; .a: Offset auf Filenamen
 di0	lda (sc_texttab),y	; Namen holen
 	sta sc_movetab,y	; in Ausgabepuffer
 	sta sy_numbers,y	; und in den Ziffernpuffer
-	dey 
+	dey
 	bpl di0
 	jsr gd_cnvbc	; nach Petscii wandeln
 	ldy #4
@@ -370,13 +370,13 @@ di0	lda (sc_texttab),y	; Namen holen
 	jsr gd_xtxout3
 	jmp getbl		; Blocks Free aufarbeiten
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
-dirinfo	jsr getdirin	; gewählten Eintrag im Directory laden
+dirinfo	jsr getdirin	; gewÃ¤hlten Eintrag im Directory laden
 	bcs err
 	jsr dirin
 	tya 		; Offset auf Ende von Blocks-Free-String
-	pha 
+	pha
 
 	ldx #4		; Blocks Free eintragen:	### 1.09
 	ldy #7		; Source
@@ -384,22 +384,22 @@ dirinfo	jsr getdirin	; gewählten Eintrag im Directory laden
 	beq di60
 	ldy #21		; Destination
 di60	lda #32
-di6	sta sdrv,y	; zuerst: löschen
-	iny 
-	dex 
+di6	sta sdrv,y	; zuerst: lÃ¶schen
+	iny
+	dex
 	bpl di6
 
 	pla 		; dann: eintragen
-	tay 
-	dey 
+	tay
+	dey
 	ldx #11
 	lda which
 	beq di3
 	ldx #25
 di3	lda sy_numbers,y
 	sta sdrv,x
-	dex 
-	dey 
+	dex
+	dey
 	bpl di3
 	lda which
 	bne di5
@@ -415,12 +415,12 @@ b	jsr gettab
 	ldx #2
 	jmp gd_fcol
 
-; ------------------------------------------------ Highlight active Drive
+; ------------------------------------------------ Highlight active Drive Number
 
 offset	lda ls_drive	; Drivenummer minus 8 als Index
 	and #3
-	tax 
-	sec 
+	tax
+	sec
 	lda sc_vekt20
 	sbc off,x
 	sta sc_vekt20
@@ -430,12 +430,12 @@ os2	ldy #0
 	ldx #2
 	lda sc_shadow+1,x
 os3	sta (sc_vekt20),y
-	iny 
-	dex 
+	iny
+	dex
 	bne os3
-	rts 
+	rts
 
-; ------------------------------------------------ Create # of Blocks
+; ------------------------------------------------ Create # of Blocks for Display
 
 getbl	ldx blksfree
 	lda blksfree+1
@@ -445,42 +445,42 @@ cntbl	sta $62
 	lda #$37		; BASIC on
 	sta pport
 	ldx #$90
-	sec 
+	sec
 	jsr $bc49
 	jsr $bddf
 	dec pport		; BASIC off
 	ldy #6		; search delimiter	### 1.09
-di2	dey 
+di2	dey
 	lda sy_numbers,y
 	bne di2
-	rts 
+	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 cnva6	jsr sterr
 cnva7	ldy #0
 cnva4	sty ls_flen
-	clc 
-	rts 
+	clc
+	rts
 
 ; ------------------------------------------------ Event: Select a File
 
 sevselect	lda sc_merk	; Zeile, in der geklickt wurde
 	sta sc_zl
 	jsr gd_initmove	; umrechnen auf Screenadresse
-sel0	lda (sc_vekt20),y	; was dort steht umkopieren
+sel0	lda (sc_vekt20),y	; was dort steht: umkopieren
 	sta sc_movetab,y	; in den Textausgabepuffer
 	sta ls_nambuf,y	; und als Filenamen
-	iny 
+	iny
 	cpy sc_br
 	bne sel0
 sel1	dey 		; Leerzeichen hinten ausblenden
 	lda sc_movetab,y
 	cmp #32
 	beq sel1
-	iny 
+	iny
 	beq cnva4
-sel4	sty sc_br		; gleich: Filenamenslänge
+sel4	sty sc_br		; gleich: FilenamenslÃ¤nge
 	sty ls_flen2
 	lda #0
 	sta ls_nambuf,y
@@ -493,80 +493,80 @@ sel4	sty sc_br		; gleich: Filenamenslänge
 pic0	lda ls_nambuf+1,x	; "pic"? -> Koala-Name?
 	cmp pic,x
 	bne sel41		; nein
-	dex 
+	dex
 	bpl pic0
 	lda #$81		; sonst: Spades ersetzen
 	sta ls_nambuf
-	lda #32		; und Namen bis Länge 15 mit Space auffüllen
+	lda #32		; und Namen bis LÃ¤nge 15 mit Space auffÃ¼llen
 	sta ls_nambuf,y
 	ldy #15
 	sty ls_flen
-	iny 
+	iny
 
-sel41	dey 
+sel41	dey
 sel5	lda ls_nambuf,y
-	sta dollar+2,y	; Namen für Dir eintragen
+	sta dollar+2,y	; Namen fÃ¼r Dir eintragen
 	sta scratch+2,y	; bei Scratch auch gleich mit
 	sta wname,y	; und auch beim Writefile
-	dey 
+	dey
 	bpl sel5
-	clc 
-	lda ls_flen	; Namenslänge um 2 erhöhen (Dos-Kommando vorne)
+	clc
+	lda ls_flen	; NamenslÃ¤nge um 2 erhÃ¶hen (Dos-Kommando vorne)
 	adc #2
 	pha 		; merken
 
-	adc #2		; und nochmal um 2 für Writefile (",p,w")
+	adc #2		; und nochmal um 2 fÃ¼r Writefile (",p,w")
 	sta wflen
 	lda sdrive
 	sta ls_drive
 	jsr shsdrv	; Source-Drivenummer ausgeben
-	pla 
+	pla
 
 	jsr getfilin	; Dir-Eintrag f. diesen Filenamen holen
 	bcc sel63
 sel62	jmp cnva6		; bei Fehler: Diskmessage
 sel63	ldy #0
 sel61	lda filetype,y	; Filetype suchen (ab dieser Position)
-	iny 
+	iny
 	cmp #32
 	beq sel61
-	sta wtype+1	; richtigen Filetype für OPEN einsetzen
+	sta wtype+1	; richtigen Filetype fÃ¼r OPEN einsetzen
 
 	ldy #$22		; "b" von "blocks free"?
 	lda dirbuffer,y
 	cmp #$42
 	beq sel62		; dann Fehler (File nicht gefunden)
 
-sel6	iny 
+sel6	iny
 	lda dirbuffer,y
-	cmp #34		; öffnendes Anführungszeichen suchen
+	cmp #34		; Ã¶ffnendes AnfÃ¼hrungszeichen suchen
 	bne sel6
 	tya 		; Index in Dirbuffer auf den Namen setzen
 	jsr filin		; Filenamen holen
-	lda blksfree	; dann Dateilänge:
+	lda blksfree	; dann DateilÃ¤nge:
 	sta filelen
 	lda blksfree+1
 	sta filelen+1
 	ldx #4
-	lda #32		; Blocks-Anzeige löschen
+	lda #32		; Blocks-Anzeige lÃ¶schen
 sel7	sta blocks,x
-	dex 
+	dex
 	bpl sel7
-	dey 
-	ldx #4		; und Dateilänge eintragen
+	dey
+	ldx #4		; und DateilÃ¤nge eintragen
 sel8	lda sy_numbers,y
 	sta blocks,x
-	dex 
-	dey 
+	dex
+	dey
 	bpl sel8
 	ldy #3
 	ldx wflen
-sel71	dex 
-	lda wtype,y	; ",p,w" an Writefilenamen anhängen
+sel71	dex
+	lda wtype,y	; ",p,w" an Writefilenamen anhÃ¤ngen
 	sta wname,x
-	dey 
+	dey
 	bpl sel71
-sel81	ldy #10		; Dateilänge anzeigen
+sel81	ldy #10		; DateilÃ¤nge anzeigen
 	jsr gettab
 	ldy #2
 	jmp gd_xtxout1
@@ -582,10 +582,10 @@ nospace	ldy #14		; Not enough space...
 
 sevdel	ldy ls_flen
 	beq nothing
-nameit	jsr gd_sproff	; Routine wird für Rename mitverwendet
-	iny 
-	iny 
-	tya 
+nameit	jsr gd_sproff	; (Routine wird fÃ¼r Rename mitverwendet)
+	iny
+	iny
+	tya
 	ldx #<scratch	; Scratch File senden
 	ldy #>scratch
 	jsr gd_sendcom
@@ -598,15 +598,15 @@ inull	ldx #<init	; "I0" senden
 in0	lda #2
 	jsr gd_sendcom
 err9	jsr gd_xmess
-	lda ls_err2	; Rückmeldung checken
+	lda ls_err2	; RÃ¼ckmeldung checken
 	and #15
-err5	sec 
-err3	rts 
+err5	sec
+err3	rts
 
 ; ------------------------------------------------ Open Source
 
 sopen	lda #13		; 13,drive,13
-	tay 
+	tay
 	ldx sdrive
 	beq err5
 	jsr filpar
@@ -618,7 +618,7 @@ sopen	lda #13		; 13,drive,13
 ; ------------------------------------------------ Open Destination
 
 dopen	lda #12		; 12,drive,12
-	tay 
+	tay
 	ldx ddrive
 	beq err5
 	jsr filpar
@@ -628,7 +628,7 @@ dopen	lda #12		; 12,drive,12
 op0	jsr filnam
 	jmp copen
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 err400	jmp err40		; Err on Src
 err410	jmp err41		; Err on Dest
@@ -640,15 +640,16 @@ sevmove	lda #$80		; set flag for Move, then Copy:
 
 ; ------------------------------------------------ Event: Copy a File
 
-sevcopy	ldx ls_flen
+sevcopy	ldx ls_flen	; kein File ausgewÃ¤hlt?
 	beq nothing
-	sec 
+	sec		; doch, passt es aufs Ziellaufwerk?
 	lda disklen
 	sbc filelen
 	lda disklen+1
 	sbc filelen+1
-	bcc nospace
-	jsr gd_sproff
+	bcc nospace	; nein
+
+	jsr gd_sproff	; ja, Source-Drive Ã¶ffnen...
 	lda #<(dollar+2)
 	sta ls_vekta8
 	lda #>(dollar+2)
@@ -659,87 +660,88 @@ sevcopy	ldx ls_flen
 	jsr sopen
 	bcs err400
 
-	lda ddrive
+	lda ddrive	; ...und Destination-Drive auch
 	sta ls_drive
-	jsr check41	; 1541: force job to ok! (m-w 0 0 1 1)
-	lda shift		; Shift/CTRL/C= gedrückt?
+	jsr check41	; zuerst: force 1541 job to ok! (m-w 0 0 1 1)
+	lda shift		; check: Shift/CTRL/C= gedrÃ¼ckt?
 	beq sco1
 	lda ls_flen
-	pha 
-	jsr sevdel	; dann on Destination löschen
-	pla 
+	pha
+	jsr sevdel	; dann (vorsichtshalber) File on Destination lÃ¶schen
+	pla
 	sta ls_flen
 	jsr gd_sproff
-sco1	jsr inull
+sco1	jsr inull		; (init dst)
 	bne err410
-	jsr dopen
-	jsr err9
+	jsr dopen		; open dst
+	jsr err9		; Error?
 	beq sco02
 	jmp err42
-sco02	lda movefl
+sco02	lda movefl	; nein, lÃ¤uft MOVE (erst kopieren dann auf SRC lÃ¶schen)?
 	beq sco03
 	ldx #11
 	!by $2c
 sco03	ldx #0
-	asl 
+	asl
 	sta blcnt
 	sta blcnt+1
-	jsr tcopy
-	lda filelen+1
+	jsr tcopy		; Gauge Activity vorbereiten
+	lda filelen+1	; ZÃ¤hler fÃ¼r Gauge berechnen
 	ldx filelen
 	jsr steps
-	jsr gd_clrms
+	jsr gd_clrms	; Ausgabezeile lÃ¶schen
 
-scloop	jsr action	; Gauge Activity
-	ldx #13
+scloop	jsr action	; Kopieren: Gauge Activity (FÃ¼llstandsanzeige)
+	ldx #13		; einen Block holen (Source)
 	jsr chkin
 	ldx #0
-scl0	jsr basin		; einen Block holen (Source)
+scl0	jsr basin
 	sta buffer,x
-	inx 
+	inx
 	bit status
 	bvs scl2
-	txa 
+	txa
 	bne scl0
 scl2	stx xcnt
 	jsr clrch
-	lda status
+	lda status	; evtl. Fehler merken
 	sta stmerk
-	ldx #12
+	ldx #12		; einen Block schreiben (Destination)
 	jsr ckout
 	ldx #0
-scl1	lda buffer,x	; einen Block schreiben (Destination)
+scl1	lda buffer,x
 	jsr ciout
-	inx 
+	inx
 	cpx xcnt
 	bne scl1
 	jsr clrch
-	lda status	; Status ok?
-	ora stmerk
-	beq scloop	; dann nächster Block
+	lda status	; Fehler?
+	ora stmerk	; (schon beim Lesen?)
+	beq scloop	; nein, dann nÃ¤chster Block
 
-	lda sdrive
+	lda sdrive	; Files (12, 13 und 15) schlieÃŸen
 	sta ls_drive
 	jsr err6
-	jsr gd_sproff
-	lda movefl	; Move?
+
+	jsr gd_sproff	; lÃ¤uft Move?
+	lda movefl
 	beq scl3
-	jsr sevdel	; dann Source löschen
+	jsr sevdel	; ja, dann noch Source lÃ¶schen
 scl3	ldx #1
 	ldy ddrive
-	jsr dirdest
-	inx 
+	jsr dirdest	; dann Ziel-Directory ausgeben und...
+	inx
 	stx movefl
 	stx ls_flen
-	jsr check41	; 1541: again Job-Reset 
+	jsr check41	; again: 1541-Force-Job-to-ok (sonst HÃ¤nger!)
 
-err6	lda #12
+err6	lda #12		; Drives endgÃ¼ltig schlieÃŸen
 	jsr close
 	lda #13
 	jsr close
 	lda #15
 	jsr close
-	jsr gd_xmess	; Floppy-Meldung
+	jsr gd_xmess	; dabei Floppy-Meldung ausgeben
 	jmp gd_spron
 
 ; ------------------------------------------------ Errors
@@ -749,11 +751,11 @@ err40	lda #16		; Error on Source
 err41	lda #18		; Error on Destination
 	!by $2c
 err42	lda #20		; Error opening Destination
-	pha 
+	pha
 	jsr err6
 	jsr err8
-	pla 
-	tay 
+	pla
+	tay
 err7	asl movefl	; Moveflag aus
 	jsr settab
 	jsr gettab
@@ -765,7 +767,7 @@ err7	asl movefl	; Moveflag aus
 err8	ldx #4
 er80	lda ermess,x	; "ERROR" in Titel ausgeben
 	sta blocks,x
-	dex 
+	dex
 	bpl er80
 	ldy #10
 	bne err7
@@ -789,27 +791,27 @@ destud	sta dspalte
 dn	ldy block+$2e
 	bne sdw4
 	ldy #2
-sdw4	iny 
-	tya 
+sdw4	iny
+	tya
 	!by $2c
 up	lda #1
-	pha 
+	pha
 
-	lda dspalte	; System-Indent
-	jsr prepdir
-	pla 
-	tay 
+	lda dspalte	; System-Indent fÃ¼r Listbox holen
+	jsr prepdir	; Listbox vorbereiten
+	pla
+	tay
 sdw5	ldx block
-	dex 
+	dex
 	bne sdw2
 	ldy block+$2f
-	inx 
+	inx
 	sty block+1
 	bne sdw11
-sdw0	dex 
+sdw0	dex
 	bne sdw2
-	inx 
-sdw2	dey 
+	inx
+sdw2	dey
 	bne sdw0
 sdw1	ldy block,x
 sdw11	lda fftrack,x	; ### 1.11
@@ -818,9 +820,9 @@ sdw11	lda fftrack,x	; ### 1.11
 	ldx #4
 	stx sc_zl
 	ldx #1
-	jsr dir4		; System DIrectory
+	jsr dir4		; System Directory
 	jsr svftrack
-	jmp sdir3		; restore system dir (dspalte)
+	jmp sdir3		; restore system dir (und dspalte)
 
 ; ------------------------------------------------ Directory of Destination
 
@@ -835,11 +837,11 @@ dirdest	jsr swap		; swap dir records
 	sta disklen+1
 	ldx block+$2e
 	beq sud1
-	dex 
+	dex
 	beq sud1
-	dex 
+	dex
 	bne sud2
-sud1	inx 
+sud1	inx
 sud2	stx block+$2e
 	lda #5
 	bne sud3
@@ -862,7 +864,7 @@ sud3	sta merkzl
 sevfinput	lda #32
 	ldy ls_flen	; Filename vorhanden?
 	beq fierr		; nein, nothing selected
-	iny 
+	iny
 	sta (sc_vekt20),y
 	ldy #0
 	sta (sc_vekt20),y
@@ -870,34 +872,34 @@ ip0	inc sc_vekt20
 	bne ip01
 	inc sc_vekt20+1
 ip01	lda sc_br
-	pha 
+	pha
 	lda #17
 	sta sc_br
 	jsr gd_xinput	; System-Input
-	pla 
+	pla
 	sta sc_br
 	lda sc_vekt20
 	bne ip02
 	dec sc_vekt20+1
 ip02	dec sc_vekt20
 	ldy ls_len
-	dey 
+	dey
 	beq fierr
 	bmi fierr
-	tya 
+	tya
 	sta ls_flen
-	clc 
+	clc
 	adc #4
 	sta wflen
 ip4	ldy #34
-ip1	iny 
+ip1	iny
 	lda dirbuffer,y
 	cmp #34
 	bne ip1
 	ldx #$ff
-ip2	inx 
-	iny 
-	lda ls_nambuf,x	; überall eintragen
+ip2	inx
+	iny
+	lda ls_nambuf,x	; Eingabe Ã¼berall eintragen
 	sta dirbuffer,y
 	sta dollar+2,x
 	sta scratch+2,x
@@ -907,18 +909,18 @@ ip2	inx
 	lda #34
 	sta dirbuffer,y
 	lda #32
-ip6	iny 
+ip6	iny
 	sta dirbuffer,y
 	cpy #56
 	bne ip6
 	ldy #34
-	jmp sel6		; anzeigen
+	jmp sel6		; und anzeigen
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 fierr	jmp nothing
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 sterr	lda ls_drive
 	jmp error
@@ -928,9 +930,9 @@ sterr	lda ls_drive
 sevrename	ldy ls_flen
 	beq fierr
 	sty alen
-rn0	lda scratch+1,y	; Namen umtragen für Rename
+rn0	lda scratch+1,y	; Namen umtragen fÃ¼r Rename
 	sta rename,y
-	dey 
+	dey
 	bne rn0
 	inc alen
 	jsr settab
@@ -938,27 +940,27 @@ rn0	lda scratch+1,y	; Namen umtragen für Rename
 	jsr gettab
 	ldy #12
 	jsr setptr	; Mauszeiger an die richtige Stelle setzen
-	jsr sevfinput	; neuen Namen holen
-	lda sy_tbuffer	; Stop?
+	jsr sevfinput	; neuen Namen eingeben
+	lda sy_tbuffer	; Stop gedrÃ¼ckt? (Abbruch)
 	cmp #3
 	beq sterr
 	ldy ls_flen
 	beq fierr
 	ldx #0
 rn1	lda rename,x
-	sta scratch+2,y	; eintragen
-	iny 
-	inx 
+	sta scratch+2,y	; nein, eintragen
+	iny
+	inx
 	cpx alen
 	bne rn1
-	lda #$52		; "r" (Rename)
+	lda #$52		; "r" (fÃ¼r "Rename" in String eintragen)
 	sta scratch
-	clc 
+	clc
 	lda alen
 	adc ls_flen
-	tay 
+	tay
 	jsr nameit	; rename file senden
-	lda #$53		; "s" (Scratch)
+	lda #$53		; "s" (fÃ¼r "Scratch" in String rekonstruieren)
 	sta scratch
 	jsr cnva7
 	lda #5
@@ -972,33 +974,34 @@ sevdos	jsr gd_clrms
 	ldy #188
 	jsr setptr	; Mauszeiger setzen
 	lda ls_flen
-	pha 
+	pha
 	jsr gd_xinput	; System-Input
-	pla 
+	pla
 	sta ls_flen
 	ldy ls_len
-	dey 
+	dey
 	beq fierr0
 	bmi fierr0
 	jsr gd_sproff
-	tya 
+	tya
 	ldx #<ls_nambuf	; Kommando senden
 	ldy #>ls_nambuf
 	jsr gd_sendcom
 	jmp cnva6		; Floppy-Meldung
+
 fierr0	jmp fierr		; Error: Nothing selected
 
 ; ------------------------------------------------ Mauzeiger setzen
 
-setptr	tya 
-	clc 
+setptr	tya
+	clc
 	adc sy_soffy
 	sta $d003
-	tay 
-	dey 
-	dey 
+	tay
+	dey
+	dey
 	sty $d001
-	rts 
+	rts
 
 ; ------------------------------------------------ Screenlist
 
@@ -1101,14 +1104,14 @@ merkzl	!by 0
 afiles	!by 0
 movefl	!by 0
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 svftrack	ldx #64
 cdp2	lda ftrack-1,x	; Chain of Tracks in Dir Window
 	sta fftrack-1,x	; save it
-	dex 
+	dex
 	bne cdp2
-	rts 
+	rts
 
 ; ------------------------------------------------ Get System Dir Sector Chain
 
@@ -1120,7 +1123,7 @@ chkdrvpar	ldx #192		; save all current bytes
 	ldx #31
 cdp1	lda block,x
 	sta block+$40,x
-	dex 
+	dex
 	bpl cdp1
 	lda ls_cblocks
 	sta block+$2e	; ### 1.15
@@ -1131,27 +1134,27 @@ cdp1	lda block,x
 	lda ls_track
 	sta block+$2d
 	sta block+$8d	; ...####
-cdp0	rts 
+cdp0	rts
 
 ; ------------------------------------------------ Swap Chain for Destination Drive
 
 swap	ldx #31
 sw0	lda block,x
-	tay 
+	tay
 	lda block+$40,x
 	sta block,x
-	tya 
+	tya
 	sta block+$40,x
 	lda fftrack,x	; ### 1.11
-	tay 
+	tay
 	lda fftrack+$40,x
 	sta fftrack,x
-	tya 
+	tya
 	sta fftrack+$40,x
-	dex 
+	dex
 	bpl sw0
-	clc 
-	rts 
+	clc
+	rts
 
 ; ------------------------------------------------ Compute Gauge Counter for Copy
 
@@ -1167,12 +1170,12 @@ steps	sta $62		; ### 1.06
 	ror $63
 	lda $63
 	jsr gd_xcnvdez
-	inx 
-	txa 
+	inx
+	txa
 	and #15
 	sta cntwert
 	sta counter
-chk0	rts 
+chk0	rts
 
 ; ------------------------------------------------ Patch 1541 Job Bug
 
@@ -1196,11 +1199,11 @@ tcopy	ldy #0
 tc0	lda txt,x
 	beq clrmess
 	sta message,y
-	inx 
-	iny 
+	inx
+	iny
 	bne tc0
 
-action	inc blcnt		; übertragene Blöcke zählen
+action	inc blcnt		; Ã¼bertragene BlÃ¶cke zÃ¤hlen
 	bne ac0
 	inc blcnt+1
 ac0	dec counter	; Gauge counter
@@ -1210,23 +1213,23 @@ ac0	dec counter	; Gauge counter
 	sta counter
 	ldy #3
 ac2	lda sc_descriptor,y	; Screen descriptor retten
-	pha 
-	dey 
+	pha
+	dey
 	bpl ac2
 	ldx blcnt		; Block Counter in Ziffern wandeln
 	lda blcnt+1
 	jsr cntbl
 	ldx #9
-	dey 
+	dey
 ac1	lda sy_numbers,y	; und in Message eintragen
 	sta message,x
-	dex 
-	dey 
+	dex
+	dey
 	bpl ac1
 	ldy #0
-ac4	pla 
+ac4	pla
 	sta sc_descriptor,y	; Screen descriptor rekonstruieren
-	iny 
+	iny
 	cpy #4
 	bne ac4
 	ldy offy
@@ -1234,26 +1237,26 @@ ac4	pla
 	bne +
 	jsr clrmess
 +	ldx offx
-	lda filltab,x	; Gauge-Balken verlängern
+	lda filltab,x	; Gauge-Balken verlÃ¤ngern
 	sta mess,y
 	jsr messout	; Gauge ausgeben
-	dec offx		; Zähler ggf. resetten
+	dec offx		; ZÃ¤hler ggf. resetten
 	bpl ld4
 	inc offy
 	lda #7
 	sta offx
-ld4	rts 
+ld4	rts
 
 clrmess	ldx #20
 	lda #32
 cl0	sta mess,x
-	dex 
+	dex
 	bpl cl0
 	ldy #0
 	ldx #7
 	sty offy
 	stx offx
-	rts 
+	rts
 
 filltab	!by 160,93,103,127,126,124,105,109
 
@@ -1267,10 +1270,10 @@ message	!fill 11,32
 mess	!fill 21,32
 	!by $00
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 modend	!eof
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 
