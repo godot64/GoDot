@@ -1,0 +1,1466 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+;	!zone godot
+
+; -----------------------------------------
+;
+;  mod.QRCodeGen
+;   Module to generate QR-Codes from a text input
+;
+;  All code about rendering a QRCode by Martin Gutenbrunner
+;  aka Goodwell, https://github.com/The8BitTheory
+;
+;  1.00, 30.10.24, first release
+;  1.01, 31.10.24, requester changed
+;  1.02, 01.11.24, minor bugfix
+;  1.03, 02.11.24, added URLs w/ length up to 76 chars (2 less than max)
+;  1.04, 03.11.24, added recognition of "_" and "ü" in URL string
+;
+; -----------------------------------------
+
+; ----------------------------------------- Equates
+
+	pport		= $01
+
+	next		= $30
+	z_temp		= $31
+	m_divisors	= $32	; /33
+	z_location	= $34	; /35
+	z_location2	= $36	; /37
+	z_counter1	= $38	; /39
+	z_counter2	= $3a	; $3b
+
+	char		= $3c	; /3d
+	dst		= $3e	; /3f
+	chrset		= $40	; /41
+	hinten		= $42
+	vorne		= $43
+	byte		= $44
+	length		= $45
+
+	video		= $0288
+	patch		= $17af
+	display		= $2000
+	encoding		= $2400
+	data		= encoding+80
+
+; ----------------------------------------- Header
+
+header	jmp start
+	!by $20		; = this is a modifier
+	!by 0
+	!by 0
+	!wo modend
+	!wo 0
+	!tx "QRCode Generator"
+	!tx "1.04"
+	!tx "03.11.24"
+	!tx "Goodwell/AD	 "
+
+; ----------------------------------------- Main
+
+start	lda gd_modswitch
+	pha
+	ldx gaugelst+3	; save width of input gadget (to have a comparison)
+	dex
+	dex
+	stx width
+	lda sc_screenvek	; save pointer to mainlst
+	ldx sc_screenvek+1
+	sta mainlst
+	stx mainlst+1
+	ldx #0		; init input
+	stx len
+	stx length
+	jsr screen	; returns .x=0
+	stx next
+	ldx #$0f
+	stx hinten	; preset colors
+	ldx #$f0
+	stx vorne
+	jsr gd_eloop	; now wait for gadget clicks
+	pla		; you only get here after SEC before RTS in ELOOP
+	sta gd_modswitch
+
+; ----------------------------------------- Event: Leave Module
+
+evleave	ldx #4		; restore display
+	lda #$13
+	jsr setvideo
++	sec		; leave the modifier
+	rts		; (CLC would let you stay here)
+
+; ----------------------------------------- Event: Input a URL
+
+evinput	ldx #<gaugelst	; out input gadget
+	ldy #>gaugelst
+	jsr gd_screen
+	jsr focus		; set mouse pointer to gadget
+	ldx #<encoding
+	ldy #>encoding
+	stx dst
+	sty dst+1
+
+--	ldx #<gaugelst	; now set focus on input gadget
+	ldy #>gaugelst
+	jsr gd_evntsuch
+	jsr eventinp
+	ldy ls_len	; check if at end of 1st line (line 22)
+	cpy #39
+	bne +
+	lda sc_zl		; yes, already in 2nd line?
+	cmp #23
+	beq +		; yes, leave
+-	lda ls_nambuf,y	; no, save 1st line to encode buffer
+	sta (dst),y
+	dey
+	bpl -
+	lda #38		; add offset for 2nd line
+	sta dst
+	jsr refocus	; and open 2nd line input (at line 23)
+	bne --		; uncond. branch
+
++	sec
+	rts
+
+eventinp	jmp (sy_event)	; if found (always): start Event Input:
+
+; -----------------------------------------
+
+input	stx sc_loop	; care for text mode
+	jsr gd_xinput
+	ldy ls_len	; anything typed in?
+	dey
+	sty len		; no, in line 2, now transport url to render buffer
+	beq +		; no, leave
+	bmi +
+
+	cpy #38		; at end of line 1?
+	beq ++		; yes, leave input
+	lda sc_zl
+	cmp #23		; already in 2nd line?
+	bne ip0
+	clc		; yes, add offset to len of 2nd line
+	tya
+	adc #38
+	tay
+ip0	sty length
+	ldy len
+-	lda ls_nambuf,y
+	sta (dst),y
+	dey
+	bpl -
+	jsr genqr		; and render, first to text screen, then to 4Bit
+
++	jsr evleave	; end input event
+	ldx mainlst	; show GoDot's main screen
+	ldy mainlst+1
+	jsr gd_screen
+
+	jsr screen	; and the QRCodeGen requester on it
+	ldy len		; again: any URL typed in?
+	bne +
+	clc		; no  (so stay in requester)
+	!by $24
++	sec		; yes (so leave mod.QRCodeGen)
+++	rts
+
+; -----------------------------------------
+; ----------------------------------------- Event: Generate QRCode
+; -----------------------------------------
+; here: first part of Goodwell's code
+
+genqr	jsr init
+	jsr p2a
+	jsr bytes_to_stream
+	jsr calc_xor_masks
+	jsr rs
+	jsr write_patterns
+	jsr stream_to_module
+	lda #11		; reset video
+	sta $23f8
+	sta $23f9
+	lda #$85
+	ldx #$20
+	jsr setvideo
+	lda size		; render qrcode to text screen
+	ldx #<data
+	ldy #>data
+	jsr render
+	jsr cnvscreen	; and from there to 4Bit
+	jsr tog2hires	; propagate to GoDot:
+	sta gr_redisp	; set re-render GoDot's 4bit flag
+	jsr setinfo	; create image info
+	sec
+	rts
+
+; -----------------------------------------
+; ----------------------------------------- Activate Input Gadget
+; -----------------------------------------
+; GoDot again:
+
+refocus	ldx #$ed
+	!by $2c
+focus	ldx #$e5
+	lda #$dd		; gadget focus is derived from mouse pointer position
+	sta spritex	; so set the mouse pointer to the input gadget
+	sta spritex-2
+	stx spritey
+	dex
+	dex
+	stx spritey-2
+-	rts
+
+; ----------------------------------------- Set Video
+
+setvideo	ldy len		; anything typed in?
+	beq -		; if not, don't reset screen, not necessary
+	stx video		; location of video in .x (hi)
+sv2	ldx #0		; pen: black
+	stx $0286
+	sta $d018		; location of charset in .a
+	jmp $e544
+
+; ----------------------------------------- Screen Output
+
+screen	ldx #<screenlst	; build QRCodeGen requester
+	ldy #>screenlst
+	jmp gd_screen	; returns .x=0
+
+; ----------------------------------------- Set GoDot Graphics Render Mode
+
+tog2hires	lda #2		; 2 für Umschalten auf Hiresmodus in main
+	sta gr_cmode
+	lda #16
+	sta sc_br
+	lda #$4c		; self modifying god.main
+	sta patch
+	jsr ev_sccont	; Modus setzen und Anzeige anpassen
+	lda #$20		; unpatch
+	sta patch
+	rts
+
+; ----------------------------------------- Data
+
+size	!byte 0   ;size of one axis-length of the final matrix
+contentLength
+	!byte 0
+eccLength	!byte 0   ;nr of ecc bytes to generate
+streamLength
+	!byte 0
+matrixSize
+	!word 0   ;size of the matrix in modules (1 byte per module)
+rsDivisorOffset
+	!byte 0
+m_xpos	!byte 0
+m_ypos	!byte 0
+mainlst	!wo 0
+len	!by 0
+width	!by 0
+
+; ----------------------------------------- Screenlist for QRCodeGen
+
+screenlst	!by 0		; if $93: clear screen
+	!by 8,11		; position (row,col)
+	!by 18,5		; dimension (width,height)
+	!by $91		; gadget type (see "Inside GoDot", pg 68)
+	!wo 0		; kein Event
+	!scr "QRCode Generator",0
+
+	!by 10,11,11,3	; Gadget, um die Eingabe zu aktivieren
+	!by $c7
+	!wo evinput	; Event -> Eingaberoutine
+	!scr "Enter URL",0
+
+	!by 10,22,7,3,$cd	; Exit-Gadget
+	!wo evleave	; Event -> Leave Requester
+	!scr "Leave",0
+
+	!by $80		; end of screen list
+
+
+; ----------------------------------------- Screenlist for Gauge
+
+gaugelst	!by 0
+	!by 21,0,40,3,$c0
+	!wo input		; Event -> GoDot's Input
+	!fi 38,32		; 38 chars for url, line 1
+	!by 0
+	!by 22,0,40,3,$c0
+	!wo input		; Event -> GoDot's Input
+	!fi 38,32		; 38 chars for url, line 2
+	!by 0
+	!by 21,0,40,4,$02	; hide input gadgets
+	!wo 0
+	!by $80
+
+; ----------------------------------------- Image Information Handler
+; sets "Image" name and info
+
+setinfo	jsr setname
+	jsr setloader
+	jsr setmode
+	jmp setdata
+
+setname	lda #0
+	ldx #<ls_picname	; publish filename to GoDot
+	ldy #>ls_picname
+	bne si3
+	bne si3
+setloader	lda #17
+	ldx #<ls_iloader
+	ldy #>ls_iloader
+	bne si3
+setmode	lda #25
+	ldx #<ls_imode
+	ldy #>ls_imode
+	bne si3
+setdata	lda #33
+	ldx #<ls_idrive
+	ldy #>ls_idrive
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!scr "GoDotQRCode     "
+	!by 0
+	!scr "QR-Code@"
+modetx	!scr "320x200@"
+datatype	!scr "Color@"
+
+; -----------------------------------------
+; ----------------------------------------- Generate QRCodes
+; -----------------------------------------
+; from here: code by Goodwell, comments stripped
+; commented source on https://github.com/The8BitTheory/qr128
+
+; ----------------------------------------- Initialization
+
+init	ldx #<encoding	; url at $2400
+	ldy #>encoding
+	lda length
+	sta contentLength	; len max 79
+	stx z_location	; set address $2400
+	sty z_location+1
+	ldx #<data	; set output address to $2450
+	stx z_location2
+	ldx #>data
+	stx z_location2+1
+
+	cmp #19		; check len of url
+	bcs +
+	lda #21		; set parameters accordingly
+	sta size
+	lda #<441
+	sta matrixSize
+	lda #>441
+	sta matrixSize+1
+	lda #7
+	sta eccLength
+	lda #26
+	sta streamLength
+	lda #0
+	sta rsDivisorOffset
+
+clearbuf	ldy #249
+	lda #0
+-	sta data,y
+	sta data+250,y
+	sta data+500,y
+	sta data+750,y
+	sta data+1000,y
+	dey
+	bne -
+	sta data,y
+	rts
+
++	cmp #34
+	bcs +
+	lda #25
+	sta size
+	lda #<625
+	sta matrixSize
+	lda #>625
+	sta matrixSize+1
+	lda #10
+	sta eccLength
+	lda #44
+	sta streamLength
+	lda #7
+	sta rsDivisorOffset
+	bne clearbuf
+
++	cmp #55
+	bcs +
+	lda #29
+	sta size
+	lda #<841
+	sta matrixSize
+	lda #>841
+	sta matrixSize+1
+	lda #15
+	sta eccLength
+	lda #70
+	sta streamLength
+	lda #17
+	sta rsDivisorOffset
+-	bne clearbuf
+
++	cmp #80
+	bcs clearbuf
+	lda #33
+	sta size
+	lda #<1089
+	sta matrixSize
+	lda #>1089
+	sta matrixSize+1
+	lda #20
+	sta eccLength
+	lda #100
+	sta streamLength
+	lda #32
+	sta rsDivisorOffset
+	bne -
+
+; ----------------------------------------- Convert PETSCII to ASCII
+
+p2a	ldy #0
+.loop	lda (z_location),y
+	bmi +
+	cmp #$5f
+	beq ++
+	cmp #$40
+	bcc ++
+	ora #$20
++	and #$3f
+	ora #$40
+++	sta (z_location2),y
+	iny
+	cpy contentLength
+	bne .loop
+	rts
+
+; ----------------------------------------- Common Methods
+
+set_location_datastream
+	clc
+	lda #<data
+	adc matrixSize
+	sta z_location
+	lda #>data
+	adc matrixSize+1
+	sta z_location+1
+	rts
+
+set_location_to_data
+	lda #<data
+	sta z_location
+	lda #>data
+	sta z_location+1
+	rts
+
+inc_line
+	lda z_location
+	clc
+	adc size
+	sta z_location
+	bcc +
+	inc z_location+1
++	rts
+
+dec_line
+	lda z_location
+	sec
+	sbc size
+	sta z_location
+	bcs +
+	dec z_location+1
++	rts
+
+dec_location_by_1
+	lda z_location
+	bne +
+	dec z_location+1
++	dec z_location
+	rts
+
+; ----------------------------------------- Masks
+
+!zone masks
+
+calc_xor_masks
+	jsr set_location_to_data
+	ldx size
+	stx z_temp
+--	lda #128
+	ldy #0
+-	sta (z_location),y
+	iny
+	cpy size
+	bne -
+	dex
+	beq ++
+	jsr inc_line
+	bne --		; uncond. branch
+
+++	jsr set_location_to_data
+	stx m_xpos
+	stx m_ypos
+-	lda m_ypos
+	and #1
+	bne +
+	lda #2
+	jsr .write_to_mask
++	inc m_xpos
+	lda m_xpos
+	cmp size
+	bne -
+
+	lda #0
+	sta m_xpos
+	inc m_ypos	; increase row
+	lda m_ypos
+	cmp size		; if passed last row, we're done
+	beq .draw_format_patterns
+	jsr inc_line	; last row not passed
+	bne -		; uncond. branch
+
+; -----------------------------------------
+
+.write_to_mask
+	ldy m_xpos
+	ora (z_location),y
+	sta (z_location),y
+	rts
+
+; -----------------------------------------
+
+.draw_format_patterns
+	jsr set_location_to_data
+	ldy #8
+-	jsr inc_line
+	dey
+	bne -
+
+	jsr .clean_format_modules_hor
+	jsr .set_pattern_100
+	jsr .write_format_modules_hor
+
+	jsr .clean_format_modules_vert
+	jsr .set_pattern_100
+	jmp .write_format_modules_vert
+
+; -----------------------------------------
+
+.set_pattern_100
+	lda .pattern100
+	sta z_location2
+	lda .pattern100+1
+	sta z_location2+1
+	lda #64
+	sta z_temp
+	lda .bit1
+	sta .m_bit
+	rts
+
+; -----------------------------------------
+
+.write_format_modules_hor
+	ldy #0
+-	jsr .write_format_module
+	iny
+	jsr .shift_temp_right
+	cmp #1
+	bne +
+	iny
+	bne -
++	cmp #0
+	bne -
+
+	jsr .set_y_to_right_minus_8
+	lda #128
+	sta z_temp
+	lda z_location2+1
+	sta z_location2
+-	jsr .write_format_module
+	iny
+	jsr .shift_temp_right
+	bne -
+	rts
+
+; -----------------------------------------
+
+.set_y_to_right_minus_8
+	sec
+	lda size
+	sbc #8
+	tay
+	rts
+
+; -----------------------------------------
+
+.shift_temp_right
+	lsr z_temp
+	lda z_temp
+	rts
+
+.write_format_module
+	lda z_location2
+	bit z_temp
+	beq +
+	lda .m_bit	;bit 6 set means data-module. bit 0 set means dark module
+	!by $2c
++	lda #$40
+	ora (z_location),y	; load current value of matrix-field into Acc
+	sta (z_location),y
+	rts
+
+; -----------------------------------------
+
+.clean_format_modules_hor
+	ldy #0
+- 	lda #0
+	sta (z_location),y
+	iny
+	cpy #6
+	bne +		; only when .y=6:
+	lda #1
+	sta (z_location),y
+	iny
+	bne -
++	cpy #8
+	bne -		; only when .y=8:
+	jsr .set_y_to_right_minus_8
+-	lda #0
+	sta (z_location),y
+	iny
+	cpy size
+	bne -
+	rts
+
+; -----------------------------------------
+
+.clean_format_modules_vert
+	jsr set_location_datastream
+	jsr dec_line
+	jsr .add_8_to_location
+	ldy #7
+	ldx #0
+-	lda #0
+	sta (z_location,x)
+	jsr dec_line
+	dey
+	bne -
+	lda #1
+	sta (z_location,x)
+	jsr set_location_to_data
+	jsr .add_8_to_location
+	ldy #9
+-	lda #0
+	sta (z_location,x)
+	jsr inc_line
+	dey
+	cpy #3
+	bne +		; only when .y=3:
+	lda #1
+	sta (z_location,x)
+	jsr inc_line
+	dey
+	bne -
++	cpy #0
+	bne -
+	rts
+
+; -----------------------------------------
+
+.write_format_modules_vert
+	jsr set_location_datastream
+	jsr dec_line
+	jsr .add_8_to_location
+	ldy #0
+-	jsr .write_format_module
+	jsr dec_line
+	jsr .shift_temp_right
+	bne -
+	jsr set_location_to_data
+	jsr .add_8_to_location
+	ldy #9
+	lda #1
+	sta z_temp
+	lda z_location2+1
+	sta z_location2
+-	sty z_counter1
+	ldy #0
+	jsr .write_format_module
+	ldy z_counter1
+	jsr inc_line
+	asl z_temp
+	dey
+	cpy #3
+	bne +
+	jsr inc_line	; only whem .y=3:
+	dey
+	bne -
++	cpy #0
+	bne -
+	rts
+
+; -----------------------------------------
+
+.add_8_to_location
+	clc
+	lda z_location
+	adc #8
+	sta z_location
+	bcc +
+	inc z_location+1
++	rts
+
+; -----------------------------------------
+
+.pattern100
+	!byte %01110010, %11110011
+.bit1	!byte %01000010
+.m_bit	!byte 0
+
+; -----------------------------------------
+
+bytes_to_stream
+	jsr set_location_datastream
+	ldy #0
+	sty z_counter1
+	sty z_counter2
+	lda #64
+	sta z_temp
+	sta (z_location),y
+	lda contentLength
+	jsr writeToStream
+	inc contentLength
+-	ldy z_counter2
+	lda (z_location2),y
+	jsr writeToStream
+	cpy contentLength
+	beq +
+	inc z_counter2
+	bne -
++	ldy z_counter1
+	sta (z_location),y
+	iny
+	sty z_counter1
+	dec contentLength
+	sec
+	lda streamLength
+	sbc contentLength
+	sbc eccLength
+	sbc #2
+	beq +
+	sta z_counter2
+-	lda #$ec
+	sta (z_location),y
+	iny
+	dec z_counter2
+	beq +
+	lda #$11
+	sta (z_location),y
+	iny
+	dec z_counter2
+	bne -
++	lda #0
+	sta (z_location),y
+	iny
+	sta z_counter1
+	rts
+
+; -----------------------------------------
+
+writeToStream
+	pha
+	lsr
+	lsr
+	lsr
+	lsr
+	ora z_temp
+	ldy z_counter1
+	sta (z_location),y
+	iny
+	sty z_counter1
+	pla
+	asl
+	asl
+	asl
+	asl
+	sta z_temp
+	rts
+
+; ----------------------------------------- Reed-Solomon-Error
+
+!zone reedSolomon
+
+rs	jsr set_location_datastream
+	clc
+	lda z_location
+	adc streamLength
+	sta z_location2
+	lda z_location+1
+	adc #0
+	sta z_location2+1
+	sec
+	lda z_location2
+	sbc eccLength
+	sta z_location2
+	bcs +
+	dec z_location2+1
++	ldy eccLength
+	lda #0
+-	sta (z_location2),y
+	dey
+	bpl -
+	clc
+	lda #<rsdivisors
+	adc rsDivisorOffset
+	sta m_divisors
+	lda #>rsdivisors
+	adc #0
+	sta m_divisors+1
+	sec
+	lda streamLength
+	sbc eccLength
+	sta z_counter2
+	ldy #0
+	sty z_counter1
+
+rsremainder
+	ldy z_counter1
+	lda (z_location),y
+	ldx #0
+	eor (z_location2,x)
+	sta .rsfactor
+	ldy #0
+	ldx eccLength
+	dex
+-	iny
+	lda (z_location2),y
+	dey
+	sta (z_location2),y
+	iny
+	dex
+	bpl -
+	lda #0
+	sta (z_location2),y
+	ldx eccLength
+	stx .loopc
+	ldy #0
+-	lda (m_divisors),y
+	sta .divisor
+	jsr rsmultiply
+	eor (z_location2),y
+	sta (z_location2),y
+	iny
+	dex
+	bne -
+	dec z_counter2
+	beq .end
+	inc z_counter1
+	jmp rsremainder
+.end	rts
+
+; -----------------------------------------
+
+rsmultiply
+	stx .rsmulx
+	sty .rsmuly
+	lda #0
+	sta .rsmulres
+	ldy #7
+--	clc
+	asl
+	sta .rsmul1
+	bcc +
+	inc .rsmul1+1
++	lda .rsmulres
+	and #128
+	bpl +
+	lda #$1d
+	sta .rsmul2
+	lda #$01
+	bne ++
++	sta .rsmul2
+++	sta .rsmul2+1
+	lda .rsmul1
+	eor .rsmul2
+	sta .rsmulres
+
+	tya
+	tax
+	lda .rsfactor
+	cpx #0
+	beq +
+-	lsr
+	dex
+	bne -
++	and #1		; .x=0
+	sta .rsmul1
+	beq +
+	lda .divisor
++	sta .rsmul1
+	eor .rsmulres
+	sta .rsmulres
+	dey
+	bpl --
+	ldx .rsmulx
+	ldy .rsmuly
+	rts
+
+rsdivisors
+	!byte 127,122,154,164,11,68,117
+	!byte 216,194,159,111,199,94,95,113,157,193
+	!byte 29,196,111,163,112,74,10,105,105,139,132,151,32,134,26
+	!byte $98,$B9,$F0,$5,$6F,$63,$6,$DC,$70,$96,$45,$24,$BB,$16,$E4,$C6
+	!byte $79,$79,$A5,$AE
+
+.divisor	!byte 0
+.rsfactor	!byte 0
+.rsmulres	!byte 0
+.rsmul1	!word 0
+.rsmul2	!word 0
+.loopc	!byte 0
+.rsmulx	!byte 0
+.rsmuly	!byte 0
+
+; -----------------------------------------
+
+write_patterns
+	!zone write_patterns
+	jsr set_location_to_data
+	ldy #6
+-	jsr inc_line
+	dey
+	bne -
+	ldy #0
+-	lda #1
+	sta (z_location),y
+	iny
+	cpy size
+	beq .do_vertical
+	lda #0
+	sta (z_location),y
+	iny
+	jmp -
+
+.do_vertical
+	jsr set_location_to_data
+	clc
+	lda z_location
+	adc #6
+	sta z_location
+	bcc +
+	inc z_location+1
++	ldy #0
+	sty z_counter1
+-	ldy #0
+	lda #1
+	sta (z_location),y
+	ldy z_counter1
+	iny
+	cpy size
+	beq .do_finder
+	sty z_counter1
+	jsr inc_line
+	ldy #0
+	lda #0
+	sta (z_location),y
+	inc z_counter1
+	jsr inc_line
+	jmp -
+
+.do_finder
+	lda #<.modules_finder_left
+	sta z_location2
+	lda #>.modules_finder_left
+	sta z_location2+1
+	jsr set_location_to_data
+	jsr .do_finder_square
+	jsr dec_location_by_1
+	ldy #8
+	jsr .do_horizontal_y_zeroes
+	jsr set_location_datastream
+	ldy #8
+-	jsr dec_line
+	dey
+	bne -
+	jsr dec_location_by_1
+	ldy #8
+	jsr .do_horizontal_y_zeroes
+	inc z_location
+	bne +
+	inc z_location+1
++	jsr inc_line
+	jsr .do_finder_square
+	lda #<.modules_finder_right
+	sta z_location2
+	lda #>.modules_finder_right
+	sta z_location2+1
+	jsr set_location_to_data
+	jsr inc_line
+	sec
+	lda z_location
+	sbc #8
+	sta z_location
+	bcs +
+	dec z_location+1
++	jsr .do_finder_square
+	jsr dec_location_by_1
+	ldy #8
+	jsr .do_horizontal_y_zeroes
+	lda contentLength
+	cmp #18
+	bcs +
+	rts
+
++	jmp .do_alignment_pattern
+
+.do_horizontal_y_zeroes
+	lda #0
+-	sta (z_location),y
+	dey
+	bne -
+	rts
+
+.do_finder_square
+	ldy #0
+	sty z_counter1
+--	lda #%10000000
+	sta z_temp
+	ldy #0
+	sty z_counter2
+-	ldy z_counter1
+	lda (z_location2),y
+	bit z_temp
+	beq +
+	lda #%00000001
+	bne ++
++	lda #%00000000
+++	ldy z_counter2
+	sta (z_location),y
+	iny
+	sty z_counter2
+	lda z_temp
+	lsr
+	sta z_temp
+	bne -
+	jsr inc_line
+	inc z_counter1
+	lda z_counter1
+	cmp #7
+	bne --
+	rts
+
+.do_alignment_pattern
+	jsr set_location_datastream
+	ldy #8
+-	jsr dec_line
+	dey
+	bne -
+	lda z_location
+	sec
+	sbc #12
+	sta z_location
+	bcs +
+	dec z_location+1
++	ldx #0
+	stx z_counter1
+--	lda #%00010000
+	sta z_temp
+	ldy #3
+-	ldx z_counter1
+	lda .modules_alignment,x
+	bit z_temp
+	beq +
+	lda #%00000001
+	bne ++
++	lda #%00000000
+++	sta (z_location),y
+	iny
+	lsr z_temp
+	lda z_temp
+	bne -
+	jsr inc_line
+	inc z_counter1
+	lda z_counter1
+	cmp #5
+	bne --
+	rts
+
+.modules_finder_left
+	!byte %11111110,%10000010,%10111010,%10111010,%10111010,%10000010,%11111110
+.modules_finder_right
+	!byte %01111111,%01000001,%01011101,%01011101,%01011101,%01000001,%01111111
+.modules_alignment
+	!byte %00011111,%00010001,%00010101,%00010001,%00011111
+
+; -----------------------------------------
+
+writeDirection	= 1	; 1=up, 0=down
+
+	!zone stream2module
+
+stream_to_module
+
+	lda #<data
+	sta z_location2
+	sta .m_startAddress
+	lda #>data
+	sta z_location2+1
+	sta .m_startAddress+1
+
+	lda z_location2
+	clc
+	adc matrixSize
+	sta z_location2
+	sta z_location
+	sta .m_endAddress
+	lda z_location2+1
+	adc matrixSize+1
+	sta z_location2+1
+	sta z_location+1
+	sta .m_endAddress+1
+	jsr dec_location_by_1
+
+	ldx size
+	dex
+	stx .m_curCol
+	lda #writeDirection
+	sta .m_writeDirection
+	ldy #0
+	sty z_counter1
+--	ldx #128
+	stx z_temp
+-	ldy z_counter1
+	lda (z_location2),y
+	bit z_temp
+	beq +
+	lda #%01000001
+	!by $2c
++	lda #%01000000
+	jsr writeAndAdvance
+	ldy z_counter1
+	lsr z_temp
+	bne -
+	iny
+	sty z_counter1
+	cpy streamLength
+	bcc --
+	rts
+
+writeAndAdvance
+	sta z_counter2
+	ldy #0
+	lda (z_location),y
+	ora z_counter2
+	and #$7f
+	sta (z_location),y
+	lda .m_curCol
+	cmp #6
+	bcs .advGt6
+	bcc .advLt6
+
+.do_indfet
+	ldy #0
+	lda (z_location),y
+	rts
+
+.advGt6	bit .m_one
+	beq .advWriteIdx1
+	bne .advWriteIdx2
+
+.advLt6	bit .m_one
+	beq .advWriteIdx2
+	bne .advWriteIdx1
+
+.advWriteIdx1
+	jsr dec_location_by_1
+	dec .m_curCol
+	jsr .do_indfet
+	bit .m_128
+	beq .advWriteIdx2
+	rts
+
+.advWriteIdx2
+	lda .m_writeDirection
+	bit .m_one
+	bne .advUp
+	beq .advDown
+
+.advUp	jsr dec_line
+	clc
+	adc #1
+	sta z_location
+	bcc +
+	inc z_location+1
++	lda z_location+1
+	cmp .m_startAddress+1
+	bne .endAdvWriteIdx2
+	lda z_location
+	cmp .m_startAddress
+	bcc .changeDirectionToDown
+
+.endAdvWriteIdx2
+	inc .m_curCol
+	jsr .do_indfet
+	bit .m_128
+	beq .advWriteIdx1
+	rts
+
+.changeDirectionToDown
+	jsr inc_line
+	sec
+	sbc #2
+	sta z_location
+	bcs +
+	dec z_location+1
++	lda #0
+	sta .m_writeDirection
+	dec .m_curCol
+	dec .m_curCol
+	jmp .endAdvWriteIdx2
+
+.advDown	jsr inc_line
+	clc
+	adc #1
+	sta z_location
+	bcc +
+	inc z_location+1
++	lda z_location+1
+	cmp .m_endAddress+1
+	bne .endAdvWriteIdx2
+	lda z_location
+	cmp .m_endAddress
+	bcc .endAdvWriteIdx2
+
+.changeDirectionToUp
+	jsr dec_line
+	sec
+	sbc #2
+	sta z_location
+	bcs +
+	dec z_location+1
++	lda #1
+	sta .m_writeDirection
+	dec .m_curCol
+	dec .m_curCol
+	jmp .endAdvWriteIdx2
+
+.m_startAddress	!word 0
+.m_endAddress	!word 0
+.m_curCol		!byte 0
+.m_writeDirection	!byte 0
+.m_one		!byte #1
+.m_128		!byte #128
+
+; ----------------------------------------- Render the QRCode to Textscreen
+
+render
+	!zone render
+	lda #$29
+	sta z_location2
+	lda $0288
+	sta z_location2+1
+	ldx $d5
+	inx
+	stx rsDivisorOffset
+	jsr set_location_to_data
+	ldy #0
+	ldx #0
+	stx z_counter1
+	stx z_counter2
+	lda size
+	sta m_ypos
+	lda #0
+	sta m_xpos
+
+.read_4_modules
+	jsr .handle_module
+	inc z_counter1
+	iny
+	cpy size
+	beq +
+	jsr .handle_module	; returns .x=0
++	inc z_counter1
+	dey
+	jsr inc_line
+	dec m_ypos
+	beq .skip_bottom_row
+	jsr .handle_module	; returns .x=0
+	inc z_counter1
+	iny
+	cpy size
+	beq .next_line
+	jsr .handle_module	; returns .x=0
+	iny
+	jsr dec_line
+	inc m_ypos
+	jsr .write_character
+	jmp .read_4_modules
+
+.skip_bottom_row
+	jsr dec_line
+	inc m_ypos
+	iny
+	cpy size
+	beq .end
+	iny
+	jsr .write_character
+	jmp .read_4_modules
+
+.end	jmp .write_character
+
+.next_line
+	jsr .write_character
+	ldy #0
+	jsr inc_line
+	dec m_ypos
+	jsr .inc_line2
+	jmp .read_4_modules
+
+.handle_module
+	lda (z_location),y
+	bit .m_64   		; is xor-bit set?
+	bvc ++		; no
+	pha
+	and #1
+	sta z_temp
+	pla
+	and .m_bit
+	bne +
+	lda #0
+	!by $2c
++	lda #1
+	eor z_temp
+++	ldx z_counter1
+-	beq +
+	asl
+	dex
+	jmp -
+
++	ora z_counter2
+	sta z_counter2
+	rts
+
+.write_character
+	sty z_temp
+	ldx z_counter2
+	lda .modulechars,x
+	ldy m_xpos
+	sta (z_location2),y
+	ldx #0
+	stx z_counter1
+	stx z_counter2
+	inc m_xpos
+	ldy z_temp
+	rts
+
+.inc_line2
+	lda #0
+	sta m_xpos
+	lda z_location2
+	clc
+	adc rsDivisorOffset
+	sta z_location2
+	bcc +
+	inc z_location2+1
++	rts
+
+.modulechars
+	!byte 32,126,124,226,123,97,255,236,108,127,225,251,98,252,254,160
+.m_64	!byte 64
+.m_bit	!byte 2
+
+; -----------------------------------------
+; ----------------------------------------- Convert textual QRCode to 4Bit Pixels
+; -----------------------------------------
+; this is GoDot again:
+
+cnvscreen	lda #<display
+	ldx #>display	; $2000 (source)
+	sta char
+	stx char+1
+	ldx #>sy_4bit	; $4000 (target, 4Bit space)
+	sta dst
+	stx dst+1
+
+	sei
+	lda pport
+	pha
+	lda #$33
+	sta pport
+
+txloop1	ldy #0		; get char, compute offset in charset
+	lda (char),y
+	sta chrset
+	lda #0
+	asl chrset
+	rol
+	asl chrset
+	rol
+	asl chrset
+	rol
+	clc
+	adc #>$d000	; add base address of charset ($d000)
+	sta chrset+1
+
+	lda #46		; ...mark on screen as done (1000 dots)
+	sta (char),y
+
+--	ldx #0		; get (QRCode) char
+	lda (chrset,x)
+	sta byte
+	ldx #4
+- 	lda #0		; create 4Bit from char pixels
+	asl byte
+	bcs +
+	and #15
+	ora vorne
++	asl byte
+	bcs +
+	and #$f0
+	ora hinten
++	sta (dst),y	; store result to 4Bit
+	iny
+	dex
+	bne -
+	inc chrset	; one char finished?
+	cpy #32
+	bne --
+
+	inc char		; yes, advance in QRCode
+	bne +
+	inc char+1
++ 	lda dst		; advance in 4Bit
+	clc
+	adc #32
+	sta dst
+	bcc txloop1
+	inc dst+1
+	lda dst+1
+	cmp #$bd
+	bne txloop1
+
+	pla		; until finished all (1000)
+	sta pport
+	cli
+	rts
+
+; -----------------------------------------
+
+modend	!eof
