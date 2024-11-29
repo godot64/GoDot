@@ -12,6 +12,7 @@
 ;
 ;  1.00: 19.06.24, first release
 ;  1.01: 21.06.24, bugfixes
+;  1.02: 29.11.24, check auf C128, da ohne SCPU nicht erkannt wird
 ;
 ; ------------------------------------------------------------
 
@@ -38,8 +39,8 @@ modul	jmp start
 	!wo modend
 	!by $00,$00
 	!tx "Re-Scan RAM Devs"
-	!tx "1.01"
-	!tx "21.06.24"
+	!tx "1.02"
+	!tx "29.11.24"
 	!tx "A.Dettke        "
 
 ; ---------------------------------------
@@ -74,6 +75,12 @@ testvdc	sei		; VDC vorhanden?
 	pha
 	lda vdcdata
 	pha
+
+	ldy #0		; Check auf C128 ### 1.02
+	sty vdc
+	ldy vdc
+	beq tv3		; nicht da ($d600 müsste sonst negativ sein)
+
 	ldx #18		; Reg 18
 	lda #$40		; Prüfwert $40 auf VDC-Register 18 legen
 	jsr setd600
@@ -84,7 +91,7 @@ tv0	inx
 	iny
 	bne tv0		; .y=0
 
-	lda fast		; meanwhile: Fast-Bit in $d030 gesetzt?
+tv3	lda fast		; meanwhile: Fast-Bit in $d030 gesetzt?
 	and #1
 	beq +		; ja, C64II
 	lda #14		; dann C64II kennzeichnen ("C64n")
