@@ -18,24 +18,25 @@
 ;                   bug: didn't separate Undo 4Bit and Undo Rendered if both active
 ;   1.08, 24.05.19, bug: color garbage in lower screen after REU access fixed
 ;   1.09, 26.04.20, serious bug: installing from REU > 512K crashed GoDot!
+;   1.10, 02.12.24, adapted to SuperCPU
 ;
 ; --------------------------------------
 ;
 ; Basic RAM Structure:
 ;
 ;  Entry 0:
-;  $000000: $c000:	!by $00		; wenn das Device eingeblendet ist: Flag für Präsenz
-;  $000001: $c001:	!wo Offset	; Offset des nächsten zu installierenden Moduls in der aktuellen Bank
-;  $000003: $c003:	!by Bank		; aktuelle Bank für das nächste zu installierende Modul
+;  $000000: $c000:	!by $00		; wenn das Device eingeblendet ist: Flag fï¿½r Prï¿½senz
+;  $000001: $c001:	!wo Offset	; Offset des nï¿½chsten zu installierenden Moduls in der aktuellen Bank
+;  $000003: $c003:	!by Bank		; aktuelle Bank fï¿½r das nï¿½chste zu installierende Modul
 ;  $000004: $c004:	!pet "RM.Handler"	; 10 Zeichen: Name des Device
 ;
-;  $00000e: $c00e:	!by FrameCount	; Zähler für Frames bei Vollbild-Animationen (bis max. 255)
-;  $00000f: $c00f:	!wo Offset	; Offset in Bank für nächstes Vollbild
-;  $000011: $c011:	!by Bank		; Bank für das nächste Vollbild
+;  $00000e: $c00e:	!by FrameCount	; Zï¿½hler fï¿½r Frames bei Vollbild-Animationen (bis max. 255)
+;  $00000f: $c00f:	!wo Offset	; Offset in Bank fï¿½r nï¿½chstes Vollbild
+;  $000011: $c011:	!by Bank		; Bank fï¿½r das nï¿½chste Vollbild
 ;  $000012: $c012	!by REUClear	; Flag: Initialize REU on next boot (when set, Standard: $20 = on; $00 = off)
 ;
-; jetzt folgen die System-Directory-Einträge "Undo 4Bit", "Undo Rendered" und "swp.file"
-; jeder Directory-Eintrag ist 19 Bytes lang, im ersten Eintrag befindet sich die Information über den Modultypen:
+; jetzt folgen die System-Directory-Eintrï¿½ge "Undo 4Bit", "Undo Rendered" und "swp.file"
+; jeder Directory-Eintrag ist 19 Bytes lang, im ersten Eintrag befindet sich die Information ï¿½ber den Modultypen:
 ; $00: Systemfile
 ; $10: Hidden-Flag
 ; $20: Modifier
@@ -44,27 +45,27 @@
 ; $c0: End of Directory
 ;
 ;  1:
-;  $000013: $c013	!by $00		; Typ (oberes Nibble) und Bank (unteres Nibble) für den folgenden Eintrag
-;  $000014: $c014	!wo $1000		; Offset in dieser Bank (Länge: $7d00 = 32000 Bytes)
+;  $000013: $c013	!by $00		; Typ (oberes Nibble) und Bank (unteres Nibble) fï¿½r den folgenden Eintrag
+;  $000014: $c014	!wo $1000		; Offset in dieser Bank (Lï¿½nge: $7d00 = 32000 Bytes)
 ;  $000016: $c016	!pet "Undo 4Bit       "	; Name der Datei
 ;
 ;  2:
 ;  $000026: $c026	!by $00		; wie oben
-;  $000027: $c027	!wo $8d00		; (Länge 9500 Bytes)
+;  $000027: $c027	!wo $8d00		; (Lï¿½nge 9500 Bytes)
 ;  $000028: $c028	!pet "Undo Rendered   "
 ;
 ;  3:
 ;  $000039: $c039	!by $f0		; Hidden
-;  $00003a: $c03a	!wo $b21c		; (Länge 4096 Bytes; bisher: 3500 Bytes)
+;  $00003a: $c03a	!wo $b21c		; (Lï¿½nge 4096 Bytes; bisher: 3500 Bytes)
 ;  $00003b: $c03b	!pet "swp.file        "
 ;
 ;  4:
-;  $00004c: $c04c	!by $07		; Eintrag für "temp00"
-;  $00004d: $c04d	!wo $8300		; liegt am Ende des verfügbaren Extra-RAMs
+;  $00004c: $c04c	!by $07		; Eintrag fï¿½r "temp00"
+;  $00004d: $c04d	!wo $8300		; liegt am Ende des verfï¿½gbaren Extra-RAMs
 ;  $00004e: $c04e	!pet "temp00          "
 ;
 ;  5:
-;  $00005f: $c05f	!by $x0		; erster regulärer Directory-Eintrag (gleicher Aufbau)
+;  $00005f: $c05f	!by $x0		; erster regulï¿½rer Directory-Eintrag (gleicher Aufbau)
 ;  $000060: $c060	!wo c21c
 ;  $000061: $c061	!pet "................"
 ;
@@ -97,8 +98,8 @@
 	chgtxt		= $18ad
 	lderr		= $18fc
 	bindex		= $1c43
-	units		= $1cf8
-	logo		= $1dab
+	units		= $1cfd
+	logo		= $1df7	; unsused
 	blocks		= $3f40
 
 	swapfile		= $b21c	; now: 4096 bytes!
@@ -123,9 +124,9 @@ ch4stemp	lda #$34
 	plp
 	bvs leave		; ja, wenn Bit 7 an, fertig
 
-	pla		; nein, Rücksprung nach Label "stmp" verwerfen
+	pla		; nein, Rï¿½cksprung nach Label "stmp" verwerfen
 	pla
-	pla		; Rücksprung nach Label "undo" verwerfen
+	pla		; Rï¿½cksprung nach Label "undo" verwerfen
 	pla
 	jsr gd_clrms
 	ldx #<svrmiss	; Meldung ausgeben und Exit
@@ -145,9 +146,9 @@ fixlength	lda modul+7	; Slot4?
 	eor #$cf
 	tay
 	bne +
-nofix	lda #$10		; ja, dann Länge $1000
+nofix	lda #$10		; ja, dann Lï¿½nge $1000
 	bne ++
-+	ldy #$0b		; nein, dann Länge $0e0b
++	ldy #$0b		; nein, dann Lï¿½nge $0e0b
 	lda #$0e
 ++	sty rm_werte+5
 	sta rm_werte+6
@@ -157,7 +158,7 @@ setfix	jsr dirbuf	; = fixlength +23
 	jmp getmod	; Load/Execute (in dev, Teil2)
 
 loadit	jsr nofix
-	jmp rldex		; ausführen	### 1.09
+	jmp rldex		; ausfï¿½hren	### 1.09
 
 ; -------------------------------------- Header
 
@@ -167,8 +168,8 @@ ramdev	jmp start
 	!wo modend
 	!wo 0
 	!pet "REU Handler     "
-	!pet "1.09"
-	!pet "26.04.20"
+	!pet "1.10"
+	!pet "02.12.24"
 	!pet "A. Dettke       "
 
 ; -------------------------------------- Main
@@ -341,7 +342,7 @@ lm0	lda (entry),y
 
 	!by $ad		; padding
 
-lm1	inc rm_nextentry	; nächsten Eintrag ansteuern
+lm1	inc rm_nextentry	; nï¿½chsten Eintrag ansteuern
 	ldy rm_nextentry
 	cpy rm_nextram	; bis alle durch
 	bcc lm2
@@ -387,7 +388,7 @@ getit2	sta rm_werte+5
 	stx rm_werte+6
 	sty rm_werte+1
 	lda rm_combuf
-	jsr gd_reu	; ausführen
+	jsr gd_reu	; ausfï¿½hren
 	iny
 	sty ls_flen
 	ldx #>modul	; REU-Record re-initialisieren
@@ -439,8 +440,8 @@ getit3	lda rm_combuf
 	jsr swape0	; Modul wieder ausblenden
 
 	sty rm_werte	; .y=0
-	jsr gd_swapd	; $9000 wieder zurücktauschen
-	lda #>modul	; und $c0 für DIR rekonstruieren
+	jsr gd_swapd	; $9000 wieder zurï¿½cktauschen
+	lda #>modul	; und $c0 fï¿½r DIR rekonstruieren
 	sta rm_swapw+1
 	rts
 
@@ -453,8 +454,8 @@ noundo	jsr gd_clrms	; Meldung: "Buffer empty."
 
 ; -------------------------------------- f9: Undo to REU (sichern)
 
-getundo 	jsr gt2		; durchführen
-	jmp un3		; abschließen
+getundo 	jsr gt2		; durchfï¿½hren
+	jmp un3		; abschlieï¿½en
 
 gt2	lda #$90		; $90 = Stash
 	sta rm_combuf
@@ -470,7 +471,7 @@ gt4	ora rm_ramundo	; Flag setzen
 
 getrend 	jsr getit3	; Rendered
 	lda gr_bkcol	; Hintergrundfarbe ebenfalls retten
-	sta bkundo	; abschließen
+	sta bkundo	; abschlieï¿½en
 	lda #2
 	bne gt4
 
@@ -503,9 +504,9 @@ bkundo	!by 0		; Hintergrundfarbe
 ; -------------------------------------- (Save/Load) Temp routines
 
 tempr	ldy ls_loadsave	; load (1) oder save (0)?
-	lda rm_nextentry	; was überhaupt?
+	lda rm_nextentry	; was ï¿½berhaupt?
 	cmp #3
-	bcs temp0		; Entry größer 3: Temp00
+	bcs temp0		; Entry grï¿½ï¿½er 3: Temp00
 	tya		; sonst: Undo (f8/f9)
 	rts
 
@@ -514,7 +515,7 @@ temp0	tya		; load/save?
 
 ; -------------------------------------- Save Temp
 
-stmp	jsr ch4stemp	; Check auf svr.Temp (kehrt nicht zurück, wenn _nicht_ da)
+stmp	jsr ch4stemp	; Check auf svr.Temp (kehrt nicht zurï¿½ck, wenn _nicht_ da)
 
  	lda #<strut	; verlegen nach Global
 	ldx #>strut
@@ -526,18 +527,18 @@ st01 	lda (sc_texttab),y
 	iny
 	cmp #$60
 	bne st01
-	jmp sy_global	; dort ausführen:
+	jmp sy_global	; dort ausfï¿½hren:
 
 strut	lda gd_modswitch	; Modulherkunft retten
 	pha
-	iny		; SAVE erzwingen, ldy #$ff: geändert	### 1.07
-	jsr se_save	; durchführen (Saver Temp aufrufen)
+	iny		; SAVE erzwingen, ldy #$ff: geï¿½ndert	### 1.07
+	jsr se_save	; durchfï¿½hren (Saver Temp aufrufen)
 	php		; Ergebnis nach .y retten
 	pla
 	tay
 	pla		; Modulherkunft rekonstruieren
 	sta gd_modswitch
-	pla		; Rücksprung nach label "undo" verwerfen
+	pla		; Rï¿½cksprung nach label "undo" verwerfen
 	pla
 	tya		; Ergebnis von SAVE rekonstruieren
 	pha
@@ -555,14 +556,14 @@ ltmp 	lda rm_ramundo	; Flag retten (welches RAM)
 	jsr un2		; ...aber Temp00 holen (Bank und Offset wurden in ramldx gesetzt)
 	pla
 	sta rm_ramundo	; Flag rekonstruieren
-	pla		; Rücksprung nach label "undo" verwerfen
+	pla		; Rï¿½cksprung nach label "undo" verwerfen
 	pla
 	jmp forceoff	; Device ausblenden
 
 ; -------------------------------------- Func 7: Avail Mem
 
 ralloc	sta low		; RAM-Anforderung in .a/.y (lo/hi)
-	sty high		; wenn 0: Wie viel Platz ist übrig? (Antwort in .a und Carry)
+	sty high		; wenn 0: Wie viel Platz ist ï¿½brig? (Antwort in .a und Carry)
 	ora high		; war 0?
 	bne doesfit	; nein, berechnen: passt Anforderung?
 
@@ -592,7 +593,7 @@ howmuch 	lda ls_ramdrive	; RAM-Typ ermitteln
 	sta back+2	; Ergebnis in back ($befd-$beff)
 fehler	rts
 
-doesfit 	jsr howmuch	; zuerst: Kapazität berechnen
+doesfit 	jsr howmuch	; zuerst: Kapazitï¿½t berechnen
 	sec		; dann: Anforderung subtrahieren
 	lda back
 	sbc low
@@ -645,7 +646,7 @@ section2:
 ramdir	jsr first		; Funktion 2: Directory
 dir	ldx #0
 	ldy rm_nextentry
-	cpy #140		; max. 139 Einträge
+	cpy #140		; max. 139 Eintrï¿½ge
 	bcc rd5
 	dey
 rd5	tya
@@ -660,7 +661,7 @@ rd1	ldy #0
 	and #$10
 	bne rnxt		; ja, nicht anzeigen
 	txa
-		; ### --- bis hier (6 Bytes eingefügt)
+		; ### --- bis hier (6 Bytes eingefï¿½gt)
 
 	and #$f0		; Filetyp plausibel?
 	ldy #4
@@ -668,7 +669,7 @@ rd3	cmp types,y
 	beq rd2		; ja, weiter
 	dey
 	bpl rd3
-	bmi rnxt		; nein, überspringen
+	bmi rnxt		; nein, ï¿½berspringen
 
 rd2	lda #2		; (Dummy-) Filetyp im Directory-Record eintragen
 	jsr bindex
@@ -681,14 +682,14 @@ rd4	sta dirbuf,x
 	cpy #19		; ein Record ist 19 Bytes lang
 	bne rd0
 
-	inc cntlns	; neue Zeile (zählt bis 16)
-rnxt	inc rm_nextentry	; nächster Eintrag
+	inc cntlns	; neue Zeile (zï¿½hlt bis 16)
+rnxt	inc rm_nextentry	; nï¿½chster Eintrag
 
 nxt2	sty dirbuf	; wenn Ende des Directory: .y=0
-	lda #32		; Ausgabepufferzeiger erhöhen
+	lda #32		; Ausgabepufferzeiger erhï¿½hen
 	jsr bindex
-	sta ls_index	; .x ist Offset auf nächsten Eintrag
-	bcs show		; wenn Puffer voll (8 Einträge): Directory anzeigen, .x=0
+	sta ls_index	; .x ist Offset auf nï¿½chsten Eintrag
+	bcs show		; wenn Puffer voll (8 Eintrï¿½ge): Directory anzeigen, .x=0
 
 		; ### 1.03 ---
 nxt3	lda #0
@@ -696,13 +697,13 @@ nxt3	lda #0
 	beq dir
 
 show	jsr gd_makedir	; Directory anzeigen
-	php		; kehrt zurück mit Info, ob Anzeige voll (16 Zeilen erreicht)
+	php		; kehrt zurï¿½ck mit Info, ob Anzeige voll (16 Zeilen erreicht)
 	ldx #0
 	plp
 	bne nxt3		; wenn nicht: weiter
 		; ### bis hier
 
-	sta cntlns	; Zeilenzähler (16, wenn beendet)
+	sta cntlns	; Zeilenzï¿½hler (16, wenn beendet)
 	clc
 	rts
 
@@ -712,18 +713,18 @@ show	jsr gd_makedir	; Directory anzeigen
 
 ; -------------------------------------- Init Dir
 
-first	ldx #0		; Directory-Puffer löschen
+first	ldx #0		; Directory-Puffer lï¿½schen
 	txa
 ft0	sta dirbuf,x
 	inx
 	bne ft0
-	stx rm_nextentry	; Eintragszähler    auf 0
-	stx cntlns	; Zeilenzähler      auf 0
+	stx rm_nextentry	; Eintragszï¿½hler    auf 0
+	stx cntlns	; Zeilenzï¿½hler      auf 0
 	stx ls_index	; Offset-Zeiger     auf 0
-	stx ls_lines	; Hauptzeilenzähler auf 0
-	stx ls_cblocks	; Blockzähler 2     auf 0
+	stx ls_lines	; Hauptzeilenzï¿½hler auf 0
+	stx ls_cblocks	; Blockzï¿½hler 2     auf 0
 	inx
-	stx blocks	; Blockzähler 1     auf 1
+	stx blocks	; Blockzï¿½hler 1     auf 1
 	stx blocks+1
 	stx dirbuf	; Directorypuffer markieren
 	stx dirbuf+1
@@ -866,7 +867,7 @@ lm4	jsr lm3		; Funktion 4: Execute Module
 
 exrdy	ldx #0		; Abschluss:
 	stx ls_flen
-	inx		; F#1 ausführen: ForceOff (.x=1)
+	inx		; F#1 ausfï¿½hren: ForceOff (.x=1)
 	jsr rm_ramvec	; execute (dabei Dir ausblenden)
 	sec		; Modul verlassen, fertig
 	rts
@@ -877,7 +878,7 @@ lm3	lda #<swapfile	; aktuelles Modul in Sicherheit bringen (ins Swapfile)
 	sta rm_swapw+2
 	lda #>swapfile
 	sta rm_swapw+3
-	lda #<4096	; ### part 1: 1.06 (Wert größer!)
+	lda #<4096	; ### part 1: 1.06 (Wert grï¿½ï¿½er!)
 	sta rm_swapw+5
 	lda #>4096
 	sta rm_swapw+6
@@ -890,16 +891,16 @@ lm3	lda #<swapfile	; aktuelles Modul in Sicherheit bringen (ins Swapfile)
 	ldx sc_scvek2	; GoDot-Screen aufbauen (File-Requester aus)
 	ldy sc_scvek2+1
 	jsr gd_screen
-	jsr modul		; und Modul ausführen
+	jsr modul		; und Modul ausfï¿½hren
 
-lm5	jsr gd_swapd	; danach aktuelles Modul aus Swapfile zurückholen
+lm5	jsr gd_swapd	; danach aktuelles Modul aus Swapfile zurï¿½ckholen
 	iny		; .y=0
 	sty rm_swapw+2	; und swapd-Record nach Missbrauch reparieren
 	sty rm_swapw+3
 	sty rm_swapw+5
 	lda #$10
 	sta rm_swapw+6
-	jmp gd_getback	; Slot x zurückholen nach Execution Area, fertig
+	jmp gd_getback	; Slot x zurï¿½ckholen nach Execution Area, fertig
 
 ; -------------------------------------- Reject when Dirty
 
@@ -907,8 +908,8 @@ noexec	jsr gd_clrms
 	ldx #<mess2	; Message in der Statuszeile ausgeben
 	ldy #>mess2
 	jsr gd_xtxout2
-	jsr lm5		; aktuelles Modul zurückholen
-	pla		; Rücksprung nach lm4 vom Stack löschen
+	jsr lm5		; aktuelles Modul zurï¿½ckholen
+	pla		; Rï¿½cksprung nach lm4 vom Stack lï¿½schen
 	pla
 	clc		; fertig,
 	bcc rs2		; Dir ausblenden
