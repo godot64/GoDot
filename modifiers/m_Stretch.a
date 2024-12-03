@@ -14,8 +14,9 @@
 ;  1.00, 11.05.18, first release (derived from mod.StretchClip)
 ;  1.01, 12.05.18, added: input routines
 ;  1.02, 23.11.20, added: force re-render on Full Screen
-; 
-; -------------------------------------- 
+;  1.03, 03.12.24, adapted to SuperCPU
+;
+; --------------------------------------
 
 ; -------------------------------------- equates
 
@@ -44,16 +45,16 @@
 	amrk		= $49
 
 	sprptr		= $07f8
-	areatype		= $1ef5
+	areatype		= $1efb
 	spr255		= $3fc0
-	
+
 	xtab0		= $ca00
 	xbuf0		= xtab0+320
 	xbuf1		= xbuf0+320
 	ytab0		= xtab0
 	ybuf0		= xbuf0
 	ybuf1		= xbuf1
-	
+
 	setarg		= $ba8c	; in .a/.y
 	setfac		= $bba2	; in .a/.y
 	arg2fac		= $bbfc
@@ -86,11 +87,11 @@
 	!wo modend
 	!wo 0
 	!tx "Stretch /w Ratio"
-	!tx "1.02"
-	!tx "23.11.20"
+	!tx "1.03"
+	!tx "03.12.24"
 	!tx "A.Dettke/W.Kling"
 
-; -------------------------------------- main 
+; -------------------------------------- main
 
 start	jsr savesvars
 	jsr makechr
@@ -237,7 +238,7 @@ setdata	inc pport
 
 	lda #1
 	jsr settoff
-	
+
 	jsr row2fac	; clip row (in Kacheln) nach fac
 	ldx #10		; Ergebis eintragen und ausgeben
 	jsr di0		; .x=0
@@ -269,7 +270,7 @@ update	lda #2		; das Gleiche in Pixel (Clip-Breite)
 	ldx #2		; ausgeben
 	jsr di0		; .x=0
 
-	lda sc_lastclpho	; und ebenso Clip-Höhe
+	lda sc_lastclpho	; und ebenso Clip-Hï¿½he
 	asl
 	asl
 	asl
@@ -283,7 +284,7 @@ shresult	jsr getwid	; result will be distorted?
 	jsr fac2arg
 	jsr gethgt
 	jsr argdivfac
-	lda #<fratio	; Breite:Höhe=8:5? (Richtiger Aspekt?)
+	lda #<fratio	; Breite:Hï¿½he=8:5? (Richtiger Aspekt?)
 	ldy #>fratio
 	jsr conisfac
 	beq +
@@ -317,10 +318,10 @@ shresult	jsr getwid	; result will be distorted?
 
 	dec pport
 
-	jsr settxt	; ..und für Ausgabe vorbereiten
+	jsr settxt	; ..und fï¿½r Ausgabe vorbereiten
 	ldx xmrk
 	bmi +		; pos: Aspekt stimmt
-	lda #15		; Zeile mit Adjust-Aufforderung löschen
+	lda #15		; Zeile mit Adjust-Aufforderung lï¿½schen
 	ldx #13
 	ldy #14
 	jsr gd_setpar	; !! mind values at adjtx !!
@@ -329,12 +330,12 @@ shresult	jsr getwid	; result will be distorted?
 	sty ymrk
 	jmp textout
 
-; ----------------------------------------- 
+; -----------------------------------------
 
 di0	stx ymrk		; Index auf Zahl merken
 di4	jsr facasc	; convert fac to digits
 	jsr di1		; Ziffern holen
-	ldy ymrk		; Index zurück
+	ldy ymrk		; Index zurï¿½ck
 	jsr movetx	; Ziffern in die Screenlist schreiben
 	jsr textout	; und ausgeben
 	clc		; im Modul bleiben
@@ -348,7 +349,7 @@ di2	dey
 	lda sy_numbers,y
 	bne di2
 
-	ldx #0		; Ziffernpuffer löschen
+	ldx #0		; Ziffernpuffer lï¿½schen
 	lda #32
 -	sta text,x
 	inx
@@ -375,8 +376,8 @@ movetx	jsr settxt
 	dex
 	bpl -
 	rts
-	
-; ----------------------------------------- 
+
+; -----------------------------------------
 
 settoff	clc
 	sta txtlen
@@ -384,7 +385,7 @@ settoff	clc
 	sta toff
 	rts
 
-; ----------------------------------------- 
+; -----------------------------------------
 
 gethgt	lda height
 	ldx height+1
@@ -422,12 +423,12 @@ vstart0	lda sc_lastclpzl	; compute start line (0-192)
 	adc ybufstart
 	sta bufend
 	inc bufend
-	
+
 	lda #0
 	sta sum
 	sta sum+1
 	sta sbak
-	
+
 	ldy ybufstart
 vtab1	lda sum
 	clc
@@ -446,7 +447,7 @@ vtab1	lda sum
 
 	lda #8
 	jsr initad
-	
+
 	ldy #0
 	tya
 vclrlp	sta ybuf1,y
@@ -469,7 +470,7 @@ vloop00	lda colnr+1
 	!by $2c
 odd0	ldx #$f0
 	stx which
-	
+
 	tax
 	and #3
 	sta src
@@ -486,10 +487,10 @@ odd0	ldx #$f0
 	lda src+1
 	ora #>sy_4bit
 	sta src+1
-	
+
 	ldx #0
 	stx null
-	
+
 vloop0	ldy #0
 vloop1	lda (src),y
 	bit which
@@ -509,17 +510,17 @@ nuls0	inx
 	iny
 	cpy #32
 	bcc vloop1
-	
+
 	lda src+1
 	clc
 	adc #$05
 	sta src+1
 	cmp #>sy_bigbuffer
 	bcc vloop0
-	
+
 	lda null
 	beq nextcol
-	
+
 	ldx #0
 	ldy ybufstart
 vsql	lda ytab0,y
@@ -532,7 +533,7 @@ vsql1	sta ybuf1,x
 	iny
 	cpy bufend
 	bne vsql
-	
+
 	lda colnr+1
 	lsr
 	sta dst+1
@@ -543,7 +544,7 @@ vsql1	sta ybuf1,x
 	!by $2c
 odd2	ldx #$f0
 	stx which
-	
+
 	tax
 	and #3
 	sta dst
@@ -560,7 +561,7 @@ odd2	ldx #$f0
 	lda dst+1
 	ora #>sy_4bit
 	sta dst+1
-	
+
 	ldx #0
 vloop2	ldy #0
 vloop3	lda ybuf1,x
@@ -582,7 +583,7 @@ odd3	sta bbuf
 	iny
 	cpy #32
 	bcc vloop3
-	
+
 	lda dst+1
 	clc
 	adc #$05
@@ -598,7 +599,7 @@ vskip0	lda colnr
 	bne vskip1
 	lda colnr+1
 	bne vok
-	
+
 vskip1	dec adcnt		; Activity
 	bne vadskp
 	inc spr2y
@@ -615,7 +616,7 @@ hres	lda sc_lastclpbr	; clip width less than 40 tiles?
 	cmp #40
 	bcc hstart0	; yes, stretch
 	jmp graphon
-	
+
 hstart0	lda #0
 	sta sum
 	sta sum+1
@@ -643,7 +644,7 @@ hstart0	lda #0
 	sta bufstart
 	bcc xskip0
 	inc bufstart+1
-	
+
 xskip0	lda width		; init step values
 	sta dstcnt	; set counter (countdown from max. 320)
 	lda width+1
@@ -653,13 +654,13 @@ xl01	lda tabstart	; derives from xtab0
 	ldx tabstart+1
 	sta tab
 	stx tab+1
-	
+
 	ldy #0
 	lda dstcnt+1
 	beq xloop1
 	lda dstcnt
 	beq xloop10
-	
+
 xloop0	lda sum		; when counter is >255
 	clc
 	adc xstep
@@ -693,17 +694,17 @@ xloop10	lda sum
 	lda dstcnt	; end when counter is 0
 	beq xloop11
 	dec dstcnt
-	
+
 xloop11	lda #5
 	jsr initad
-	
+
 	ldy #0
 	tya
 hclrlp	sta xbuf1,y
 	sta xbuf1+64,y
 	iny
 	bne hclrlp
-	
+
 	lda #0
 	sta linenr
 hloop00	lda linenr
@@ -719,12 +720,12 @@ hloop00	lda linenr
 	sta dst
 	lda line8,x
 	sta dst+1
-	
+
 	lda #<xbuf0
 	ldx #>xbuf0
 	sta src
 	stx src+1
-	
+
 	ldx #0
 	stx null
 	lda #40
@@ -751,7 +752,7 @@ hskip0	pla
 hskip1	iny
 	cpy #4
 	bne hloop1
-	
+
 	lda dst
 	clc
 	adc #32
@@ -760,11 +761,11 @@ hskip1	iny
 	inc dst+1
 hskip2	dec blcnt
 	bne hloop0
-	
+
 	lda null
 	bne xdoit
 	jmp nextline
-	
+
 xdoit	lda #<xbuf1
 	ldx #>xbuf1
 	sta dst
@@ -774,12 +775,12 @@ xdoit	lda #<xbuf1
 	ldx bufstart+1
 	sta src
 	stx src+1
-	
+
 	lda tabstart
 	ldx tabstart+1
 	sta tab
 	stx tab+1
-	
+
 	ldx #0
 	ldy #0
 	lda dstcnt+1
@@ -817,7 +818,7 @@ xl3	dec sum
 	lda dstcnt
 	beq xloop12
 	dec dstcnt
-	
+
 xloop12	lda linenr
 	pha
 	lsr
@@ -831,7 +832,7 @@ xloop12	lda linenr
 	sta dst
 	lda line8,x
 	sta dst+1
-	
+
 	lda #<xbuf1
 	ldx #>xbuf1
 	sta src
@@ -856,7 +857,7 @@ hskip4	sta (dst),y
 	iny
 	cpy #4
 	bne hloop3
-	
+
 	lda dst
 	clc
 	adc #32
@@ -870,7 +871,7 @@ nextline	inc linenr
 	lda linenr
 	cmp #200
 	beq hok
-	
+
 	dec adcnt
 	bne adskp
 	inc spr2y
@@ -942,7 +943,7 @@ divit	jsr argdivfac	; dividieren
 lmultiply	jsr gethgt
 	jmp mp0
 
-multiply	jsr hgt2fac	; höhe holen
+multiply	jsr hgt2fac	; hï¿½he holen
 mp0	jsr fac2arg	; nach arg
 	jsr cnvrio	; aspekt holen
 	jsr argmulfac	; multiplizieren mit 1.6
@@ -975,7 +976,7 @@ any2fac	stx int+1
 int2fac	lda int+1
 	ldx int
 	jmp cnvwa
-	
+
 row2fac	ldx sc_lastclpzl
 	jmp +
 wid2fac	ldx sc_lastclpbr
@@ -989,7 +990,7 @@ col2fac	ldx sc_lastclpsp
 	dey
 	bpl -
 	lda #0
-	
+
 cnvwa	sta $62		; hi
 	stx $63		; lo
 	ldx #$90
@@ -1081,7 +1082,7 @@ input	lda gd_modswitch
 	stx sc_iflag
 -	lda digits,x	; digits and space
 	sta sy_global,x
-	dex 
+	dex
 	bpl -
 	lda #<sy_global	; call system input
 	sta ls_vekta8
@@ -1113,9 +1114,9 @@ gword	ldy #0
 
 	cmp #$3a
 	bcs +
-	sec 
+	sec
 	sbc #$30
-	sec 
+	sec
 	sbc #$d0
 	bcs +
 	sbc #$2f
@@ -1147,12 +1148,12 @@ gword	ldy #0
 +	lda int		; result in (int), low also in .a
 	rts
 
-; -------------------------------------- 
+; --------------------------------------
 
 inca8	inc ls_vekta8
 	bne +
 	inc ls_vekta8+1
-+	rts 
++	rts
 
 ; --------------------------- Adjust-Zeichen definieren
 
@@ -1174,7 +1175,7 @@ line8	!by $40,$45,$4a,$4f,$54
 	!by $8b,$90,$95,$9a,$9f
 	!by $a4,$a9,$ae,$b3,$b8
 
-; -------------------------------------------------- 
+; --------------------------------------------------
 ; ystep = 200x256/blockzeile*8 (0..25)
 ; 200x256: 51200 ($c800 = 90 48 00 00 00)
 ; --------------------------------------------------
@@ -1186,7 +1187,7 @@ ystep	!wo 0
 tabstart	!wo 0
 bufstart	!wo 0
 
-; ----------------------------------------- 
+; -----------------------------------------
 
 fwidth	!by $91,$20,$00,$00,$00	; float: 320x256=81920
 fheight	!by $90,$48,$00,$00,$00	; float: 200x256=51200
@@ -1279,6 +1280,6 @@ adjtx	!scr "Adjust Values:@"
 
 	!by $80
 
-; -------------------------------------- 
+; --------------------------------------
 
 modend	!eof
