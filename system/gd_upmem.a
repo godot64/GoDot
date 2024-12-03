@@ -20,6 +20,7 @@
 ; ***                  added: set amnt of colors in pal ***
 ; ***  1.16, 14.07.21, added: automatic default pals    ***
 ; ***  1.17, 01.03.24, added: automatic Ultimate turbo  ***
+; ***  1.18, 02.12.24, adapted to SuperCPU              ***
 ; ***                                                   ***
 ;    ---------------------------------------------------
 ;
@@ -68,8 +69,8 @@
 	chgcols		= $17e0
 	patch2		= $1814
 
-	dithtype		= $1e30
-	areatype		= $1ef4
+	dithtype		= $1e36
+	areatype		= $1efb
 
 	spr2		= $3e80
 	spr5		= $3f40
@@ -138,8 +139,8 @@ list	!wo 0
 breit1	!by $12
 breit2	!by $24
 	!pet "GoDot f000 slot4"
-created	!pet "1.17"
-	!pet "01.03.24"
+created	!pet "1.18"
+	!pet "02.12.24"
 	!pet "A.Dettke/W.Kling"
 ;
 ; -------------------------------------------------- Module Management
@@ -1500,7 +1501,7 @@ evarea	lda sc_clipped	; is clipped?
 area0	ldy #$03
 	ldx #$04
 area1	lda atype,y
-	sta areatype,x
+	sta areatype-1,x
 	dey
 	dex
 	bne area1
