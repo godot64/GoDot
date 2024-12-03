@@ -37,6 +37,7 @@
 ;   1.54, 06.06.24 ; CMD recognition now correct
 ;   1.55, 23.06.24 ; VDC recognition now visible
 ;   1.56, 14.08.24 ; bugfix: C64c computers would hang on VDC VIC recognition
+;   1.57, 02.12.24 ; added support of REU-equipped SuperCPU, bugfix in befptr
 ;
 ; ------------------------------------------------------------
 
@@ -99,11 +100,11 @@ b2	sta booter,y
 	scm1		= $148e	; send IO command
 	sm2		= $14e2
 	ld11		= $1825
-	filtype		= $1d29 	; selfmodifying kernel!
-	ramtype		= $1d8f
-	hirs		= $1dba	; ### 1.41 / 1.49
-	scrmode		= $1edc
-	numcols		= $1ee9
+	filtype		= $1d2e 	; selfmodifying kernel!
+	ramtype		= $1d94
+	hirs		= $1dbf	; ### 1.41 / 1.49
+	scrmode		= $1ee2
+	numcols		= $1eef
 
 	booter		= $2000	; target of launcher code
 	pbuffer		= $3700	; buffer for new pointer
@@ -237,8 +238,8 @@ mkt0	lda tabs-$40,x
 
 ; ---------------------------------------
 
-version	!byte $01,$56	; Versionsnummer in SED-Format
-release	!byte 14,08,24	; Kernel Release Date in Byte-Format
+version	!byte $01,$57	; Versionsnummer in SED-Format
+release	!byte 02,12,24	; Kernel Release Date in Byte-Format
 
 ; ---------------------------------------
 
@@ -769,7 +770,7 @@ testend	ldx #12
 	ldx #$60		; ...und RTS
 	stx rm_ramvec+1
 	ldx #12
-++	sta rm_reusize	; als GrÃ¶ÃŸe propagieren
+++	sta rm_reusize	; als Größe propagieren
 	ora #$20
 	sta devs,x	; und Ergebnis in Drivelist eintragen
 	sec
@@ -1936,32 +1937,32 @@ befptr	jsr getname	; POINTER "ptr.xy"
 	txa		; vorzeitig beendet?
 	bne ptr3		; ja, ende
 
-	lda pbuffer	; korrektes format?
+	ldx soffx		; default retten
+	ldy soffy
+
+	lda pbuffer	; korrektes format? ("D3")
 	cmp #$44
 	bne ptr2
 	lda pbuffer+1
 	cmp #$33
 	bne ptr3		; nein, ende
 
-	ldx soffx		; default retten
-	ldy soffy
-
 	lda pbuffer+5	; hotspot x setzen
 	cmp #24		; max: 23
 	bcs ptr2
-	sta soffx
+	sta int		; store temporarily
 	sec
-	lda #24		; ok, subtract screen offset
-	sbc soffx
+	lda #24		; is ok, subtract screen offset
+	sbc int
 	tax		; result in .x
 
 	lda pbuffer+9	; hotspot y setzen
 	cmp #21		; max: 20
 	bcs ptr2
-	sta soffy
+	sta int		; store temporarily
 	sec
 	lda #50		; ok, subtract screen offset
-	sbc soffy
+	sbc int
 	tay		; result in .y
 	txa
 	pha
