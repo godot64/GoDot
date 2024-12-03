@@ -4,7 +4,7 @@
 	!ct pet
 ;	!sl "labels.txt"
 
-; ----------------------------------------- 
+; -----------------------------------------
 ;
 ;  mod.4BitCombiner
 ;   Module to add two clips to one
@@ -16,8 +16,9 @@
 ;                  final stage: "both" working
 ;                  known bug: if both images on "Both" in lower row
 ;                  are wider than WIDTH they will display scrambled
+;  1.03, 03.12.24: adapted to SuperCPU
 ;
-; ----------------------------------------- 
+; -----------------------------------------
 
 ; ----------------------------------------- Equates
 
@@ -29,28 +30,28 @@
 	hasreu		= $31
 	src		= $32	; /$33
 	dst		= $34	; /$35
-	cnt		= $36	; /$37 (Packzähler write)
+	cnt		= $36	; /$37 (Packzï¿½hler write)
 	byte		= $38	; (Packbyte write)
-	counter		= $39	; /$3a (Packzähler read1)
+	counter		= $39	; /$3a (Packzï¿½hler read1)
 	gbyte		= $3b	; (Packbyte read1)
-	cnt2		= $3c	; /$3d (Packzähler read2)
+	cnt2		= $3c	; /$3d (Packzï¿½hler read2)
 	rbyte		= $3e	; (Packbyte read2)
-	bcnt2		= $3f	; /$40 (Bytezähler read1 / write ist ls_vekta8)
-	bcnt3		= $41	; /$42 (Bytezähler read2)
-	fcnt		= $43	; Filezähler (2..4)
-	fnum		= $44	; Filenummer für File2
+	bcnt2		= $3f	; /$40 (Bytezï¿½hler read1 / write ist ls_vekta8)
+	bcnt3		= $41	; /$42 (Bytezï¿½hler read2)
+	fcnt		= $43	; Filezï¿½hler (2..4)
+	fnum		= $44	; Filenummer fï¿½r File2
 	scndfile		= $45
-	blines		= $46	; Blockzeilenzähler
-	wskip		= $47	; Flag für falsche Breite
-	hskip		= $48	; Flag für falsche Höhe
+	blines		= $46	; Blockzeilenzï¿½hler
+	wskip		= $47	; Flag fï¿½r falsche Breite
+	hskip		= $48	; Flag fï¿½r falsche Hï¿½he
 	width		= $49	; Gesamtbreite
-	height		= $4a	; Gesamthöhe
-	adapted		= $4b	; Flag für zu große Breite bei Bild 3
+	height		= $4a	; Gesamthï¿½he
+	adapted		= $4b	; Flag fï¿½r zu groï¿½e Breite bei Bild 3
 
 	offx		= ls_adrmisc
 	offy		= offx+1
 
-	loadpatch		= $1d0d
+	loadpatch		= $1d12
 	cancpatch		= $18f5
 	opentch		= $1b1c	; open  13 & 15
 	closetch		= $1b12	; close 13 & 15
@@ -78,8 +79,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "Concat 2-4 4bits"
-	!tx "1.02"
-	!tx "22.07.18"
+	!tx "1.03"
+	!tx "03.12.24"
 	!tx "A.Dettke        "
 
 ; ----------------------------------------- Main
@@ -94,7 +95,7 @@ start	lda rm_ramvec	; Device eingebunden?
 
 	lda gd_modswitch	; care for module management
 	pha
-	ldx sc_scvek2	; Screenlist für Main retten
+	ldx sc_scvek2	; Screenlist fï¿½r Main retten
 	ldy sc_scvek2+1
 	stx list
 	sty list+1
@@ -102,7 +103,7 @@ start	lda rm_ramvec	; Device eingebunden?
 	ldy loadpatch+1
 	stx patch
 	sty patch+1
-	ldx #4		; Systempatch für GoDot <v1.32
+	ldx #4		; Systempatch fï¿½r GoDot <v1.32
 -	lda syspatch,x
 	sta cancpatch,x
 	dex
@@ -256,10 +257,10 @@ evnewclip	lda hasreu
 	jsr touchfile	; get filedata (width/height)
 	beq leave
 
-	sta nlens		; Namenslänge merken
+	sta nlens		; Namenslï¿½nge merken
 	lda ls_drive
 	sta drives	; Herkunftsdrive merken
-	lda wids		; Breite und Höhe eintragen
+	lda wids		; Breite und Hï¿½he eintragen
 	sta width
 	jsr setwid
 	lda hgts
@@ -271,7 +272,7 @@ evnewclip	lda hasreu
 	lda attgad+4	; Hilite Attachgadget
 	ora #$10
 	sta attgad+4
-	lda #1		; Bild zählen (erstes Bild)
+	lda #1		; Bild zï¿½hlen (erstes Bild)
 	sta numfiles
 
 nextclip	jsr setnames	; Namen merken
@@ -293,7 +294,7 @@ evattclip	lda numfiles
 	jsr touchfile	; get filedata (width/height)
 	beq leave
 
-	ldx numfiles	; Namenslänge merken
+	ldx numfiles	; Namenslï¿½nge merken
 	sta nlens,x
 	lda ls_drive	; Herkunftsdrive merken
 	sta drives,x
@@ -307,7 +308,7 @@ evattclip	lda numfiles
 	cpx #2		; nein ("both"), jetzt Bild 3?
 	bne +
 	lda modes+1	; ja, wie war Bild 2?
-	bpl ++		; aside/both, dann Höhe anpassen
+	bpl ++		; aside/both, dann Hï¿½he anpassen
 
 +	cpx #3		; Bild 4: nichts tun
 	bcs +++
@@ -319,12 +320,12 @@ evattclip	lda numfiles
 
 ++	cpx #3		; Bild 4: nichts tun
 	bcs +++
-	lda hgts,x	; sonst: Höhe anpassen
+	lda hgts,x	; sonst: Hï¿½he anpassen
 	adc hgts
 	sta height
 	jsr sethgt
 
-+++	inc numfiles	; Bilder zählen
++++	inc numfiles	; Bilder zï¿½hlen
 	lda numfiles	; bei Bild 2: Concat aktivieren
 	cmp #2
 	bne +
@@ -333,7 +334,7 @@ evattclip	lda numfiles
 	ldx #$d7
 	stx ccgad+4
 
-+	cmp max		; Höchstzahl erreicht?
++	cmp max		; Hï¿½chstzahl erreicht?
 	bcc ++
 	lda attgad+4	; ja: Unhilite Attachgadget
 	and #$ef
@@ -341,16 +342,16 @@ evattclip	lda numfiles
 
 ++	lda numfiles
 	jmp nextclip
-	
+
 ; ----------------------------------------- Event: Concatenate these Files
 
 evconcat	jsr putclip	; open filerequester for destination file
 	bne +
 	jmp leave		; leave if nothing selected (hit "Cancel")
 
-+	sta clipnlen	; neue Namenslänge merken
++	sta clipnlen	; neue Namenslï¿½nge merken
 	sta wflen
-	jsr addsig	; ".4bt" anhängen (in ls_nambuf)
+	jsr addsig	; ".4bt" anhï¿½ngen (in ls_nambuf)
 	lda ls_drive	; Drive merken
 	sta ddrive
 	jsr gd_sproff	; Mauszeiger aus
@@ -367,7 +368,7 @@ evconcat	jsr putclip	; open filerequester for destination file
 	inx
 	cpx #3
 	bcc -
-	lda #$31		; Typ schreiben ("1" für Clip)
+	lda #$31		; Typ schreiben ("1" fï¿½r Clip)
 	jsr bsout
 	lda #0
 	jsr bsout		; Origin schreiben (0,0)
@@ -378,7 +379,7 @@ evconcat	jsr putclip	; open filerequester for destination file
 	inc scndfile
 	lda width		; neue Breite schreiben
 	jsr bsout
-	lda height	; neue Höhe schreiben
+	lda height	; neue Hï¿½he schreiben
 	jsr bsout
 	jsr gd_clrms	; Gauge vorbereiten
 
@@ -397,13 +398,13 @@ evconcat	jsr putclip	; open filerequester for destination file
 +	jsr aside		; wenn equal: "Aside"
 
 endproz	jsr gd_spron	; Abschluss: Mauszeiger wieder an
-	jsr clrch		; File 12 (write) schließen
+	jsr clrch		; File 12 (write) schlieï¿½en
 	lda #12
 close2	jsr close
 	sec
 	rts
 
-closesrc	lda #13		; File 13 (read) schließen
+closesrc	lda #13		; File 13 (read) schlieï¿½en
 	bne close2
 
 ; ----------------------------------------- Add File Below
@@ -451,7 +452,7 @@ aside	jsr opensrc1	; open first file for read (13)
 	sty adcnt		; .y=1
 	jsr initcnts	; init counters
 
--	jsr setcnt	; Lesevektor setzen, Puffer löschen
+-	jsr setcnt	; Lesevektor setzen, Puffer lï¿½schen
 	ldx #13		; target: 13,dr,13,"readfile1"
 	jsr chkin
 	jsr readline1	; read one block line of left image
@@ -460,7 +461,7 @@ aside	jsr opensrc1	; open first file for read (13)
 	jsr writeline	; write this block line to resultfile
 
 	inc fcnt
-	jsr setcnt	; Lesevektor setzen für readfile2, Puffer löschen
+	jsr setcnt	; Lesevektor setzen fï¿½r readfile2, Puffer lï¿½schen
 	dec fcnt
 
 	ldx #14		; target: 14,dr,14,"readfile2"
@@ -533,7 +534,7 @@ evmode	ldx mode
 	lda numfiles	; bei Modulstart: nichts tun
 	beq +++
 
-	cmp max		; Höchstzahl Bilder erreicht?
+	cmp max		; Hï¿½chstzahl Bilder erreicht?
 	bcs +
 	lda attgad+4	; nein, hilite Attachgadget
 	ora #$10
@@ -596,7 +597,7 @@ evnameclp	lda clipnlen
 	bpl -
 ++	clc
 	rts
-	
+
 ; ----------------------------------------------------- Blink the Border
 
 fail	ldy #2		; red
@@ -739,7 +740,7 @@ adaptwid1	ldx #0
 	sec
 	sbc wids+3
 	bcs ++
-	lda width		; wenn beide zu groß: halbieren
+	lda width		; wenn beide zu groï¿½: halbieren
 	lsr
 ++	sta adapted
 	jmp aw0
@@ -750,9 +751,9 @@ adaptwid2	ldx #0
 	lda wids+2	; addiere die unteren beiden Breiten
 	adc wids+3
 	sta bwidth
-	lda width	
+	lda width
 	cmp wids+3	; vergleiche mit den Einzelbreiten
-	bcc +		; wenn die größer: Vorgabebreite
+	bcc +		; wenn die grï¿½ï¿½er: Vorgabebreite
 	cmp bwidth	; und vergleiche mit der Summe
 	beq ++		; wenn gleich: nichts tun
 +	sec
@@ -783,7 +784,7 @@ setcnt 	ldy scndfile	; second file (on Aside & Both)
 	jsr adaptwid2
 
 +	ldy fcnt
-	lda wids,y	; dann Zähler setzen (für File1 und Writefile)
+	lda wids,y	; dann Zï¿½hler setzen (fï¿½r File1 und Writefile)
 	jsr times32
 	sta ls_vekta8+1	; length on Read
 	stx ls_vekta8
@@ -801,14 +802,14 @@ setcnt 	ldy scndfile	; second file (on Aside & Both)
 	jsr times32
 	sta bcnt2+1
 	stx bcnt2
-	
-+	lda width		; Puffer auf max. Größe
-	
+
++	lda width		; Puffer auf max. Grï¿½ï¿½e
+
 clbuffer	pha		; .a: Hi ist Anzahl Pages (minus 1)
 	jsr setvecs	; Zeiger setzen
 	sta dst
 	stx dst+1
-	ldy #0		; zum Löschen
+	ldy #0		; zum Lï¿½schen
 	pla
 clrbufs	tax
 	inx		; Anzahl Pages korrigieren (plus 1)
@@ -898,7 +899,7 @@ wflen	!by 0
 
 wopen	jsr inull		; Initialize
 	bne err8
-	ldy wflen		; ",p,w" anhängen
+	ldy wflen		; ",p,w" anhï¿½ngen
 	ldx #3
 wo1	lda pw,x
 	sta ls_nambuf,y
@@ -930,7 +931,7 @@ err8 	sec
 ; ------------------------------------------------ Open Source
 
 sopen	lda fnum		; 13,drive,13 (read1) or 14,dr,14 (read2)
-	tay 
+	tay
 	ldx sdrive
 	beq err8
 	jsr filpar
@@ -970,7 +971,7 @@ opensrc1	ldy fcnt		; fcnt: 0 or 2
 -	dey
 	bmi +
 	adc #16
-	bne - 
+	bne -
 +	sta src
 	lda #>clip1
 	sta src+1
@@ -991,7 +992,7 @@ opensrc1	ldy fcnt		; fcnt: 0 or 2
 
 ; ----------------------------------------- Init File Counters
 
-initcnts	lda #0		; Packzähler auf 0
+initcnts	lda #0		; Packzï¿½hler auf 0
 	sta counter
 	sta counter+1
 	sta cnt
@@ -1170,7 +1171,7 @@ readline2	ldy #0		; read for "aside"
 
 	lda wskip		; wenn zweites File eine andere Breite hat:
 	beq +
--	lda bwidth	; anpassen (korrigieren) fürs Wegschreiben
+-	lda bwidth	; anpassen (korrigieren) fï¿½rs Wegschreiben
 	jsr times32
 	sta bcnt2+1
 	stx bcnt2
@@ -1202,10 +1203,10 @@ writeline	ldy #0
 	rts
 
 ; -------------------------------------------------------------------------
-; -------------------------------------------------------------- Namen verlängern
+; -------------------------------------------------------------- Namen verlï¿½ngern
 ; -------------------------------------------------------------------------
 
-addsig	pha		; Länge merken
+addsig	pha		; Lï¿½nge merken
 	tay
 	dey
 	ldx #0
@@ -1218,25 +1219,25 @@ ag4	lda ls_nambuf,y	; endet auf ".4bt"?
 	bcc ag4
 	pla		; ja, fertig
 	rts
-	
+
 ag2	pla
-	tay		; Name länger als 12 Zeichen?
+	tay		; Name lï¿½nger als 12 Zeichen?
 	cpy #13
 	bcs ag0		; ja, behandeln
 
-ag5	ldx #3		; nein, ".4bt" anhängen
+ag5	ldx #3		; nein, ".4bt" anhï¿½ngen
 ag1	lda sigtx,x
 ag3	sta ls_nambuf,y
-	lda sigtxs,x	; auch für Image Info
+	lda sigtxs,x	; auch fï¿½r Image Info
 	sta ls_lastname,y
 	iny
 	dex
 	bpl ag1
-	sty wflen		; neue Länge merken, fertig
+	sty wflen		; neue Lï¿½nge merken, fertig
 	sty ls_flen
 	rts
 
-ag0	dey		; auf 12 verkürzen
+ag0	dey		; auf 12 verkï¿½rzen
 	cpy #12
 	bne ag0
 	beq ag5		; unbed. Sprung
@@ -1264,7 +1265,7 @@ cou8	dec bcnt3
 	lda bcnt3
 	ora bcnt3+1
 	rts
-	
+
 cou2	inc sc_texttab	; writefile
 	bne cou5
 	inc sc_texttab+1
@@ -1275,7 +1276,7 @@ cou3	dec bcnt2
 	lda bcnt2
 	ora bcnt2+1
 	rts
-	
+
 ; --------------------------- Kringel definieren
 
 makechr	ldx #7
@@ -1354,9 +1355,9 @@ undo	jsr initreu
 ; ---------------------------------------- Init rm_werte
 
 initreu	ldx #6
-	lda #0		; RM_WERTE (am Ende): 
+	lda #0		; RM_WERTE (am Ende):
 sl0	sta rm_werte,x	; $00, $c0, $00, $00, 0, 0, 0
-	dex		; - C64 - | -  REU   - | Anzahl 
+	dex		; - C64 - | -  REU   - | Anzahl
 	bpl sl0
 	lda #$c0
 	sta rm_werte+1
@@ -1368,8 +1369,8 @@ cnvwa	sta mantisse	; hi
 	stx mantisse+1	; lo
 	lda #32
 	ldx #6
--	sta sy_numbers,x	; Ergbebnis löschen
-	sta text,x	; Ausgabestring löschen
+-	sta sy_numbers,x	; Ergbebnis lï¿½schen
+	sta text,x	; Ausgabestring lï¿½schen
 	dex
 	bpl -
 	inc pport
@@ -1449,29 +1450,29 @@ tc0 	lda txt,x
 
 action 	dec adcnt		; Activity, nur bei 0
 	bne ld4
-	lda cntwert	; dann: Reload des Zählers
+	lda cntwert	; dann: Reload des Zï¿½hlers
 	sta adcnt
 	ldy offy		; Offset auf Balkenende
 	cpy #23		; Ende erreicht? (Hier den gleichen Wert wie bei clrmess einsetzen!)
 	bne act0
 	jsr clrmess	; ja, re-Init
-act0	ldx offx		; Dicke des Balkenendstücks
+act0	ldx offx		; Dicke des Balkenendstï¿½cks
 	lda filltab,x
 	sta mess,y
 	jsr messout	; Balken ausgeben
-	dec offx		; Endstück nächstes Mal dicker
-	bpl ld4		; bis gefüllt
-	inc offy		; dann Balken selbst verlängern
-	lda #7		; Endstück wieder dünn
+	dec offx		; Endstï¿½ck nï¿½chstes Mal dicker
+	bpl ld4		; bis gefï¿½llt
+	inc offy		; dann Balken selbst verlï¿½ngern
+	lda #7		; Endstï¿½ck wieder dï¿½nn
 	sta offx
 ld4 	rts
 
-clrmess	ldx #23		; Puffer für Balken löschen
+clrmess	ldx #23		; Puffer fï¿½r Balken lï¿½schen
 	lda #32
 cl0	sta mess,x
 	dex
 	bpl cl0
-	ldy #0		; Balkenlänge 0 
+	ldy #0		; Balkenlï¿½nge 0
 	ldx #7		; Dicke am Ende 0
 	sty offy
 	stx offx
@@ -1479,9 +1480,9 @@ cl0	sta mess,x
 
 filltab	!by 160,93,103,127,126,124,105,109
 txt	!scr " MClip  @"	; Offset 0, (das "@" entspricht dem Screencode $00, ist hier also Stringdelimiter)
-message	!fill 8,32	; 8 Zeichen für Infotext (kann geändert werden, dann "mess" anpassen)
-mess	!fill 24,32	; 24 Zeichen für Fortschrittsbalken, Länge von message und mess zusammen 32
-	!by 0		; Anzahl: bei Änderung "clrmess" und "action" anpassen (dort Wert minus 1)!
+message	!fill 8,32	; 8 Zeichen fï¿½r Infotext (kann geï¿½ndert werden, dann "mess" anpassen)
+mess	!fill 24,32	; 24 Zeichen fï¿½r Fortschrittsbalken, Lï¿½nge von message und mess zusammen 32
+	!by 0		; Anzahl: bei ï¿½nderung "clrmess" und "action" anpassen (dort Wert minus 1)!
 
 ; ----------------------------------------- Text Output Handler
 
@@ -1536,7 +1537,7 @@ clipdname	!tx  "NewImage"	; name on disk
 dummys	!scr "NewImage    "
 dummyd	!tx  "NewImage    "
 starttext	!scr " First Clip "
-modtext	!scr " Below ",$1f," Aside ",$5e," Both ",$5e,$1f  
+modtext	!scr " Below ",$1f," Aside ",$5e," Both ",$5e,$1f
 nofile	!scr "Untitled"
 signature	!tx "god"
 text	!fill 12,32
@@ -1593,6 +1594,6 @@ more	!by $c0,6,12,14
 
 	!by $80
 
-; ----------------------------------------- 
+; -----------------------------------------
 
 modend	!eof
