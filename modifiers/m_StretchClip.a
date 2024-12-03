@@ -10,13 +10,14 @@
 ;
 ;   0.99, 06.01.93, first release
 ;   1.00, 30.07.03, fixed crash on ram exec
-;                   added blink 
+;                   added blink
 ;   1.01, 06.08.03, fixed no clipwidth > 32
 ;   1.02, 09.08.03, fixed crash at clipwidth=32
 ;   1.03, 10.08.03, fixed right and bottom most pixel missing
 ;   1.04, 23.11.20, added: force re-render on Full Screen
-; 
-; -------------------------------------- 
+;   1.05, 03.12.24, adapted to SuperCPU
+;
+; --------------------------------------
 
 ; -------------------------------------- equates
 
@@ -36,16 +37,16 @@
 	which		= $42
 	tab		= $43
 
-	areatype		= $1ef5
+	areatype		= $1efb
 	spr255		= $3fc0
-	
+
 	ybuf0		= $bf00
 	ytab0		= $c500
 	xtab0		= $c500
 	ybuf1		= $c600
 	xbuf0		= $c700
 	xbuf1		= $c900
-	
+
 	y2		= $d005
 	spren		= $d015
 	border		= $d020
@@ -60,11 +61,11 @@
 	!by 0
 	!by 0
 	!tx "stretch the clip"
-	!tx "1.04"
-	!tx "23.11.20"
+	!tx "1.05"
+	!tx "03.12.24"
 	!tx "w.kling/a.dettke"
 
-; -------------------------------------- main 
+; -------------------------------------- main
 
 start	jsr vres
 	jsr hres
@@ -87,7 +88,7 @@ vstart0	lda sc_lastclpzl
 	asl
 	asl
 	sta ybufstart
-	
+
 	lda sc_lastclpho
 	asl
 	asl
@@ -101,12 +102,12 @@ vstart0	lda sc_lastclpzl
 	sta ystep
 	lda ystep1,x
 	sta ystep+1
-	
+
 	lda #0
 	sta sum
 	sta sum+1
 	sta sbak
-	
+
 	ldy ybufstart
 vtab1	lda sum
 	clc
@@ -125,7 +126,7 @@ vtab1	lda sum
 
 	lda #8
 	jsr initad
-	
+
 	ldy #0
 	tya
 vclrlp	sta ybuf1,y
@@ -146,7 +147,7 @@ vloop00	lda colnr+1
 	!by $2c
 odd0	ldx #$f0
 	stx which
-	
+
 	tax
 	and #3
 	sta src
@@ -163,10 +164,10 @@ odd0	ldx #$f0
 	lda src+1
 	ora #$40
 	sta src+1
-	
+
 	ldx #0
 	stx null
-	
+
 vloop0	ldy #0
 vloop1	lda (src),y
 	bit which
@@ -186,17 +187,17 @@ nuls0	inx
 	iny
 	cpy #32
 	bcc vloop1
-	
+
 	lda src+1
 	clc
 	adc #$05
 	sta src+1
 	cmp #$bd
 	bcc vloop0
-	
+
 	lda null
 	beq nextcol
-	
+
 	ldx #0
 	ldy ybufstart
 vsql	lda ytab0,y
@@ -209,7 +210,7 @@ vsql1	sta ybuf1,x
 	iny
 	cpy bufend
 	bne vsql
-	
+
 	lda colnr+1
 	lsr
 	sta dst+1
@@ -220,7 +221,7 @@ vsql1	sta ybuf1,x
 	!by $2c
 odd2	ldx #$f0
 	stx which
-	
+
 	tax
 	and #3
 	sta dst
@@ -237,7 +238,7 @@ odd2	ldx #$f0
 	lda dst+1
 	ora #$40
 	sta dst+1
-	
+
 	ldx #0
 vloop2	ldy #0
 vloop3	lda ybuf1,x
@@ -259,7 +260,7 @@ odd3	sta bbuf
 	iny
 	cpy #32
 	bcc vloop3
-	
+
 	lda dst+1
 	clc
 	adc #$05
@@ -275,7 +276,7 @@ vskip0	lda colnr
 	bne vskip1
 	lda colnr+1
 	bne vok
-	
+
 vskip1	dec adcnt
 	bne vadskp
 	inc y2
@@ -285,7 +286,7 @@ vskip1	dec adcnt
 vadskp	jmp vloop00
 vok	rts
 
-; -------------------------------------- 
+; --------------------------------------
 
 atype	!scr "Full"
 ystep	!by 0, 0
@@ -302,13 +303,13 @@ ystep1	!by $00,$19,$0c,$08,$06
 	!by $01,$01,$01,$01,$01
 	!by $01,$01,$01,$01,$01
 
-; -------------------------------------- 
+; --------------------------------------
 
 hres	lda sc_lastclpbr
 	cmp #40
 	bne hstart0
 	jmp graphon
-	
+
 hstart0	lda #0
 	sta sum
 	sta sum+1
@@ -328,7 +329,7 @@ hstart0	lda #0
 	bcc xskip0
 	inc tabstart+1
 	inc bufstart+1
-	
+
 xskip0	ldx sc_lastclpbr
 	lda xstep0,x
 	sta xstep
@@ -346,13 +347,13 @@ xl01	lda tabstart
 	ldx tabstart+1
 	sta tab
 	stx tab+1
-	
+
 	ldy #0
 	lda dstcnt+1
 	beq xloop1
 	lda dstcnt
 	beq xloop10	; v1.03
-	
+
 xloop0	lda sum
 	clc
 	adc xstep
@@ -386,17 +387,17 @@ xloop10	lda sum		; v1.03
 	lda dstcnt	; v1.03
 	beq xloop11	; v1.03
 	dec dstcnt	; v1.03
-	
+
 xloop11	lda #5		; v1.03
 	jsr initad
-	
+
 	ldy #0
 	tya
 hclrlp	sta xbuf1,y
 	sta xbuf1+256,y
 	iny
 	bne hclrlp
-	
+
 	lda #0
 	sta linenr
 hloop00	lda linenr
@@ -412,12 +413,12 @@ hloop00	lda linenr
 	sta dst
 	lda line8,x
 	sta dst+1
-	
+
 	lda #<(xbuf0)
 	ldx #>(xbuf0)
 	sta src
 	stx src+1
-	
+
 	ldx #0
 	stx null
 	lda #40
@@ -444,7 +445,7 @@ hskip0	pla
 hskip1	iny
 	cpy #4
 	bne hloop1
-	
+
 	lda dst
 	clc
 	adc #32
@@ -453,11 +454,11 @@ hskip1	iny
 	inc dst+1
 hskip2	dec blcnt
 	bne hloop0
-	
+
 	lda null
 	bne xdoit
 	jmp nextline
-	
+
 xdoit	lda #<(xbuf1)
 	ldx #>(xbuf1)
 	sta dst
@@ -467,12 +468,12 @@ xdoit	lda #<(xbuf1)
 	ldx bufstart+1
 	sta src
 	stx src+1
-	
+
 	lda tabstart
 	ldx tabstart+1
 	sta tab
 	stx tab+1
-	
+
 	ldx #0
 	ldy #0
 	lda dstcnt+1
@@ -510,7 +511,7 @@ xl3	dec sum
 	lda dstcnt	; v1.03
 	beq xloop12	; v1.03
 	dec dstcnt	; v1.03
-	
+
 xloop12	lda linenr	; v1.03
 	pha
 	lsr
@@ -524,7 +525,7 @@ xloop12	lda linenr	; v1.03
 	sta dst
 	lda line8,x
 	sta dst+1
-	
+
 	lda #<(xbuf1)
 	ldx #>(xbuf1)
 	sta src
@@ -549,7 +550,7 @@ hskip4	sta (dst),y
 	iny
 	cpy #4
 	bne hloop3
-	
+
 	lda dst
 	clc
 	adc #32
@@ -563,7 +564,7 @@ nextline	inc linenr
 	lda linenr
 	cmp #200
 	beq hok
-	
+
 	dec adcnt
 	bne adskp
 	inc y2
@@ -585,7 +586,7 @@ ar1	lda atype,x
 	stx sc_clipped		; set Clip to Full
 	rts
 
-; -------------------------------------- 
+; --------------------------------------
 
 line8	!by $40, $45, $4a, $4f, $54
 	!by $59, $5e, $63, $68, $6d
@@ -615,7 +616,7 @@ xstep1	!by $00,$28,$14,$0d,$0a
 	!by $01,$01,$01,$01,$01
 	!by $01,$01,$01,$01,$01
 
-; -------------------------------------- 
+; --------------------------------------
 
 clearad	lda spren
 	and #$f3
@@ -648,7 +649,7 @@ adl0	sta spr255+3,y
 	sta $d004
 	lda #32
 	sta $d006
-	
+
 	lda #146
 	sta y2
 	sta y2+2
@@ -659,7 +660,7 @@ adl0	sta spr255+3,y
 	sta spren
 	rts
 
-; -------------------------------------- 
+; --------------------------------------
 
 graphon	lda border
 	pha
@@ -672,6 +673,6 @@ graphon	lda border
 	clc
 	rts
 
-; -------------------------------------- 
+; --------------------------------------
 
 modend	!eof
