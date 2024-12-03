@@ -7,10 +7,11 @@
 ; --------------------------------------
 ;
 ;     mod.PfoxFont
-;       Modifier zum Laden von Printfox-Zeichens‰tzen
+;       Modifier zum Laden von Printfox-Zeichens√§tzen
 ;
 ;     1.00, 01.03.18, first release
-;     1.01, 04.ﬂ3.18, bugfix: save on empty buffer now assumes 1x1 font
+;     1.01, 04.03.18, bugfix: save on empty buffer now assumes 1x1 font
+;     1.02, 03.12.24, adapted to SuperCPU
 ;
 ; --------------------------------------
 
@@ -23,11 +24,11 @@
 
 	counter		= $30	; /$31
 	gbyte		= $32	; dekodiertes Byte
-	cnt1		= $33	; z‰hlt bis 8 (1 Kachel)
-	bcnt		= $34	; z‰hlt Char-Breite
-	hcnt		= $35	; z‰hlt Char-Hˆhe
-	tcnt		= $36	; z‰hlt oberen Leerraum
-	lcnt		= $37	; z‰hlt Chars pro Zeile
+	cnt1		= $33	; z√∂hlt bis 8 (1 Kachel)
+	bcnt		= $34	; z√§hlt Char-Breite
+	hcnt		= $35	; z√§hlt Char-H√∂he
+	tcnt		= $36	; z√§hlt oberen Leerraum
+	lcnt		= $37	; z√§hlt Chars pro Zeile
 	dst		= $38	; /$39
 	dst0		= $3a	; /$3b
 	dst1		= $3c	; /$3d
@@ -41,9 +42,9 @@
 	zeile		= sc_merk
 	spalte		= zeile+1
 
-	patch		= $1bd2	; Systempatch f¸r Wildcard "?"
-	patch1		= $1be8	; Patch f¸r Normalfilenamen (5 statt 9)
-	patch2		= $19b7	; Patch f¸r Anzeige des letzten Files
+	patch		= $1bd2	; Systempatch f√ºr Wildcard "?"
+	patch1		= $1be8	; Patch f√ºr Normalfilenamen (5 statt 9)
+	patch2		= $19b7	; Patch f√ºr Anzeige des letzten Files
 	showfile		= $1988	; Anzeige letztes File
 	display		= $2000	; Ziel
 	charset		= $3040	; Ziel bei Re-Org
@@ -62,8 +63,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "View PFox Fonts "
-	!tx "1.01"
-	!tx "04.03.18"
+	!tx "1.02"
+	!tx "03.12.24"
 	!tx "A.Dettke        "
 
 ; -------------------------------------- Main
@@ -73,7 +74,7 @@ start	jsr spatch
 	jsr swppname
 	lda gr_redisp
 	sta redispmk
-	lda sc_screenvek	; Zeiger auf Main-Liste retten f¸r ShowFont
+	lda sc_screenvek	; Zeiger auf Main-Liste retten f√ºr ShowFont
 	sta mlist
 	lda sc_screenvek+1
 	sta mlist+1
@@ -81,11 +82,11 @@ start	jsr spatch
 	ldy #>(pfntlst)
 	jsr screen	; Requester aufbauen
 	jsr invert
-	lda sc_screenvek	; Zeiger auf PfoxFonts-Liste retten 
+	lda sc_screenvek	; Zeiger auf PfoxFonts-Liste retten
 	sta list
 	lda sc_screenvek+1
 	sta list+1
-	
+
 	jmp gd_eloop	; warten
 
 ; -------------------------------------- Event: Don't Exit
@@ -98,8 +99,8 @@ stay	clc
 evexit	jsr swppname
 	lda redispmk
 	sta gr_redisp
-	sec 
-	rts 
+	sec
+	rts
 
 ; --------------------------- Event: Show (Zeichensatz anzeigen)
 
@@ -151,7 +152,7 @@ invert	lda theight
 	jsr gd_initmove
 	jsr gd_invert
 +	rts
-	
+
 
 ; ------------------------------------------ Switch Graphics/Text
 
@@ -234,7 +235,7 @@ evinfo	jsr clrmssg
 	jsr chgdrv
 
 	jsr lrequest
-	lda ls_flen	; nichts gew‰hlt?
+	lda ls_flen	; nichts gew√§hlt?
 	beq jnofile	; ja, Ende
 	lda zeile
 	cmp #17
@@ -269,7 +270,7 @@ evldfont	jsr clrmssg
 	sty dst+1
 	stx dst1
 	sty dst1+1
-	stx counter	; .x=0, Komprimierungsz‰hler auf Null
+	stx counter	; .x=0, Komprimierungsz√§hler auf Null
 	stx counter+1
 	stx countdwn
 	stx countdwn+1
@@ -279,7 +280,7 @@ evldfont	jsr clrmssg
 
 	jsr lrequest
 
-	lda ls_flen	; nichts gew‰hlt?
+	lda ls_flen	; nichts gew√§hlt?
 	beq jnofile	; ja, Ende
 	lda zeile
 	cmp #17
@@ -287,10 +288,10 @@ evldfont	jsr clrmssg
 
 	jsr cutprefix
 
-; -------------------------------------- 
+; --------------------------------------
 
 frominfo	jsr getzsname
-	jsr clrbuffer	; Zielbereich lˆschen
+	jsr clrbuffer	; Zielbereich l√∂schen
 
 	lda #<ls_nambuf
 	sta ls_vekta8
@@ -302,7 +303,7 @@ frominfo	jsr getzsname
 	jsr getmaxdiv
 	ldx chsdiv	; which division?
 	ldy skoffs,x
-	lda skipbytes,y	; Anzahl Bytes f¸r Skip setzen
+	lda skipbytes,y	; Anzahl Bytes f√ºr Skip setzen
 	sta ls_vekta8
 	iny
 	lda skipbytes,y
@@ -315,7 +316,7 @@ frominfo	jsr getzsname
 	sta countdwn+1
 +	jsr intoskip
 
-	lda cwidth	; Space ¸berlesen, wenn groﬂe Chars
+	lda cwidth	; Space √ºberlesen, wenn gro√üe Chars
 	clc
 	adc theight
 	cmp #4
@@ -337,29 +338,29 @@ oloop	ldx topskip	; Leerraum oben im Zeichen
 	stx lcnt		; Zeichen pro Zeile
 	stx bcnt		; Zeichenbreite
 	stx cnt1		; Anzahl Linien in einer Kachel (8)
-	stx hcnt		; Z‰hler f¸r Zeichenhˆhe auf -1
+	stx hcnt		; Z√§hler f√ºr Zeichenh√∂he auf -1
 	dec hcnt
-	
-; -------------------------------------- 
 
-ldl0	ldx cnt1		; Kachellinienz‰hler abgelaufen?
+; --------------------------------------
+
+ldl0	ldx cnt1		; Kachellinienz√§hler abgelaufen?
 	bne ol0
 
-; -------------------------------------- 
+; --------------------------------------
 
 	ldx #8		; ja, neu setzen
 	stx cnt1
 	inc hcnt
 	beq ol1
-	ldx hcnt		; Zeichenhˆhe erreicht?
+	ldx hcnt		; Zeichenh√∂he erreicht?
 	cpx theight	; (max. 6)
 	bcs +
 
-; -------------------------------------- 
+; --------------------------------------
 
 	ldx #1
 	clc
-	lda dst0		; ja, n‰chste Kachelzeile ansteuern
+	lda dst0		; ja, n√§chste Kachelzeile ansteuern
 	adc voffsl,x
 	sta dst
 	sta dst0
@@ -369,10 +370,10 @@ ldl0	ldx cnt1		; Kachellinienz‰hler abgelaufen?
 	sta dst0+1
 	bne ldl0		; von vorn
 
-; -------------------------------------- 
+; --------------------------------------
 
-+	ldx #0		; n‰chstes Zeichen
-	stx hcnt		; re-init Zeichenhˆhe
++	ldx #0		; n√§chstes Zeichen
+	stx hcnt		; re-init Zeichenh√∂he
 	stx bcnt
 	ldx topskip	; Topskip reaktivieren
 	stx tcnt
@@ -382,14 +383,14 @@ ol1	beq oneline	; ja, bearbeiten
 	cpx lwidth
 	bcs ++
 
-	lda dst1+1	; nein, n‰chstes Zeichen, zur¸ck in
+	lda dst1+1	; nein, n√§chstes Zeichen, zur√ºck in
 	sta dst0+1	; die Ursprungszeile
 	sta dst+1
 	lda dst1
 	sta dst0
 	sta dst
 
-	ldy cwidth	; Einr¸cken um .x*Breite Bytes
+	ldy cwidth	; Einr√ºcken um .x*Breite Bytes
 	lda hoffs,y	; (8,16 oder 24)
 	sta temp
 -	lda dst		; .x mal Breite addieren
@@ -405,7 +406,7 @@ ol1	beq oneline	; ja, bearbeiten
 
 ol0	jmp oneline
 
-; -------------------------------------- 
+; --------------------------------------
 
 ++	ldx theight	; neue Zeichenzeile ansteuern
 	lda voffsl,x
@@ -421,7 +422,7 @@ ol0	jmp oneline
 	sta dst+1
 	jmp oloop		; alles auf Anfang
 
-; -------------------------------------- 
+; --------------------------------------
 
 oneline	ldx topskip	; Topskip aktiv?
 	bne ++		; ja, unten weiter
@@ -443,21 +444,21 @@ ldl11	tya		; sonst: weiter
 
 ++	ldx tcnt		; abgelaufen?
 	beq -		; ja, nichts tun
-	dec tcnt		; Topskip z‰hlen
-	lda #$ff		; Leerdaten eintragen f¸r eine Linie
+	dec tcnt		; Topskip z√§hlen
+	lda #$ff		; Leerdaten eintragen f√ºr eine Linie
 -	jsr setdata	; Daten in die Bitmap
 	bcc -		; ganze Breite fertig?
 
 +	lda #0
 	sta bcnt		; ja, re-init Breite
 
-	inc dst		; n‰chste Linie in der Bitmap
+	inc dst		; n√§chste Linie in der Bitmap
 	bne next
 	inc dst+1
-next	dec cnt1		; Linien z‰hlen
+next	dec cnt1		; Linien z√§hlen
 
 	lda dst+1
-	cmp #>sy_4bit	; bis hˆchstens zum 4Bit-Bereich
+	cmp #>sy_4bit	; bis h√∂chstens zum 4Bit-Bereich
 	bcs toolong
 	jmp ldl0
 
@@ -480,9 +481,9 @@ jfaile	jsr finish
 
 ; --------------------------------------
 
-ldl10	lda counter	; letzte Komprimierung l‰uft noch?
+ldl10	lda counter	; letzte Komprimierung l√§uft noch?
 	ora counter+1
-	bne ldl11		; ja, abschlieﬂen
+	bne ldl11		; ja, abschlie√üen
 
 ldl13	tya
 	jsr setdata	; allerletztes Byte schreiben
@@ -504,7 +505,7 @@ cf6	lda ls_lastname,x
 	ldx #3		; hiliten
 	jmp gd_fcol
 
-; --------------------------- ERROR 
+; --------------------------- ERROR
 
 nofile	jsr errnf
 	clc
@@ -517,7 +518,7 @@ errnf	ldx list		; sonst: Requester einblenden
 	jsr screen
 	jsr invert
 
-finish	jsr gd_xclose	; File schlieﬂen
+finish	jsr gd_xclose	; File schlie√üen
 	jsr chgdrv
 	jsr gd_spron	; Mauszeiger an
 	sec
@@ -645,7 +646,7 @@ evsvfont	jsr clrmssg
 ++	pla
 	sta gd_modswitch
 	jmp ldl12
-	
+
 ; --------------------------- Definitely Save Font
 
 svcharset	jsr inull
@@ -671,7 +672,7 @@ svcharset	jsr inull
 	jsr anyerror
 	bne +++
 
-	ldx #$40		; Startadresse anw‰hlen ($3040)
+	ldx #$40		; Startadresse anw√§hlen ($3040)
 	lda #$30
 	stx svvek		; ### 1.01
 	sta svvek+1
@@ -690,7 +691,7 @@ svcharset	jsr inull
 	adc theight
 	cmp #2
 	bne +
-	ldx #<768		; 1x1 
+	ldx #<768		; 1x1
 	lda #>768
 	bne ++
 +	cmp #3
@@ -740,7 +741,7 @@ err8	sec
 	rts
 
 
-; --------------------------- 
+; ---------------------------
 
 savecset	lda #<svpat
 	pha
@@ -750,7 +751,7 @@ savecset	lda #<svpat
 	ldx #0
 	jmp gd_xloadsave
 
-; --------------------------- 
+; ---------------------------
 
 loadcset	lda #<pfoxzs
 	pha
@@ -759,7 +760,7 @@ loadcset	lda #<pfoxzs
 	lda #8
 	jmp gd_xloadm
 
-; --------------------------- 
+; ---------------------------
 
 pet2bc	eor #$e0
 	clc
@@ -772,10 +773,10 @@ pet2bc	eor #$e0
 
 ; --------------------------- Put Data to Bitmap
 
-setdata	ldx bcnt		; Breite abz‰hlen (0..n)
+setdata	ldx bcnt		; Breite abz√§hlen (0..n)
 	ldy hoffs,x	; Offsets holen
 	sta (dst),y	; Byte setzen
-	inc bcnt		; Z‰hler erhˆhen
+	inc bcnt		; Z√§hler erh√∂hen
 	ldx bcnt
 	cpx cwidth	; Breite erreicht? (.c=1)
 	rts
@@ -803,7 +804,7 @@ readpar	jsr basin		; get offset to last char in set
 	jmp jfaile	; Fehler: corrupt
 +	dec temp
 	bne -
-	jsr basin		; Hˆhe ohne Unterl‰nge
+	jsr basin		; H√∂he ohne Unterl√§nge
 	sta baseline
 	beq +
 	lda cheight
@@ -814,7 +815,7 @@ readpar	jsr basin		; get offset to last char in set
 	sta kerning
 	rts
 
-; -------------------------------------- 
+; --------------------------------------
 
 readhead	jsr basin		; erstes Zeichen holen
 	cmp #$5a		; "Z"? (Kennung eines Fonts)
@@ -822,7 +823,7 @@ readhead	jsr basin		; erstes Zeichen holen
 	pla
 	pla
 	jmp jfaila	; nein, kein Printfox Font, Fehler
-+	sta foxtype	; Kennung merken f¸r den Dekoder 
++	sta foxtype	; Kennung merken f√ºr den Dekoder
 
 	jsr basin		; zweites Byte: Nummer des Fonts
 	sta fontnum	; merken
@@ -833,7 +834,7 @@ readhead	jsr basin		; erstes Zeichen holen
 	lda chspln,x	; wie viele dieser Zeichen pro Zeile?
 	sta lwidth	; merken
 
-	jsr basin		; Zeichenhˆhe holen
+	jsr basin		; Zeichenh√∂he holen
 	sta cheight	; merken
 	ldx #0
 -	inx		; das sind .x Kacheln
@@ -847,18 +848,18 @@ readhead	jsr basin		; erstes Zeichen holen
 	sta topskip	; wobei oben .a Pixelzeilen leer sind
 	rts
 
-; --------------------------- Char-Puffer lˆschen
+; --------------------------- Char-Puffer l√∂schen
 
 clrbuffer	lda #<(display)	; $2000
 	ldx #>(display)
 	sta ls_adrmisc
 	stx ls_adrmisc+1
 	ldy #$00
-	tya 
+	tya
 -	sta (ls_adrmisc),y
-	iny 
+	iny
 	bne -
-	inx 
+	inx
 	stx ls_adrmisc+1
 	cpx #>sy_4bit
 	bne -
@@ -881,12 +882,12 @@ loadpars	lda #0
 	lda feed+1
 	sta amount+1
 
-	lda theight	; Zeichenhˆhe in Tiles
+	lda theight	; Zeichenh√∂he in Tiles
 	asl
 	asl
-	asl		; mal 8 = Pixelhˆhe (max 48)
+	asl		; mal 8 = Pixelh√∂he (max 48)
 	sta temp
-	jsr bptiles	; Speicherbedarf f¸r ein Zeichen
+	jsr bptiles	; Speicherbedarf f√ºr ein Zeichen
 	stx feed+1
 	sta feed
 	jsr mal32		; Save-Amount (max. 4608)
@@ -936,7 +937,7 @@ mal32	clc
 	rol feed+1
 	rts
 
-bpchar	lda temp		; Hˆhe (in Pixel)...
+bpchar	lda temp		; H√∂he (in Pixel)...
 bptiles	ldx cwidth	; mal Breite (in Kacheln)
 -	dex
 	beq +
@@ -988,7 +989,7 @@ getmaxdiv	ldx #4
 	stx chsdiv
 	jsr sdv0
 +	rts
-	
+
 ; --------------------------- Bootdrive sicherstellen
 
 chgdrv	lda ls_sysdrive
@@ -996,7 +997,7 @@ chgdrv	lda ls_sysdrive
 	sta ls_bootdrive
 	stx ls_sysdrive
 	rts
-	
+
 ; --------------------------- Name des 4Bit-Bildes retten
 
 swppname	ldy #15
@@ -1009,7 +1010,7 @@ sn0	lda ofilename,y
 	dey
 	bpl sn0
 	rts
-	
+
 ; --------------------------- Name des Zeichensatzes retten
 
 getzsname	ldx #12
@@ -1075,12 +1076,12 @@ mv0	lda #<charset
 
 ; --------------------------- Re-Organize Charset
 
-reorg	ldx chsdiv	; All angew‰hlt?
+reorg	ldx chsdiv	; All angew√§hlt?
 	bne mv0		; nein
 
 	stx curdiv	; Abschnitt 1 startet
 
-	ldx cwidth	; Breite grˆﬂer als 2?
+	ldx cwidth	; Breite gr√∂√üer als 2?
 	cpx #3
 	bcs mv0		; ja
 
@@ -1090,7 +1091,7 @@ reorg	ldx chsdiv	; All angew‰hlt?
 	cmp #4
 	bcs mv0
 
-	jsr settarget	; Startwerte f¸r Ziel festlegen
+	jsr settarget	; Startwerte f√ºr Ziel festlegen
 	ldy #0
 	ldx theight
 -	cpx #2		; 1x2?
@@ -1113,7 +1114,7 @@ reorg	ldx chsdiv	; All angew‰hlt?
 	lda samount+1
 	sta dst1+1
 
-; --------------------------- 
+; ---------------------------
 
 move	jsr setamount
 move2	lda #<display
@@ -1138,14 +1139,14 @@ advance	inc feed
 	bne move3
 	clc
 	rts
-	
-; --------------------------- 
+
+; ---------------------------
 
 move5	lda dst0		; zweite Zeile, dst0: $3040+$140
 	sta dst
 	lda dst0+1
 	sta dst+1
-	lda temp		; Offset zur¸ckholen ($480)
+	lda temp		; Offset zur√ºckholen ($480)
 	sta dst1
 	lda temp+1
 	sta dst1+1
@@ -1161,7 +1162,7 @@ move6	jsr sa2		; die folgenden (0..3)
 +	rts
 
 
-; --------------------------- 
+; ---------------------------
 
 setamount	lda samount
 	sta countdwn
@@ -1175,7 +1176,7 @@ sa2	lda #64
 	sta countdwn+1
 	rts
 
-; --------------------------- 
+; ---------------------------
 
 settarget	ldx curdiv
 	lda #<charset	; Zieladresse setzen (zuerst $3040)
@@ -1194,7 +1195,7 @@ settarget	ldx curdiv
 	sta dst0+1
 	rts
 
-; --------------------------- 
+; ---------------------------
 
 einmal2	jsr passes
 -	inc curdiv
@@ -1210,7 +1211,7 @@ passes	ldx curdiv
 	lda qoffs1x2l,x	; Start: $340 (1x2), erste Zeile
 	sta dst1
 	clc
-	adc #$40		; Start+320 in temp (f¸r 2. Zeile)
+	adc #$40		; Start+320 in temp (f√ºr 2. Zeile)
 	sta temp
 	lda qoffs1x2h,x
 	sta dst1+1
@@ -1229,7 +1230,7 @@ passes	ldx curdiv
 	ldx curdiv
 	bne +
 
--	lda feed		; feed+320 in temp (f¸r 2. Zeile)
+-	lda feed		; feed+320 in temp (f√ºr 2. Zeile)
 	clc
 	adc #$40
 	sta temp
@@ -1286,16 +1287,16 @@ failf	ldx #64		; err6
 	ldy #0
 fl0	lda err1,x
 	sta message,y
-	inx 
-	iny 
+	inx
+	iny
 	cpy #32
 	bne fl0
 	jsr errnf
 	jsr gd_clrms
 	jsr messout
-	pla 
-	pla 
-+	clc 
+	pla
+	pla
++	clc
 	rts
 
 ; --------------------------- Load Requester
@@ -1339,7 +1340,7 @@ lrequest	ldy #0
 
 	lda #9		; Unpatch 1
 	sta patch1
-	
+
 	pla
 	sta gd_modswitch
 	pla
@@ -1357,11 +1358,11 @@ lrequest	ldy #0
 getinfo	lda cwidth	; Zeichenbreite
 	jsr gd_xcnvdez
 	sta sizetx
-	lda theight	; Zeichenhˆhe (in Kacheln)
+	lda theight	; Zeichenh√∂he (in Kacheln)
 	jsr gd_xcnvdez
 	sta sizetx+2
 
-	lda cheight	; Zeichenhˆhe (in Pixeln)
+	lda cheight	; Zeichenh√∂he (in Pixeln)
 	jsr getziff
 	stx heighttx1+1
 	stx heighttx2+1
@@ -1387,7 +1388,7 @@ getinfo	lda cwidth	; Zeichenbreite
 	sta charstx1+2
 	sta charstx2+2
 
-	lda baseline	; Baseline (Grˆﬂe der Unterl‰nge in Pixeln)
+	lda baseline	; Baseline (Gr√∂√üe der Unterl√§nge in Pixeln)
 	jsr getziff
 	stx blinetx1+1
 	stx blinetx2+1
@@ -1400,7 +1401,7 @@ getziff	jsr gd_xcnvdez
 	cpx #$30
 	bne +
 	ldx #$20
-+	rts	
++	rts
 
 ; --------------------------- Cut off Prefix of ZS
 
@@ -1441,7 +1442,7 @@ messout 	ldx #<(message)
 
 message	!scr " PFont "
 mess	!fill 25,32
-	!by 0       
+	!by 0
 
 settext	lda #<tabigad
 	sta sc_texttab
@@ -1474,7 +1475,7 @@ err6	!scr "  WARNING: File cut. Too long.  "	; 64
 
 division	!scr " All DigitUpperLowerExtra"
 chsdiv	!by 0	; Which Division? (0-4; 0=All)
-maxdiv	!by 0	; Hˆchstzahl Divisions (1..4)
+maxdiv	!by 0	; H√∂chstzahl Divisions (1..4)
 
 mlist	!wo 0
 list	!wo 0
@@ -1494,24 +1495,24 @@ svpat	!pet "?x?-*"
 foxtype 	!by 0
 fontnum	!by 0	; Nummer des Zeichensatzes
 numchs	!by 0	; Anzahl Zeichen im Set (max. 114)
-baseline	!by 0	; Hˆhe ohne Unterl‰nge (0..cheight)
+baseline	!by 0	; H√∂he ohne Unterl√∂nge (0..cheight)
 kerning	!by 0	; Standardabstand der Zeichen
 cwidth	!by 0	; Zeichenbreite in Kacheln (1..3)
 lwidth	!by 0	; Anzahl Zeichen pro Zeile (40, 20 oder 13)
-cheight	!by 0	; echte Zeichenhˆhe (5..42)
-theight	!by 0	; Zeichenhˆhe in Kacheln (1..6)
+cheight	!by 0	; echte Zeichenh√∂he (5..42)
+theight	!by 0	; Zeichenh√∂he in Kacheln (1..6)
 onechar	!by 0	; Anzahl Bytes pro Char (8..126)
 
 skipbytes	!wo 0	; Anzahl Bytes bei skipdiv ("Digit", immer 0)
 amount	!wo 0	; Anzahl Bytes pro Division (=Skip auf "Upper")
 divlower	!wo 0	; Skip auf Division "Lower" (2*amount)
 divextra	!wo 0	; Skip auf Division "Extra" (3*amount)
-samount	!wo 0	; Amount f¸r komplette Kacheln (=Offset von "Upper" bei Save)
+samount	!wo 0	; Amount f√ºr komplette Kacheln (=Offset von "Upper" bei Save)
 slower	!wo 0	; Offset "Lower" beim Speichern ("Digit"=0)
 
 topskip	!by 0	; Leerbereich oben (in Pixel, 0..7)
-hasinfo	!by 0	; Info wurde bereits ausgef¸hrt ($ff)
-namelen	!by 0	; Namensl‰nge
+hasinfo	!by 0	; Info wurde bereits ausgef√ºhrt ($ff)
+namelen	!by 0	; Namensl√∂nge
 
 chspln	!by 0,40,20,13
 hoffs	!by 0,8,16,24,32,40,48,56,64,72,80
@@ -1527,7 +1528,7 @@ zoffs1x2h	!by $00,$01,$03,$05
 x11x2	!by 1,0,0,1
 x21x2	!by 2,3,1,0
 chschr	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
-syspatch	!by $a0,$04,$b9,$28,$1d,$c9,$3f,$f0
+syspatch	!by $a0,$04,$b9,$2d,$1d,$c9,$3f,$f0
 	!by $05,$dd,$00,$bf,$d0,$04,$ca,$88
 	!by $d0,$f0
 
@@ -1599,8 +1600,8 @@ blinetx1	!scr "  0@"
 	!by $c0
 	!by 10,20,3
 charstx1	!scr "  0@"
-	!by $80 
+	!by $80
 
-; -------------------------------------- 
+; --------------------------------------
 
 modend	!eof
