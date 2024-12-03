@@ -16,6 +16,7 @@
 ;  1.01: 13.08.01, added message window
 ;  1.02: 05.06.24, bugfix in CMD recognition
 ;  1.03: 06.06.24, recognition of CMD partition #13 added
+;  1.04: 03.12.24, adapted to SuperCPU
 ;
 ; ------------------------------------------------------------
 
@@ -28,7 +29,7 @@
 
 	devs		= $0fa2
 	sendcom1		= $148e
-	filtype		= $1d29
+	filtype		= $1d2e
 	iecin		= $ffa5
 	untalk		= $ffab
 
@@ -40,8 +41,8 @@ modul	jmp start
 	!wo modend
 	!by $00,$00
 	!tx "Re-Scan Drives  "
-	!tx "1.03"
-	!tx "06.06.24"
+	!tx "1.04"
+	!tx "03.12.24"
 	!tx "A.Dettke        "
 
 ; ------------------------------------------------------------ Drivetest
