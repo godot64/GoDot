@@ -14,6 +14,7 @@
 ;    1.01, 14.01.02, added: highlight name of current partition
 ;    1.02, 04.06.24, bugfix in highlighting
 ;    1.03: 06.06.24, recognition of CMD partition #13 added
+;    1.04: 03.12.24, adapted to SuperCPU
 ;
 ; ------------------------------------------------------------
 
@@ -37,7 +38,7 @@
 	decpt		= $19c7
 	reqpt		= $19d4
 	cmdpt		= $1a63
-	filetype		= $1d29
+	filetype		= $1d2e
 
 	scrollback	= $bf00
 	basin2		= $f1ad
@@ -52,8 +53,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "ChangePartitions"
-	!tx "1.03"
-	!tx "06.06.24"
+	!tx "1.04"
+	!tx "03.12.24"
 	!tx "A. Dettke	 "
 
 ; ------------------------------------------------------------ Main
