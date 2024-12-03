@@ -4,7 +4,7 @@
 	!ct pet
 ;	!sl "labels.txt"
 
-; ----------------------------------------- 
+; -----------------------------------------
 ;
 ;  mod.Squeeze
 ;   Module to scale down a screen to the size of the clip
@@ -13,8 +13,9 @@
 ;  1.00, 10.05.18, first release (derived from mod.Squeeze2Clip)
 ;  1.01, 13.05.18, adapted to mod.Stretch, added input routines
 ;  1.02, 23.11.20, added: force re-render on Full Screen
+;  1.03, 03.12.24, adapted to SuperCPU
 ;
-; ----------------------------------------- 
+; -----------------------------------------
 
 ; ----------------------------------------- Equates
 
@@ -43,7 +44,7 @@
 	amrk		= $49
 
 	sprptr		= $07f8
-	areatype		= $1ef5
+	areatype		= $1efb
 	spr255		= $3fc0
 
 	xtab0		= $ca00
@@ -84,8 +85,8 @@
 	!wo modend
 	!wo 0
 	!tx "Squeeze /w Ratio"
-	!tx "1.02"
-	!tx "23.11.20"
+	!tx "1.03"
+	!tx "03.12.24"
 	!tx "A.Dettke        "
 
 ; -------------------------------------------------- Main Program
@@ -235,7 +236,7 @@ setdata	inc pport
 
 	lda #1
 	jsr settoff
-	
+
 	jsr row2fac	; clip row (in Kacheln) nach fac
 	ldx #10		; Ergebis eintragen und ausgeben
 	jsr di0		; .x=0
@@ -267,7 +268,7 @@ update	lda #2		; das Gleiche in Pixel (Clip-Breite)
 	ldx #2		; ausgeben
 	jsr di0		; .x=0
 
-	lda sc_lastclpho	; und ebenso Clip-Höhe
+	lda sc_lastclpho	; und ebenso Clip-Hï¿½he
 	asl
 	asl
 	asl
@@ -281,7 +282,7 @@ shresult	jsr getwid	; result will be distorted?
 	jsr fac2arg
 	jsr gethgt
 	jsr argdivfac
-	lda #<fratio	; Breite:Höhe=8:5? (Richtiger Aspekt?)
+	lda #<fratio	; Breite:Hï¿½he=8:5? (Richtiger Aspekt?)
 	ldy #>fratio
 	jsr conisfac
 	beq +
@@ -315,10 +316,10 @@ shresult	jsr getwid	; result will be distorted?
 
 	dec pport
 
-	jsr settxt	; ..und für Ausgabe vorbereiten
+	jsr settxt	; ..und fï¿½r Ausgabe vorbereiten
 	ldx xmrk
 	bmi +		; pos: Aspekt stimmt
-	lda #15		; Zeile mit Adjust-Aufforderung löschen
+	lda #15		; Zeile mit Adjust-Aufforderung lï¿½schen
 	ldx #13
 	ldy #14
 	jsr gd_setpar	; !! mind values at adjtx !!
@@ -327,12 +328,12 @@ shresult	jsr getwid	; result will be distorted?
 	sty ymrk
 	jmp textout
 
-; ----------------------------------------- 
+; -----------------------------------------
 
 di0	stx ymrk		; Index auf Zahl merken
 di4	jsr facasc	; convert fac to digits
 	jsr di1		; Ziffern holen
-	ldy ymrk		; Index zurück
+	ldy ymrk		; Index zurï¿½ck
 	jsr movetx	; Ziffern in die Screenlist schreiben
 	jsr textout	; und ausgeben
 	clc		; im Modul bleiben
@@ -346,7 +347,7 @@ di2	dey
 	lda sy_numbers,y
 	bne di2
 
-	ldx #0		; Ziffernpuffer löschen
+	ldx #0		; Ziffernpuffer lï¿½schen
 	lda #32
 -	sta text,x
 	inx
@@ -373,8 +374,8 @@ movetx	jsr settxt
 	dex
 	bpl -
 	rts
-	
-; ----------------------------------------- 
+
+; -----------------------------------------
 
 settoff	clc
 	sta txtlen
@@ -382,7 +383,7 @@ settoff	clc
 	sta toff
 	rts
 
-; ----------------------------------------- 
+; -----------------------------------------
 
 gethgt	lda height
 	ldx height+1
@@ -425,7 +426,7 @@ vstart0	lda sc_lastclpzl	; compute start line (0-192)
 	sta sum
 	sta sum+1
 
-	ldy ybufstart	; write scaling values to buffer 
+	ldy ybufstart	; write scaling values to buffer
 vtabl	sta ytab0,y	; (first time: clear buffer)
 	lda sum
 	clc
@@ -449,12 +450,12 @@ vclrlp	sta ybuf1,y
 
 ; -------------------------------------------------- Shrink
 
-	lda #$00		; clear column 
+	lda #$00		; clear column
 	sta colnr
 	sta colnr+1
 
 vloop00	lda colnr+1	; get column
-	lsr		; divide by 2 
+	lsr		; divide by 2
 	sta src+1
 	lda colnr		; odd or even?
 	ror
@@ -632,7 +633,7 @@ hstart0	lda #0		; clear sum
 	sta bufstart
 	bcc xskip0
 	inc bufstart+1
-	
+
 xskip0	lda width		; init step values
 	sta dstcnt
 	lda width+1
@@ -648,7 +649,7 @@ xl01	lda tabstart
 	beq xloop1
 	lda dstcnt
 	beq xloop1
-	
+
 xloop0	lda sum+1		; yes, create table accordingly
 	sec
 	sbc sbak
@@ -773,7 +774,7 @@ xdoit	lda #<xbuf0	; squeeze in two steps...
 	beq xloop3
 	lda dstcnt
 	beq xloop3
-	
+
 xloop2	lda (tab),y	; ...width > 31
 	clc
 	adc src
@@ -786,7 +787,7 @@ xskip1	lda (src,x)
 	bne xloop2
 	inc tab+1
 	inc dst+1
-	
+
 xloop3	lda (tab),y	;  ...width < 32
 	clc
 	adc src
@@ -935,7 +936,7 @@ divit	jsr argdivfac	; dividieren
 lmultiply	jsr gethgt
 	jmp mp0
 
-multiply	jsr hgt2fac	; höhe holen
+multiply	jsr hgt2fac	; hï¿½he holen
 mp0	jsr fac2arg	; nach arg
 	jsr cnvrio	; aspekt holen
 	jsr argmulfac	; multiplizieren mit 1.6
@@ -968,7 +969,7 @@ any2fac	stx int+1
 int2fac	lda int+1
 	ldx int
 	jmp cnvwa
-	
+
 row2fac	ldx sc_lastclpzl
 	jmp +
 wid2fac	ldx sc_lastclpbr
@@ -982,7 +983,7 @@ col2fac	ldx sc_lastclpsp
 	dey
 	bpl -
 	lda #0
-	
+
 cnvwa	sta $62		; hi
 	stx $63		; lo
 	ldx #$90
@@ -1062,7 +1063,7 @@ input	lda gd_modswitch
 	stx sc_iflag
 -	lda digits,x	; digits and space
 	sta sy_global,x
-	dex 
+	dex
 	bpl -
 	lda #<sy_global	; call system input
 	sta ls_vekta8
@@ -1094,9 +1095,9 @@ gword	ldy #0
 
 	cmp #$3a
 	bcs +
-	sec 
+	sec
 	sbc #$30
-	sec 
+	sec
 	sbc #$d0
 	bcs +
 	sbc #$2f
@@ -1128,12 +1129,12 @@ gword	ldy #0
 +	lda int		; result in (int), low also in .a
 	rts
 
-; -------------------------------------- 
+; --------------------------------------
 
 inca8	inc ls_vekta8
 	bne +
 	inc ls_vekta8+1
-+	rts 
++	rts
 
 ; --------------------------- Adjust-Zeichen definieren
 
@@ -1154,7 +1155,7 @@ line8	!by $40,$45,$4a,$4f,$54
 	!by $8b,$90,$95,$9a,$9f
 	!by $a4,$a9,$ae,$b3,$b8
 
-; -------------------------------------------------- 
+; --------------------------------------------------
 ; ystep = 200x256/blockzeile*8 (0..25)
 ; 200x256: 51200 ($c800 = 90 48 00 00 00)
 ; --------------------------------------------------
@@ -1166,7 +1167,7 @@ ystep	!wo 0
 tabstart	!wo 0
 bufstart	!wo 0
 
-; ----------------------------------------- 
+; -----------------------------------------
 
 fwidth	!by $91,$20,$00,$00,$00	; float: 320x256=81920
 fheight	!by $90,$48,$00,$00,$00	; float: 200x256=51200
@@ -1260,6 +1261,6 @@ adjtx	!scr "Adjust Values:@"
 
 	!by $80
 
-; -------------------------------------------------- 
+; --------------------------------------------------
 
 modend	!eof
