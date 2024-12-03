@@ -1,7 +1,7 @@
 	!src "godotlib.lib"
 	*= $c000
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 ;
 ; mod.SystemInfo
 ; Modul zur Anzeige der GoDot-Systeminformationen
@@ -13,6 +13,7 @@
 ;                 bug fixes and shorter code
 ; 1.06, 25.10.20, added SuperCPU info
 ; 1.07, 21.12.20, changed release date info
+; 1.08, 03.12.24, adapted to SuperCPU
 ;
 ; ------------------------------------------------ Declarations
 
@@ -21,8 +22,8 @@
 	dst		= $32
 	ymrk		= $34
 	pmrk		= $35
-	filetype		= $1d29
-	ramtype		= $1d8f
+	filetype		= $1d2e
+	ramtype		= $1d94
 	fast		= $d030
 	vupmem		= $f01a
 	dupmem		= $f01e
@@ -35,10 +36,10 @@
 	!by $00
 	!by $00
 	!wo modend
-	!wo $00 
+	!wo $00
 	!pet "SystemInfo      "
-	!pet "1.07"
-	!pet "21.12.20"
+	!pet "1.08"
+	!pet "03.12.24"
 	!pet "M.Burggraf/AD   "
 
 ; ------------------------------------------------ Main
@@ -57,34 +58,34 @@ start	jsr setsysfvs	; gather infos
 
 ; ------------------------------------------------ Event: Leave
 
-evcan	sec 
-	rts 
+evcan	sec
+	rts
 
 ; ------------------------------------------------ System File versions
 
 setsysfvs	ldx #8		; retrieve ">" significations from filerequester
 -	lda cmdflags-8,x	; (flags for CMD drives and SuperCPU)
-	tay 
+	tay
 	lda filetype,y	; get flag
-	pha 
+	pha
 	lda cmdsigns-8,x	; get offset
-	tay 
-	pla 
+	tay
+	pla
 	sta vupdtx+2,y	; set flag
-	inx 
+	inx
 	cpx #13
 	bne -
 
-	sei 
+	sei
 	lda pport		; switch to RAM only
-	pha 
+	pha
 	lda #$34
 	sta pport
 
 	ldx #3
 -	lda vupmem,x	; upmem (version)
 	sta vuptx,x
-	dex 
+	dex
 	bpl -
 
 	ldy #0		; booter (release date)
@@ -104,9 +105,9 @@ setsysfvs	ldx #8		; retrieve ">" significations from filerequester
 	cpy #8
 	bcc -
 
-	pla 
+	pla
 	sta pport
-	cli 
+	cli
 
 	lda sy_versioninit	; Booter
 	jsr gd_xcnvdez
@@ -138,7 +139,7 @@ setsysfvs	ldx #8		; retrieve ">" significations from filerequester
 	lsr
 	jsr gd_xcnvdez
 	sta vkerntx+2
-	rts 
+	rts
 
 ; ------------------------------------------------ Workdrives
 
@@ -159,7 +160,7 @@ setwdrives
 	jsr getdigits
 	stx todrtx
 	sta todrtx+1
-	rts 
+	rts
 
 ; ------------------------------------------------ Driveinfos
 
@@ -180,7 +181,7 @@ setdrinfo	ldy #$ff
 
 getrminfo	lda ls_ramdrive	; U12:
 	and #$0f
-	tax 
+	tax
 	cpx #$02		; VDC
 	beq drc0
 	cpx #$03		; Pagefox
@@ -240,11 +241,11 @@ dr9	stx src
 transfer 	ldy #4		; transfer info
 -	lda (src),y
 	sta (dst),y
-	dey 
+	dey
 	bpl -
-	rts 
+	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 toggle	ldx sc_normtext	; exchange Hilite and Normtext
 	ldy sc_hilite	; (gute Idee!)
@@ -258,7 +259,7 @@ getdigits	jsr gd_xcnvdez	; .a=Einer
 	cpx #$30		; .x=Zehner
 	bne +
 	ldx #$20
-+	rts 
++	rts
 
 ; ------------------------------------------------ Screenlist
 
@@ -266,7 +267,7 @@ silist	!by $00
 	!by $01,$09,$16,$16,$81
 	!wo 0
 	!scr "System Information@"
-	!by $04,$18,$06,$05,$20 
+	!by $04,$18,$06,$05,$20
 	!wo 0
 	!by $09,$14,$0a,$03,$20
 	!wo 0
@@ -278,7 +279,7 @@ silist	!by $00
 	!wo evcan
 	!scr "Leave@"
 
-	!by $c0,$04,$0a,$08 
+	!by $c0,$04,$0a,$08
 	!scr "Bootfile@"
 	!by $c0,$05,$0a,$06
 	!scr "Kernel@"
@@ -286,25 +287,25 @@ silist	!by $00
 	!scr "Upmem@"
 	!by $c0,$09,$0a,$08
 	!scr "Release:@"
-	!by $c0,$0c,$0a,$0b 
+	!by $c0,$0c,$0a,$0b
 	!scr "Driveinfos:@"
-	!by $c0,$0e,$15,$03 
+	!by $c0,$0e,$15,$03
 	!scr "Sys@"
-	!by $c0,$0f,$15,$04 
+	!by $c0,$0f,$15,$04
 	!scr "Boot@"
-	!by $c0,$10,$15,$04 
+	!by $c0,$10,$15,$04
 	!scr "Load@"
-	!by $c0,$11,$15,$04 
+	!by $c0,$11,$15,$04
 	!scr "Save@"
-	!by $c0,$04,$18,$04 
+	!by $c0,$04,$18,$04
 vboottx	!scr " .  @"
-	!by $c0,$05,$18,$04 
+	!by $c0,$05,$18,$04
 vkerntx	!scr " .  @"
-	!by $c0,$06,$18,$04 
+	!by $c0,$06,$18,$04
 vuptx	!scr " .  @"
-	!by $c0,$09,$14,$08 
+	!by $c0,$09,$14,$08
 vupdtx	!scr "  .  .  @"
-	!by $c0,$0e,$0a,$09 
+	!by $c0,$0e,$0a,$09
 	!scr "  8:"
 dr8tx	!scr "     @"
 	!by $c0,$0f,$0a,$09
@@ -321,15 +322,15 @@ drbtx	!scr "     @"
 ramtx	!scr "     @"
 	!by $c0,$0e,$1a,$02
 sysdrtx	!scr "  @"
-	!by $c0,$0f,$1a,$02 
+	!by $c0,$0f,$1a,$02
 bootdrtx	!scr "  @"
-	!by $c0,$10,$1a,$02 
+	!by $c0,$10,$1a,$02
 fromdrtx	!scr "  @"
-	!by $c0,$11,$1a,$02 
+	!by $c0,$11,$1a,$02
 todrtx	!scr "  @"
-	!by $80 
+	!by $80
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 dr41tx	!scr " 1541"
 dr70tx	!scr " 1570"
@@ -348,16 +349,16 @@ txtablo	!by <dr8tx,<dr9tx,<dratx,<drbtx
 txtabhi	!by >dr8tx,>dr9tx,>dratx,>drbtx
 
 cmdflags	!by $22,$29,$31,$39,$42
-cmdsigns	!by $0e,$1c,$2a,$38,$46 
+cmdsigns	!by $0e,$1c,$2a,$38,$46
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 getdrinfo	ldy ymrk
 	iny
 
 	lda ls_units,y	; U8 bis U11
 	sty ymrk
-	tax 
+	tax
 	and #$0f
 	beq +
 
@@ -396,6 +397,6 @@ dr5	stx src
 	sty src+1
 +	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 modend	!eof
