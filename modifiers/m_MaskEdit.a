@@ -4,7 +4,7 @@
 	!ct pet
 ;	!sl "labels.txt"
 
-; ----------------------------------------- 
+; -----------------------------------------
 ; mod.EditMask
 ;     Module to edit hires monochrome bitmaps used as masks
 ;     for ldr.4Bit&Mask
@@ -30,8 +30,9 @@
 ; 1.12, 20.06.19: added init keyboard for SuperCPU
 ; 1.13, 19.01.20: bugfix due to v1.34 of gd_main (sprite msb x)
 ; 1.14, 24.01.20: reposition mouse after "w"
+; 1.15, 03.12.24: adapted to SuperCPU
 ;
-; ----------------------------------------- 
+; -----------------------------------------
 
 	zsp 		= $30
 	zzl 		= $31
@@ -94,8 +95,8 @@
 	!word (modend)
 	!byte 0,0
 	!pet "Edit Mask pixels"
-	!pet "1.14"
-	!pet "24.01.20"
+	!pet "1.15"
+	!pet "03.12.24"
 	!pet "A.Dettke/Mac    "
 
 ; ----------------------------------------- Main
@@ -220,7 +221,7 @@ masp: 	lda sprstore,x 	; load sprite
 	sta sprites+5
 	sta sprites+6
 	sta sprites+7
-	jsr sprbox   
+	jsr sprbox
 ; ----------------------------------------- set vert grid loc
 	lda #111
 	sta $d005
@@ -546,9 +547,9 @@ pe4: 	cpx #62		; "q" key
 pe5: 	cpx #37		; "k" key
 	bne pete
 	jsr tdelay
-	lda sprenable 
+	lda sprenable
 	eor #$fc		; flip sprites
-	sta sprenable 
+	sta sprenable
 
 pete: 	cpx #60		; left mouse button?
 	beq +
@@ -678,7 +679,7 @@ ms0: 	sta sc_chgcol
 	ldx #4
 	jmp gd_fcol
 
-; ----------------------------------------- 
+; -----------------------------------------
 
 hiedi: 	lda sc_hilite 	; hilite Edit gadget
 	sta sc_chgcol
@@ -814,7 +815,7 @@ eg2	cpx #35		; "Q" (for change grid color)
 	jsr fixgcl	; ### 1.10
 eg31	cpx #37		; "B" (for Bottom Right)
 	beq evbotrght
-eg3	cpx #34		; "W" (for Wipe)		
+eg3	cpx #34		; "W" (for Wipe)
 	bne em3
 	jsr mwipe		; ### 1.14
 em3:	clc
@@ -824,25 +825,25 @@ em3:	clc
 
 evdown: 	jsr down		; scroll down
 	jmp dp00		; display
-; ----------------------------------------- 
+; -----------------------------------------
 evdwnrght	jsr evdown
 	jmp evright
-; ----------------------------------------- 
+; -----------------------------------------
 evdwnleft	jsr evdown
 	jmp evleft
-; ----------------------------------------- 
+; -----------------------------------------
 evup: 	jsr up		; scroll up
 	jmp dp00		; display
-; ----------------------------------------- 
+; -----------------------------------------
 evuprght	jsr evup
 	jmp evright
-; ----------------------------------------- 
+; -----------------------------------------
 evupleft	jsr evup
 	jmp evleft
-; ----------------------------------------- 
+; -----------------------------------------
 evright	jsr right		; scroll right
 	jmp dp00		; display
-; ----------------------------------------- 
+; -----------------------------------------
 evleft: 	jsr left		; scroll left
 	jmp dp00		; display
 
@@ -853,21 +854,21 @@ evhome: 	ldy #0
 	sty horizont
 	jmp home		; display
 
-; ----------------------------------------- 
+; -----------------------------------------
 evcenter	lda #11		; center position
 	sta vertical
 	lda #18
 	sta horizont
 	jmp home		; display
 
-; ----------------------------------------- 
+; -----------------------------------------
 evbotrght	lda #22		; bottom right position
 	sta vertical
 	lda #36
 	sta horizont
 	jmp home		; display
 
-; ------------------------------------------ 
+; ------------------------------------------
 evtoprght:
 	lda #0		; top right position
 	sta vertical
@@ -875,7 +876,7 @@ evtoprght:
 	sta horizont
 	jmp home		; display
 
-; ------------------------------------------ 
+; ------------------------------------------
 evbotleft:
 	lda #22		; bottom left position
 	sta vertical
@@ -987,7 +988,7 @@ evdisplay	nop		; dummy (don't know anymore why)
 dp11b:	jsr disp2		; show graphics
 	jsr sprbox
 	jmp display	; redisplay magnification
-; ----------------------------------------- 
+; -----------------------------------------
 dp13: 	sty sc_stop 	; re-init stop flag
 	lda sc_maincolor 	; restore colors
 	sta border
@@ -1008,7 +1009,7 @@ set4bit:	lda horizont	; column (of tiles)
 	beq ss2
 	sta cnt
 ss4: 	clc		; compute indent into row
-	jsr r1cl		; one column right 
+	jsr r1cl		; one column right
 ss3: 	dec cnt
 	bne ss4
 ss2: 	lda vertical	; row (of tiles)
@@ -1106,7 +1107,7 @@ rp2: 	jsr tmode
 rp3: 	clc
 	rts
 
-; ----------------------------------------- 
+; -----------------------------------------
 
 mirror	jsr inittfer	; init
 
@@ -1149,7 +1150,7 @@ mirror	jsr inittfer	; init
 	lda vertical
 	cmp #25
 	bcc --
-	
+
 restbase	lda mkx		; restore current value of screenpnt
 	sta vertical
 	lda mkh
@@ -1169,7 +1170,7 @@ inittfer	jsr savebase
 	stx row
 	rts
 
-; ----------------------------------------- 
+; -----------------------------------------
 
 flip	jsr inittfer	; init
 
@@ -1240,13 +1241,13 @@ flip	jsr inittfer	; init
 	sta vertical
 	cmp #13		; up to 12
 	bcc -
-	
+
 +	lda #<linebuf1	; reset getline and setline to buffer1
 	sta smd1+1
 	sta smd2+1
 	jmp restbase	; uncond. branch, finished
 
-; ----------------------------------------- 
+; -----------------------------------------
 
 setbase	ldx #0		; base address: $2000
 	lda #$20
@@ -1270,7 +1271,7 @@ savebase	lda vertical	; save current value of screenpnt
 	sta stscrpnt+1
 	rts
 
-; ----------------------------------------- 
+; -----------------------------------------
 
 getline	lda screenpnt
 	sta currline
@@ -1306,7 +1307,7 @@ avc0	sta screenpnt
 	cpx #40
 	rts
 
-; ----------------------------------------- 
+; -----------------------------------------
 
 tmode: 	ldx #$13
 	lda #$1b
@@ -1316,7 +1317,7 @@ tmode: 	ldx #$13
 	sta $d016
 	rts
 
-; ----------------------------------------- 
+; -----------------------------------------
 
 redisplay	lda gr_redisp
 	pha
@@ -1448,9 +1449,9 @@ f6: 	sta (sc_texttab),y 	; pixels
 f7:	sty gr_redisp
 	jmp home
 
-; ----------------------------------------- 
+; -----------------------------------------
 
-rotf: 	jsr hv1		; get block address   
+rotf: 	jsr hv1		; get block address
 cloop: 	lda #$80
 	sta bitcnt
 	lda #0
@@ -1482,7 +1483,7 @@ stu1 	lda pmove,y
 	bpl stu1
 	jmp f7
 
-; ----------------------------------------- 
+; -----------------------------------------
 
 hv1: 	lda screenpnt+1 	; lda msb
 	sta sc_texttab+1
@@ -1502,7 +1503,7 @@ hv2: 	clc
 	sta sc_texttab
 	lda sc_texttab+1
 	adc #1
-	sta sc_texttab+1 
+	sta sc_texttab+1
 hv20 	dey
 	bne hv2
 hv3: 	lda sc_merk+1 	; get horz rows
@@ -1522,7 +1523,7 @@ hh5:	dey
 hh3:	dec border	; restore border
 	rts
 
-; ------------------------------------------ 
+; ------------------------------------------
 
 gdzl1	!byte 4
 gdzl2	!byte 14
@@ -1577,10 +1578,10 @@ coltx	!scr " 0@"
 	!by $c0,1,33,4
 	!scr "Y:"
 rowtx	!scr " 0@"
-	
+
 	!byte $c0,9,33,4		; Title
 	!scr "Edit@"
-	!byte $c0,10,33,4		; ### 1.06 bis hier 
+	!byte $c0,10,33,4		; ### 1.06 bis hier
 	!scr "Mask@"
 
 	!byte $c0,4,33,4
