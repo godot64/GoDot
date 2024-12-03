@@ -4,7 +4,7 @@
 	!ct pet
 ;	!sl "labels.txt"
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 ;
 ; mod.ClipWorks
 ; Modul zum Setzen und Bearbeiten von Bildschirmausschnitten (Clips)
@@ -19,8 +19,9 @@
 ; 1.10, 20.06.19: added debounce on key presses when displaying graphics
 ; 1.11, 28.02.20: added leave subrequester after work
 ; 1.12, 23.03.22: added automatic reaction to exceeding input values
+; 1.13, 03.12.24: adapted to SuperCPU
 ;
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 	pport		= $01
 	wordlo		= $07
@@ -51,7 +52,7 @@
 
 	sprptr		= $07f8
 
-	areatype		= $1ef5
+	areatype		= $1efb
 	ibuff		= sy_global
 	spr255		= sy_global+$80
 	buf0		= sy_bigbuffer
@@ -87,8 +88,8 @@
 	!wo modend
 	!wo 0
 	!pet "ClipWorks       "
-	!pet "1.12"
-	!pet "23.03.22"
+	!pet "1.13"
+	!pet "03.12.24"
 	!pet "A. Dettke       "
 
 ; ------------------------------------------------ Main
@@ -187,7 +188,7 @@ cl9	sty gr_redisp	; finish module: set appropriate re-render flag
 	sec		; leave module to main screen
 	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 checkcols	sei 		; GoDot off
 	ldx #$00
@@ -214,17 +215,17 @@ checkcols	sei 		; GoDot off
 
 	lda #$36		; GoDot on again
 	sta pport
-	cli 
-	rts 
+	cli
+	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 sethicol	lda (slot,x)	; get type of module (at $c003): $20, $40, $80
-	tay 
+	tay
 	and #$40		; is saver there? (contains vram1)
 	beq +		; no, next type
 
-	jsr c147		; yes, set color buffer 
+	jsr c147		; yes, set color buffer
 	sta v1buf
 	bne ++
 
@@ -238,15 +239,15 @@ sethicol	lda (slot,x)	; get type of module (at $c003): $20, $40, $80
 +	jsr c147		; so, it's a modifier (contains vram2)
 	sta v2buf
 
-++	rts 
+++	rts
 
 c147 	lda slot+1	; get hibyte...
 	ora #$0e		; ...and OR %00001110 to it (ie $ce)
 	rts 		; thus: get correct hi address of color buffers
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 ; ------------------------------------------------ graphics display
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 redisplay	ldx gr_palette	; set border to color 0 (normally black)
 	stx rahmen
@@ -297,12 +298,12 @@ tmode	ldx #$13
 	sta backgr
 	rts
 
-; ------------------------------------------------ 
-; ------------------------------------------------ 
+; ------------------------------------------------
+; ------------------------------------------------
 ; Routines to handle GoDot's graphics color buffers
 ; for comments see sources for god.upmem
-; ------------------------------------------------ 
-; ------------------------------------------------ 
+; ------------------------------------------------
+; ------------------------------------------------
 
 setcveks	sei
 	lda #$35
@@ -528,7 +529,7 @@ ss13	lda sc_stop	; STOP?
 	lda lastho
 	sta clipundo+3
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 break	jsr invertcl	; invert clip area (to off)
 ss15	jsr dp2		; end graphics display
@@ -763,7 +764,7 @@ gw0	lda inmerk	; get flag for type of inputted value (0..3)
 	beq gw2		; yes, finish
 	bne gw4		; else proceed
 
-gw11	lda sc_clipzl,y	; 0 or 1: get value from corresponding 
+gw11	lda sc_clipzl,y	; 0 or 1: get value from corresponding
 gw3	clc		; add input value
 	adc int
 	sta int+1
@@ -847,7 +848,7 @@ hoehe	!by 6,23,4,3,$e0,<(sevvinp),>(sevvinp)
 	!scr "Hgt@"
 	!by $80
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 set	!scr "Clip"
 	!scr "Full"
@@ -888,7 +889,7 @@ sevshrink	lda #0		; flag
 	jsr swap		; save first page of module
 	jsr vres		; shrink/zoom vertically
 	jsr hres		; shrink/zoom horizonzally
-	jsr swap		; restore first page 
+	jsr swap		; restore first page
 	jmp clearad	; activity off, finished
 
 ; ------------------------------------------------ vertically
@@ -984,7 +985,7 @@ nskip0	sta buf0,x
 	bne nc0
 	jmp nc		; no, next column
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 nc0	lda zoomfl	; process data
 	bmi nc01
@@ -1060,7 +1061,7 @@ vdivlp	sec
 vrskp5	iny
 	bne vdivlp
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 vrskp6	tya		; write back
 	ldy #0
@@ -1125,7 +1126,7 @@ odd3	sta bbuf
 	cmp #$bd
 	bcc vloop2
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 nc	inc colnr		; address next column
 	bne vskip0
@@ -1146,7 +1147,7 @@ vadskp	jmp vloop00	; start over
 
 vok	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 vratio	!by 0,0,1,25,2,25,3,25
 	!by 4,25,1,5,6,25,7,25
@@ -1186,7 +1187,7 @@ hclrlp	sta buf1,y
 	iny
 	bne hclrlp
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 	lda #$00		; line counter (200)
 	sta linenr
@@ -1247,7 +1248,7 @@ hskip2	dec blcnt
 	bne hskip21
 	jmp nl
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 hskip21	lda zoomfl
 	bmi zom0
@@ -1394,7 +1395,7 @@ hskip4	sta (dst),y
 hskip5	dec blcnt
 	bne hloop2
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 nl	inc linenr
 	lda linenr
@@ -1412,7 +1413,7 @@ adskp	jmp hloop00
 hok	rts
 
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 line8	!by $40,$45,$4a,$4f,$54
 	!by $59,$5e,$63,$68,$6d
@@ -1420,7 +1421,7 @@ line8	!by $40,$45,$4a,$4f,$54
 	!by $8b,$90,$95,$9a,$9f
 	!by $a4,$a9,$ae,$b3,$b8
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 hratio	!by 0,0,1,40,1,20,3,40
 	!by 1,10,1,8,3,20,7,40
@@ -1433,7 +1434,7 @@ hratio	!by 0,0,1,40,1,20,3,40
 	!by 4,5,33,40,17,20,7,8
 	!by 9,10,37,40,19,20,39,40
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 ;   sprite activity display
 
 
@@ -1483,7 +1484,7 @@ adl0	sta spr255+3,y
 	sta spren
 	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 adinc	lda adcnt
 	bne ai0
@@ -1500,7 +1501,7 @@ ai2	lda #$f8
 	inc $d007
 ai1	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 cancelclr	ldx mkscreen
 	ldy mkscreen+1
@@ -1518,7 +1519,7 @@ r20	lda modul,y
 	bne r20
 	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 ; ClrClp
 
 ; ------------------------------------------------ Event: ClrClp
@@ -1632,7 +1633,7 @@ initpal	lda c64pal,x	; re-display palette
 	clc
 	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 palzl	!by 0
 palsp	!by 0
@@ -1729,7 +1730,7 @@ ml7	jsr zero1
 
 ; ------------------------------------------------ Event: Outside
 
-evoutside	jsr initclr	; init activity display 
+evoutside	jsr initclr	; init activity display
 	lda #25		; 25 tile rows
 	sta vert
 	lda #$40		; start of 4Bit: $4000
@@ -1738,7 +1739,7 @@ evoutside	jsr initclr	; init activity display
 	sty data
 	ldx sc_clipzl	; clip from top?
 	beq ml4		; yes
-	jsr mal1280	; no, clear 
+	jsr mal1280	; no, clear
 	sta cnt+1
 	stx cnt
 	jsr zero1
@@ -1824,7 +1825,7 @@ il5	lda sc_clipbr	; compute width
 	sta vert
 	jmp ml9		; clear
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 add	clc
 	lda data0
@@ -1837,6 +1838,6 @@ add	clc
 	sta data+1
 	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 modend	!eof
