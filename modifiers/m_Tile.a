@@ -16,8 +16,9 @@
 ;     1.01, 22.03.18, added: optional restriction to only one quarter
 ;     1.02, 23.11.20, added: forced re-render in full screen
 ;     1.03, 14.01.24, renamed from mod.Tile to mod.Halve
+;     1.04, 03.12.24, adapted to SpuerCPU
 ;
-; -------------------------------------- 
+; --------------------------------------
 
 	jmp start
 	!by $20
@@ -25,8 +26,8 @@
 	!wo modend
 	!by $00,$00
 	!tx "Quarter & Tile  "
-	!tx "1.03"
-	!tx "14.01.24"
+	!tx "1.04"
+	!tx "03.12.24"
 	!tx "W.Kling/A.Dettke"
 
 ; -------------------------------------- Equates
@@ -46,7 +47,7 @@
 	which	= $42
 
 	sprptr	= $07f8
-	areatype	= $1ef5
+	areatype	= $1efb
 	spr255	= $3fc0
 
 	sprx2	= spritex+2
@@ -85,7 +86,7 @@ sevexec	jsr vhv		; squeeze vertically
 ; -------------------------------------- Event: Leave Modifier
 
 sevcan	sec 		; leave
-	rts 
+	rts
 
 ; -------------------------------------- Event: Set Mode (Color/Gray)
 
@@ -110,8 +111,8 @@ crt1	lda tflag
 crt2	ldy #14
 crt3	lda whichcol,x
 	sta coltx,y
-	dex 
-	dey 
+	dex
+	dey
 	bpl crt3
 	ldy #2
 	bne mrt4
@@ -149,8 +150,8 @@ mrt1	lda tflag		; mirflag $00: active (tflag $81)
 mrt2	ldy #14
 mrt3	lda whichmirr,x
 	sta mirrtx,y
-	dex 
-	dey 
+	dex
+	dey
 	bpl mrt3
 	ldy #0
 mrt4	jsr settab
@@ -163,9 +164,9 @@ mrt4	jsr settab
 vhv	lda #8		; set activity counter
 	jsr initad
 	ldy #0		; clear buffer
-	tya 
+	tya
 vclrlp	sta ybuf1,y
-	iny 
+	iny
 	bne vclrlp
 
 	lda #$00		; retrieve one *vertical* pixel line
@@ -173,11 +174,11 @@ vclrlp	sta ybuf1,y
 	sta colnr+1
 
 vloop00	lda colnr+1
-	lsr 
+	lsr
 	sta src+1
 
 	lda colnr		; line odd or even?
-	ror 
+	ror
 	bcs odd0
 	ldx #$0f
 	!by $2c
@@ -187,13 +188,13 @@ odd0	ldx #$f0		; set mask accordingly
 	tax 		; compute address in 4bit
 	and #$03
 	sta src
-	txa 
+	txa
 	and #$fc
-	asl 
+	asl
 	rol src+1
-	asl 
+	asl
 	rol src+1
-	asl 
+	asl
 	rol src+1
 	ora src
 	sta src
@@ -208,25 +209,25 @@ vloop1	lda (src),y	; linkes Pixel holen (ungerade Linie)
 	bit which
 	bvs odd1
 	lsr  		; nach unten shiften
-	lsr 
-	lsr 
-	lsr 
+	lsr
+	lsr
+	lsr
 
 odd1	and #$0f		; rechtes Pixel holen (gerade Linie)
 	sta ybuf0,x	; Pixel hintereinander in den Puffer schreiben
 	beq nuls0
 	ora null		; ### 1.01, wenn NULL $00 bleibt, ist die Linie leer gewesen
 	sta null
-nuls0	inx 		; vorrücken im Puffer
+nuls0	inx 		; vorrï¿½cken im Puffer
 	iny		; Pixel darunter ansteuern
-	iny 
-	iny 
-	iny 
+	iny
+	iny
+	iny
 	cpy #32		; eine Kachel durch
 	bcc vloop1
 
-	lda src+1		; nächste Kachel darunter ansteuern
-	clc 
+	lda src+1		; nï¿½chste Kachel darunter ansteuern
+	clc
 	adc #>(1280)
 	sta src+1
 	cmp #$bd		; bis alle 25 durch
@@ -234,16 +235,16 @@ nuls0	inx 		; vorrücken im Puffer
 
 	lda null		; Linie leer?
 	bne vvv
-	jmp nextcol	; dann gleich nächste Linie
+	jmp nextcol	; dann gleich nï¿½chste Linie
 
 vvv	bit tflag		; Modus checken
 	bvc color1	; Color?
 
 	ldy #0		; nein, Gray
-	ldx #0		; 200 Pixel zählen
+	ldx #0		; 200 Pixel zï¿½hlen
 vhln0	lda ybuf0,x	; zwei untereinander addieren,
-	inx 
-	clc 
+	inx
+	clc
 	adc ybuf0,x
 	lsr 		; halbieren (Mittelwert bilden)
 	sty ybuf
@@ -255,25 +256,25 @@ vhln0	lda ybuf0,x	; zwei untereinander addieren,
 	tya
 +	ldy ybuf
 	sta ybuf1+100,y	; ebenso im dritten Quadranten
-	iny 
-	inx 
+	iny
+	inx
 	cpx #200
 	bne vhln0
-	beq next0		; dann Color überspringen
+	beq next0		; dann Color ï¿½berspringen
 
 color1	ldy #0
-	ldx #0		; 200 Pixel zählen
-vhl	lda ybuf0,x	; zwei Pixel untereinander verknüpfen
-	inx 
-	asl 
-	asl 
-	asl 
-	asl 
+	ldx #0		; 200 Pixel zï¿½hlen
+vhl	lda ybuf0,x	; zwei Pixel untereinander verknï¿½pfen
+	inx
+	asl
+	asl
+	asl
+	asl
 	ora ybuf0,x
 	sty ybuf		; .y retten
 	tay 		; und den Wert als Index in Farbtabelle nehmen
 	lda coltab,y
-	ldy ybuf		; .y zurück
+	ldy ybuf		; .y zurï¿½ck
 	sta ybuf1,y	; Ergebnis puffern
 	tay
 	lda tflag
@@ -282,8 +283,8 @@ vhl	lda ybuf0,x	; zwei Pixel untereinander verknüpfen
 	tya
 +	ldy ybuf
 	sta ybuf1+100,y	; ebenso im dritten Quadranten
-	iny 
-	inx 
+	iny
+	inx
 	cpx #200		; bis alle durch
 	bne vhl
 
@@ -294,16 +295,16 @@ next0	bit tflag		; dann: Mirror?
 	ldy #99
 vml	lda ybuf1,x
 	sta ybuf1+100,y
-	dey 
-	inx 
+	dey
+	inx
 	cpx #100
 	bne vml
 
-nomirr	lda colnr+1	; nein, dann Linie zurückschreiben:
-	lsr 
+nomirr	lda colnr+1	; nein, dann Linie zurï¿½ckschreiben:
+	lsr
 	sta dst+1
 	lda colnr		; gerade/ungerade?
-	ror 
+	ror
 	bcs odd2
 	ldx #$0f
 	!by $2c
@@ -313,13 +314,13 @@ odd2	ldx #$f0
 	tax 		; Adresse im 4Bit
 	and #$03
 	sta dst
-	txa 
+	txa
 	and #$fc
-	asl 
+	asl
 	rol dst+1
-	asl 
+	asl
 	rol dst+1
-	asl 
+	asl
 	rol dst+1
 	ora dst
 	sta dst
@@ -328,34 +329,34 @@ odd2	ldx #$f0
 	sta dst+1
 
 	ldx #0
-vloop2	ldy #0		; übertragen (aus Puffer nach 4Bit)
+vloop2	ldy #0		; ï¿½bertragen (aus Puffer nach 4Bit)
 vloop3	lda ybuf1,x
 	bit which
 	bvs odd3
-	asl 
-	asl 
-	asl 
-	asl 
+	asl
+	asl
+	asl
+	asl
 odd3	sta bbuf
 	lda (dst),y
 	and which
 	ora bbuf
 	sta (dst),y
-	inx 
-	iny 
-	iny 
-	iny 
-	iny 
+	inx
+	iny
+	iny
+	iny
+	iny
 	cpy #32
 	bcc vloop3
 	lda dst+1
-	clc 
+	clc
 	adc #>(1280)
 	sta dst+1
 	cmp #$bd
 	bcc vloop2
 
-nextcol	inc colnr		; nächste senkrechte Linie
+nextcol	inc colnr		; nï¿½chste senkrechte Linie
 	bne vskip0
 	inc colnr+1
 vskip0	lda colnr		; alle 320 durch?
@@ -372,31 +373,31 @@ vskip1	dec adcnt		; nein: Activity nach jeder Linie
 	sta adcnt
 vadskp	jmp vloop00	; und von vorn
 
-vok	rts 
+vok	rts
 
 ; -------------------------------------- Perform horizontal squeeze
 
 hhv	lda #5		; neuer Activity-Counter
 	jsr initad
 
-	ldy #0		; Puffer löschen
-	tya 
+	ldy #0		; Puffer lï¿½schen
+	tya
 hclrlp	sta xbuf1,y
 	sta xbuf1+256,y
-	iny 
+	iny
 	bne hclrlp
 
 	sty linenr	; Liniennummer (waagerechte Pixellinie)
 hloop00	lda linenr
-	pha 
-	lsr 
-	lsr 
-	lsr 
-	tax 
-	pla 
+	pha
+	lsr
+	lsr
+	lsr
+	tax
+	pla
 	and #$07
-	asl 
-	asl 
+	asl
+	asl
 	sta dst
 	lda line8,x
 	sta dst+1
@@ -412,16 +413,16 @@ hloop00	lda linenr
 	sta blcnt
 hloop0	ldy #0
 hloop1	lda (dst),y	; zwei Pixel holen
-	pha 
+	pha
 	beq nuls1
 	ora null		; ### 1.01
 	sta null
 nuls1	pla
 	pha
 	lsr 		; linkes nach unten shiften
-	lsr 
-	lsr 
-	lsr 
+	lsr
+	lsr
+	lsr
 	sta (src,x)	; und puffern
 	inc src
 	bne hskip0
@@ -436,8 +437,8 @@ hskip1	iny 		; 8 Pixel (eine Kachellinie)
 	cpy #4
 	bne hloop1
 
-	lda dst		; dann nächste Kachel
-	clc 
+	lda dst		; dann nï¿½chste Kachel
+	clc
 	adc #32
 	sta dst
 	bcc hskip2
@@ -447,7 +448,7 @@ hskip2	dec blcnt		; bis 40 Kacheln durch
 
 	lda null		; Linie leer?
 	bne xdoit
-	jmp nextline	; dann gleich nächste Linie
+	jmp nextline	; dann gleich nï¿½chste Linie
 
 xdoit	lda #<xbuf0
 	ldx #>xbuf0
@@ -463,9 +464,9 @@ xloop2n	lda (src,x)
 	inc src
 	bne xskip1n
 	inc src+1
-xskip1n	clc 
+xskip1n	clc
 	adc (src,x)
-	lsr 
+	lsr
 	inc src
 	bne xskip2n
 	inc src+1
@@ -478,7 +479,7 @@ xskip2n	sty ybuf
 	tya
 +	ldy ybuf
 	sta xbuf1+160,y	; ebenso im zweiten Quadranten
-	iny 
+	iny
 	cpy #160
 	bne xloop2n
 	beq next1
@@ -489,12 +490,12 @@ xloop2	lda (src,x)
 	inc src
 	bne xskip1
 	inc src+1
-xskip1	asl 
-	asl 
-	asl 
-	asl 
+xskip1	asl
+	asl
+	asl
+	asl
 	ora (src,x)
-	tax 
+	tax
 	lda coltab,x	; aus der Farbtabelle heraus
 	ldx #0
 	inc src
@@ -509,7 +510,7 @@ xskip2	sty ybuf
 	tya
 +	ldy ybuf
 	sta xbuf1+160,y
-	iny 
+	iny
 	cpy #160
 	bne xloop2
 
@@ -520,21 +521,21 @@ next1	bit tflag		; Mirror?
 	ldy #159
 hml	lda xbuf1,x
 	sta xbuf1+160,y
-	dey 
-	inx 
+	dey
+	inx
 	cpx #160
 	bne hml
 
-nomirr2	lda linenr	; nein, Linie zurückschreiben nach 4Bit
-	pha 
-	lsr 
-	lsr 
-	lsr 
-	tax 
-	pla 
+nomirr2	lda linenr	; nein, Linie zurï¿½ckschreiben nach 4Bit
+	pha
+	lsr
+	lsr
+	lsr
+	tax
+	pla
 	and #$07
-	asl 
-	asl 
+	asl
+	asl
 	sta dst
 	lda line8,x
 	sta dst+1
@@ -548,11 +549,11 @@ nomirr2	lda linenr	; nein, Linie zurückschreiben nach 4Bit
 	lda #40		; 40 Kacheln
 	sta blcnt
 hloop2	ldy #0
-hloop3	lda (src,x)	; Pixel verknüpfen
-	asl 
-	asl 
-	asl 
-	asl 
+hloop3	lda (src,x)	; Pixel verknï¿½pfen
+	asl
+	asl
+	asl
+	asl
 	inc src
 	bne hskip3
 	inc src+1
@@ -560,13 +561,13 @@ hskip3	ora (src,x)
 	inc src
 	bne hskip4
 	inc src+1
-hskip4	sta (dst),y	; zurückschreiben
-	iny 
+hskip4	sta (dst),y	; zurï¿½ckschreiben
+	iny
 	cpy #4		; eine Kachel
 	bne hloop3
 
-	lda dst		; nächste Kachel
-	clc 
+	lda dst		; nï¿½chste Kachel
+	clc
 	adc #32
 	sta dst
 	bcc hskip5
@@ -574,7 +575,7 @@ hskip4	sta (dst),y	; zurückschreiben
 hskip5	dec blcnt		; 40 mal
 	bne hloop2
 
-nextline	inc linenr	; nächste waagerechte Pixellinie
+nextline	inc linenr	; nï¿½chste waagerechte Pixellinie
 	lda linenr
 	cmp #200		; bis 200 durch
 	beq hok
@@ -587,7 +588,7 @@ nextline	inc linenr	; nächste waagerechte Pixellinie
 	sta adcnt
 adskp	jmp hloop00	; und von vorn
 
-hok	rts 
+hok	rts
 
 ; -------------------------------------- Text Output Handler
 
@@ -598,16 +599,16 @@ settab	lda #<(tabigad)
 	sta sc_texttab
 	lda #>(tabigad)
 	sta sc_texttab+1
-	rts 
+	rts
 
 gettab	lda (sc_texttab),y
 	sta sc_screentab
-	iny 
+	iny
 	lda (sc_texttab),y
 	sta sc_screentab+1
 	lda #0
-	tax 
-	tay 
+	tax
+	tay
 gt0	jsr gd_setpos
 	cpx #3
 	bne gt0
@@ -631,9 +632,9 @@ ar1	lda atype,x
 makech	ldx #7
 mc0	lda char,x
 	sta sc_undochar,x
-	dex 
+	dex
 	bpl mc0
-	rts 
+	rts
 
 ; -------------------------------------- Screenlist
 
@@ -656,7 +657,7 @@ coltx	!by 223
 	!scr "     Leave     ",0
 	!by $80
 
-; -------------------------------------- 
+; --------------------------------------
 
 whichmirr	!by 223
 	!scr "    Halve     "
@@ -679,7 +680,7 @@ line8	!by $40,$45,$4a,$4f,$54
 	!by $8b,$90,$95,$9a,$9f
 	!by $a4,$a9,$ae,$b3,$b8
 
-; -------------------------------------- 
+; --------------------------------------
 
 coltab	!by $00,$00,$00,$00,$02,$03,$02,$03
 	!by $03,$03,$03,$03,$03,$03,$03,$07
@@ -718,7 +719,7 @@ tflag	!by 0
 mirflag	!by 1
 colflag	!by $ff
 
-; -------------------------------------- 
+; --------------------------------------
 
 
 ;   sprite activity display
@@ -729,13 +730,13 @@ clearad	lda spren
 	lda spritehi
 	and #243
 	sta spritehi
-	rts 
+	rts
 
 initad	sta adcnt
 	ldy #60
 	lda #0
 adl0	sta spr255+3,y
-	dey 
+	dey
 	bpl adl0
 	sty spr255
 	sty spr255+1
@@ -762,8 +763,8 @@ adl0	sta spr255+3,y
 	lda spren
 	ora #12
 	sta spren
-	rts 
+	rts
 
-; -------------------------------------- 
+; --------------------------------------
 
-modend	!eof 
+modend	!eof
