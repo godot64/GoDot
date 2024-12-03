@@ -13,6 +13,7 @@
 ;  1.00: 19.06.24, first release
 ;  1.01: 21.06.24, bugfixes
 ;  1.02: 29.11.24, check auf C128, da ohne SCPU nicht erkannt wird
+;  1.03: 02.12.24, adapted to SuperCPU
 ;
 ; ------------------------------------------------------------
 
@@ -22,8 +23,8 @@
 	pport		= $01
 
 	devs		= $0fa2
-	filtype		= $1d29 	; selfmodifying kernel!
-	ramtype		= $1d8f
+	filtype		= $1d2e 	; selfmodifying kernel!
+	ramtype		= $1d94
 	ramstart		= $cab0	; header address of dev.REU
 	fast		= $d030
 	vdc		= $d600	; VDC base address
@@ -39,8 +40,8 @@ modul	jmp start
 	!wo modend
 	!by $00,$00
 	!tx "Re-Scan RAM Devs"
-	!tx "1.02"
-	!tx "29.11.24"
+	!tx "1.03"
+	!tx "02.12.24"
 	!tx "A.Dettke        "
 
 ; ---------------------------------------
