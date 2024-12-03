@@ -23,6 +23,7 @@
 ;    2.03, 28.03.22, added: recover REU-TEMP of former sessions
 ;    2.04, 23.06.24, added: recover VDC-TEMP
 ;    2.05, 24.06.24, added: show VDC temp even if no REU
+;    2.06, 02.12.24, adapted to SuperCPU
 ;
 ; ------------------------------------------------------------
 
@@ -44,7 +45,7 @@
 
 	swappfox		= $1714	; swap slots of 4KB
 	func3		= $186f	; !! self modifying the kernel !!
-	ramtype		= $1d8f	; ### 1.04
+	ramtype		= $1d94	; ### 1.04/2.06
 
 	devarea		= $2000	; initialisation area for devices
 	mtarget		= $3000	; load space for devices
@@ -66,8 +67,8 @@
 	!wo modend
 	!wo 0
 	!pet "Tool for REUs   "
-	!pet "2.05"
-	!pet "24.06.24"
+	!pet "2.06"
+	!pet "02.12.24"
 	!pet "A.Dettke        "
 
 ; ----------------------------------------------- Main
