@@ -3,7 +3,7 @@
 	!ct pet
 ;	!sl "labels.txt"
 
-; ------------------------------------------------     
+; ------------------------------------------------
 ;
 ; mod.Gradient
 ;
@@ -11,8 +11,9 @@
 ;   2.00, 28.11.20, added: GUI
 ;   2.01, 27.12.20, bugfix: wrong implementation of balancing
 ;   2.02, 16.02.21, slight changes in GUI
+;   2.03, 03.12.24, adapted to SuperCPU
 ;
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 ; ------------------------------------------------ Equates
 
@@ -29,7 +30,7 @@
 	pmask		= $3d
 
 	sprptr		= $07f8
-	numcols		= $1ee9
+	numcols		= $1eef
 	invpalet		= sy_global
 	backupdth		= invpalet+16
 	distance		= invpalet+32
@@ -53,20 +54,20 @@
 	filter		= $d418
 	rausch		= $d41b
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 	jmp start
 	!by 20		; modifier
 	!by 00
-	!by 00 
+	!by 00
 	!wo modend
 	!wo 0
 	!tx "gradientbackdrop"
-	!tx "2.02"
-	!tx "16.02.21"
+	!tx "2.03"
+	!tx "03.12.24"
 	!tx "W.Kling/A.Dettke"
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 start	jsr thepatt	; rescue syspattern
 	jsr makepatt	; fetch pattern
@@ -74,7 +75,7 @@ start	jsr thepatt	; rescue syspattern
 	jsr buildreq	; show requester
 	jmp gd_eloop	; and wait...
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 evapply	jsr initad	; init activity
 	lda #$80		; Zufallsgenerator an
@@ -87,7 +88,7 @@ evapply	jsr initad	; init activity
 	sta wave
 
 	jsr makecols	; Farbtabellen erstellen
-	jsr setdither	; Dithermodus anwählen
+	jsr setdither	; Dithermodus anwï¿½hlen
 
 	lda #0
 	sta lcnt
@@ -146,7 +147,7 @@ dc8	dey
 evleave	sec		; leave modifier
 	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 dobalance	ldy #15		; convert balancing values to dither patterns
 sh2	lda gr_btab,y
@@ -181,7 +182,7 @@ evtrndth	ldx #0
 	sta derethid
 ; --	clc		; must end here then
 ; --	rts
-	
+
 
 ; ------------------------------------------------ Event: Mirror Colors
 
@@ -216,7 +217,7 @@ buildreq	ldx #<gdntlst	; then: requester
 	jsr overlay
 setcol	ldx colsgad+1	; Spalte
 	ldy colsgad	; Zeile
-	lda #1		; Höhe: 1 Kachel
+	lda #1		; Hï¿½he: 1 Kachel
 	iny
 stc1	sty sc_zl
 	inx
@@ -254,7 +255,7 @@ overlay	sec
 	jsr gd_blank
 	jsr gd_initmove
 	ldx sc_ho		; .x=1
--	jsr gd_backu	; löschen
+-	jsr gd_backu	; lï¿½schen
 	ldy #0
 	lda sc_vekt20+1
 	pha
@@ -268,12 +269,12 @@ overlay	sec
 	jsr gd_plus40
 	lda chars,x
 	sta sc_movetab
-	inx		; Höhe erreicht?
+	inx		; Hï¿½he erreicht?
 	cpx #4
 	bcc -
 	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 makecols	ldy #15
 	lda gr_palette,y
@@ -283,12 +284,12 @@ makecols	ldy #15
 	dey
 	bpl -
 	ldy gr_howmany	; aktuelle Palette holen
-	dey 
+	dey
 -	lda gr_palette,y	; GoDot-Anordnung der Farben...
-	tax 
+	tax
 	lda c64cols,x	; ...umwandeln in Standardanordnung
 	sta invpalet,y
-	dey 
+	dey
 	bpl -
 
 +	ldy #0
@@ -301,37 +302,37 @@ makecols	ldy #15
 	lda spreads-2,x	; Faktoren bestimmen:
 	sta vdist		; senkrechter Raum pro Farbe
 	lda addfak-2,x
-	sta addit		; Häufigkeit des Musterwechsels
+	sta addit		; Hï¿½ufigkeit des Musterwechsels
 
-	lda #1		; durchführen:
-	sta passes	; zählt die Anzahl der Farbdurchgänge (somany)
+	lda #1		; durchfï¿½hren:
+	sta passes	; zï¿½hlt die Anzahl der Farbdurchgï¿½nge (somany)
 
 --	lda vdist
-	sta dcnt		; Vertikalzähler
+	sta dcnt		; Vertikalzï¿½hler
 	lda #0
 	sta lowsum
 	sta hisum
 
 -	lda hisum		; Hi-Wert: mal 2
-	clc 
-	bit lowsum	; (aufrunden: plus 1, wenn Lo über 128)
+	clc
+	bit lowsum	; (aufrunden: plus 1, wenn Lo ï¿½ber 128)
 	bpl +
-	sec 
+	sec
 +	rol
 	sta balanced,y	; Farbindex-Tabelle erzeugen
 	lda lowsum
-	clc 
+	clc
 	adc addit
 	sta lowsum
 	bcc +
 	inc hisum
-+	ldx passes	; Tabellen für Farbe1 und Farbe2 erzeugen
++	ldx passes	; Tabellen fï¿½r Farbe1 und Farbe2 erzeugen
 	jsr setcolors
-	iny 
+	iny
 	dec dcnt
 	bne -
 
-	inc passes	; nächste Palettenfarbe
+	inc passes	; nï¿½chste Palettenfarbe
 	lda passes
 	cmp somany
 	bne --
@@ -339,15 +340,15 @@ makecols	ldy #15
 	cpy #200		; Ende bei 200 Zeilen
 	beq +
 
--	lda #15		; sonst: den Rest jeweils mit Höchstwert auffüllen
+-	lda #15		; sonst: den Rest jeweils mit Hï¿½chstwert auffï¿½llen
 	sta balanced,y
 	jsr setcolors
 
-	iny 		; Zeilen zählen
+	iny 		; Zeilen zï¿½hlen
 	cpy #200
 	bne -
 
-+	rts 
++	rts
 
 setcolors	stx xchg
 	lda invpalet,x
@@ -365,7 +366,7 @@ setcolors	stx xchg
 ; ------------------------------------------------ Mirror Palette
 
 mirror	lda gr_howmany	; Anzahl Farben
-	tax 
+	tax
 	lsr		; durch zwei
 	sta oben
 	dex 		; minus 1 in .x
@@ -376,8 +377,8 @@ mirror	lda gr_howmany	; Anzahl Farben
 	sta invpalet,y	; austauschen
 	lda xchg
 	sta invpalet,x
-	dex 
-	iny 
+	dex
+	iny
 	cpy oben
 	bne -
 	ldy #15		; revert balancing table, too
@@ -387,7 +388,7 @@ mirror	lda gr_howmany	; Anzahl Farben
 	inx
 	dey
 	bpl -
-	rts 
+	rts
 
 ; ------------------------------------------------ Data
 
@@ -396,22 +397,22 @@ c64cols	!by $00,$0f,$04,$0c,$05,$0a,$01,$0d
 
 spreads	!by $c8,$64,$42,$32,$28,$21,$1c,$19
 	!by $16,$14,$12,$10,$0f,$0e,$0d,$0c
- 
+
 addfak	!by 10,20,31,41,51,62,73,82		; ### 2.01
 	!by 93,102,114,128,137,146,158,171
 
 balancing	!fill 16
 
-mmask	!by $00,$03,$0c,$0f 
-	!by $30,$33,$3c,$3f 
+mmask	!by $00,$03,$0c,$0f
+	!by $30,$33,$3c,$3f
 	!by $c0,$c3,$cc,$cf
 	!by $f0,$f3,$fc,$ff
 
-blinehi	!by $40,$45,$4a,$4f,$54,$59,$5e,$63 
-	!by $68,$6d,$72,$77,$7c,$81,$86,$8b 
-	!by $90,$95,$9a,$9f,$a4,$a9,$ae,$b3,$b8 
+blinehi	!by $40,$45,$4a,$4f,$54,$59,$5e,$63
+	!by $68,$6d,$72,$77,$7c,$81,$86,$8b
+	!by $90,$95,$9a,$9f,$a4,$a9,$ae,$b3,$b8
 
-dither	!wo 0 
+dither	!wo 0
 pattadds	!wo patoff,patord,patpatt,patnois,patrand
 dithrout	!wo nodith,ordered,pattern,noise,random
 patoffs	!by $00,$10,$20,$30
@@ -419,12 +420,12 @@ patoffs	!by $00,$10,$20,$30
 chschr	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
 chars	!by 32,120,125
 
-addit	!by 0 
-vdist	!by 0 
-lowsum	!by 0 
+addit	!by 0
+vdist	!by 0
+lowsum	!by 0
 hisum	!by 0
-dcnt	!by 0 
-passes	!by 0 
+dcnt	!by 0
+passes	!by 0
 somany	!by 0
 mirrored	!by $ff
 derethid	!by $ff
@@ -434,28 +435,28 @@ applied	!by $ff
 
 setdither	lda gr_dither
 	asl
-	tax 
+	tax
 	lda dithrout,x
 	sta dither
 	lda dithrout+1,x
 	sta dither+1
-	rts 
+	rts
 
 ; ------------------------------------------------ Dither: Off
 
 nodith	lda color1,x
-	rts 
+	rts
 
 ; ------------------------------------------------ Dither: Ordered
 
 ordered	lda balanced,x
 	sta xchg
-	txa 
+	txa
 	and #$03
-	tax 
+	tax
 	lda patoffs,x
 	ora xchg
-	tax 
+	tax
 	lda gr_orderedpat,x
 	jmp modes1
 
@@ -468,7 +469,7 @@ pattern	and #$07
 	asl
 	asl
 	ora xchg
-	tax 
+	tax
 	lda gr_pattern,x
 
 ; ------------------------------------------------ Ausmaskieren
@@ -476,10 +477,10 @@ pattern	and #$07
 modes1	ldx gr_cmode	; Modus?
 	beq +
 	and #$0f		; multi
-	tax 
+	tax
 	lda mmask,x	; Multipattern erzeugen
 +	ldx lcnt		; hires
-	and pmask		; abhängig von der Zeile: Pixel ausmaskieren
+	and pmask		; abhï¿½ngig von der Zeile: Pixel ausmaskieren
 	beq ++
 	bne +++
 
@@ -505,14 +506,14 @@ noise	lda balanced,x	; 0?
 	sta oben		; Wert merken
 	jsr modes2	; ausmaskieren
 	lda oben		; vergleichen
-	cmp xchg		; entsprechende Farbe anwählen
+	cmp xchg		; entsprechende Farbe anwï¿½hlen
 	bcs +++
 
 ++	lda color1,x
 	rts
 
 +++	lda color2,x
-	rts 
+	rts
 
 ; ------------------------------------------------ Ausmaskieren
 
@@ -524,7 +525,7 @@ modes2	lda gr_cmode	; Modus?
 +	lda rausch	; hires
 	and #$0f
 	sta xchg
-++	rts 
+++	rts
 
 ; ------------------------------------------------ Verlauf erzeugen
 
@@ -533,14 +534,14 @@ gradient	ldy #0		; generieren:
 	sta pmask		; Pixelmaske setzen
 
 -	lda lcnt		; Zeile holen
-	tax 
+	tax
 	jsr generate	; dithern
 	sta gradline,y	; Pixel eintragen
-	lsr pmask		; Maske nach rechts rücken
+	lsr pmask		; Maske nach rechts rï¿½cken
 	bcc +
 	ror pmask		; wenn ausgelaufen, links wieder reinholen
 
-+	iny 		; erste Hälfte zählen
++	iny 		; erste Hï¿½lfte zï¿½hlen
 	cpy #160
 	bne -
 
@@ -549,26 +550,26 @@ gradient	ldy #0		; generieren:
 	sta pmask
 
 -	lda lcnt
-	tax 
+	tax
 	jsr generate	; dithern
-	sta gradline+160,y	; zweite Hälfte füllen
+	sta gradline+160,y	; zweite Hï¿½lfte fï¿½llen
 	lsr pmask
 	bcc +
 	ror pmask
 
-+	iny 
++	iny
 	cpy #160
 	bne -
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
-	lda lcnt		; ins 4Bit übertragen:
+	lda lcnt		; ins 4Bit ï¿½bertragen:
 	pha		; 4Bit-Adresse berechnen:
-	lsr 		; Zeile duch 8 (für Hibyte)
+	lsr 		; Zeile duch 8 (fï¿½r Hibyte)
 	lsr
 	lsr
-	tax 
-	pla 
+	tax
+	pla
 	and #$07		; (and 7)*4
 	asl
 	asl
@@ -576,13 +577,13 @@ gradient	ldy #0		; generieren:
 	lda blinehi,x	; Hibyte aus Tabelle holen
 	sta dst+1
 
-	lda #<gradline	; Backdroppuffer anwählen
+	lda #<gradline	; Backdroppuffer anwï¿½hlen
 	ldx #>gradline
 	sta src
 	stx src+1
 
 	ldx #0
-	lda #40		; 40 Kacheln zählen
+	lda #40		; 40 Kacheln zï¿½hlen
 	sta ccnt
 
 --	ldy #0		; 1 Kachel (8 Pixel)
@@ -599,19 +600,19 @@ gradient	ldy #0		; generieren:
 	bne +
 	inc src+1
 +	sta (dst),y	; speichern im 4Bit
-	iny 
+	iny
 	cpy #4
 	bne -
 
-	lda dst		; nächste Kachel
-	clc 
+	lda dst		; nï¿½chste Kachel
+	clc
 	adc #32
 	sta dst
 	bcc +
 	inc dst+1
 +	dec ccnt		; eine Kachelzeile
 	bne --
-	rts 
+	rts
 
 ; ------------------------------------------------ Dithern
 
@@ -625,19 +626,19 @@ clearad	lda spren		; Wanderbalken aus
 	lda msbx
 	and #$f3
 	sta msbx
-	lda #$ff		; Grafik verändert
+	lda #$ff		; Grafik verï¿½ndert
 	sta gr_redisp
 	clc 		; fertig
-	rts 
+	rts
 
 ; ------------------------------------------------ Init Activity
 
 initad	ldy #60
 	lda #0
 -	sta spr255+3,y	; Spriteblock 255 vorbereiten
-	dey 
+	dey
 	bpl -
-	sty spr255	; dünner Strich
+	sty spr255	; dï¿½nner Strich
 	sty spr255+1
 	sty spr255+2
 	lda #$0f		; Farbe hellgrau
@@ -647,7 +648,7 @@ initad	ldy #60
 	ora #$0c
 	sta sprxe
 
-	lda msbx		; x über 255
+	lda msbx		; x ï¿½ber 255
 	ora #$0c
 	sta msbx
 	lda #8		; x-Ordinate: 8 (plus 256)
@@ -663,7 +664,7 @@ initad	ldy #60
 	lda spren
 	ora #$0c		; Activity-Balken aktivieren
 	sta spren
-	lda #5		; Startzähler (5 mal 40 = 200)
+	lda #5		; Startzï¿½hler (5 mal 40 = 200)
 	sta adcnt
 	rts
 
@@ -706,7 +707,7 @@ adinc	dec adcnt		; Balken wandern lassen
 	inc spr2y+2
 	lda #5
 	sta adcnt
-+	rts 
++	rts
 
 ; ----------------------------------------- Publish Infomation
 
@@ -759,7 +760,7 @@ multitx	!scr "160x200",0	; 25: Multi
 hirestx	!scr "320x200",0	; 33: Hires
 datatype	!scr "Gray @"	; 41: Datatype
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 gdntlst   !by 0		; no cls
 
@@ -878,6 +879,6 @@ patrand	!by $00,$00,$00,$00,$00,$00,$00,$00
 	!by $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff
 	!by $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 modend	!eof
