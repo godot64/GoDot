@@ -3,7 +3,7 @@
 	!ct pet
 ;	!sl "labels.txt"
 
-; ------------------------------------------------------------ 
+; ------------------------------------------------------------
 ;
 ;  mod.ChangeDir
 ;
@@ -17,14 +17,15 @@
 ;  1.01: 11.07.98, adapted to CMD devices
 ;  1.02: ??.??.??, no information
 ;  1.03: 16.07.99, bug: trouble with CMD drives fixed
-;  1.04: 20.07.01, added: automatic rescan of all attached drives to update 
+;  1.04: 20.07.01, added: automatic rescan of all attached drives to update
 ;                         types of removable media
 ;  1.05: 18.09.17, bugfix: serious bug with first dir sector in 1581 partitions, fixed
 ;  1.06: 21.12.20, bugfix: didn't change into 81 partitions
 ;                          removed changes of 1.05 (were wrong!)
 ;                          removed drive scan (obsolete because it's a system feature)
+;  1.07: 03.12.24, adapted to SuperCPU
 ;
-; ------------------------------------------------------------ 
+; ------------------------------------------------------------
 
 ; ------------------------------------------------------------ Declarations
 
@@ -48,7 +49,7 @@
 	urd3		= $1684
 	patch1		= $168d
 	patch2		= $1a63
-	filtype		= $1d29
+	filtype		= $1d2e
 
 	blocks		= $3f40
 	ftrack		= $3fa0
@@ -67,15 +68,15 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "ChangeDir 81/CMD"
-	!pet "1.06"
-	!pet "21.12.20"
+	!pet "1.07"
+	!pet "03.12.24"
 	!pet "A.Dettke        "
 
 ; --------------------------------------------- Main
 
 start	jsr chgdrv	; auf Bootdrive wechseln, wenn RAM aktiv
 	lda #0
-	sta ls_flen	; set: Filenamenslänge=0
+	sta ls_flen	; set: Filenamenslï¿½nge=0
 	sta ls_dirmask	;      Directoryflag=0
 	lda gd_modswitch	; Modulflag retten
 	pha
@@ -91,10 +92,10 @@ start	jsr chgdrv	; auf Bootdrive wechseln, wenn RAM aktiv
 	sta patch2	; Teil von Showdrive (kein RAM anzeigen)
 
 	jsr fil3		; aktiven Drive kennzeichnen (Balken), Subdirs anzeigen
-;--	jsr scandrv	; rescan drives 
+;--	jsr scandrv	; rescan drives
 	jsr gd_eloop	; Warten auf Events
 
-	pla		; Modulflag zurück
+	pla		; Modulflag zurï¿½ck
 	sta gd_modswitch
 	ldx #12		; Unpatch
 	stx patch1
@@ -116,15 +117,15 @@ chd0	rts
 
 ; --------------------------------------------- Change to (1581) root directory
 
-evroot	jsr cmdroot	; Test auf CMD (wenn ja, keine Rückkehr)
-	jsr dtest		; Test auf 1581 (wenn nein, keine Rückkehr)
+evroot	jsr cmdroot	; Test auf CMD (wenn ja, keine Rï¿½ckkehr)
+	jsr dtest		; Test auf 1581 (wenn nein, keine Rï¿½ckkehr)
 
 evr0	lda #1		; Send: "/"
 	ldx #<slash
 	ldy #>slash
 	jsr gd_sendcom
 
-; --------------------------------------------- Defaultwerte für Track/Sektor setzen
+; --------------------------------------------- Defaultwerte fï¿½r Track/Sektor setzen
 
 setdefaults
 	ldx ls_drive
@@ -153,7 +154,7 @@ evr1	lda defaults,y	; Track setzen
 
 ; --------------------------------------------- Get floppy message
 
-fmess	jsr gd_clrms	; Gadget löschen
+fmess	jsr gd_clrms	; Gadget lï¿½schen
 	jsr gd_sproff	; Sprites aus
 
 rd11	lda ls_drive	; Meldung holen
@@ -169,14 +170,14 @@ rd10	jsr iecin
 	dex		; nichts?
 	beq chd0		; dann noch einmal auslesen
 
-	lda #0		; Message abschließen
+	lda #0		; Message abschlieï¿½en
 	sta sc_movetab,x
 	jsr gd_spron	; Sprites wieder an
 	jmp gd_xtxout3	; Text ausgeben
 
 ; --------------------------------------------- Get tracknumber for new 81 directory
 
-newdir	jsr fmess		; Floppyrückmeldung holen (02, selected part, xx, yy)
+newdir	jsr fmess		; Floppyrï¿½ckmeldung holen (02, selected part, xx, yy)
 	lda flpbuf	; erstes Zeichen "0"?
 	cmp #$30
 	bne gw3		; nein, dann Fehlermeldung, nichts tun
@@ -184,7 +185,7 @@ newdir	jsr fmess		; Floppyrückmeldung holen (02, selected part, xx, yy)
 	cmp #$32
 	bne gw3		; nein, dann Fehlermeldung, nichts tun
 
-	ldy #0		; ok, Zeiger auf T/S in der Floppymeldung 
+	ldy #0		; ok, Zeiger auf T/S in der Floppymeldung
 	lda #<ntrack1	; setzen
 	sta ls_vekta8
 	lda #>ntrack1
@@ -240,7 +241,7 @@ gw0	lda int		; TT war Null? (darf nicht sein)
 	lda #3		; Sektor: 3 (1581)
 	sta ls_ftabs-8,x
 
-gw3	lda #2		; Dirfenster löschen
+gw3	lda #2		; Dirfenster lï¿½schen
 gw4	jsr gd_sun2
 	jmp suni		; Directory ausgeben
 
@@ -261,7 +262,7 @@ fil3	jsr gd_showdrv
 
 ; --------------------------------------------- Select drive
 
-evunits	lda #1		; Dirfenster löschen (PrepDir)
+evunits	lda #1		; Dirfenster lï¿½schen (PrepDir)
 	jsr gd_sun2
 	jsr units		; Balken auf aktiven Drive (SEVUnits)
 suni	ldx #1
@@ -272,14 +273,14 @@ suni	ldx #1
 
 evselect	lda sc_clicked	; Doppelklick?
 	bne evchgdir	; ja
-sel3	jmp select	; sonst: File auswählen
+sel3	jmp select	; sonst: File auswï¿½hlen
 
 ; --------------------------------------------- Change (1581) directory
 
-evchgdir	lda ls_flen	; kein Name ausgewählt?
+evchgdir	lda ls_flen	; kein Name ausgewï¿½hlt?
 	beq ecd0		; dann Ende
 	jsr cmddir	; CMD? (Bleibt dort, wenn DIR gefunden,
-;			  wenn nicht, Rückkehr mit ls_flen im A
+;			  wenn nicht, Rï¿½ckkehr mit ls_flen im A
 	jsr dtest		; 1581? (Bleibt dort, wenn nicht: Fehlermeldung)
 
 	tay		; ja, 1581: "/:" vor den Namen setzen
@@ -311,7 +312,7 @@ saventry	lda dirnmbuf	; Ziel: Puffer $bd00
 	sta ls_vekta8
 	ldy dirnmbuf+1
 	sty ls_vekta8+1
-	cpy #$bf		; mehr als 16? (über $beff hinaus?)
+	cpy #$bf		; mehr als 16? (ï¿½ber $beff hinaus?)
 	bne se2
 	jmp mes2		; ja, dann Fehler und keine weiteren
 
@@ -324,11 +325,11 @@ se0	lda dirbuf,x	; dortigen Eintrag holen
 	bne se0		; ganze Page (obwohl nicht erforderlich)
 
 	clc
-	lda sbufind	; Pufferindex um 32 erhöhen
+	lda sbufind	; Pufferindex um 32 erhï¿½hen
 	adc #32
 	sta sbufind
 	bcc se1
-	inc dirnmbuf+1	; voll? Dann nächste Page
+	inc dirnmbuf+1	; voll? Dann nï¿½chste Page
 se1	rts
 
 ; --------------------------------------------- CMD directory
@@ -344,18 +345,18 @@ cmd1	lda (ls_vekta8),y
 	cmp #6		; Directory? (ist immer so!)
 	beq cmd0
 
-cmd4	tya		; sonst: nächsten Eintrag ansteuern
+cmd4	tya		; sonst: nï¿½chsten Eintrag ansteuern
 	clc
 	adc #32
 	tay
-	bcc cmd1		; Übertrag?
+	bcc cmd1		; ï¿½bertrag?
 
-	inc ls_vekta8+1	; ja, nächste Page im Buffer
+	inc ls_vekta8+1	; ja, nï¿½chste Page im Buffer
 	lda ls_vekta8+1
 	cmp #$bf		; Ende erreicht?
 	bne cmd1
-	lda ls_flen	; dann 1581, Namenslänge zurückholen
-	rts		; zurück zu EVChgDir
+	lda ls_flen	; dann 1581, Namenslï¿½nge zurï¿½ckholen
+	rts		; zurï¿½ck zu EVChgDir
 
 cmd0	sty sbufind	; Index sichern
 	ldx #$ff		; Offset auf Beginn des Namens setzen
@@ -366,7 +367,7 @@ cmd2	iny
 	lda (ls_vekta8),y	; Namensvergleich (Directory suchen)
 	cmp ls_nambuf,x
 	beq cmd2
-	cpx ls_flen	; stimmt überein?
+	cpx ls_flen	; stimmt ï¿½berein?
 	beq cmd3		; dann Change CMD directory
 	ldy sbufind	; sonst: weitersuchen
 	bne cmd4
@@ -382,7 +383,7 @@ cmd3	jsr gd_sproff	; Sprites aus
 	lda (ls_vekta8),y
 	sta ls_sector
 	jsr getdir	; Dirheaderblock holen (nach $bf00)
-	pla		; kein Rücksprung zu EVChgDir
+	pla		; kein Rï¿½cksprung zu EVChgDir
 	pla
 
 cmd7	ldy ls_drive	; T/S des 1. Dirblocks eintragen
@@ -398,7 +399,7 @@ cmd7	ldy ls_drive	; T/S des 1. Dirblocks eintragen
 	iny
 	iny
 	sty namelen
-cmd5	lda ls_nambuf-1,x	; Namen drei Zeichen einrücken
+cmd5	lda ls_nambuf-1,x	; Namen drei Zeichen einrï¿½cken
 	sta ls_nambuf-1,y
 	dey
 	dex
@@ -409,9 +410,9 @@ cmd6	lda cmdtx,x	; "CD:" davorschreiben
 	cpx #3
 	bne cmd6
 
-	ldx #0		; Flag löschen (vorsichtshalber)
+	ldx #0		; Flag lï¿½schen (vorsichtshalber)
 	stx ntrack
-	jmp ecd2		; und Kommando ausführen (CD)
+	jmp ecd2		; und Kommando ausfï¿½hren (CD)
 
 ; --------------------------------------------- Kill CMD dir-buffer
 
@@ -421,7 +422,7 @@ initbuf	lda #0		; Adresse: $bd00
 	ldy #$bd
 	sty ls_vekta8+1
 	sty dirnmbuf+1
-	tay		; 2 Pages löschen
+	tay		; 2 Pages lï¿½schen
 	ldx #2
 ib0	sta (ls_vekta8),y
 	iny
@@ -431,7 +432,7 @@ ib0	sta (ls_vekta8),y
 	bne ib0
 
 	stx sbufind	; Bufferindex auf null
-	stx ls_flen	; Namenslänge auf null
+	stx ls_flen	; Namenslï¿½nge auf null
 	rts
 
 ; --------------------------------------------- Change to CMD root
@@ -440,31 +441,31 @@ cmdroot	ldy ls_drive	; Liegt ein CMD-Drive vor?
 	lda ls_units-8,y
 	and #$f0
 	cmp #$20
-	beq cmdrt		; ja, ausführen
+	beq cmdrt		; ja, ausfï¿½hren
 	rts
 
 cmdrt	jsr gd_sproff	; Sprites aus
 	lda slash		; Filename = "/"
 	sta ls_nambuf
 	sta cmdtx+2	; statt ":" ins Kommando schreiben
-	lda #1		; Länge des Filenamens = 1 ("/")
+	lda #1		; Lï¿½nge des Filenamens = 1 ("/")
 	sta ls_flen
 	sta ls_track	; der Dirheader auf Native ist in 1/1
 	sta ls_sector
 	jsr getdir	; Headerblock holen
-	jsr cmd7		; T/S eintragen, "CD//" ausführen
+	jsr cmd7		; T/S eintragen, "CD//" ausfï¿½hren
 
-	lda #$3a		; Doppelpunkt zurückschreiben
+	lda #$3a		; Doppelpunkt zurï¿½ckschreiben
 	sta cmdtx+2
-cr0	pla		; nicht zu EVRoot zurückkehren
+cr0	pla		; nicht zu EVRoot zurï¿½ckkehren
 	pla
 	ldy #0
 	rts
 
-; --------------------------------------------- CMD-Geräte kennzeichnen in UNITS
+; --------------------------------------------- CMD-Gerï¿½te kennzeichnen in UNITS
 
 cmds	ldx #8
-nxt0	lda cmdtypes8,x	; welches Gerät ist CMD?
+nxt0	lda cmdtypes8,x	; welches Gerï¿½t ist CMD?
 	cmp #$48		; "h", Harddrive?
 	beq nxt2
 	cmp #$46		; "f", CMD-Floppy?
@@ -480,9 +481,9 @@ nxt1	inx
 	bcc nxt0
 	rts
 
-; ------------------------------------------------------------ 
+; ------------------------------------------------------------
 
-cmdoff	!by 34,41,49,57,66		; Positionen für ">"
+cmdoff	!by 34,41,49,57,66		; Positionen fï¿½r ">"
 mess	!by $4d,$2d,$52,$c6,$e5,$02 	; "m-r..."
 m1571	!pet "u0>m1"		; 1571 auf doppelseitig schalten
 
@@ -515,7 +516,7 @@ dt0	lda nosupp,x
 	dey
 	bpl dt0
 	jsr gd_xtxout3	; ausgeben
-	jmp cr0		; Rücksprung beseitigen, Ende
+	jmp cr0		; Rï¿½cksprung beseitigen, Ende
 
 ecd3	tya		; bei 1581: weitermachen
 	rts
@@ -523,13 +524,13 @@ ecd3	tya		; bei 1581: weitermachen
 
 ; --------------------------------------------- Get directory sector
 
-getdir	lda #1		; Namenslänge = 1
+getdir	lda #1		; Namenslï¿½nge = 1
 	ldx #<dirchan	; Name = "#"
 	ldy #>dirchan
 	sta ls_temp
 	stx ls_vekta8
 	sty ls_vekta8+1
-	jsr open		; Kanal 15 öffnen
+	jsr open		; Kanal 15 ï¿½ffnen
 	jsr send
 	ldx #$0d		; OPEN 13
 	jsr chkin
@@ -538,8 +539,8 @@ gd0	jsr basin
 	sta dirbuf,y	; in $bf00 speichern
 	iny
 	bne gd0
-gd1	jsr clrch		; alle Kanäle schließen
-	jmp cclose	; File schließen
+gd1	jsr clrch		; alle Kanï¿½le schlieï¿½en
+	jmp cclose	; File schlieï¿½en
 
 ; --------------------------------------------- Send floppy command
 
@@ -561,7 +562,7 @@ l1	lda messu1,x
 	ldx ls_sector	; dto. mit der Sektornummer
 	jsr intout
 	dec pport		; Basic wieder ausschalten
-	jsr clrch		; Kanäle schließen
+	jsr clrch		; Kanï¿½le schlieï¿½en
 	jmp gd_xmess	; Floppymeldung ausgeben
 
 ; --------------------------------------------- Close 13, close 15
@@ -591,19 +592,19 @@ op0	jsr filnam
 
 ; --------------------------------------------- Show subdirectories
 
-subdir	jsr initbuf	; CMD-Buffer löschen
+subdir	jsr initbuf	; CMD-Buffer lï¿½schen
 dir0	jsr gd_testram	; holt Drivenummer
 	tay
-	lda ls_ftabt-8,y	; zugehöriger Track
+	lda ls_ftabt-8,y	; zugehï¿½riger Track
 	tax
-	lda ls_ftabs-8,y	; zugehöriger Sektor
+	lda ls_ftabs-8,y	; zugehï¿½riger Sektor
 	stx ls_track	; und beide eintragen
 	stx ftrack+1
 	stx ftrack
 	sta ls_first
-	tay		; ebenso für die Displayroutine
+	tay		; ebenso fï¿½r die Displayroutine
 	ldx #1
-	stx blocks	; Merker für DIR-Blocks mit Matches
+	stx blocks	; Merker fï¿½r DIR-Blocks mit Matches
 	sty blocks+1
 dir4	dex		; Initwerte
 	stx ls_index
@@ -622,7 +623,7 @@ dir2	stx ls_sector	; Suchen nach Subdirs
 	lda ls_err2	; Fehler?
 	and #$0f
 	bne dir3		; ja, abbrechen
-	jsr makedir	; Namen fürs Display aufbereiten
+	jsr makedir	; Namen fï¿½rs Display aufbereiten
 	bne dir2		; bis Fenster voll/alle durch
 
 dir3	jsr gd_spron	; danach Sprites wieder an, fertig
@@ -631,7 +632,7 @@ dir3	jsr gd_spron	; danach Sprites wieder an, fertig
 
 ; --------------------------------------------- Display directories
 
-makedir	lda #0		; Flag löschen
+makedir	lda #0		; Flag lï¿½schen
 	sta ls_found
 	lda #2		; Index in Puffer vorbereiten
 	jsr bindex
@@ -647,13 +648,13 @@ makedir	lda #0		; Flag löschen
 ; --------------------------------------------- Display entries
 
 ausgabe	lda #$10		; Ausgabezeile vorbereiten
-	sta sc_merk+1	; Namenslänge=16
+	sta sc_merk+1	; Namenslï¿½nge=16
 	ldx #5		; Offset auf Namensanfang
 	stx sc_merk
-	jsr out1		; Zeile löschen
+	jsr out1		; Zeile lï¿½schen
 	jsr bin2		; und Offset auf Namen berechnen
 
-	ldy #$00		; Text für Ausgabe aufbereiten
+	ldy #$00		; Text fï¿½r Ausgabe aufbereiten
 mdr3	lda dirbuf,x
 	sta sc_movetab,y
 	inx
@@ -661,15 +662,15 @@ mdr3	lda dirbuf,x
 	cpy sc_merk+1
 	bne mdr3
 	jsr gd_cnvbc	; nach BCode wandeln
-	tya		; Länge null?
+	tya		; Lï¿½nge null?
 	beq mdr7
 	sty sc_br		; nein, anzeigen
 	jsr gd_xtxout3
 
-mdr7	inc ls_found	; zählen
+mdr7	inc ls_found	; zï¿½hlen
 	lda ls_lines
 	cmp #16		; Fenster voll?
-	beq mdr6		; ja, Schluß
+	beq mdr6		; ja, Schluï¿½
 mdr2	lda #$20		; sonst: weiter
 	jsr bindex
 	sta ls_index
@@ -677,9 +678,9 @@ mdr2	lda #$20		; sonst: weiter
 
 	lda ls_found	; nein, Subdir dabei?
 	beq mdr4		; nein
-mdr6	inc blocks	; sonst: zählen
+mdr6	inc blocks	; sonst: zï¿½hlen
 	inc ls_cblocks
-mdr4	lda dirbuf+1	; nächster Sektor
+mdr4	lda dirbuf+1	; nï¿½chster Sektor
 	ldy blocks
 	sta blocks,y
 	tax		; muss nach .x wg. DIR2
