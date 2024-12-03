@@ -4,7 +4,7 @@
 	!ct pet
 ;	!sl "labels.txt"
 
-; ------------------------------------------------     
+; ------------------------------------------------
 ;
 ; mod.RTC-Clock
 ;  (formerly mod..CMD-Clock)
@@ -17,8 +17,9 @@
 ;   1.02, 19.10.20, bugfix: didn't recognize Smartmouse at all
 ;   1.03, 21.10.20, bugfix: correct pm/am recognition
 ;   1.04, 02.03.22, renamed, added RTC of Turbo Chameleon Cartridge
+;   1.05, 03.12.24, adapted to SuperCPU
 ;
-; ------------------------------------------------ 
+; ------------------------------------------------
 ;
 ;   The data returned by the Smartmouse RTC
 ;   (all data bytes in decimal mode BCD):
@@ -35,7 +36,7 @@
 ;
 ;   Chameleon 64 clock chip is PFC2123
 ;   The data returned by TC64 RTC:
-; 
+;
 ;   CC YY MM WD DD HH MM SS (8 bytes)
 ;
 ;   value output format is also BCD (CC: Century)
@@ -49,7 +50,7 @@
 	name		= $bb
 	namelen		= $b7
 
-	filetype		= $1d29
+	filetype		= $1d2e
 
 	shift		= $028d
 	joypt1		= $dc01
@@ -64,7 +65,7 @@
 	iecin		= $ffa5
 	untalk		= $ffab
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 header	jmp start
 	!by $20
@@ -73,24 +74,24 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "RT Clock        "
-	!tx "1.04"
-	!tx "02.03.22"
+	!tx "1.05"
+	!tx "03.12.24"
 	!tx "A.Dettke        "
 ;
-; ------------------------------------------------ 
+; ------------------------------------------------
 
-clear	ldx #4		; Drivenummern löschen
+clear	ldx #4		; Drivenummern lï¿½schen
 	lda #0
 chk2	sta cmd,x
-	dex 
+	dex
 	bne chk2		; ### 1.02
 	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 gettime	jmp (distrib)
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 start	jsr checktc64	; check Turbo Chameleon 64
 	bcc +		; .c=0: not successful, continue checking
@@ -98,14 +99,14 @@ start	jsr checktc64	; check Turbo Chameleon 64
 
 +	ldy #0		; init Mausflag
 	sty cmd
-	lda shift		; Shift, CTRL oder C= gedrückt?
-	bne +		; ja, Maustest übergehen
+	lda shift		; Shift, CTRL oder C= gedrï¿½ckt?
+	bne +		; ja, Maustest ï¿½bergehen
 	jsr chkmouse	; nein, ist RTC in Smartmouse?
 +	jsr clear
 	lda cmd		; (cmd=0 if no Smartmouse found)
 	bne mousereq	; cmd=6, Smartmouse found, branch
 
-	ldy #11		; sonst: CMD-Geräte erkennen
+	ldy #11		; sonst: CMD-Gerï¿½te erkennen
 	ldx #4
 chk1	lda doffs-8,y
 	sty ymrk
@@ -117,16 +118,16 @@ chk1	lda doffs-8,y
 	lda ls_units-8,y
 	and #$0f
 	sta cmd,x		; Drivenummer merken
-	sty cmd		; Offset als Flag für found
-chk0	dey 
-	dex 
+	sty cmd		; Offset als Flag fï¿½r found
+chk0	dey
+	dex
 	bne chk1
 
 	lda #<getcmd	; Vektor auf gettime setzen
 	sta distrib
 	lda #>getcmd
 	sta distrib+1
-	lda cmd		; ein CMD-Gerät dabei?
+	lda cmd		; ein CMD-Gerï¿½t dabei?
 	bne chk3		; ja
 
 ; ------------------------------------------------ Blink the Border
@@ -143,19 +144,19 @@ graphon	ldy #2		; nein, Rahmenblinken (2: rot)
 	clc		; stay (in main screen)
 	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
-mousereq	lda #<chkmouse	; Einlesevektor für RTC Smartmouse setzen
+mousereq	lda #<chkmouse	; Einlesevektor fï¿½r RTC Smartmouse setzen
 	sta distrib
 	lda #>chkmouse
 	sta distrib+1
 chk3	jsr evtime	; Zeit einlesen und anzeigen
 	jmp gd_eloop	; warten
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 getcmd	lda ls_drive	; aktuellen Drive retten
-	pha 
+	pha
 
 	lda cmd		; Drive CMD-RTC setzen
 	sta ls_drive
@@ -174,15 +175,15 @@ getcmd	lda ls_drive	; aktuellen Drive retten
 	ldx #0		; Antwort einlesen
 gtt0	jsr iecin
 	sta time,x
-	inx 
+	inx
 	cpx #9
 	bne gtt0
 
 	jsr untalk
 	jsr gd_spron
-	pla 
+	pla
 	sta ls_drive
-	rts 
+	rts
 
 ; ------------------------------------------------ Uhr
 
@@ -208,7 +209,7 @@ showtime2	jsr maketag	; deutsch
 
 	jmp zeit		; weiter wie oben
 
-; ------------------------------------------------ Clock 
+; ------------------------------------------------ Clock
 
 showtime1	jsr makeday	; englisch:
 
@@ -249,7 +250,7 @@ zeit	lda time+4	; Stunde
 	ldy #>clocklst
 	jsr gd_screen
 
-	lda sc_normtext	; und einfärben
+	lda sc_normtext	; und einfï¿½rben
 	sta sc_chgcol
 	lda #<daygad
 	ldx #>daygad
@@ -262,22 +263,22 @@ gt0	jsr gd_setpos
 	bne gt0
 	ldx #4
 	jsr gd_fcol
-	clc 
-	rts 
+	clc
+	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 makeday	lda time		; Wert mal 3
 	sta temp
-	asl 
-	clc 
+	asl
+	clc
 	adc temp
-	tax 
+	tax
 	ldy #0
-md1	lda adays,x	; Kürzel holen
+md1	lda adays,x	; Kï¿½rzel holen
 	sta daytxt,y	; und in Requester schreiben
-	inx 
-	iny 
+	inx
+	iny
 	cpy #3
 	bne md1
 	lda time+4
@@ -291,21 +292,21 @@ md2	lda #16		; "p"
 	sta time0
 	lda #13		; "m"
 	sta time0+1
-	rts 
+	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 maketag	lda time		; Wert mal 3
 	sta temp
-	asl 
-	clc 
+	asl
+	clc
 	adc temp
-	tax 
+	tax
 	ldy #0
-md3	lda gdays,x	; Kürzel holen
+md3	lda gdays,x	; Kï¿½rzel holen
 	sta daytxt,y	; in Requester
-	inx 
-	iny 
+	inx
+	iny
 	cpy #3
 	bne md3
 
@@ -316,20 +317,20 @@ md3	lda gdays,x	; Kürzel holen
 	lda time+7	; nur Smartmouse: 12/24 Std?
 	beq md4
 	lda time+4	; nachm.: 12 addieren
-	clc 
+	clc
 	adc #12
 	sta time+4
 
-md4	lda #32		; am/pm löschen
+md4	lda #32		; am/pm lï¿½schen
 	sta time0
 	sta time0+1
-	rts 
+	rts
 
 ; ------------------------------------------------ Switch Mode
 
 evmode	jsr gettime	; Zeit neu einlesen
 	ldx mode		; deutsch/englisch umschalten
-	inx 
+	inx
 	beq em0
 	ldx #$ff
 em0	stx mode
@@ -347,10 +348,10 @@ evtime	jsr gettime	; Zeit einlesen
 
 ; ------------------------------------------------ Leave
 
-evcanc	sec 
-	rts 
+evcanc	sec
+	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 clocklst	!by 0,10,15,18,9,$01
 	!wo 0
@@ -387,7 +388,7 @@ mode	!by 0		; default: englisch (0)
 doffs	!by 34,41,49,57	; Offsets auf Drives im Filerequester
 cmd	!by 0,0,0,0,0	; CMD-Drivenummern mit RTC
 
-command	!tx "t-rd"	; Kommando für Drive-RTCs
+command	!tx "t-rd"	; Kommando fï¿½r Drive-RTCs
 comlen	!by 4
 time	!by 0,0,0,0,0,0,0,0,0 ; wd yy mm dd hh mm ss ap ..
 
@@ -413,33 +414,33 @@ rdclk	jsr setup
 	jsr brclk
 	jmp exit
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 brclk	lda #$bf
 	jsr sndcmd
 	lda #8
 	jmp gbyts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
-sndcmd	pha 
+sndcmd	pha
 	jsr rdycmd1
-	pla 
+	pla
 	jsr sbmb
 	jmp ioin
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 gbyts	sta bnum
 	ldy #0
 gb0	jsr gbmb
 	sta (ls_vekta8),y
-	iny 
+	iny
 	cpy bnum
 	bcc gb0
 	jmp rsthi
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 gbmb	ldx #8
 gb1	jsr rdycmd2
@@ -449,12 +450,12 @@ gb1	jsr rdycmd2
 	lsr
 	ror iobyt
 	jsr clkhi
-	dex 
+	dex
 	bne gb1
 	lda iobyt
-	rts 
+	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 sbmb	sta iobyt
 	ldx #8
@@ -467,11 +468,11 @@ sb0	jsr rdycmd2
 	ora #$f1
 	sta joypt1
 	jsr clkhi
-	dex 
+	dex
 	bne sb0
-	rts 
+	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 rdycmd1	jsr ioout
 	jsr rdycmd2
@@ -480,31 +481,31 @@ rdycmd1	jsr ioout
 rdycmd2	lda #$fd
 	and joypt1
 	sta joypt1
-	rts 
+	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 rsthi	lda #8
 	!by $2c
 clkhi	lda #2
 	ora joypt1
 	sta joypt1
-	rts 
+	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 ioout	lda #14
 	!by $2c
 ioin	lda #10
 	sta ddr1
-	rts 
+	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
-setup	php 
-	sei 
+setup	php
+	sei
 	sta iobyt
-	pla 
+	pla
 	sta flgsv
 	lda joypt1
 	sta portsv
@@ -515,9 +516,9 @@ setup	php
 	lda #10
 	sta ddr1
 	lda iobyt
-	rts 
+	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 exit	sta iobyt
 	lda portsv
@@ -525,13 +526,13 @@ exit	sta iobyt
 	lda ddrsv
 	sta ddr1
 	lda flgsv
-	pha 
+	pha
 	lda iobyt
-	plp 
-	cli 
-	rts 
+	plp
+	cli
+	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 chkmouse	lda #<clkdata
 	ldx #>clkdata
@@ -548,7 +549,7 @@ nom0	beq nomouse
 	cmp #$13
 nom1	bcs nomouse
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 getmouse	ldy #6		; set flag for Smartmouse RTC
 	sty cmd
@@ -595,7 +596,7 @@ gmam	ldx #$0
 	lda clkdata+4	; Monat
 	jsr wandeln
 
-	dey 
+	dey
 	ldx clkdata+5	; Tag der Woche
 	dex
 	txa
@@ -604,18 +605,18 @@ gmam	ldx #$0
 	ldy #1
 	lda clkdata+6	; Jahr
 
-wandeln	pha 
+wandeln	pha
 	and #$0f
 	sta msflg
-	pla 
+	pla
 	lsr
 	lsr
 	lsr
 	lsr
 	sty ymrk
-	tay 
+	tay
 	lda mult,y
-	clc 
+	clc
 	adc msflg
 	ldy ymrk
 	sta time,y
@@ -623,7 +624,7 @@ wandeln	pha
 nomouse	dey
 	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 checktc64	ldy #0
 	lda #$2a		; activate config reg
@@ -695,7 +696,7 @@ hdshk2	lda tc_spistat
 	lda time+4	; 12/24?
 	cmp #13
 	bcc ++
-	ldy mode		; German/English? 
+	ldy mode		; German/English?
 	bne +
 	sbc #12		; English, so subtract 12
 	sta time+4
