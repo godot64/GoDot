@@ -14,6 +14,7 @@
 ;   1.04, 23.11.20, added: reset Clip to Full after work
 ;   1.05, 13.01.24, changed gui (a little)
 ;   1.06, 03.12.24, adapted to SuperCPU
+;   1.07, 25.03.25, fixed: bug that crashed GoDot (buffer erased code)
 ;
 ; --------------------------------------
 
@@ -42,11 +43,11 @@
 	spr255		= $3fc0
 
 	ybuf0		= $bf00
-	ytab0		= $c500
-	xtab0		= $c500
-	ybuf1		= $c600
-	xbuf0		= $c700
-	xbuf1		= $c900
+	ytab0		= $c600	; ### 1.07 - from here
+	xtab0		= $c600
+	ybuf1		= $c700
+	xbuf0		= $c800
+	xbuf1		= $ca00	; ### - to here
 
 	sprx2		= $d004
 	spry2		= $d005
@@ -65,8 +66,8 @@
 	!by 0
 	!by 0
 	!tx "Double Quadrant "
-	!tx "1.06"
-	!tx "03.12.24"
+	!tx "1.07"
+	!tx "25.03.25"
 	!tx "W.Kling/A.Dettke"
 
 ; -------------------------------------- Main
