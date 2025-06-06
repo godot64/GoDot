@@ -1,0 +1,425 @@
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+; -----------------------------------------
+;
+;  mod.M65SetPal
+;   Module to set the Mega65 palette
+;
+;  1.00, 04.06.25: first release
+;
+; -----------------------------------------
+
+; ----------------------------------------- Equates
+
+	src	= $30		; /$31
+	col	= $32
+	count1	= $33
+	spalte	= sc_merk+1	; get cursor position in gadget
+	checkers	= $0b00
+
+	vic0	= $d000
+	vic1	= vic0+$100
+	vic2	= vic1+$100
+	vic3	= vic2+$100
+	mswitch	= $d02f
+
+; ----------------------------------------- Header
+
+header	jmp start
+	!by $20		; = this is a modifier
+	!by 0
+	!by 0
+	!wo modend
+	!wo 0
+	!tx "Set M65 Palette "
+	!tx "1.00"
+	!tx "04.06.25"
+	!tx "A.Dettke        "
+
+; ----------------------------------------- Main
+
+start	lda #$34		; preset fail status
+	sta machine
+	lda gr_colorbase	; get current system palette
+	sta palnr
+	jsr makech	; define two chars
+	jsr m65check	; 1st check for Mega65, returns vic in .a
+	cmp #4		; 4: Mega65
+	beq ++
+	cmp #3		; 3: C65 (fail)
+	bne +
+	inc machine
++	ldx #<nomegalst	; 2: C64 (fail)
+	ldy #>nomegalst
+	jsr gd_screen
+	beq +++		; finish
+
+++	ldx #<mspallst	; go: build requester
+	ldy #>mspallst
+	jsr gd_screen	; returns .a=0
+
+	sta sc_loop	; care for text mode
+	ldx palette	; build palette gadget
+	inx
+	stx palzl
+	stx sc_zl
+	ldx palette+1
+	inx
+	stx palsp
+	stx sc_sp
+	ldx #4		; 4x4 area (color chooser)
+	stx sc_br
+	stx sc_ho
+	jsr gd_esm3	; compute address and invert
+
+	lda gr_picked	; get previously selected color to .x
+	and #15		; (not used here in SetPalette)
+	tax
+	jsr initpal	; and show all colors ("color chooser")
+	ldy palnr		; choose current system palette
+	jsr first		; and show its name
+
++++	jmp gd_eloop	; now wait for gadget clicks
+
+; ------------------------------------------------ Event: Choose New Palette
+
+evsetpal	ldy palnr		; get palette number, 8 is max, 0 is min
+	lda spalte	; clicked where in gadget?
+	cmp #17		; 17 is center of gadget text
+	bcc ++
+	cpy #8		; right from center: count pal number forewards
+	bne +
+	ldy #$ff
++	iny
+	bpl +++		; uncond. branch
+++	tya		; left from center: count pal number backwards
+	bne +
+	ldy #9
++	dey
++++	sty palnr
+
+first	jsr chngepal	; Namen eintragen und anzeigen
+	jsr movepal	; neue RGB-Werte aktivieren
+	ldy #0		; .y=0, Offset auf gettext-Vektor
+	jmp settext
+
+; ------------------------------------------------ Event: Leave M65SetPal
+
+evleave	jsr initv
+	sec
+	rts
+
+; ------------------------------------------------ Change Palette Name
+
+chngepal	sty palnr		; set as current palette
+	ldx paloffs,y
+	ldy #7
+-	lda palname,x	; propagate name of palette
+	sta paltx,y
+	dex
+	dey
+	bpl -
+	rts
+
+; ----------------------------------------- Activate RGB Values
+
+movepal	ldy #2
+	jsr initv
+	jsr setv		; enable VIC IV
+	lda palnr		; set address of new rgb values to SRC
+	asl
+	tax
+	lda paladds,x
+	sta src
+	inx
+	lda paladds,x
+	sta src+1
+	ldx #2		; count r, g, and b
+--	ldy #0		; set index
+	sty count1	; up to 15
+-	lda (src),y	; write to vic1 (re-ordered according to CPREFS)
+	pha
+	lda cprefs,y
+	tay
+	pla
+smod	sta vic1,y	; selfmod ($d100)
+	inc count1
+	ldy count1
+	cpy #16
+	bcc -
+	inc smod+2	; to vic2, then to vic3
+	clc
+	lda src		; after R: G, then B values
+	adc #16
+	sta src
+	bcc +
+	inc src+1
++	dex
+	bpl --
+	lda #>vic1	; restore selfmod (to $d100)
+	sta smod+2
+	rts
+
+; ----------------------------------------- Check for Mega65
+
+m65check	lda #2
+	sta vic		; preset vic=2: C64
+	lda vic0		; save original values
+	sta vvals
+	lda vic1
+	sta vvals+1
+	ldy #0
+	jsr initv		; set test value (1) to vic1
+	jsr setv
+	lda vic0		; value of vic0 changed?
+	beq +
+	inc vic		; no, probably vic=3: C65
++	jsr initv		; reset test value to 1
+	jsr setv
+	lda vic0		; value of vic0 changed?
+	beq +
+	sty vic		; no, vic=4: Mega65
+
++	lda vvals		; restore original values
+	sta vic0
+	lda vvals+1
+	sta vic1
+	lda vic		; return vic number (2, 3, or 4)
+	rts
+
+; -----------------------------------------
+
+setv	lda vals,y	; check mega65
+	sta mswitch
+	iny
+	lda vals,y
+	sta mswitch
+	dex		; write 0 to $d100
+	stx vic1
+	iny
+	rts
+
+; -----------------------------------------
+
+initv	ldx #0
+	stx mswitch
+	stx mswitch
+	inx
+	stx vic0		; write test value (1) to vic
+	rts
+
+; ------------------------------------------------ create palette "chooser"
+
+makepal	lda gr_picked	; get current color
+	and #15
+	sta plast		; and store
+
+	lda palsp		; create chooser, first column
+	sta sc_sp
+	pha
+	ldx #1		; width and height = 1
+	stx sc_br
+	stx sc_ho
+	dex
+	stx cnty		; counters = 0
+	stx hold
+
+mp1	stx cntx
+	ldy hold
+	jsr colorize	; colorize area (1x1)
+	sec		; is PICKED color?
+	lda sc_vekt20
+	sbc #40
+	sta sc_vekt20
+	lda sc_vekt20+1
+	sbc #$d4
+	sta sc_vekt20+1
+	ldy sc_chgcol
+	cpy plast
+	beq mp2
+	lda #160		; no, write shift space
+	bne mp3
+mp2	lda #160		; yes, normally write "+" (not needed here)
+mp3	ldy #0
+	sta (sc_vekt20),y
+	inc sc_sp		; next column
+	inc hold
+	ldx cntx
+	inx
+	cpx #4
+	bne mp1
+
+	pla		; re-get start column
+	pha
+	sta sc_sp
+	ldx #0
+	inc sc_zl		; next row
+	inc cnty
+	lda cnty
+	cmp #4
+	bne mp1
+
+	pla		; clear stack
+	rts		; finished
+
+colorize	lda gr_basepal,y	; get color
+	sta sc_chgcol
+	ldx #4
+	jmp gd_fcol	; colorize area (1x1)
+
+; ------------------------------------------------ Show Palette Area
+
+initpal	lda c64pal,x	; display palette
+	sta col
+	jsr makepal
+	clc
+	rts
+
+; ------------------------------------------------ Kringel & AT
+
+makech	ldx #7
+-	lda char,x
+	sta sc_undochar,x
+	lda atsign,x
+	sta checkers,x
+	dex
+	bpl -
+	rts
+
+; ------------------------------------------------ Text Handler
+
+gettext	!wo palgad
+
+; ------------------------------------------------
+
+settext	lda #<gettext
+	sta sc_texttab
+	lda #>gettext
+	sta sc_texttab+1
+	lda (sc_texttab),y
+	sta sc_screentab
+	iny
+	lda (sc_texttab),y
+	sta sc_screentab+1
+	lda #0
+	tax
+	tay
+-	jsr gd_setpos
+	cpx #4
+	bne -
+	jsr gd_trim
+	jsr gd_initmove
+	ldy #6
+	jmp gd_xtxout1
+
+; ----------------------------------------- Data
+
+char	!by $00,$5c,$62,$72,$02,$02,$3c,$00
+atsign	!by $3c,$66,$6e,$6e,$60,$62,$3c,$00
+vals	!by $a5,$96,$47,$53
+vic	!by 2
+vvals	!by 0,0
+palzl	!by 0
+palsp	!by 0
+plast	!by 0
+hold	!by 0
+cntx	!by 0
+cnty	!by 0
+c64pal	!by $00,$ff,$44,$cc,$55,$aa,$11,$dd
+	!by $66,$22,$99,$33,$77,$ee,$88,$bb
+palindex	!by 0,16,32
+palnr	!by 0		; Vorgabepalette ist Systempalette
+palrefs	!by 93,78,79,88,91,92,89
+paloffs	!by 7,15,23,31,39,47,55,63,71
+paladds	!wo godot,pepto,deekay,vici,colodore,coco,ptoing,custom,mega65
+palname	!scr "GoDot   "	; 0
+	!scr "Pepto   "	; 8
+	!scr "Deekay  "	; 16
+	!scr "PAL",$60,"v1  "; 24
+	!scr "Colodore"	; 32
+	!scr "CoCo    "	; 40
+	!scr "Ptoing  "	; 48
+	!scr "Gray    "	; 56
+	!scr "Mega65  "	; 64
+cprefs	!by  15, 12, 11,  0,  1,  9, 10,  8,  4,  3,  2, 14,  6,  5, 13,  7	; C64 color index
+godot	!by $0b,$07,$03,$00,$0f,$06,$0f,$0d,$0c,$0a,$08,$00,$00,$00,$0a,$0e	; RGBs
+	!by $0b,$07,$03,$00,$0f,$04,$07,$08,$04,$0f,$00,$08,$00,$0c,$0f,$0e
+	!by $0b,$07,$03,$00,$0f,$00,$07,$05,$0c,$0e,$00,$0f,$0a,$05,$06,$07
+pepto	!by $09,$07,$04,$00,$0f,$04,$0a,$07,$07,$07,$07,$07,$03,$06,$0a,$0c
+	!by $09,$07,$04,$00,$0f,$04,$06,$05,$04,$0a,$03,$06,$03,$09,$0d,$0c
+	!by $09,$07,$04,$00,$0f,$00,$06,$02,$08,$0b,$03,$0b,$08,$06,$08,$07
+deekay	!by $0c,$09,$04,$00,$0f,$04,$0d,$0b,$0a,$06,$07,$05,$02,$05,$09,$0f
+	!by $0c,$09,$04,$00,$0f,$02,$08,$05,$04,$0d,$03,$09,$00,$0b,$0f,$0e
+	!by $0c,$09,$04,$00,$0f,$00,$07,$00,$0a,$0b,$03,$0d,$09,$02,$09,$05
+vici	!by $0a,$07,$05,$00,$0f,$05,$0c,$09,$09,$06,$09,$07,$03,$05,$09,$0d
+	!by $0a,$07,$05,$00,$0f,$04,$06,$05,$03,$0c,$03,$06,$03,$0a,$0f,$0d
+	!by $0a,$07,$05,$00,$0f,$00,$07,$02,$0a,$0b,$04,$0e,$0c,$05,$09,$05
+colodore	!by $0b,$08,$05,$00,$0f,$05,$0c,$09,$09,$07,$08,$07,$03,$05,$0b,$0f
+	!by $0b,$08,$05,$00,$0f,$03,$07,$05,$04,$0d,$03,$07,$03,$0b,$0f,$0f
+	!by $0b,$08,$05,$00,$0f,$00,$07,$03,$09,$0d,$03,$0f,$0a,$05,$0a,$07
+coco	!by $0b,$08,$05,$00,$0f,$07,$0f,$0b,$0b,$07,$0b,$07,$03,$05,$0a,$0e
+	!by $0b,$08,$05,$00,$0f,$04,$07,$06,$04,$0e,$03,$07,$04,$0c,$0f,$0f
+	!by $0b,$08,$05,$00,$0f,$01,$07,$02,$0b,$0d,$03,$0f,$0c,$05,$0a,$05
+ptoing	!by $0b,$08,$05,$00,$0f,$05,$0c,$09,$09,$08,$09,$08,$04,$07,$0b,$0d
+	!by $0b,$08,$05,$00,$0f,$04,$07,$06,$04,$0c,$04,$07,$03,$0b,$0f,$0e
+	!by $0b,$08,$05,$00,$0f,$00,$07,$02,$0b,$0c,$03,$0e,$0a,$04,$08,$07
+custom	!by $0b,$07,$03,$00,$0f,$02,$09,$06,$05,$0c,$04,$08,$01,$0a,$0e,$0d	; 16 shades of gray
+	!by $0b,$07,$03,$00,$0f,$02,$09,$06,$05,$0c,$04,$08,$01,$0a,$0e,$0d
+	!by $0b,$07,$03,$00,$0f,$02,$09,$06,$05,$0c,$04,$08,$01,$0a,$0e,$0d
+mega65	!by $0b,$08,$05,$00,$0f,$0a,$0f,$0f,$0f,$00,$0f,$09,$00,$00,$09,$0f
+	!by $0b,$08,$05,$00,$0f,$04,$07,$06,$00,$0f,$00,$09,$00,$0f,$0f,$0f
+	!by $0b,$08,$05,$00,$0f,$00,$07,$00,$0f,$0f,$00,$0f,$0f,$00,$09,$00
+
+
+; ----------------------------------------- Screenlists
+
+mspallst	!by 0
+	!by 6,11,19,10
+	!by $81
+	!wo 0
+	!scr "M65 Set Palette",0
+
+palette	!by 8,24,6,6,$0d
+	!wo 0
+
+palgad	!by 13,11,12,3,$c7
+	!wo evsetpal
+	!by 223,32
+paltx	!scr "GoDot   ",0	; Default Palette
+
+leave	!by 13,23,7,3,$ce
+	!wo evleave
+	!scr "Leave",0
+
+	!by $c0,9,12,10
+	!scr "Choose Pal",0
+	!by $c0,10,12,10
+	!scr "and leave.",0
+
+	!by $80
+
+; -----------------------------------------
+
+nomegalst	!by 0
+	!by 6,11,19,10
+	!by $81
+	!wo 0
+	!scr "M65 Set Palette",0
+	!by 13,23,7,3,$cd
+	!wo evleave
+	!scr "Leave",0
+
+	!by $c0,8,11,17
+	!scr "Palettes can't be",0
+	!by $c0,9,11,17
+	!scr "changed on a C6"
+machine	!scr "4.",0
+	!by $c0,11,13,13
+	!scr "Use a Mega65!",0
+
+	!by $80
+
+; -----------------------------------------
+
+modend	!eof
