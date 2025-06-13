@@ -1,0 +1,111 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ------------------------------------------------------------
+;
+;  mod.m65.Fast
+;
+;  Module to switch a Mega65 between FAST and SLOW mode
+;
+;  1.00: 11.06.25, first release
+;  1.01: 12.06.25, recognition of Mega65 already in launcher
+;
+; ------------------------------------------------------------
+
+
+; ------------------------------------------------------------ Declarations
+
+	hyppo	= $00
+
+; ------------------------------------------------------------ Header
+
+modul	jmp start
+	!by $20
+	!wo 0
+	!wo modend
+	!by $00,$00
+	!tx "FAST/SLOW Mega65"
+	!tx "1.01"
+	!tx "12.06.25"
+	!tx "A.Dettke        "
+
+; ---------------------------------------
+
+start	lda sy_mega65
+	bne +
+	ldx #<nomegalst	; 2 or 3: C64 or C65 (fail)
+	ldy #>nomegalst
+	jsr gd_screen
+	jmp gd_eloop	; finish
+
++	ldx #<screenlst	; build requester
+	ldy #>screenlst
+	jsr gd_screen
+	jsr resetspd	; force slow on start
+	jmp gd_eloop	; now wait for gadget clicks
+
+; -------------------------------------- Event: Toggle Speed
+
+resetspd	ldx #0		; .x= 0: Slow
+	!by $2c
+
+evspeed	ldx #1		; .x= 1: Fast (Active)
+	jsr setspeed
+
+; ---------------------------------------
+
+evcancel	sec		; leave operator
+	rts
+
+; ---------------------------------------
+
+setspeed	lda speedval,x	; activate speed (POKE 0,speedval)
+	sta hyppo
+	rts
+
+; ----------------------------------------- Data
+
+speedval	!by 64,65
+
+; ----------------------------------------- Screenlist
+
+screenlst	!by 0		; don't clr screen ($93=clr)
+	!by 9,15,10,7	; requester dimensions
+	!by $91		; gadget type
+	!wo 0		; address of event routine (or dummy: 0)
+	!scr "M65 Fast",0	; title caption, delimiter 0
+
+spdgad	!by 11,15,10,3,$c9
+	!wo evspeed
+spdtx	!scr "Activate",0
+
+	!by 13,15,10,3,$cb	; Exit-Gadget
+	!wo evcancel	; event routine
+	!scr " Leave",0	; caption
+
+	!by $80		; end of screen list
+
+; ----------------------------------------- Not a Mega65
+
+nomegalst	!by 0
+	!by 6,11,19,10
+	!by $81
+	!wo 0
+	!scr "M65 Fast",0
+	!by 13,23,7,3,$cd
+	!wo evcancel
+	!scr "Leave",0
+
+	!by $c0,9,12,15
+	!scr "Full Speed only",0
+	!by $c0,10,14,12
+	!scr "on a Mega65.",0
+
+	!by $80
+
+; -----------------------------------------
+
+modend	!eof
