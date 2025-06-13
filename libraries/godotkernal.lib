@@ -9,7 +9,7 @@ sy_oldposx     = $1d   ; mouse, can't be altered
 sy_oldposy     = $1e   ; mouse, can't be altered
 ls_loadsave    = $1f   ; flag: SAVE if 0, LOAD if not
 sc_vekt20      = $20   ; /$21, pointer to screen address
-sc_descriptor  = $22   ; Gadget descriptor: 
+sc_descriptor  = $22   ; Gadget descriptor:
 sc_zl          = $22   ;   row in tiles
 sc_sp          = $23   ;   column
 sc_br          = $24   ;   width
@@ -19,9 +19,9 @@ rm_reusize     = $27   ; encoded size of attached REU (none if 0, see section "v
 ls_found       = $28   ; flag: files of current type existing
 ls_dlines		= $29	; max. entries in directory window
 gr_colorbase	= $2a	; number of RGB palette currently in use (0=GoDot)
-sy_mega65		= $2b	; if value: 4, Mega65, otherwise 0
+sy_mega65		= $2b	; if value>0: Mega65 otherwise C64
 
-;                $2b to $2f: reserved
+;                $2c to $2f: reserved
 ;                $30 up to $53: free for programmer
 
 sy_soffx       = $7a   ; x-offset of mouse pointer to its hotspot
@@ -54,7 +54,7 @@ rm_sram        = $0254 ; size of SuperRAM
 ls_cmdtypes    = $0255 ; drive types for attached units if CMD drives ("H", "F", or "R")
 sy_tbuffer     = $0277 ; buffer for keys pressed
 sy_area2       = $0293 ; 11 bytes temporarily used by ldr.GIF
-gr_ctr         = $02a7 ; current value of contrast 
+gr_ctr         = $02a7 ; current value of contrast
 gr_brt         = $02a8 ; current value of brightness
 rm_nextram     = $02a9 ; next free directory entry in ram device (number)
 rm_rlen        = $02aa ; length of filename for ram device
@@ -76,7 +76,7 @@ ls_showfiles   = $0339 ; flag: show *all* files in filerequester if not 0
 rm_combuf      = $033a ; carries REU command (dev.REU)
 sc_iflag       = $033b ; flag: amount of permitted input chars (-1) if not 0
 sc_lastclpzl   = $033c ; row of last clip
-sc_lastclpsp   = $033d ; column 
+sc_lastclpsp   = $033d ; column
 sc_lastclpbr   = $033e ; width
 sc_lastclpho   = $033f ; height
 
@@ -165,10 +165,10 @@ reucom         = $df01 ; command register of REU
 irqend         = $ea7e ; standard finish of IRQ
 reset          = $fce2 ; reset vector
 
-checkkeyb      = $ff9f ; vector: check keyboard 
+checkkeyb      = $ff9f ; vector: check keyboard
 filpar         = $ffba ; set file parameters
 filnam         = $ffbd ; set filename parameters
-copen          = $ffc0 ; open 
+copen          = $ffc0 ; open
 close          = $ffc3 ; close
 chkin          = $ffc6 ; set input device
 ckout          = $ffc9 ; set output device
@@ -179,7 +179,7 @@ bsout          = $ffd2 ; send one byte
 
 ; ---------------------------
 ; ---------- values
-; --------------------------- 
+; ---------------------------
 
 ; dm_graphics    = 0     ; dirmask: graphics data (destination $4000)
 ; dm_ldr         = 1     ; loader data (dest. $c000)
