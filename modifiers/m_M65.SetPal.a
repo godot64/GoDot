@@ -6,7 +6,8 @@
 ;  mod.M65SetPal
 ;   Module to set the Mega65 palette
 ;
-;  1.00, 04.06.25: first release
+;  1.00, 04.06.25, first release
+;  1.01, 13.06.25, removed check for Mega65 (already in booter)
 ;
 ; -----------------------------------------
 
@@ -19,9 +20,7 @@
 	checkers	= $0b00
 
 	vic0	= $d000
-	vic1	= vic0+$100
-	vic2	= vic1+$100
-	vic3	= vic2+$100
+	vic1	= vic0+$100	; $d100: start of Mega65 palette data
 	mswitch	= $d02f
 
 ; ----------------------------------------- Header
@@ -33,29 +32,23 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "Set M65 Palette "
-	!tx "1.00"
-	!tx "04.06.25"
+	!tx "1.01"
+	!tx "13.06.25"
 	!tx "A.Dettke        "
 
 ; ----------------------------------------- Main
 
-start	lda #$34		; preset fail status
-	sta machine
-	lda gr_colorbase	; get current system palette
+start	lda gr_colorbase	; get current system palette
 	sta palnr
 	jsr makech	; define two chars
-	jsr m65check	; 1st check for Mega65, returns vic in .a
-	cmp #4		; 4: Mega65
-	beq ++
-	cmp #3		; 3: C65 (fail)
+	lda sy_mega65	; check Mega65 flag
 	bne +
-	inc machine
-+	ldx #<nomegalst	; 2: C64 (fail)
+	ldx #<nomegalst	; when 0: C64 (fail)
 	ldy #>nomegalst
 	jsr gd_screen
-	beq +++		; finish
+	beq ++		; finish modifier
 
-++	ldx #<mspallst	; go: build requester
++	ldx #<mspallst	; go: build requester
 	ldy #>mspallst
 	jsr gd_screen	; returns .a=0
 
@@ -80,7 +73,7 @@ start	lda #$34		; preset fail status
 	ldy palnr		; choose current system palette
 	jsr first		; and show its name
 
-+++	jmp gd_eloop	; now wait for gadget clicks
+++	jmp gd_eloop	; now wait for gadget clicks
 
 ; ------------------------------------------------ Event: Choose New Palette
 
@@ -106,8 +99,7 @@ first	jsr chngepal	; Namen eintragen und anzeigen
 
 ; ------------------------------------------------ Event: Leave M65SetPal
 
-evleave	jsr initv
-	sec
+evleave	sec
 	rts
 
 ; ------------------------------------------------ Change Palette Name
@@ -124,9 +116,11 @@ chngepal	sty palnr		; set as current palette
 
 ; ----------------------------------------- Activate RGB Values
 
-movepal	ldy #2
-	jsr initv
+movepal	jsr initv
 	jsr setv		; enable VIC IV
+	lda vic0		; save original value of $d000
+	sta vval
+
 	lda palnr		; set address of new rgb values to SRC
 	asl
 	tax
@@ -156,57 +150,24 @@ smod	sta vic1,y	; selfmod ($d100)
 	bcc +
 	inc src+1
 +	dex
-	bpl --
+	bpl --		; loop 3 times
+
+	lda vval		; restore original value of $d000
+	sta vic0
+	jsr initv		; disable vic iv
 	lda #>vic1	; restore selfmod (to $d100)
 	sta smod+2
 	rts
 
-; ----------------------------------------- Check for Mega65
-
-m65check	lda #2
-	sta vic		; preset vic=2: C64
-	lda vic0		; save original values
-	sta vvals
-	lda vic1
-	sta vvals+1
-	ldy #0
-	jsr initv		; set test value (1) to vic1
-	jsr setv
-	lda vic0		; value of vic0 changed?
-	beq +
-	inc vic		; no, probably vic=3: C65
-+	jsr initv		; reset test value to 1
-	jsr setv
-	lda vic0		; value of vic0 changed?
-	beq +
-	sty vic		; no, vic=4: Mega65
-
-+	lda vvals		; restore original values
-	sta vic0
-	lda vvals+1
-	sta vic1
-	lda vic		; return vic number (2, 3, or 4)
-	rts
-
 ; -----------------------------------------
 
-setv	lda vals,y	; check mega65
-	sta mswitch
-	iny
-	lda vals,y
-	sta mswitch
-	dex		; write 0 to $d100
-	stx vic1
-	iny
-	rts
-
-; -----------------------------------------
-
-initv	ldx #0
+initv	lda #0		; close vic iv
+	tax
+	beq +
+setv	lda #$47		; open vic iv
+	ldx #$53
++	sta mswitch
 	stx mswitch
-	stx mswitch
-	inx
-	stx vic0		; write test value (1) to vic
 	rts
 
 ; ------------------------------------------------ create palette "chooser"
@@ -317,9 +278,7 @@ settext	lda #<gettext
 
 char	!by $00,$5c,$62,$72,$02,$02,$3c,$00
 atsign	!by $3c,$66,$6e,$6e,$60,$62,$3c,$00
-vals	!by $a5,$96,$47,$53
-vic	!by 2
-vvals	!by 0,0
+vval	!by 0
 palzl	!by 0
 palsp	!by 0
 plast	!by 0
