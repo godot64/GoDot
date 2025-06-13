@@ -2246,36 +2246,36 @@ palcol	!by 0,0,0,0,0,0,0,0
 lopal	!by 0
 hipal	!by 0
 ldrlen	!by 13
-defldr	!pet "ldr.4BitGoDot	"
-bcldr	!scr "ldr.4BitGoDot@	@"
+defldr	!pet "ldr.4BitGoDot	  "
+bcldr	!scr "ldr.4BitGoDot@  @"
 svrlen	!by 13
-defsvr	!pet "svr.4BitGoDot	"
-bcsvr	!scr "svr.4BitGoDot@	@"
+defsvr	!pet "svr.4BitGoDot   "
+bcsvr	!scr "svr.4BitGoDot@  @"
 modlen	!by 13
-defmod	!pet "mod.ClipWorks	"
-bcmod 	!scr "mod.ClipWorks@	@"
+defmod	!pet "mod.ClipWorks   "
+bcmod 	!scr "mod.ClipWorks@  @"
 patlen	!by 0
-defpat	!pet "		 		 			"
+defpat	!fill 16,32
 ramlen	!by 0
-defram	!pet "		 		 			"
+defram	!fill 16,32
 ptrlen	!by 0
-defptr	!pet "		 		 			"
+defptr	!fill 16,32
 
 ; --------------------------------------- Default RAM Entries
 
 rentries	!by 0			; REU-Flag ($00)
-	!by $1c,$c2,$00	; 0: (v1.36: neue Startadresse wg. Swapfile)
-	!pet "RM.Handler		"; RAM-Handler
-bbu	!by 32		;	(darin: Anim-Counter und REUClear-Flag)
-	!by 0,$00,$10	; 1:
-	!pet "Undo 4Bit			"; Undo 4Bit
-	!by 0,$00,$8d	; 2:
-	!pet "Undo Rendered	"		; Undo Rendered
-	!by $f0,$1c,$b2	; 3:
-	!pet "swp.file			 "	; Swapfile (v1.36: neue Länge von 4096)
-	!by $07,0,$83	;		(v1.33: Temp activated (vorher $17 statt $07))
-	!pet "temp00		 		 " ; 4:
-				;		Temp (first user entry: 5)
+	!by $1c,$c2,$00		; 0: (v1.36: neue Startadresse wg. Swapfile)
+	!pet "RM.Handler    "	; RAM-Handler
+bbu	!by 32			; (darin: Anim-Counter und REUClear-Flag)
+	!by 0,$00,$10		; 1:
+	!pet "Undo 4Bit       "	; Undo 4Bit
+	!by 0,$00,$8d		; 2:
+	!pet "Undo Rendered   "	; Undo Rendered
+	!by $f0,$1c,$b2		; 3:
+	!pet "swp.file        "	; Swapfile (v1.36: neue Länge von 4096)
+	!by $07,0,$83		; (v1.33: Temp activated (vorher $17 statt $07))
+	!pet "temp00          " 	; 4:
+				; Temp (first user entry: 5)
 
 ; ---------------------------------------
 
@@ -2295,7 +2295,7 @@ devname	!by 7			; Länge des Filenamens
 ; ---------------------------------------
 
 offsets	!by $80,$80,$80,$80,0,0,$80,$80,0	; Offset auf devname oder $80
-;	      $80,$80, 21, 10,0,0,$80, 31,0
+;	    $80,$80, 21, 10,0,0,$80, 31,0
 
 ; ---------------------------------------
 
