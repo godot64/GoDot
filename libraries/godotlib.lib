@@ -19,10 +19,10 @@ rm_reusize	= $27	; encoded size of attached REU (none if 0, see section "values"
 ls_found		= $28	; flag: files of current type existing
 ls_dlines		= $29	; max. entries in directory window
 gr_colorbase	= $2a	; number of RGB palette currently in use (0=GoDot)
-sy_mega65		= $2b	; if value: 4, Mega65, otherwise 0
+sy_mega65		= $2b	; if value>0: Mega65 otherwise C64
 
 ; -----------------------------------------
-;	      $2b to $2f: reserved
+;	      $2c to $2f: reserved
 ;	      $30 up to $55: free for programmers
 ; -----------------------------------------
 
