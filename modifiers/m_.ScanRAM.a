@@ -12,8 +12,9 @@
 ;
 ;  1.00: 19.06.24, first release
 ;  1.01: 21.06.24, bugfixes
-;  1.02: 29.11.24, check auf C128, da ohne SCPU nicht erkannt wird
+;  1.02: 29.11.24, Check auf C128, da ohne SCPU nicht erkannt wird
 ;  1.03: 02.12.24, adapted to SuperCPU
+;  1.04: 19.06.25, Check auf Mega65 zugefügt
 ;
 ; ------------------------------------------------------------
 
@@ -26,6 +27,8 @@
 	filtype		= $1d2e 	; selfmodifying kernel!
 	ramtype		= $1d94
 	ramstart		= $cab0	; header address of dev.REU
+	vic		= $d000	; VIC base address
+	mswitch		= $d02f	; Mega65 KEY: switch VIC IV on and off
 	fast		= $d030
 	vdc		= $d600	; VDC base address
 	vdcdata		= $d601
@@ -40,8 +43,8 @@ modul	jmp start
 	!wo modend
 	!by $00,$00
 	!tx "Re-Scan RAM Devs"
-	!tx "1.03"
-	!tx "02.12.24"
+	!tx "1.04"
+	!tx "19.06.25"
 	!tx "A.Dettke        "
 
 ; ---------------------------------------
@@ -59,6 +62,7 @@ start	lda gd_modswitch	; RAM Handler
 	beq +
 	jsr vdctype	; ja, VDC-Typ ermitteln
 +	jsr testscpu	; SuperCPU vorhanden?
+	jsr testm65	; läuft auf einem Mega65? ### 1.04
 	jsr pagefox	; Pagefox vorhanden?
 	cmp #$23
 	beq +		; ja, REU kann nicht angeschlossen sein
@@ -434,8 +438,45 @@ lockdev	ldx #$18		; REU sperren: mit CLC...
 	ldx #12
 	rts
 
+; ----------------------------------------- Check for Mega65
+
+testm65	jsr vic4on	; switch vic4 on (if present)
+	ldx #0
+	stx sy_mega65	; preset Mega65-Flag to 0: C64
+	lda vic		; save original values
+	sta vvals
+	lda vic+$100
+	sta vvals+1
+	stx vic
+
+	inx
+	stx vic+$100	; set test value (1) to vic+256
+	lda vic		; value of vic changed?
+	bne +
+	stx sy_mega65	; no, remains 0: Mega65
+
++	lda vvals		; restore original values
+	sta vic
+	lda vvals+1
+	sta vic+$100
+
+; ----------------------------------------- VIC IV off
+
+vic4off	lda #0
+	tax
+	beq +
+
+; ----------------------------------------- VIC IV on
+
+vic4on	lda #$47		; check mega65
+	ldx #$53
++	sta mswitch
+	stx mswitch
+	rts
+
 ; --------------------------------------- DATA
 
+vvals	!byte 0,0
 isactive	!byte 0
 merktype	!byte $00
 noparse	!byte 0
