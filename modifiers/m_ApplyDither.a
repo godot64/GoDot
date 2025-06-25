@@ -9,8 +9,9 @@
 ;     1.00, 12.12.92, first release (incl. GUI)
 ;     1.01, 13.08.93, changed dither routines
 ;     1.02, 15.08,04, bug in "inittables" fixed
-; 
-; -------------------------------------- 
+;     1.03, 24.06.25, changed two dither names
+;
+; --------------------------------------
 
 
 ; -------------------------------------- Equates
@@ -38,14 +39,14 @@
 	bgtab		= $ca20
 	etab		= $ca30
 	rtab		= $cb00
-	
+
 	x2		= $d004
 	y2		= x2+1
 	msbx		= spritehi
 	spren		= $d015
 	sprxe		= $d01d
 	sprcol2		= $d029
-	
+
 	oszi3		= $d40e
 	wave		= $d412
 	filter		= $d418
@@ -59,14 +60,14 @@
 	!wo (modend)
 	!by $00,$00
 	!pet "internal dither "
-	!pet "1.02"
-	!pet "15.08.04"
+	!pet "1.03"
+	!pet "24.06.25"
 	!pet "W.Kling/A.Dettke"
 
 ; -------------------------------------- Mainloop
 
-start	ldx #<applst
-	ldy #>applst
+start	ldx #<(applst)
+	ldy #>(applst)
 	jmp gd_xmloop
 
 ; -------------------------------------- Set Dither
@@ -86,9 +87,9 @@ dth0	inx		; or increment
 	ldx #0
 dth1	stx dither
 
-	lda #<dithtx	; neues Dithering
+	lda #<(dithtx)	; neues Dithering
 	sta sc_texttab
-	lda #>dithtx
+	lda #>(dithtx)
 	sta sc_texttab+1
 	txa
 	asl
@@ -101,20 +102,20 @@ dth1	stx dither
 
 ; -------------------------------------- Set Graphics Mode
 
-sevmode	lda #<modetx	; Textausgabe vorbereiten
+sevmode	lda #<(modetx)	; Textausgabe vorbereiten
 	sta sc_texttab
-	lda #>modetx
+	lda #>(modetx)
 	sta sc_texttab+1
 
-	lda mode		; Modus �ndern
+	lda mode		; Modus ändern
 	bne scc0
 	lda #2
-	ldx #<mult
-	ldy #>mult
+	ldx #<(mult)
+	ldy #>(mult)
 	bne scc1
 scc0	lda #0
-	ldx #<hirs
-	ldy #>hirs
+	ldx #<(hirs)
+	ldy #>(hirs)
 scc1	sta mode
 	jmp gd_xtxtggl	; anzeigen
 
@@ -180,14 +181,14 @@ svm0	lda #0
 
 ; -------------------------------------- Gadgets Screenoutput
 
-setredad	ldx #<sred
-	ldy #>sred
+setredad	ldx #<(sred)
+	ldy #>(sred)
 	bne set0
-setmodead	ldx #<smode
-	ldy #>smode
+setmodead	ldx #<(smode)
+	ldy #>(smode)
 	bne set0
-setdithad	ldx #<sdith
-	ldy #>sdith
+setdithad	ldx #<(sdith)
+	ldy #>(sdith)
 set0	stx sc_screentab
 	sty sc_screentab+1
 	lda #0
@@ -204,7 +205,7 @@ gt0	jsr gd_setpos
 sevapply	jsr initad	; Init Activity
 
 	ldx cols		; Anzahl Farben
-	cpx #16		; gr��er 15?
+	cpx #16		; grööer 15?
 	bcc jau
 	jmp nix		; dann nichts tun
 
@@ -221,7 +222,7 @@ jau	dex		; merken
 	inx
 	stx wave
 
-	lda dither	; Dithermodus anw�hlen
+	lda dither	; Dithermodus anwählen
 	asl
 	tay
 	lda dithadr,y
@@ -231,8 +232,8 @@ jau	dex		; merken
 
 	lda #128		; Bitmaske %1000000 erstellen
 	sta bitcnt
-	lda #<$4000	; ab $4000 (4Bit)
-	ldx #>$4000
+	lda #<($4000)	; ab $4000 (4Bit)
+	ldx #>($4000)
 	sta src
 	stx src+1
 
@@ -254,26 +255,26 @@ rcloop	tya
 	lsr
 mcskip	and #$0f		; bei Multi: nur Lo-Nibble
 	jsr pixel		; aufrastern
-	and #$f0		; kommt zur�ck mit Bitmuster-Byte
+	and #$f0		; kommt zurück mit Bitmuster-Byte
 	sta xbuf		; oberes Nibble merken
 
 	lsr bitcnt	; Maske nach rechts: %01000000
-	lda bbuf		; Originalbyte zur�ckholen
+	lda bbuf		; Originalbyte zurückholen
 	and #$0f		; unteres Nibble bearbeitten
 	jsr pixel		; aufrastern
 	and #$0f		; unteres Nibble isolieren
-	ora xbuf		; mit oberem verkn�pfen
+	ora xbuf		; mit oberem verknüpfen
 
-	sta (src),y	; nach 4Bit zur�ckschreiben
+	sta (src),y	; nach 4Bit zurückschreiben
 
-	lsr bitcnt	; Maske r�cken: %00100000
+	lsr bitcnt	; Maske rücken: %00100000
 	bcc bclr
-	ror bitcnt	; wenn abgearbeitet: Bit wieder oben einf�gen
+	ror bitcnt	; wenn abgearbeitet: Bit wieder oben einfügen
 bclr	iny		; eine Page
 	bne rcloop
 
 	jsr adinc		; Activity (nach 256 Pixeln)
-	inc src+1		; n�chste Page
+	inc src+1		; nächste Page
 	lda src+1
 	cmp #$bd		; bis 4Bit-Ende erreicht
 	bne rcloop
@@ -294,30 +295,30 @@ nix	jsr exit		; Activity beenden
 
 pixel	jmp (pos)
 
-dithadr	!by <dtoff,>dtoff
-	!by <dthab,>dthab
-	!by <dtpat,>dtpat
-	!by <dtnoi,>dtnoi
-	!by <dtrnd,>dtrnd
+dithadr	!by <(dtoff),>(dtoff)
+	!by <(dthab),>(dthab)
+	!by <(dtpat),>(dtpat)
+	!by <(dtnoi),>(dtnoi)
+	!by <(dtrnd),>(dtrnd)
 
-; -------------------------------------- 
+; --------------------------------------
 
 dtoff	tax		; Off
 	lda qtab,x
 	rts
 
-; -------------------------------------- 
+; --------------------------------------
 
 dthab	sta zp1		; Ordered
 	tax
 	lda rtab,x
-	ldx ybuf		
+	ldx ybuf
 	ora offs,x	  ; ,y
 	tax
 	lda gr_orderedpat,x
 	jmp dh1
 
-; -------------------------------------- 
+; --------------------------------------
 
 dtpat	sta zp1		; Pattern
 	tax
@@ -338,7 +339,7 @@ dp0	ldx zp1
 	beq bgr
 	bne fgr
 
-; -------------------------------------- 
+; --------------------------------------
 
 dtrnd	tax		; Random
 	lda rtab,x
@@ -355,7 +356,7 @@ rold	lda zp1
 	beq bgr
 	bne fgr
 
-; -------------------------------------- 
+; --------------------------------------
 
 dtnoi	tax		; Noise
 	lda rtab,x
@@ -372,7 +373,7 @@ bgr	lda bgtab,x
 fgr	lda fgtab,x
 	rts
 
-; -------------------------------------- 
+; --------------------------------------
 
 getrnd	lda mode
 	beq gr00
@@ -384,7 +385,7 @@ gr00	lda rausch
 	sta zp1
 gr01	rts
 
-; -------------------------------------- 
+; --------------------------------------
 
 offs	!by $00,$10,$20,$30
 	!by $00,$10,$20,$30
@@ -444,19 +445,19 @@ its1	iny
 itl3	ldx bgtab,y
 	inx
 	txa
-	sta fgtab,y	; foreground grays
+	sta fgtab,y		; foreground grays
 	dey
 	bpl itl3
 
 	ldx #0
-rtl0	lda etab,x	; create dither
-	sta rstart	; start of range
+rtl0	lda etab,x		; create dither
+	sta rstart		; start of range
 	lda etab+1,x
 	sta rend		; end of range
 	sec
 	sbc rstart
 	tay		; .y = range
-	lda rdtab,y	; see below
+	lda rdtab,y		; see below
 	sta rstep
 	ldy rstart
 	lda #0		; one range ---
@@ -473,25 +474,25 @@ rtl1	sta bbuf
 	cpy rend
 	bcc rtl1		; /one range ---
 	inx		; next range
-	cpx howmin1	; until number of grays
+	cpx howmin1		; until number of grays
 	bcc rtl0
 
 	ldy #15
-itl4	ldx qtab,y	; exchange offsets with grays (from dnib)
+itl4	ldx qtab,y		; exchange offsets with grays (from dnib)
 	lda etab,x
 	tax
 	lda dnib,x
-	sta qtab,y	; quantization table
+	sta qtab,y		; quantization table
 	ldx fgtab,y
 	lda etab,x
 	tax
 	lda dnib,x
-	sta fgtab,y	; foreground table
+	sta fgtab,y		; foreground table
 	ldx bgtab,y
 	lda etab,x
 	tax
 	lda dnib,x
-	sta bgtab,y	; background table
+	sta bgtab,y		; background table
 	dey
 	bpl itl4
 
@@ -572,17 +573,17 @@ adl0	sta spr255+3,y
 applst	!by 0
 	!by 6,8,22,14,$81,0,0
 	!scr "Apply Dither@"
-sdith	!by 8,15,14,3,$c0,<sevdith,>sevdith
-dithtx	!scr "  Ordered   @"
-smode	!by 11,15,14,3,$c0,<sevmode,>sevmode
+sdith	!by 8,15,14,3,$c0,<(sevdith),>(sevdith)
+dithtx	!scr "  Pagefox   @"
+smode	!by 11,15,14,3,$c0,<(sevmode),>(sevmode)
 modetx	!scr "   Hires    @"
-sred	!by 14,19,6,3,$e0,<sevred,>sevred
+sred	!by 14,19,6,3,$e0,<(sevred),>(sevred)
 coltx	!scr "  2 @"
-	!by 17,8,6,3,$c7,<sevmain,>sevmain
+	!by 17,8,6,3,$c7,<(sevmain),>(sevmain)
 	!scr "Main@"
-	!by 17,14,8,3,$cc,<sevapply,>sevapply
+	!by 17,14,8,3,$cc,<(sevapply),>(sevapply)
 	!scr "Apply@"
-	!by 17,22,8,3,$cd,<sevcan,>sevcan
+	!by 17,22,8,3,$cd,<(sevcan),>(sevcan)
 	!scr "Cancel@"
 	!by $c0,8,8,5
 	!scr "Dith:@"
@@ -600,10 +601,10 @@ dither	!by 1
 mode	!by 0
 cols	!by 2
 
-dtaddr	!wo dthoff,dthord,dthpat,dthnoi,dthrnd
+dtaddr	!wo (dthoff),(dthord),(dthpat),(dthnoi),(dthrnd)
 dthoff	!scr "     Off    @"
-dthord	!scr "  Ordered   @"
-dthpat	!scr "  Pattern   @"
+dthord	!scr "  Pagefox   @"
+dthpat	!scr "   Bayer    @"
 dthnoi	!scr "   Noise    @"
 dthrnd	!scr "   Random   @"
 
