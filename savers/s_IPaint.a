@@ -1,12 +1,12 @@
 
 	!src "godotlib.lib"	; Label-Library einbinden
-	*= $c000		; generelle Startadresse f¸r alle Module
+	*= $c000		; generelle Startadresse f√ºr alle Module
 	!ct pet		; Texte werden in PETSCII assembliert
 
-; ----------------------------------------- 
+; -----------------------------------------
 ;
 ; svr.IPaint
-;  Saver f¸r C128 Basic8-Bilder in Mode 0 (mono) und 2 (IPaint 8x4)
+;  Saver f√ºr C128 Basic8-Bilder in Mode 0 (mono) und 2 (IPaint 8x4)
 ;
 ;  1.00, 27.04.19, first release
 ;  1.01, 02.05.19, bugfix: compress algorithm now works
@@ -15,8 +15,9 @@
 ;  1.02, 01.06.19, added: selective prefixes ("brus.", "pict.", "ip.")
 ;  1.03, 08.07.19, added: undo, colors
 ;  1.04, 13.07.19, removed: mode 1 and mode 3
+;  1.05, 25.06.25, adapted dither names to system
 ;
-; ----------------------------------------- 
+; -----------------------------------------
 
 
 ; ----------------------------------------- Equates
@@ -79,14 +80,14 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "IPaint images   "
-	!pet "1.04"
-	!pet "13.07.19"
+	!pet "1.05"
+	!pet "25.06.25"
 	!pet "A.Dettke        "
 
 ; ----------------------------------------- Main
 
 start	ldx gr_nr		; Input?
-	dex 
+	dex
 	bne saver
 
 	jmp initinp	; ja
@@ -94,16 +95,16 @@ start	ldx gr_nr		; Input?
 ; ----------------------------------------- Basic8
 
 saver	lda gd_modswitch	; Modulmanagement
-	pha 
+	pha
 
 	lda rm_ramvec	; check for REU
 	eor #$4c
 	sta hasreu	; 0 if present
 
-	lda ls_flen	; Keine Datei ausgew‰hlt?
+	lda ls_flen	; Keine Datei ausgew√§hlt?
 	beq st1		; ja, fertig
 
-	sta wflen		; Namensl‰nge merken
+	sta wflen		; Namensl√§nge merken
 	lda #1		; Activity beginnen
 	sta adcnt
 	sta cntwert
@@ -117,14 +118,14 @@ saver	lda gd_modswitch	; Modulmanagement
 	jsr gd_screen
 	jsr gd_eloop	; warten auf Klicks
 
-st1	pla 
+st1	pla
 	sta gd_modswitch
 
 	ldy #16		; Balancing-Tabelle initialisieren
 	sty gr_ctr
 	sty gr_brt
-lll	dey 
-	tya 
+lll	dey
+	tya
 	sta gr_btab,y
 	bne lll
 
@@ -137,17 +138,17 @@ tidyup	lda hasreu
 evleave	lda #0
 	sta wflen
 	sec 		; fertig
-	rts 
+	rts
 
 ; ----------------------------------------- Event: Save Image
 
 evsaveb8	lda wflen
 	beq +
 
-	jsr addprefix	; Prefix "brus." zuf¸gen
+	jsr addprefix	; Prefix "brus." zuf√ºgen
 	jsr gd_sproff	; Mauszeiger aus
 
-	jsr wopen		; Datei ˆffnen
+	jsr wopen		; Datei √∂ffnen
 	bne st2		; Fehlschlag?
 
 	jsr getname	; nein, Image Info vorbereiten
@@ -155,7 +156,7 @@ evsaveb8	lda wflen
 	jsr ckout
 	jsr write		; Datei speichern
 
-st2	jsr clrch		; Datei schlieﬂen
+st2	jsr clrch		; Datei schlie√üen
 	lda #12
 	jsr close
 	jsr err9		; Fehler?
@@ -164,13 +165,13 @@ st2	jsr clrch		; Datei schlieﬂen
 
 +	jmp gd_spron	; Mauszeiger an
 
-; ----------------------------------------- 
+; -----------------------------------------
 ; ----------------------------------------- Input-Routinen
- 
+
 	!src "input.inc"
 
-; ----------------------------------------- 
-; ----------------------------------------- 
+; -----------------------------------------
+; -----------------------------------------
 
 
 ; ----------------------------------------- Disk Access
@@ -185,12 +186,12 @@ wopen	jsr inull
 	ldx #3
 wo1	lda pw,x
 	sta ls_nambuf,y
-	iny 
-	dex 
+	iny
+	dex
 	bpl wo1
 	sty wflen
 	lda #12
-	tay 
+	tay
 	ldx ls_drive
 	jsr filpar
 	lda wflen
@@ -200,7 +201,7 @@ wo1	lda pw,x
 	jsr copen
 	jmp err9
 
-; ----------------------------------------- 
+; -----------------------------------------
 
 inull	ldx #<drinit
 	ldy #>drinit
@@ -210,8 +211,8 @@ inull	ldx #<drinit
 err9	jsr gd_xmess
 	lda ls_err2
 	and #15
-err8	sec 
-	rts 
+err8	sec
+	rts
 
 ; ----------------------------------------- Messages
 
@@ -223,8 +224,8 @@ tcopy	ldy #0
 tc0	lda txt,x
 	beq clrmess
 	sta message,y
-	inx 
-	iny 
+	inx
+	iny
 	bne tc0
 
 action	dec adcnt
@@ -244,18 +245,18 @@ act0	ldx offx
 	inc offy
 	lda #7
 	sta offx
-ld4	rts 
+ld4	rts
 
 clrmess	ldx #23
 	lda #32
 cl0	sta mess,x
-	dex 
+	dex
 	bpl cl0
 	ldy #0
 	ldx #7
 	sty offy
 	stx offx
-	rts 
+	rts
 
 filltab	!by 160,93,103,127,126,124,105,109
 
@@ -274,10 +275,10 @@ getname	ldx #0
 si0	lda ls_lastname,x
 	beq si1
 	sta nbuf,x
-	inx 
+	inx
 	cpx #16
 	bcc si0
-si1	rts 
+si1	rts
 
 setname	lda #0		; Namen in Image Info eintragen
 	ldx #<ls_picname
@@ -313,7 +314,7 @@ write	lda mode		; monochrom?
 	beq +
 	lda #$80		; yes, tag it
 +	sta cpres
-	ldx dither	; Dithering ber¸cksichtigen
+	ldx dither	; Dithering ber√ºcksichtigen
 	lda dlo,x
 	sta dmode
 	lda dhi,x
@@ -331,11 +332,11 @@ write	lda mode		; monochrom?
 	jsr colors	; Farben rendern
 	jsr mono		; Bitmap rendern
 	lda mode		; monochrom?
-	beq +		; ja, Farben ¸bergehen
+	beq +		; ja, Farben √ºbergehen
 	jsr colorchk	; write signature
 	jsr wrcolors	; Farben speichern
-+	sec 
-	rts 
++	sec
+	rts
 
 ; ----------------------------------------- Render Color Base
 
@@ -476,7 +477,7 @@ lp81	lda hist0,y	; find 2 most frequent colors
 	cmp #$20
 	bne +		; no, check f2
 	cmp max		; only 1 color also in f2?
-	beq +		; yes, skip here	
+	beq +		; yes, skip here
 	jsr chkf1		; no, set bkgr of f2 (in .x) to f1
 
 +	lda max		; only 1 color in f2 ?
@@ -555,7 +556,7 @@ storecol	sta cols		; sort
 colorchk	ldx #0
 wc0	lda colchunk,x	; Chunk-Kennung schreiben
 	jsr bsout
-	inx 
+	inx
 	cpx #4
 	bne wc0
 	rts
@@ -580,11 +581,11 @@ mono	ldx #0
 	ldy #8
 	sty cols
 
-	jsr setvecs	; 4Bit anw‰hlen (src/src0, vram1/2)
+	jsr setvecs	; 4Bit anw√§hlen (src/src0, vram1/2)
 	jsr strvecs	; Vektoren sichern
-	lda #0		; steuert per yzoom ($00 oder $ff) die Hˆhe
+	lda #0		; steuert per yzoom ($00 oder $ff) die H√∂he
 	sta dbl		; Flag
-	sta vertcnt	; z‰hlt Ergebnisrasterzeilen (kˆnnen doppelt so viele sein)
+	sta vertcnt	; z√§hlt Ergebnisrasterzeilen (k√∂nnen doppelt so viele sein)
 
 	lda #25
 	sta lcnt8
@@ -597,10 +598,10 @@ ads0	ldx #0
 
 zloop	lda #0
 	sta yndex
-	lda xzoom		; 1 bei 320, 2 z‰hlt 640 (eine Rasterlinie)
+	lda xzoom		; 1 bei 320, 2 z√§hlt 640 (eine Rasterlinie)
 	sta bcnt1
 
-byloop	lda xmask		; z‰hlt vier Byte (8 Pixel)
+byloop	lda xmask		; z√§hlt vier Byte (8 Pixel)
 	sta bitcnt
 	lda #0
 	sta byte
@@ -610,24 +611,24 @@ btloop	lda mode
 
 --	ldy yndex		; monochrom:
 	lda (src),y	; linkes Pixel
-	pha 
-	lsr 
-	lsr 
-	lsr 
+	pha
 	lsr
-	tay 
-	lda gr_btab,y	; Balancing ber¸cksichtigen (Bitmap)
+	lsr
+	lsr
+	lsr
+	tay
+	lda gr_btab,y	; Balancing ber√ºcksichtigen (Bitmap)
 	jsr makebyte
 	ldy xzoom
 -	lsr bitcnt
 	dey
 	bne -
-	pla 
+	pla
 	and #$0f		; rechtes Pixel
 	tay
-	lda gr_btab,y	; Balancing ber¸cksichtigen
+	lda gr_btab,y	; Balancing ber√ºcksichtigen
 	jsr makebyte
-	inc yndex		; n‰chstes Byte (von 4)
+	inc yndex		; n√§chstes Byte (von 4)
 	ldy xzoom
 -	lsr bitcnt
 	dey
@@ -678,12 +679,12 @@ cbloop	ldy #0
 	bcc --
 
 contn	sta buf,x		; Ergebnis puffern (8 Pixel)
-	inx 
+	inx
 	dec bcnt1		; zweimal das Ganze (bei 640)
 	beq +
 	jmp byloop
 
-+	jsr count		; n‰chste Kachel ansteuern
++	jsr count		; n√§chste Kachel ansteuern
 	cpx xtiles
 	beq +
 	jmp zloop
@@ -691,25 +692,25 @@ contn	sta buf,x		; Ergebnis puffern (8 Pixel)
 +	jsr moveline	; Rasterzeile wegschreiben bis Blockzeile voll
 
 	ldx vertcnt	; alle 8 Rasterzeilen im Ergebnispuffer fertig?
-	inx 
+	inx
 	cpx #8
 	bne s41
-	ldx #0		; (wenn ja, Z‰hler zur¸cksetzen)
+	ldx #0		; (wenn ja, Z√§hler zur√ºcksetzen)
 s41	stx vertcnt
 	lda dbl		; Zeile verdoppeln? (wenn yzoom=$ff)
 	eor yzoom
 	sta dbl
 	beq newline
 
-	jsr rstvecs	; ja, Vektoren zur¸ckholen
-	lda src0		; 4Bit-Zeiger zur¸cksetzen
+	jsr rstvecs	; ja, Vektoren zur√ºckholen
+	lda src0		; 4Bit-Zeiger zur√ºcksetzen
 	sta src
 	lda src0+1
 	sta src+1
 	jmp lnloop	; Rasterzeile noch einmal
 
-newline	lda src0		; sonst: n‰chste Rasterzeile
-	clc 
+newline	lda src0		; sonst: n√§chste Rasterzeile
+	clc
 	adc #4
 	sta src0
 	sta src
@@ -724,11 +725,11 @@ s5	lda src0+1
 	lda #8
 	cmp lcnt
 	beq s51
-	jsr rstvecs	; Vektoren zur¸ckholen
+	jsr rstvecs	; Vektoren zur√ºckholen
 	jmp lnloop	; Sprung, wenn Kachel noch nicht durch
 
-s51	lda src0		; sonst: n‰chste Kachelzeile
-	clc 
+s51	lda src0		; sonst: n√§chste Kachelzeile
+	clc
 	adc #<1248
 	sta src0
 	sta src
@@ -736,13 +737,13 @@ s51	lda src0		; sonst: n‰chste Kachelzeile
 	adc #>1248
 	sta src0+1
 	sta src+1
-	dec lcnt8		; Kachelzeilen z‰hlen (bis 25)
+	dec lcnt8		; Kachelzeilen z√§hlen (bis 25)
 	beq done
 	jsr strvecs	; neue Vektoren merken
 	jmp lnloop8	; von vorn
 done	rts 		; bzw. fertig
 
-; ----------------------------------------- Verteiler f¸r Dither
+; ----------------------------------------- Verteiler f√ºr Dither
 
 makebyte	jmp (dmode)
 
@@ -750,15 +751,15 @@ makebyte	jmp (dmode)
 
 dithrst	ldy vertcnt
 	ora offs,y
-	tay 
+	tay
 	lda gr_orderedpat,y
 	jmp ddone3
 
-dithpat	asl 
-	asl 
-	asl 
+dithpat	asl
+	asl
+	asl
 	ora vertcnt
-	tay 
+	tay
 	lda gr_pattern,y
 	jmp ddone3
 
@@ -775,7 +776,7 @@ dithnoi	beq ddone
 dn3	lda rausch
 	and #$0f
 	cmp hold
-	tya 
+	tya
 	bcs dn2
 	ora #$55
 dn2	!by $2c
@@ -794,9 +795,9 @@ dithoff	cmp cols		; vergleichen
 +	lda bitcnt
 ddone	ora byte
 	sta byte
-ml4	rts 
+ml4	rts
 
-; ----------------------------------------- 
+; -----------------------------------------
 
 moveline	lda vertcnt
 	bne ml0
@@ -811,7 +812,7 @@ mloop	lda buf,x
 	inc dst
 	bne ml3
 	inc dst+1
-ml3	inx 
+ml3	inx
 	cpx xtiles
 	bne mloop
 	ldy vertcnt
@@ -824,7 +825,7 @@ writeloop	ldx #8		; 80*8 =640 Bytes (1 Bitmap-Blockzeile)
 
 	sta dst0
 	sty dst0+1
-	ldy #0		; Wiederholungsz‰hler auf Null
+	ldy #0		; Wiederholungsz√§hler auf Null
 	sty cnt
 	sty cnteq
 	sty cflag
@@ -832,17 +833,17 @@ writeloop	ldx #8		; 80*8 =640 Bytes (1 Bitmap-Blockzeile)
 
 wloop	lda (dst0),y	; Speichern: Byte holen,
 	jsr pack		; packen und wegschreiben
-	iny 
+	iny
 	cpy xtiles
 	bne wloop
-	clc 
+	clc
 	lda dst0
 	adc xtiles
 	sta dst0
 	bcc wl5
 	inc dst0+1
 wl5	ldy #0
-	dex 
+	dex
 	bne wloop
 
 	bit cpres		; ja, File ungepackt?
@@ -863,7 +864,7 @@ flush	lda cnt		; sonst: flush buffer?
 +	jsr compact	; :flush compacted buffer
 ++	stx cnteq		; .x=0
 	rts		; jetzt: 640 Bytes fertig
-	
+
 
 ; ----------------------------------------- RLE-Komprimierung
 
@@ -873,9 +874,9 @@ pack	bit cpres		; Komprimierung aktiviert?
 
 +	sta current
 	stx xmrk		; sonst: .x retten
--	ldx cnt		; Z‰hler holen, neues Byte?
+-	ldx cnt		; Z√§hler holen, neues Byte?
 	beq wl1		; ja, merken
-	cpx #127		; hˆchsten Z‰hlerstand erreicht?
+	cpx #127		; h√∂chsten Z√§hlerstand erreicht?
 	bcc +
 
 	jsr process	; ja, max buffer bearbeiten
@@ -886,7 +887,7 @@ pack	bit cpres		; Komprimierung aktiviert?
 	cmp byte		; aktuelles Byte gleich letztem Byte?
 	bne wl1		; nein, speichern
 
-	inc cnteq		; ja, z‰hlen
+	inc cnteq		; ja, z√§hlen
 	lda cnteq
 	cmp #3		; 3 erreicht?
 	bcc ++
@@ -898,18 +899,18 @@ wl1	lda cnteq		; aktives Packen?
 	beq ++
 	cmp #3
 	bcc +
-	jsr process	; ja, ausf¸hren
+	jsr process	; ja, ausf√ºhren
 +	lda #0
 	sta cnteq
 
-++	lda current	; sonst: 
+++	lda current	; sonst:
 	sta byte
 incr	sta cbuf,x	; Byte puffern
-	inc cnt		; und z‰hlen
+	inc cnt		; und z√§hlen
 	ldx xmrk		; .x rekonstruieren
-	rts 
+	rts
 
-; ----------------------------------------- Komprimierung durchf¸hren
+; ----------------------------------------- Komprimierung durchf√ºhren
 
 process	txa
 	clc
@@ -921,12 +922,12 @@ process	txa
 compact	ldx cnteq		; sonst compress:
 	inx
 -	txa
-	ora #$80		; Z‰hler ausgeben
+	ora #$80		; Z√§hler ausgeben
 	jsr bsout
 	lda byte		; last Byte ausgeben
 	jsr bsout
 
-wl3	ldx #0		; dann Z‰hler zur¸cksetzen
+wl3	ldx #0		; dann Z√§hler zur√ºcksetzen
 	stx cnt
 	stx cflag
 	stx ocnt
@@ -938,24 +939,24 @@ wl2	sta cbuf,x	; Wert 127 puffern
 	stx ocnt
 	txa
 
-straight	jsr bsout		; Z‰hler ausgeben
+straight	jsr bsout		; Z√§hler ausgeben
 	ldx #0
 -	lda cbuf,x	; Puffer ausgeben
 	jsr bsout
 	inx
 	cpx ocnt
 	bne -
-	beq wl3		; Werte zur¸cksetzen (unbed. Sprung)
+	beq wl3		; Werte zur√ºcksetzen (unbed. Sprung)
 
 ; ----------------------------------------- Basic8-Header schreiben
 
 wrheader	ldx #0
 wrh0	lda b8header,x
 	jsr bsout
-	inx 
+	inx
 	cpx #18
 	bne wrh0
-	rts 
+	rts
 
 ; ----------------------------------------- Farben schreiben
 
@@ -980,7 +981,7 @@ wrcolors	jsr colmsg
 wrc0	lda #25		; set real height of color buffer
 	sta lcnt8
 
-wrc3	ldy #0		; Wiederholungsz‰hler auf Null
+wrc3	ldy #0		; Wiederholungsz√§hler auf Null
 	sty cnt
 	sty cnteq
 	sty cflag
@@ -1068,9 +1069,9 @@ wrcols2	lda (vram2),y
 	sta xsize
 +	rts
 
-; ----------------------------------------- Namen verl‰ngern
+; ----------------------------------------- Namen verl√§ngern
 
-addprefix	pha		; L‰nge merken
+addprefix	pha		; L√§nge merken
 
 	lda mode		; Welcher Modus?
 	beq ap1
@@ -1096,7 +1097,7 @@ ap0	sta src
 	stx src+1
 	stx src0+1
 	sty prendx
-	
+
 	ldy #0
 ag4	lda ls_nambuf,y	; beginnt mit "xxx."?
 	cmp (src),y
@@ -1106,15 +1107,15 @@ ag4	lda ls_nambuf,y	; beginnt mit "xxx."?
 	bcc ag4
 	pla		; ja, fertig
 	rts
-	
-ag2	pla		; verl‰ngern um .y Zeichen
+
+ag2	pla		; verl√§ngern um .y Zeichen
 	clc
 	adc prendx
-	tay		; Name nun l‰nger als 16 Zeichen?
+	tay		; Name nun l√§nger als 16 Zeichen?
 	cpy #16
 	bcs ag0		; ja, behandeln
 
-ag5	sty wflen		; neue L‰nge merken, fertig
+ag5	sty wflen		; neue L√§nge merken, fertig
 	sty ls_flen
 	lda #15		; nein, "xxx." vor den Namen
 	sec
@@ -1130,7 +1131,7 @@ ag1	lda ls_nambuf,x
 	dey
 	dex
 	bpl ag1
-	ldy prendx	; L‰nge
+	ldy prendx	; L√§nge
 	dey
 ag3	lda (src),y
 	sta ls_nambuf,y
@@ -1140,7 +1141,7 @@ ag3	lda (src),y
 	bpl ag3
 	rts
 
-ag0	dey		; auf 16 verk¸rzen
+ag0	dey		; auf 16 verk√ºrzen
 	cpy #16
 	bne ag0
 	beq ag5		; unbed. Sprung
@@ -1269,7 +1270,7 @@ evsetmode	lda #$8e		; care for correct dither mode
 +	lda #$ce		; nein, mono (Mode 0)
 	sta dithgad+4	; care for correct dither mode
 	jsr esd2
-	
+
 ++	pla
 	sta mode
 	tay
@@ -1349,7 +1350,7 @@ setstart	lda #<sy_4bit	; from $4000 (4Bit)
 
 ; ------------------------------------------------ Counters
 
-count	lda src		; n‰chste Kachel 4Bit
+count	lda src		; n√§chste Kachel 4Bit
 	clc
 	adc #32
 	sta src
@@ -1409,9 +1410,9 @@ undo	jsr initreu	; reset values
 ; ---------------------------------------- Init rm_werte
 
 initreu	ldx #6
-	lda #0		; RM_WERTE (am Ende): 
+	lda #0		; RM_WERTE (am Ende):
 sl0	sta rm_werte,x	; $00, $c0, $00, $00, 0, 0, 0
-	dex		; - C64 - | -  REU   - | Anzahl 
+	dex		; - C64 - | -  REU   - | Anzahl
 	bpl sl0
 	lda #$c0
 	sta rm_werte+1
@@ -1464,7 +1465,7 @@ modegad	!by 13,21,6,3,$ce
 modetx	!scr "mono",0
 dithgad	!by 15,18,9,3,$ce		; toggles to $8e
 	!wo evsetdith
-dithtx	!scr "Ordered",0
+dithtx	!scr "Pagefox",0
 	!by 17,13,6,3,$cc
 	!wo evsaveb8
 	!scr "Save",0
@@ -1482,7 +1483,7 @@ dithtx	!scr "Ordered",0
 	!by $c0,15,12,5
 	!scr "Dith:",0
 	!by $80
-	
+
 ; ----------------------------------------- Basic8 Header
 
 b8header	!wo 0		; Startadresse (im VDC)
@@ -1493,24 +1494,24 @@ b8header	!wo 0		; Startadresse (im VDC)
 cmpr	!by 1		; Packflag (1=ja)
 mode	!by 0		; Anzahl Farben (0=mono)
 wid	!by 40		; Breite in Kacheln (80=640 Pixel)
-hgt	!wo 200		; Hˆhe in Linien
+hgt	!wo 200		; H√∂he in Linien
 	!by 1		; BGR (dark grey)
 	!by 14		; FGR (light grey)
 	!by 0		; Border (black)
 
 ; ----------------------------------------- Data
 
-dmode	!wo 0		; Verteiler f¸r Dither
-evenodd	!by 0		; Flag f¸r Halbbild
+dmode	!wo 0		; Verteiler f√ºr Dither
+evenodd	!by 0		; Flag f√ºr Halbbild
 hasreu	!by $ff		; REU attached if 0
 bkgr	!by 0
 frgr	!by 0
 
-prefix	!pet "brus."	; L‰nge: plus 5, max 11, mode 0
+prefix	!pet "brus."	; L√§nge: plus 5, max 11, mode 0
 prefixs	!scr "brus."
 prepict	!pet "pict."	; dito, mode 1
 prepicts	!scr "pict."
-preip	!pet "ip."	; L‰nge: plus 3, max 13, mode 2
+preip	!pet "ip."	; L√§nge: plus 3, max 13, mode 2
 preips	!scr "ip."
 
 xsizets	!scr "320640"
@@ -1540,7 +1541,7 @@ dither	!by 1
 
 colchunk	!tx "colr"	; Farb-Chunk-Kennung
 
-vecs	!wo 0,0		; Temp f¸r vram1 und vram2
+vecs	!wo 0,0		; Temp f√ºr vram1 und vram2
 
 ipcols	!by $00,$02,$0c,$01,$08,$0a,$0c,$01	; c128 colors
 	!by $03,$09,$04,$0e,$06,$0d,$05,$0f
@@ -1561,6 +1562,6 @@ dhi	!by >dithoff
 	!by >dithpat
 	!by >dithnoi
 
-; ----------------------------------------- 
+; -----------------------------------------
 
-modend	!eof 
+modend	!eof
