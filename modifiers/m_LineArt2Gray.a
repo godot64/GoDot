@@ -2,17 +2,18 @@
 	!src "godotlib.lib"
 	*= $c000
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 ;
 ; mod.LineArt2Gray
-;  Modul zum Konvertieren eines Schwarzweiß-Bildes (LineArt)
+;  Modul zum Konvertieren eines Schwarzweiï¿½-Bildes (LineArt)
 ;  in Graustufen: 5 (Paletten-Graus), 9 (Hardware-Graus und
 ;  16 (Standard-Grayscale)
 ;
 ;  1.00, 29.05.17: first release
 ;  1.01, 18.07.17: added Preview
+;  1.02, 24.06.25: renamed two dither patterns
 ;
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 
 	lcnt		= $30
@@ -50,7 +51,7 @@
 	spren		= $d015
 	sprxe		= $d01d
 	sprcol2		= $d029
-	
+
 ; ------------------------------------------------ Header
 
 	jmp start
@@ -60,8 +61,8 @@
 	!wo modend
 	!wo 0		; reserved
 	!pet "Convert BW2Gray "
-	!pet "1.01"
-	!pet "18.07.17"
+	!pet "1.02"
+	!pet "24.06.25"
 	!pet "A.Dettke        "
 
 ; ------------------------------------------------ Main
@@ -87,17 +88,17 @@ blur4bit	lda #5
 	jsr puffern	; erste (320 bytes)
 	jsr umlagern	; puffer umlagern und dadurch die erste verdoppeln (=definierter rand)
 
-- 	jsr umlagern	; puffer um eins nach oben rücken
-	inc lcnt		; die nächste rasterzeile unten puffern
+- 	jsr umlagern	; puffer um eins nach oben rï¿½cken
+	inc lcnt		; die nï¿½chste rasterzeile unten puffern
 	jsr puffern
-	jsr konvol	; konvolution durchführen
+	jsr konvol	; konvolution durchfï¿½hren
 
 	dec lcnt		; letzte rasterzeile anpeilen
 	jsr w_ergeb	; und ergebnis der konvolution ins 4bit schreiben
 
 	jsr action	; Activity
 
-	inc lcnt		; nächste rasterzeile anpeilen
+	inc lcnt		; nï¿½chste rasterzeile anpeilen
 	lda lcnt
 	cmp #199		; bis letzte erreicht
 	bne -
@@ -112,8 +113,8 @@ blur4bit	lda #5
 ; -------------------------------------------------------------- konvolution
 
 konvol 	ldy #0
--	lda buf_m,y	; matrixzentrum*2 (linke Hälfte)
-	asl 
+-	lda buf_m,y	; matrixzentrum*2 (linke Hï¿½lfte)
+	asl
 	adc buf_o-2,y	; Drumherum addieren
 	adc buf_o-1,y
 	adc buf_o,y
@@ -128,14 +129,14 @@ konvol 	ldy #0
 	adc buf_u,y
 	adc buf_u+1,y
 	adc buf_u+2,y
-	lsr 
-	lsr 
-	lsr 
+	lsr
+	lsr
+	lsr
 	lsr 		; ergebnis/16
 	sta buf_r,y	; sichern
 
-	lda buf_m+160,y	; (rechte Hälfte)
-	asl 
+	lda buf_m+160,y	; (rechte Hï¿½lfte)
+	asl
 	adc buf_o+158,y
 	adc buf_o+159,y
 	adc buf_o+160,y
@@ -150,22 +151,22 @@ konvol 	ldy #0
 	adc buf_u+160,y
 	adc buf_u+161,y
 	adc buf_u+162,y
-	lsr 
-	lsr 
-	lsr 
-	lsr 		; ergebnis/16 
+	lsr
+	lsr
+	lsr
+	lsr 		; ergebnis/16
 	sta buf_r+160,y	; sichern
-	iny 
-	cpy #160		; zählen (320 Bytes)
+	iny
+	cpy #160		; zï¿½hlen (320 Bytes)
 	bne -
-	rts 
+	rts
 
 ; -------------------------------------------------------------- Move Buffers
 
 ; --- puffer buffer_m nach buffer_o (zur oberen rasterzeile)
 ; --- und buffer_u nach buffer_m umlagern (zur mittleren)
- 
-umlagern 
+
+umlagern
 	ldy #0
 - 	lda buf_m-2,y
 	sta buf_o-2,y
@@ -175,25 +176,25 @@ umlagern
 	sta buf_m-2,y
 	lda buf_u+160,y
 	sta buf_m+160,y
-	iny 
+	iny
 	cpy #163
 	bne -
-	rts 
+	rts
 
 ; -------------------------------------------------------------- Fill Buffer
-; --- puffer buffer_u (wird am ende obere rasterzeile) füllen
- 
-puffern 
+; --- puffer buffer_u (wird am ende obere rasterzeile) fï¿½llen
+
+puffern
 	lda lcnt		; laufende Rasterzeile/8
-	pha 
-	lsr 
-	lsr 
-	lsr 
-	tax 
-	pla 
+	pha
+	lsr
+	lsr
+	lsr
+	tax
+	pla
 	and #$07		; (rasterzeile and 7)*4
-	asl 
-	asl 
+	asl
+	asl
 	sta src		; = adresse lo
 	lda hi_rows,x	; = adresse hi
 	sta src+1
@@ -202,33 +203,33 @@ puffern
 	sta dst
 	stx dst+1
 
-	ldx #0		; 40 bytes übertragen und in einzelpixel wandeln
+	ldx #0		; 40 bytes ï¿½bertragen und in einzelpixel wandeln
 	lda #40
 	sta tcnt
 
 --	ldy #$00
 -	lda (src),y	; linkes pixel isolieren
-	pha 
-	lsr 
-	lsr 
-	lsr 
-	lsr 
+	pha
+	lsr
+	lsr
+	lsr
+	lsr
 	sta (dst,x)	; puffern
 	inc dst
 	bne +
 	inc dst+1
-+	pla 		; rechtes pixel isolieren 
++	pla 		; rechtes pixel isolieren
 	and #$0f
 	sta (dst,x)
 	inc dst
 	bne +
 	inc dst+1
-+	iny 
++	iny
 	cpy #4		; 4 mal
 	bne -
 
-	lda src		; nächste kachel
-	clc 
+	lda src		; nï¿½chste kachel
+	clc
 	adc #32
 	sta src
 	bcc +
@@ -242,22 +243,22 @@ puffern
 	lda buf_u+319	; der letzte zweimal dahinter
 	sta buf_u+320
 	sta buf_u+321
-	rts 
+	rts
 
 ; -------------------------------------------------------------- Move Result to 4Bit
 ; --- ergebnispuffer buffer_result nach 4bit schreiben
- 
-w_ergeb 
+
+w_ergeb
 	lda lcnt
-	pha 
-	lsr 
-	lsr 
-	lsr 
+	pha
+	lsr
+	lsr
+	lsr
 	tax 		; als index in hi
-	pla 
+	pla
 	and #$07		; (rasterzeile and 7)*4
-	asl 
-	asl 
+	asl
+	asl
 	sta src
 	lda hi_rows,x
 	sta src+1
@@ -266,17 +267,17 @@ w_ergeb
 	sta dst
 	stx dst+1
 
-	ldx #0		; rasterlinie zurück nach 4bit
+	ldx #0		; rasterlinie zurï¿½ck nach 4bit
 	lda #40		; 40 mal
 	sta tcnt
 --	ldy #0
--	lda (dst,x)	; pixel wieder zusammenführen
+-	lda (dst,x)	; pixel wieder zusammenfï¿½hren
 	tax
-	lda gr_btab,x	; Balancing berücksichtigen
+	lda gr_btab,x	; Balancing berï¿½cksichtigen
 	ldx #0
-	asl 
-	asl 
-	asl 
+	asl
+	asl
+	asl
 	asl
 	sta bbuf
 	inc dst
@@ -284,26 +285,26 @@ w_ergeb
 	inc dst+1
 +	lda (dst,x)
 	tax
-	lda gr_btab,x	; Balancing berücksichtigen
+	lda gr_btab,x	; Balancing berï¿½cksichtigen
 	ora bbuf		; aus 2 pixel ein 4bit-byte
 	ldx #0
 	inc dst
 	bne +
 	inc dst+1
 +	sta (src),y	; nach 4bit
-	iny 
+	iny
 	cpy #4		; 4 mal (eine kachel)
 	bne -
 
-	lda src		; nächste kachel
-	clc 
+	lda src		; nï¿½chste kachel
+	clc
 	adc #32
 	sta src
 	bcc +
 	inc src+1
 +	dec tcnt		; 40 mal
 	bne --
-	rts 
+	rts
 
 ; -------------------------------------- Initialize Tables
 
@@ -423,7 +424,7 @@ sevapply	jsr blur4bit	; zuerst der Weichzeichner
 	stx howmin1
 	jsr inittabs	; Tabellen generieren
 
-	lda dither	; Dithermodus anwählen
+	lda dither	; Dithermodus anwï¿½hlen
 	asl
 	tay
 	lda dithadr,y
@@ -443,7 +444,7 @@ rcloop	tya		; auf 4Bit-Kachel beziehen
 	and #31
 	lsr
 	lsr
-	sta ybuf		; Rasterzeile in der Kachel merken (für Dither)
+	sta ybuf		; Rasterzeile in der Kachel merken (fï¿½r Dither)
 
 	lda (src),y	; zwei Pixel, zuerst das linke...
 	sta bbuf		; merken
@@ -456,26 +457,26 @@ rcloop	tya		; auf 4Bit-Kachel beziehen
 	lsr
 mcskip	and #$0f		; bei Multi: nur Lo-Nibble
 	jsr pixel		; aufrastern
-	and #$f0		; kommt zurück mit Bitmuster-Byte
+	and #$f0		; kommt zurï¿½ck mit Bitmuster-Byte
 	sta xbuf		; oberes Nibble merken
 
 	lsr bitcnt	; Maske nach rechts: %01000000
-	lda bbuf		; Originalbyte zurückholen
+	lda bbuf		; Originalbyte zurï¿½ckholen
 	and #$0f		; unteres Nibble bearbeitten
 	jsr pixel		; aufrastern
 	and #$0f		; unteres Nibble isolieren
-	ora xbuf		; mit oberem verknüpfen
+	ora xbuf		; mit oberem verknï¿½pfen
 
-	sta (src),y	; zwei Pixel gerastert nach 4Bit zurückschreiben
+	sta (src),y	; zwei Pixel gerastert nach 4Bit zurï¿½ckschreiben
 
-	lsr bitcnt	; Maske rücken: %00100000
+	lsr bitcnt	; Maske rï¿½cken: %00100000
 	bcc bclr
-	ror bitcnt	; wenn abgearbeitet: Bit wieder oben einfügen
+	ror bitcnt	; wenn abgearbeitet: Bit wieder oben einfï¿½gen
 bclr	iny		; eine Page
 	bne rcloop
 
 	jsr action	; Activity (nach 256 Pixeln)
-	inc src+1		; nächste Page
+	inc src+1		; nï¿½chste Page
 	lda src+1
 	cmp #$bd		; bis 4Bit-Ende erreicht
 	bne rcloop
@@ -550,18 +551,18 @@ gt0	jsr gd_setpos
 
 pixel	jmp (pos)		; Einsprung
 
-; -------------------------------------- 
+; --------------------------------------
 
 dtord	sta zp1		; Ordered
 	tax
 	lda rtab,x
-	ldx ybuf		
+	ldx ybuf
 	ora offs,x
 	tax
 	lda gr_orderedpat,x
 	jmp dh1
 
-; -------------------------------------- 
+; --------------------------------------
 
 dtpat	sta zp1		; Pattern
 	tax
@@ -608,7 +609,7 @@ graylst	!by 0
 sgray	!by 10,23,4,3,$cf,<(sevgrays),>(sevgrays)
 coltx	!scr " 5@"
 sdith	!by 12,18,9,3,$ce,<(sevdith),>(sevdith)
-dithtx	!scr "Ordered@"
+dithtx	!scr "Pagefox@"
 	!by 14,19,8,3,$ce,<(sevcan),>(sevcan)
 	!scr "Cancel@"
 	!by 14,12,7,3,$c7,<(sevapply),>(sevapply)
@@ -639,8 +640,8 @@ dithadr	!wo dtord
 dithtxadr	!wo dthord
 	!wo dthpat
 
-dthord	!scr "Ordered@"
-dthpat	!scr "Pattern@"
+dthord	!scr "Pagefox@"
+dthpat	!scr " Bayer @"
 
 offs	!by $00,$10,$20,$30
 	!by $00,$10,$20,$30
@@ -660,16 +661,16 @@ dnib	!by $00,$11,$22,$33,$44,$55,$66,$77
 
 hi_rows	!by $40, $45, $4a, $4f, $54, $59, $5e, $63
 	!by $68, $6d, $72, $77, $7c, $81, $86, $8b
-	!by $90, $95, $9a, $9f, $a4, $a9, $ae, $b3, $b8 
+	!by $90, $95, $9a, $9f, $a4, $a9, $ae, $b3, $b8
 
 ; ------------------------------------------------ sprite activity
 
-action 
-	dec adcnt		; activity-zähler abgelaufen?
+action
+	dec adcnt		; activity-zï¿½hler abgelaufen?
 	bne +
 	inc $d005		; ja, sprites bewegen
 	inc $d007
-	lda cntwert	; zähler neu setzen 
+	lda cntwert	; zï¿½hler neu setzen
 	sta adcnt
 + 	rts
 
@@ -691,16 +692,16 @@ sevcan	sec
 
 ; ------------------------------------------------  sprite-activity initialisieren
 
-initad 
+initad
 	ldy #60		; 60 (plus 3) Bytes
-	lda #$00		; Sprite-Block 255 löschen
+	lda #$00		; Sprite-Block 255 lï¿½schen
 - 	sta $3fc3,y
-	dey 
+	dey
 	bpl -
-	sty $3fc0		; dünner Strich oben
+	sty $3fc0		; dï¿½nner Strich oben
 	sty $3fc1
 	sty $3fc2
-	lda #$0f		; Farbe weiß, Sprite 2 und 3
+	lda #$0f		; Farbe weiï¿½, Sprite 2 und 3
 	sta $d029
 	sta $d02a
 	lda $d01d		; doppelt breit (zus. 96 Pixel=12 Kacheln)
@@ -723,9 +724,9 @@ initad
 	lda $d015
 	ora #$0c
 	sta $d015
-	rts 
+	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 modend 	!eof
 
