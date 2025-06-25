@@ -21,6 +21,8 @@
 ; ***  1.16, 14.07.21, added: automatic default pals    ***
 ; ***  1.17, 01.03.24, added: automatic Ultimate turbo  ***
 ; ***  1.18, 02.12.24, adapted to SuperCPU              ***
+; ***  1.19, 09.06.25, adapted to Mega65                ***
+; ***  1.20, 24.06.25, changed two dither names         ***
 ; ***                                                   ***
 ;    ---------------------------------------------------
 ;
@@ -139,8 +141,8 @@ list	!wo 0
 breit1	!by $12
 breit2	!by $24
 	!pet "GoDot f000 slot4"
-created	!pet "1.18"
-	!pet "02.12.24"
+created	!pet "1.20"
+	!pet "24.06.25"
 	!pet "A.Dettke/W.Kling"
 ;
 ; -------------------------------------------------- Module Management
@@ -655,15 +657,14 @@ evdisp2	lda gr_redisp	; save current re-display status
 
 evdisplay	jsr redisplay	; display graphics
 
-	lda #$00
-	sta sc_stop
 	ldx #$80		; initialize noise (random) values
 	stx oszi3+1
 	stx filter
 	inx
 	stx wave		; activate noise
 
-	inc turbo		; activate turbo on Ultimate64
+	lda #$01
+	sta turbo		; activate turbo on Ultimate64
 
 	lda gr_howmany	; number of colors to be rendered
 	sta hmzp		; store in zeropage
@@ -673,6 +674,7 @@ evdisplay	jsr redisplay	; display graphics
 	jsr setclip	; compute startaddress of clip
 
 	lda dest		; destination ($2000)
+	sta sc_stop
 	ldx dest+1
 	sta dest1
 	stx dest1+1
@@ -1560,8 +1562,8 @@ dth1	stx gr_dither	; set dither type
 dtadr	!wo dtoff,dthab
 	!wo dtpat,dtnoi,dtrnd
 dtoff	!scr "    Off     @"
-dthab	!scr "  Ordered   @"
-dtpat	!scr "  Pattern   @"
+dthab	!scr "  Pagefox   @"
+dtpat	!scr "   Bayer    @"
 dtrnd	!scr "   Random   @"
 dtnoi	!scr "   Noise    @"
 
