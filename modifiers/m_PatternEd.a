@@ -4,7 +4,7 @@
 	!ct pet
 ;	!sl "labels.txt"
 
-; ----------------------------------------- 
+; -----------------------------------------
 ;
 ;  mod.PatternEd
 ;   Modifier to manage GoDot's dither rasters
@@ -18,8 +18,9 @@
 ;                  bugfix when leaving modifier via Cancel
 ;  1.10, 06.02.21: bugfix: only publish new name if selected
 ;  1.11, 06.10.24: bugfix: crash after accepting a new pattern
+;  1.12, 24.06.25: bugfix: still crashed, added: restore name when syspat activated
 ;
-; ----------------------------------------- 
+; -----------------------------------------
 
 ; ----------------------------------------- Equates
 
@@ -29,7 +30,7 @@
 	bitcnt		= $31
 	dselect		= $32
 
-	dithertype	= $1e30
+	dithertype	= $1e36	; ### 1.12 (address was incorrect)
 	dtpat		= $f995	; take care on changes there!!! ### 1.11
 
 ; ----------------------------------------- Header
@@ -40,9 +41,9 @@ header	jmp start
 	!by 1		; dirty
 	!wo modend
 	!wo 0
-	!tx "PatternEditor   "
-	!tx "1.10"
-	!tx "06.02.21"
+	!tx "Pattern Editor  "
+	!tx "1.12"
+	!tx "24.06.25"
 	!tx "A. Dettke       "
 
 ; ----------------------------------------- Main
@@ -86,9 +87,10 @@ gst0	lda syspat,x
 	sta gr_pattern,x
 	dex
 	bpl gst0
-	ldx #11		; set new pattern name
+	ldx #11		; set standard name ("Bayer")
 -	lda pattern,x
 	sta patname,x
+	sta $04ff,x	; (write name into screen; sorry, it's the easiest way)
 	dex
 	bpl -
 	stx changed	; and set flag
@@ -118,8 +120,8 @@ getpatnme	sei
 	lda #0
 	sta pport
 	ldx #11
--	lda dtpat,x
-	sta patname,x
+-	lda dtpat,x	; get current name from slot 4
+	sta patname,x	; and publish in PatternEd
 	dex
 	bpl -
 	lda #$36
@@ -315,7 +317,7 @@ ts1	iny
 	beq ts2
 	sta emode,y
 	bne ts1
-ts2	ldx #<modebox	; show mode in first small gadget 
+ts2	ldx #<modebox	; show mode in first small gadget
 	ldy #>modebox
 	jsr gettab
 	ldy #6
@@ -507,7 +509,7 @@ sevedit	jsr setundo
 	lda mode		; in current mode
 	bne ed0
 
-; ----------------------------------------- Perform Dot 
+; ----------------------------------------- Perform Dot
 
 edot	jsr minzl		; row?
 	jsr minsp		; column?
@@ -535,7 +537,7 @@ ed1	lsr
 
 ; ----------------------------------------- Perform Horizontal Line
 
-erow	jsr minzl		
+erow	jsr minzl
 	lda #$ff
 	sta sc_undochar,x
 	bne edshow
@@ -616,7 +618,7 @@ esc7	sta sc_undochar,y
 	bpl scrlft
 	rts
 
-; ----------------------------------------- Event: Ok 
+; ----------------------------------------- Event: Ok
 ; Button: "Ok"
 
 sevok	jsr gpatundo
@@ -646,7 +648,7 @@ sevsvpat	jsr chgdrv	; care for RAM (is always first access drive)
 	jsr svdir		; show Filerequester
 	sta ls_loadsave
 	jsr gd_eloop	; Wait
-	lda ls_flen	
+	lda ls_flen
 	beq sp0
 	jsr writepat	; Write file if it has a name
 sp0	pla
@@ -671,7 +673,7 @@ sevldpat	jsr chgdrv	; care for RAM
 	jsr gd_eloop	; choose file
 	lda ls_flen	; one chosen?
 	beq lp0
-	jsr readpat	; load pattern if it has a name 
+	jsr readpat	; load pattern if it has a name
 lp0	pla
 	sta gd_modswitch
 	jsr getpat	; activate it
@@ -707,7 +709,7 @@ readpat	jsr gd_xopen
 ld6	lda status
 	bne lderr
 	jsr basin
-	sta (sc_vekt20),y	; Laden bis 
+	sta (sc_vekt20),y	; Laden bis
 	iny
 	bmi lderr		; alle Daten geholt (128) ### 1.08
 	bne ld6
@@ -934,7 +936,7 @@ number	!by 0
 mode	!by 0
 pat	!tx "pat.*",0		; File prefix
 tdot	!scr "Dot ",0
-pattern	!scr "  Pattern   "		; name of sys pattern
+pattern	!scr "   Bayer    "		; name of sys pattern
 changed	!by 0			; flag if changed
 
 pw	!tx "w,p,"
@@ -944,7 +946,7 @@ wflen	!by 0
 cmerk	!by 0
 basepal	!by 0,6,9,11,2,4,8,12,14,10,5,15,3,7,13,1
 
-; ----------------------------------------- 
+; -----------------------------------------
 
 plist	!by 0
 	!by 0,3,34,25,$01
@@ -1086,10 +1088,10 @@ patname	!scr "Edit Pattern",0
 
 	!by $80
 
-; ----------------------------------------- 
+; -----------------------------------------
 
 modend	!eof
 
-; ----------------------------------------- 
+; -----------------------------------------
 
 
