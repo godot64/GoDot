@@ -7,12 +7,13 @@
 ; -----------------------------------------
 ;
 ; svr.Pagefox
-;     Saver für Pagefox up to 320x200
+;     Saver fÃ¼r Pagefox up to 320x200
 ;
 ; 1.00, 17.11.21, first release
 ; 1.01, 18.11.21, better activity bar
 ; 1.02, 18.11.21, bugfix: added missing listbox indicator
 ; 1.03, 19.11.21, added: reset of balancing after save
+; 1.04, 25.06.25, adapted dither names to system
 ;
 ; -----------------------------------------
 
@@ -61,17 +62,17 @@
 	!wo modend
 	!wo 0
 	!tx "Pagefox /w Clips"
-	!tx "1.03"
-	!tx "19.11.21"
+	!tx "1.04"
+	!tx "25.06.25"
 	!tx "A.Dettke        "
 
-; ----------------------------------------- 
+; -----------------------------------------
 
 start	ldx gr_nr		; Funktionsnummer testen:
 	dex
 	bne saver		; Null, dann eigentlichen Saver aufrufen
 
-	jmp initinp	; eins, dann "Input" ausführen (in INPUT.INC)
+	jmp initinp	; eins, dann "Input" ausfÃ¼hren (in INPUT.INC)
 
 ; ----------------------------------------- Main
 
@@ -84,15 +85,15 @@ st11	jsr gd_sproff	; Sprites aus
 	lda gd_modswitch	; Memory Management
 	pha
 
-	lda ls_flen	; Filename wurde vom Filerequester übergeben?
+	lda ls_flen	; Filename wurde vom Filerequester Ã¼bergeben?
 	beq st1		; nein (dann Cancel)
 
-	sta wflen		; sonst: Länge sichern
-	jsr addsig	; Namenskürzel anhängen (".pg")
-	jsr wopen		; Datei zum Schreiben öffnen
+	sta wflen		; sonst: LÃ¤nge sichern
+	jsr addsig	; NamenskÃ¼rzel anhÃ¤ngen (".pg")
+	jsr wopen		; Datei zum Schreiben Ã¶ffnen
 	bne st2		; wenn Diskettenfehler: Ende
 
-	jsr getname	; Filenamen für Image Information sichern
+	jsr getname	; Filenamen fÃ¼r Image Information sichern
 	ldx #12		; OPEN #12, out
 	jsr ckout
 	jsr gd_clrms	; Fortschrittsbalken und Statusausgaben vorbereiten
@@ -104,7 +105,7 @@ st11	jsr gd_sproff	; Sprites aus
 	jsr write		; jetzt Bild speichern
 
 st2	jsr clrch		; danach Bus freigeben
-	lda #12		; Datei #12 schließen
+	lda #12		; Datei #12 schlieÃŸen
 	jsr close
 	jsr err9		; Floppystatus zeigen (nur sehr kurz)
 	bne st1
@@ -129,20 +130,20 @@ dc8	dey
 	rts		; fertig, Saver verlassen
 
 
-; ----------------------------------------- 
+; -----------------------------------------
 ; ----------------------------------------- Input Routines (This next line _mandatory_ for savers!)
-; ----------------------------------------- 
+; -----------------------------------------
 
 	!src "input.inc"
 
-; ----------------------------------------- 
 ; -----------------------------------------
-; ----------------------------------------- 
+; -----------------------------------------
+; -----------------------------------------
 
 
-; ----------------------------------------- 
+; -----------------------------------------
 ; ----------------------------------------- Disk Access Routines
-; ----------------------------------------- 
+; -----------------------------------------
 
 pw	!pet "w,p,"
 sigtx	!pet "gp."
@@ -154,7 +155,7 @@ wflen	!by 0
 
 wopen	jsr inull		; Initialize
 	bne err8
-	ldy wflen		; ",p,w" anhängen
+	ldy wflen		; ",p,w" anhÃ¤ngen
 	ldx #3
 wo1	lda pw,x
 	sta ls_nambuf,y
@@ -184,9 +185,9 @@ err9	jsr gd_xmess
 err8 	sec
 	rts
 
-; ----------------------------------------- 
+; -----------------------------------------
 ; ----------------------------------------- Activity Handler
-; ----------------------------------------- 
+; -----------------------------------------
 
 messout	ldx #<message	; Textausgabe
 	ldy #>message
@@ -200,33 +201,33 @@ tc0 	lda txt,x
 	iny
 	bne tc0
 
-clrmess	ldx #22		; Puffer für Balken löschen
+clrmess	ldx #22		; Puffer fÃ¼r Balken lÃ¶schen
 	lda #32
 cl0	sta mess,x
 	dex
 	bpl cl0
-	ldy #0		; Balkenlänge 0
+	ldy #0		; BalkenlÃ¤nge 0
 	ldx #7		; Dicke am Ende 0
 	sty offy
 	stx offx
 	rts
 
-action 	dec adcnt		; Activity, aktiviert sich nur bei 0 (Zähler abgelaufen)
+action 	dec adcnt		; Activity, aktiviert sich nur bei 0 (ZÃ¤hler abgelaufen)
 	bne ld4
-	lda cntwert	; dann: Reload des Zählers
+	lda cntwert	; dann: Reload des ZÃ¤hlers
 	sta adcnt
 	ldy offy		; Offset auf Balkenende
 	cpy clrmess+1	; Ende der Ausgabezeile erreicht?
 	bne act0
 	jsr clrmess	; ja, re-Init des Status-Bereichs
-act0	ldx offx		; offx: Index auf aktuelles Zeichen für Dicke des Balkenendstücks
+act0	ldx offx		; offx: Index auf aktuelles Zeichen fÃ¼r Dicke des BalkenendstÃ¼cks
 	lda filltab,x
 	sta mess,y
 	jsr messout	; ganzen Balken ausgeben
-	dec offx		; Endstück nächstes Mal dicker
-	bpl ld4		; bis Endstück gefüllt
-	inc offy		; dann den Balken selbst verlängern
-	lda #7		; nächstes Endstück wieder dünn
+	dec offx		; EndstÃ¼ck nÃ¤chstes Mal dicker
+	bpl ld4		; bis EndstÃ¼ck gefÃ¼llt
+	inc offy		; dann den Balken selbst verlÃ¤ngern
+	lda #7		; nÃ¤chstes EndstÃ¼ck wieder dÃ¼nn
 	sta offx
 ld4 	rts
 
@@ -239,9 +240,9 @@ message	!fill 9,32
 mess	!fill 23,32
 	!by 0
 
-; ----------------------------------------- 
+; -----------------------------------------
 ; ----------------------------------------- Image Information Handler
-; ----------------------------------------- 
+; -----------------------------------------
 
 getname	ldx #0		; aktuellen Filenamen sichern
 si0	lda ls_lastname,x
@@ -295,9 +296,9 @@ canc 	lda #$ff
 	sec
 	rts
 
-; ----------------------------------------- 
+; -----------------------------------------
 ; ----------------------------------------- Write File
-; ----------------------------------------- 
+; -----------------------------------------
 
 write	jsr setclip	; compute clip address, .y=0
 	lda sc_texttab
@@ -308,7 +309,7 @@ write	jsr setclip	; compute clip address, .y=0
 	ldx #3
 hd0	lda pfheader,x	; "p" ho br "k"
 	jsr bsout
-	dex 
+	dex
 	bpl hd0
 	lda clpho		; write (dummy) contour data
 	asl
@@ -316,7 +317,7 @@ hd0	lda pfheader,x	; "p" ho br "k"
 	tax
 hd1	lda #1		; (4 bytes per blockline, so: ho*4 bytes)
 	jsr bsout
-	dex 
+	dex
 	bne hd1
 	txa 		; set pack counter to $00
 	stx cnt
@@ -397,7 +398,7 @@ s4	inx
 
 	jsr moveline	; write buffer to disk
 
-	ldx vertcnt	; next line 
+	ldx vertcnt	; next line
 	inx
 	cpx #8
 	bne s41
@@ -503,7 +504,7 @@ pack	cmp byte		; current is last?
 	bne writeit	; no write
 	jmp incr		; yes, count
 
-writeit	pha 
+writeit	pha
 	lda cnt+1		; more than 255 times?
 	beq wl4
 
@@ -550,7 +551,7 @@ wl1	pla 		; re-get current
 incr	inc cnt		; and count
 	bne wl3
 	inc cnt+1
-wl3	rts 
+wl3	rts
 
 ; ------------------------------------ Event: Choose Dithering
 
@@ -725,10 +726,10 @@ setclip	lda #>sy_4bit	; 4Bit starting from $4000
 	lda #40
 	sta clpbr
 	sta width
-	lda #25 
+	lda #25
 	sta clpho
 	sta height
-	lda areaflag 
+	lda areaflag
 	bmi compclip
 
 	lda sc_lastclpzl	; row
@@ -772,11 +773,11 @@ compclip	sty breite+1	; Hibyte to zero
 	inc breite+1
 +	rts
 
-; ----------------------------------------- 
-; ----------------------------------------- Namen verlängern
-; ----------------------------------------- 
+; -----------------------------------------
+; ----------------------------------------- Namen verlÃ¤ngern
+; -----------------------------------------
 
-addsig	pha		; Länge merken
+addsig	pha		; LÃ¤nge merken
 	tay
 	dey
 	ldx #0
@@ -791,23 +792,23 @@ ag4	lda ls_nambuf,y	; endet auf ".pg"?
 	rts
 
 ag2	pla
-	tay		; Name länger als 13 Zeichen?
+	tay		; Name lÃ¤nger als 13 Zeichen?
 	cpy #14
 	bcs ag0		; ja, behandeln
 
-ag5	ldx #2		; nein, ".pg" anhängen
+ag5	ldx #2		; nein, ".pg" anhÃ¤ngen
 ag1	lda sigtx,x
 ag3	sta ls_nambuf,y
-	lda sigtxs,x	; auch für Image Information
+	lda sigtxs,x	; auch fÃ¼r Image Information
 	sta ls_lastname,y
 	iny
 	dex
 	bpl ag1
-	sty wflen		; neue Länge merken, fertig
+	sty wflen		; neue LÃ¤nge merken, fertig
 	sty ls_flen
 	rts
 
-ag0	dey		; auf 13 verkürzen
+ag0	dey		; auf 13 verkÃ¼rzen
 	cpy #13
 	bne ag0
 	beq ag5		; unbed. Sprung
@@ -846,19 +847,19 @@ areatx	!scr "Full@"
 	!scr "Save Area:@"
 	!by $80
 
-; ----------------------------------------- 
+; -----------------------------------------
 ; ----------------------------------------- Data
-; ----------------------------------------- 
+; -----------------------------------------
 
-pfheader	!tx "k"		; rückwärts
+pfheader	!tx "k"		; rÃ¼ckwÃ¤rts
 width	!by 0
 height	!by 0
 	!tx "p"
 pfend	!by $bf,$20,$00,$9b	; end signature
 
 dithtxts	!scr "  Off  "	; 0
-	!scr "Ordered"	; 7
-	!scr "Pattern"	; 14
+	!scr "Pagefox"	; 7
+	!scr " Bayer "	; 14
 	!scr " Noise "	; 21
 	!scr "Random "	; 28
 
@@ -879,6 +880,6 @@ dhi	!by >dithoff,>dithrst,>dithpat,>dithnoi,>dithrnd
 
 chschr	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
 
-; ----------------------------------------- 
+; -----------------------------------------
 
 modend 	!eof
