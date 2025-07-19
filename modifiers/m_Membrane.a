@@ -4,15 +4,16 @@
 	!ct pet
 ;	!sl "labels.txt"
 
-; ------------------------------------------------------------ 
+; ------------------------------------------------------------
 ;
 ; mod.Membrane
 ; Module to fill a mask with patterns which can be used as filters to affect colors
 ;
 ;   1.00, 24.07.19: first release
 ;   1.01, 04.09.21: added option to create "scanlines"
+;   1.02, 19.07.25: changed 12.5% multicolor pattern to: interweaved
 ;
-; ------------------------------------------ 
+; ------------------------------------------
 
 	jmp start
 	!by $20
@@ -20,11 +21,11 @@
 	!wo modend
 	!wo 0
 	!pet "Make Membranes  "
-	!pet "1.01"
-	!pet "04.09.21"
+	!pet "1.02"
+	!pet "19.07.25"
 	!pet "A. Dettke       "
 
-; ------------------------------------------ 
+; ------------------------------------------
 
 	dst		= $30	; /$31
 	xbuf		= $32
@@ -136,7 +137,7 @@ evapply	lda strength
 	adc #40
 +	sta xbuf
 
-	lda #<1000	; 1000 Bytes ändern
+	lda #<1000	; 1000 Bytes Ã¤ndern
 	sta ls_vekta8
 	lda #>1000
 	sta ls_vekta8+1
@@ -162,8 +163,8 @@ evapply	lda strength
 	bcc --
 	inc dst+1
 	bne --
-+	jmp evview	
-	
++	jmp evview
+
 ; ------------------------------------------ Events: Set Strength
 
 evplain	ldy #0
@@ -280,7 +281,7 @@ indicate	lda #32		; statt Pfeil: Leerzeichen
 	sty ybuf		; .y: aktuelle Position (merken)
 	ldx #4
 	stx xbuf
--	lda xbuf		; löschen (alle Positionen)
+-	lda xbuf		; lÃ¶schen (alle Positionen)
 	jsr rep
 	dec xbuf
 	bpl -
@@ -323,12 +324,12 @@ membpats	!by $00,$00,$00,$00,$00,$00,$00,$00	; hires
 	!by $aa,$55,$aa,$55,$aa,$55,$aa,$55
 	!by $00,$ff,$00,$ff,$00,$ff,$00,$ff	; scanline
 	!by $00,$00,$00,$00,$00,$00,$00,$00	; multi
-	!by $cc,$00,$00,$00,$cc,$00,$00,$00
+	!by $cc,$00,$00,$00,$33,$00,$00,$00	; ### 1.02
 	!by $cc,$00,$33,$00,$cc,$00,$33,$00
 	!by $cc,$33,$cc,$33,$cc,$33,$cc,$33
 	!by $00,$ff,$00,$ff,$00,$ff,$00,$ff	; scanline
 
-; --------------------------------------- Screenlist 
+; --------------------------------------- Screenlist
 
 memblst	!by 0
 	!by 3,11,19,19,$81
@@ -381,6 +382,6 @@ four	!scr "25%",0
 	!scr "Scnlns",0
 	!by $80
 
-; --------------------------------------- 
+; ---------------------------------------
 
 modend	!eof
