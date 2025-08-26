@@ -15,7 +15,7 @@
 ; ***  1.12, 03.02.93                                   ***
 ; ***  1.13, 02.04.93                                   ***
 ; ***  1.14, 16.08.93,                                  ***
-; ***        01.11.00, complete comment revision        ***
+; ***  01.11.00, complete comment revision              ***
 ; ***  1.15, 04.12.17, optimized code to gain space,    ***
 ; ***                  added: set amnt of colors in pal ***
 ; ***  1.16, 14.07.21, added: automatic default pals    ***
@@ -23,114 +23,115 @@
 ; ***  1.18, 02.12.24, adapted to SuperCPU              ***
 ; ***  1.19, 09.06.25, adapted to Mega65                ***
 ; ***  1.20, 24.06.25, changed two dither names         ***
+; ***  1.21, 26.08.25, wouldn't render clips, fixed     ***
 ; ***                                                   ***
 ;    ---------------------------------------------------
 ;
 
 ; -------------------------------------------------- Declarations
 
-	pport		= $01		; usually $36
+	pport	= $01	; usually $36
 
-	src		= $39
-	col00		= $3b
-	nr0		= $40
-	max		= $44
-	rstart		= max
-	rend		= max+1
-	cols		= $46
-	zp1		= $47
-	xbuf		= $48
-	rstep		= xbuf
-	hmzp		= $49
-	cmzp		= $4a
-	pbuf		= $4b
+	src	= $39
+	col00	= $3b
+	nr0	= $40
+	max	= $44
+	rstart	= max
+	rend	= max+1
+	cols	= $46
+	zp1	= $47
+	xbuf	= $48
+	rstep	= xbuf
+	hmzp	= $49
+	cmzp	= $4a
+	pbuf	= $4b
 
-	source		= $a6
-	dest		= $a8
-	lflag		= $a8
-	brttmp		= $a9
-	crttmp		= $aa
-	vblock		= $aa
-	bitcnt		= $ac
-	source1		= $ae
-	dest1		= $b2
-	hold		= $b4
-	vblock1		= $b5
+	source	= $a6
+	dest	= $a8
+	lflag	= $a8
+	brttmp	= $a9
+	crttmp	= $aa
+	vblock	= $aa
+	bitcnt	= $ac
+	source1	= $ae
+	dest1	= $b2
+	hold	= $b4
+	vblock1	= $b5
 
-	irq		= $0314
-	defphi		= $03ce
-	scr1		= $0432
-	scr2		= $0452
+	irq	= $0314
+	defphi	= $03ce
+	scr1	= $0432
+	scr2	= $0452
 
-	sprptr		= $07fa
+	sprptr	= $07fa
 
-	fi2		= $1121
-	gbox		= $1153
-	patch1		= $116c
-	makeline		= $11ae
-	chgcols		= $17e0
-	patch2		= $1814
+	fi2	= $1121
+	gbox	= $1153
+	patch1	= $116c
+	makeline	= $11ae
+	chgcols	= $17e0
+	patch2	= $1814
 
-	dithtype		= $1e36
-	areatype		= $1efb
+	dithtype	= $1e36
+	areatype	= $1efb
 
-	spr2		= $3e80
-	spr5		= $3f40
-	bttab		= $3f40
-	hist1		= $3f40
-	hist		= $3f50
-	btabold		= $3f50
-	etab		= $3f70
-	htab		= $3f80
-	htab0		= $3f90
-	rtab		= $3fb0
+	spr2	= $3e80
+	spr5	= $3f40
+	bttab	= $3f40
+	hist1	= $3f40
+	hist	= $3f50
+	btabold	= $3f50
+	etab	= $3f70
+	htab	= $3f80
+	htab0	= $3f90
+	rtab	= $3fb0
 
 
-	palundo		= $be00
-	palcanc		= $be10
-	paldflt		= $be20
+	palundo	= $be00
+	palcanc	= $be10
+	paldflt	= $be20
 
-	grafreg		= $d011
-	multreg		= $d016
-	charreg		= $d018
-	border		= $d020
-	backgr		= $d021
-	turbo		= $d030
+	grafreg	= $d011
+	multreg	= $d016
+	charreg	= $d018
+	border	= $d020
+	backgr	= $d021
+	turbo	= $d030
 
-	oszi3		= $d40e
-	wave		= $d412
-	filter		= $d418
-	rausch		= $d41b
+	oszi3	= $d40e
+	wave	= $d412
+	filter	= $d418
+	rausch	= $d41b
 
-	dbuf		= $bf00
-	oldirq		= $be00
+	dbuf	= $bf00
+	oldirq	= $be00
 
-	sprxy		= $d004
-	xmsb		= $d010
-	raster		= $d012
-	sprreg		= $d015
-	yexp		= $d017
-	reqirq		= $d019
-	rirqen		= $d01a
-	sprpri		= $d01b
-	sprmulti		= $d01c
-	xexp		= $d01d
-	sprcol2		= $d025
-	sprcol3		= $d026
-	sprcol1		= $d029
+	sprxy	= $d004
+	xmsb	= $d010
+	raster	= $d012
+	sprreg	= $d015
+	yexp	= $d017
+	reqirq	= $d019
+	rirqen	= $d01a
+	sprpri	= $d01b
+	sprmulti	= $d01c
+	xexp	= $d01d
+	sprcol2	= $d025
+	sprcol3	= $d026
+	sprcol1	= $d029
 
-	cram		= $d800
+	cram	= $d800
 
-	jf2		= $dc00
-	ciairq		= $dc0d
-	ciactrla		= $dc0e
+	jf2	= $dc00
+	ciairq	= $dc0d
+	ciactrla	= $dc0e
 
-	home		= $e566
-	scroll		= $e968
+	home	= $e566
+	scroll	= $e968
 
-	cstart		= $fe0b
-	vram1		= $de0b
-	vram2		= $ee0b
+	cstart	= $fe0b
+	vram1	= $de0b
+	vram2	= $ee0b
 
 ; -------------------------------------------------- Header
 
@@ -141,8 +142,8 @@ list	!wo 0
 breit1	!by $12
 breit2	!by $24
 	!pet "GoDot f000 slot4"
-created	!pet "1.20"
-	!pet "24.06.25"
+created   !pet "1.21"
+	!pet "26.08.25"
 	!pet "A.Dettke/W.Kling"
 ;
 ; -------------------------------------------------- Module Management
@@ -153,7 +154,7 @@ start	stx pdis		; .x=0; clear flag (request from palette requester)
 	ldx sc_screenvek+1
 	stx list+1
 
-	ldx gr_nr		; get function number
+	ldx gr_nr	 	; get function number
 	beq jevbal	; 0: Balancing
 	dex
 	beq jevpal	; 1: Palette
@@ -173,20 +174,20 @@ start	stx pdis		; .x=0; clear flag (request from palette requester)
 	clc
 	rts
 
-jevdispl    jmp evdisplay	; 2
-jevpal      jmp evpal	; 1
-jevbal      jmp evbal	; 0
-jevdith     jmp evdith	; 3
-jevarea     jmp evarea	; 4
-jevprviu    jmp evprviu	; 6
-jevdisp2    jmp evdisp2	; 7
-jevinfo     jmp evinfo	; 5
+jevdispl	jmp evdisplay	; 2
+jevpal	jmp evpal	 	; 1
+jevbal	jmp evbal		; 0
+jevdith	jmp evdith	; 3
+jevarea	jmp evarea	; 4
+jevprviu	jmp evprviu	; 6
+jevdisp2	jmp evdisp2	; 7
+jevinfo	jmp evinfo	; 5
 
 ; --------------------------------------------------
 ; -------------------------------------------------- Show graphics
 ; --------------------------------------------------
 
-redisplay	ldx gr_palette	; bordercolor is palette entry 0
+redisplay ldx gr_palette	; bordercolor is palette entry 0
 	stx border
 	jsr setcolors	; reget colors
 	lda gr_cmode	; which graphics mode?
@@ -206,7 +207,7 @@ dp1	lda sc_keyprs	; wait for key or STOP
 	ora sc_stop
 	beq dp1
 	jsr getcolors	; save colors
-	jsr tmode		; switch textmode on
+	jsr tmode	 	; switch textmode on
 	lda sc_screenvek	; save vector to current screenlist
 	pha
 	lda sc_screenvek+1
@@ -241,15 +242,15 @@ tmode	ldx #$13
 
 ; -------------------------------------------------- Graphics Colors Management
 
-setcveks	sei		; called from GETCOLORS
+setcveks  sei		; called from GETCOLORS
 	lda #$35		; set C64 to IO off
 	sta pport
 	lda #>(cstart)	; first: save 1000 color RAM nibbles to loader area
 	ldx #$d8		; from $d800
 	bne scv0
-setbveks	lda #>(vram1)	; second: save upper 500 video RAM bytes to saver area
+setbveks  lda #>(vram1)	; second: save upper 500 video RAM bytes to saver area
 	ldx #$04		; from $0400
-	dec pport		; set C64 completely to RAM
+	dec pport	 	; set C64 completely to RAM
 scv0	stx dest1+1
 	ldy #$00
 	sty sc_merk
@@ -271,7 +272,7 @@ setlast	sty gr_bkcol	; third: save lower 500 video RAM bytes to module area
 count	inc sc_vekt20	; increment source data vector
 	bne cou5
 	inc sc_vekt20+1
-cou5	inc dest1		; increment destination data vector
+cou5	inc dest1	 	; increment destination data vector
 	bne cou6
 	inc dest1+1
 cou6	lda ls_vekta8	; decrement counter
@@ -284,7 +285,7 @@ cou7	dec ls_vekta8
 
 ; -------------------------------------------------- Save Graphics Colors
 
-getcolors	jsr setcveks	; set vectors accordingly
+getcolors jsr setcveks	; set vectors accordingly
 stco	lda (dest1),y	; compress $d800-nibbles
 	sta sc_merk
 	inc dest1
@@ -327,7 +328,7 @@ scv1	lda #$36		; set C64 to BASIC off
 
 ; -------------------------------------------------- Restore Graphics Colors
 
-setcolors	lda gr_bkcol	; restore background color
+setcolors lda gr_bkcol	; restore background color
 	sta backgr
 	pha		; save for last time
 
@@ -392,7 +393,7 @@ gettab	lda (sc_texttab),y
 
 ; -------------------------------------------------- Subevent: Display from Palette Requester
 
-se_paldis	jsr evdisplay	; switch graphics mode on
+se_paldis jsr evdisplay	; switch graphics mode on
 
 ; --------------------------------------------------
 
@@ -470,11 +471,11 @@ ep5	lda gr_palette,x	; get 16 current palette values
 
 ; -------------------------------------------------- Subevent: More Colors
 
-se_morec			; (different places on screen!)
+se_morec	 		; (different places on screen!)
 
 ; -------------------------------------------------- Subevent: Less Colors
 
-se_lessc	lda #$4c		; JMP
+se_lessc  lda #$4c		; JMP
 	sta patch2
 	jsr chgcols
 	jsr shiftprs	; ### 1.16
@@ -485,7 +486,7 @@ se_lessc	lda #$4c		; JMP
 
 ; --------------------------------------------------
 
-buildreq	lda gr_howmany	; compute width of GoDot palette gadget
+buildreq  lda gr_howmany	; compute width of GoDot palette gadget
 	asl
 	tax
 	inx
@@ -505,7 +506,7 @@ ep44	clc
 
 ; -------------------------------------------------- Subevent: Cancel Palette Requester
 
-se_pcanc	lda sy_soffy+1	; re-set # of colors
+se_pcanc  lda sy_soffy+1	; re-set # of colors
 	sta gr_howmany
 	jsr chgcols	; .x=0
 	stx gr_redisp	; flag: don't re-render
@@ -530,7 +531,7 @@ se_pacc	sec		; leave requester to main screen
 
 ; -------------------------------------------------- Subevent: Set Default Palette
 
-se_pdeft	ldx gr_howmany	; get number of colors to be rendered
+se_pdeft  ldx gr_howmany	; get number of colors to be rendered
 	cpx #$10		; is 16?
 	bne dpl1
 	lda #$ff		; yes, set flagword to $ffff
@@ -564,12 +565,12 @@ ep8	jsr ep7
 
 ; -------------------------------------------------- Subevent: Undo Change to Palette
 
-se_pundo	ldx #$0f		; restore current palette
+se_pundo  ldx #$0f		; restore current palette
 	bne ep8		; and display
 
 ; -------------------------------------------------- Subevent: Pick a Color
 
-se_ppick	ldx gr_picked	; first get current picked color
+se_ppick  ldx gr_picked	; first get current picked color
 	lda sc_merk	; get screen position: row
 	sta sc_zl
 	lda sc_merk+1	; and column
@@ -655,7 +656,8 @@ evdisp2	lda gr_redisp	; save current re-display status
 
 ; -------------------------------------------------- Event Display Graphics
 
-evdisplay	jsr redisplay	; display graphics
+evdisplay jsr redisplay	; display graphics (returns .a=0)
+	sta sc_stop	; ### 1.21
 
 	ldx #$80		; initialize noise (random) values
 	stx oszi3+1
@@ -674,7 +676,6 @@ evdisplay	jsr redisplay	; display graphics
 	jsr setclip	; compute startaddress of clip
 
 	lda dest		; destination ($2000)
-	sta sc_stop
 	ldx dest+1
 	sta dest1
 	stx dest1+1
@@ -811,7 +812,7 @@ dhb9	jmp dp1		; end sequence (graphics off...)
 ; -------------------------------------------------- Dither Routines
 ; --------------------------------------------------
 
-pixel	jmp (sc_pos)	; entry for dither routines
+pixel	jmp (sc_pos)	  ; entry for dither routines
 
 ; -------------------------------------------------- Compute Clip data
 
@@ -1076,7 +1077,7 @@ hm2l	sta htab,y	; put to table of pixel patterns
 
 ; --------------------------------------------------
 
-makeetab	ldy #$01
+makeetab  ldy #$01
 	ldx #$00
 etl	lda gr_qtab,y	; compare neighboring values in quantization table
 	cmp gr_qtab-1,y
@@ -1104,7 +1105,7 @@ hi01	sta bits+2
 	beq hready	; finished when hires
 
 	lda sc_clipped	; any clip?
-	beq hloop		; no, proceed
+	beq hloop	 	; no, proceed
 
 	ldy hmzp		; yes, number of colors/grays
 	dey
@@ -1163,7 +1164,7 @@ s2	lda src		; next tile
 	sta src
 	bcc hloop
 	inc src+1
-s4 	lda src+1
+s4	lda src+1
 	cmp #$bd		; end of 4bit?
 	bne hloop
 
@@ -1187,11 +1188,11 @@ s51	lda hist,x
 	beq s5
 s52	sta max
 	sty max+1
-	stx col00		; contains most frequent color
+	stx col00		 ; contains most frequent color
 s5	dex
 	bpl l4
 
-	lda col00		; result becomes background color
+	lda col00	 	; result becomes background color
 	tax
 	lda gr_palette,x
 	stx bktmp
@@ -1200,7 +1201,7 @@ s5	dex
 
 ; --------------------------------------------------
 
-clrhist1	ldx hmzp
+clrhist1  ldx hmzp
 	dex
 clh1	lda #$00
 l5	sta hist1,x
@@ -1224,7 +1225,7 @@ histo	lda gr_dither	; any dither?
 
 ; --------------------------------------------------
 
-dohist	jsr clrhist1	; clear histogram
+dohist	jsr clrhist1	  ; clear histogram
 ;
 	ldy #$20		; preset values (impossible value 32)
 	sty col00+3
@@ -1382,8 +1383,8 @@ s9	dey
 
 ; -------------------------------------------------- Create Pixelpattern Table
 
-makehtab	lda gr_dither	; any dither?
-	bne makertab	; yes, branch
+makehtab  lda gr_dither	 ; any dither?
+	bne makertab	 ; yes, branch
 
 	ldy #$ff
 	sty max
@@ -1414,7 +1415,7 @@ l12	rts
 
 ; -------------------------------------------------- Create transition patterns
 
-makertab	ldx #$00
+makertab  ldx #$00
 	lda cmzp		; graphics mode
 	bne mkt0
 	ldx #$02		; is hires (.x=2)
@@ -1510,7 +1511,7 @@ area1	lda atype,y
 	tya
 	bpl area2
 	ldy #$03
-area3	lda sc_lastclpzl,y	; set appropriate values
+area3	lda sc_lastclpzl,y  ; set appropriate values
 	sta sc_clipzl,y
 	dey
 	bpl area3
@@ -1522,8 +1523,8 @@ area2	stx sc_clipped	; flag: clipped
 ; --------------------------------------------------
 
 atype	!scr "ClipFull"
-routtablo	!by <(dithoff),<(dithhab),<(dithpat),<(dithnoi),<(dithrnd)
-routtabhi	!by >(dithoff),>(dithhab),>(dithpat),>(dithnoi),>(dithrnd)
+routtablo !by <(dithoff),<(dithhab),<(dithpat),<(dithnoi),<(dithrnd)
+routtabhi !by >(dithoff),>(dithhab),>(dithpat),>(dithnoi),>(dithrnd)
 offs	!by $00,$10,$20,$30,$00,$10,$20,$30
 
 ; --------------------------------------------------
@@ -1580,10 +1581,10 @@ pickbox	!by $06,$03,$22,$04,$60
 	!wo se_ppick
 pick	!by $0a,$1c,$09,$03,$20
 	!wo 0
-lesscols	!by 10,12,3,3,$c0
+lesscols  !by 10,12,3,3,$c0
 	!wo se_lessc
 	!by $5b,0
-morecols	!by 10,25,3,3,$c0
+morecols  !by 10,25,3,3,$c0
 	!wo se_morec
 	!by $5e,0
 palbox	!by $0d,$03,$06,$04,$60
@@ -1621,7 +1622,7 @@ evbal	jsr gd_savescvek	; save vector to main list
 	lda gr_ctr
 	sta crttmp
 	jsr brt0
-	jmp gd_eloop	; wait for further events
+	jmp gd_eloop	  ; wait for further events
 
 ; -------------------------------------------------- Select Gadget Brightness or Contrast
 
@@ -1647,22 +1648,22 @@ bgt0	jsr gd_setpos	; get 4 parameters
 
 ; -------------------------------------------------- Subevent: Increment Brightness
 
-se_incbrt	lda #$00		; even function numbers: brightness
+se_incbrt lda #$00		; even function numbers: brightness
 	!by $2c
 
 ; -------------------------------------------------- Subevent: Decrement Brightness
 
-se_decbrt	lda #$02
+se_decbrt lda #$02
 	!by $2c
 
 ; -------------------------------------------------- Subevent: Increment Contrast
 
-se_incctr	lda #$01		; odd function numbers: contrast
+se_incctr lda #$01		; odd function numbers: contrast
 	!by $2c
 
 ; -------------------------------------------------- Subevent: Decrement Contrast
 
-se_decctr	lda #$03
+se_decctr lda #$03
 	pha
 	jsr gbset		; compute screen address
 	pla
@@ -1675,7 +1676,7 @@ se_decctr	lda #$03
 
 	tay		; dec: is zero? (minimum)
 	beq show		; yes, no more changes
-	dec brttmp,x	; no, decrease
+	dec brttmp,x	  ; no, decrease
 	tya
 	bne show		; unconditional branch
 
@@ -1729,13 +1730,13 @@ nega	sta sc_merk	; subtract value from 16
 
 ; -------------------------------------------------- Subevent: Reset Balancing Table
 
-se_balrst	lda #$10		; set median value
+se_balrst lda #$10		; set median value
 	sta brttmp
 	sta crttmp
 brt0	lda #$00		; flag: first pass
 brt1	pha
 	pha
-	jsr gbset		; reset visible values
+	jsr gbset		 ; reset visible values
 	pla
 	tax
 	jsr show
@@ -1748,7 +1749,7 @@ brt2	clc
 
 ; -------------------------------------------------- Subevent: Accept Balancing Values
 
-se_balok	lda brttmp	; finalize values
+se_balok  lda brttmp	; finalize values
 	sta gr_brt
 	lda crttmp
 	sta gr_ctr
@@ -1777,7 +1778,7 @@ gbt0	lda gr_btab,y
 
 ; -------------------------------------------------- Compute Balancing Table
 
-makebtab	lda crttmp	; contrast
+makebtab  lda crttmp	; contrast
 	asl
 	tax
 	lda ctrtab,x
@@ -2052,7 +2053,7 @@ dzloop	lda #$03		; flag: 3 passes across
 	sta brttmp
 
 zloop	ldy #$60		; 4 tiles from right to left
-	lda lflag		; on 2nd pass (tile):
+	lda lflag		 ; on 2nd pass (tile):
 	bpl bloop
 	ldy #$70		; indent to 4 pixels below
 
@@ -2100,10 +2101,10 @@ skip	ror brttmp	; loop for next two passes across
 	sbc #$01
 	sta sc_pos+1
 
-	rol lflag		; loop for second pass within tile
+	rol lflag		 ; loop for second pass within tile
 	bcc dzloop
 
-	lda sc_pos+1	; add $500 (1280): next row of tiles
+	lda sc_pos+1	 ; add $500 (1280): next row of tiles
 	adc #$04
 	sta sc_pos+1
 
@@ -2115,7 +2116,7 @@ skip	ror brttmp	; loop for next two passes across
 
 ;-------------------------------------------------------------
 
-shiftprs	sei
+shiftprs  sei
 	lda #$fd		; col %11111101
 	sta $dc00
 	lda $dc01		; row %10000000
@@ -2142,7 +2143,7 @@ xytab	!by $07,$91,$07,$a6
 ; -------------------------------------------------- Event: GoDot Guru
 ; --------------------------------------------------
 
-evinfo	jsr gd_sproff	; pointer off
+evinfo	jsr gd_sproff	 ; pointer off
 
 	lda #$05		; scroll screen 5 rows down
 	sta sc_screentab
@@ -2164,7 +2165,7 @@ scrloop	jsr home		; be sure to be at home position
 	jsr text		; show Guru text ("GoDot Creation Nr...")
 tastean	lda sy_tbuffer	; wait for key
 	bne ok		; key pressed, finish
-	jsr blink		; otherwise: blink box
+	jsr blink	 	; otherwise: blink box
 	lda jf2		; fire on joystick?
 	and #$10
 	bne tastean	; no, wait
@@ -2209,7 +2210,7 @@ newirq	sei
 
 ; -------------------------------------------------- Guru Activity
 
-rasterirq	sei
+rasterirq sei
 	lda raster
 	bne gskip
 	lda #$00		; black screen (above raster split)
@@ -2234,7 +2235,7 @@ irqwait	nop
 	lda crttmp	; blue screen (below raster split)
 	sta border
 	sta backgr
-	lda sc_screentab+1	; GoDot charset
+	lda sc_screentab+1  ; GoDot charset
 	sta charreg
 	lda #$00
 	sta raster
@@ -2287,7 +2288,7 @@ tx03	lda sy_version-1,x	; create version number digits
 	bne tx03
 
 	iny
-tx02	lda created,y	; create version number string
+tx02	lda created,y	 ; create version number string
 	cmp #$2e
 	beq tx00
 	sta versn,x
@@ -2351,7 +2352,7 @@ versn	!scr "000.00000000"
 ; -------------------------------------------------- Blink Box Border
 
 blink	ldy #$28
-	lda sc_chgcol	; write color
+	lda sc_chgcol	 ; write color
 bl0	sta cram,y
 	sta cram+119,y
 	dey
