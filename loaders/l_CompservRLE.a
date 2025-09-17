@@ -1,0 +1,385 @@
+
+	!src "godotlib.lib"
+	*= $c000
+	!ct pet
+; !sl "labels.txt"
+
+; --------------------------------------------------
+;
+;  ldr.CompuservRLE
+;    Lader für monochrome Hires-Bilder im Compuserve-RLE-Format
+;
+;  1.00, 16.09.25, first release
+;
+; --------------------------------------------------
+
+
+; ----------------------------------------- Equates
+
+	ftype	= $30
+	counter	= $31	; counts pixels of one color
+	stack	= $32
+	dst	= $33	; word, target in 4bit per row
+	dst0	= $35	; word, copy for next row
+	width	= $37
+	height	= $38
+	mode	= $39	; Schreibmodus, $00: pen, $ff: paper
+	merkx	= $3a
+	merky	= $3b
+	tilex	= $3c
+	adcnt	= $3d	; activity counter
+	byte	= $3e
+
+	offx	= ls_adrmisc
+	offy	= offx+1
+
+	patch	= $17af
+	data	= $2000
+
+; ----------------------------------------- Header
+
+	jmp start
+	!by $80
+	!by $00
+	!by $00
+	!wo modend
+	!wo $00
+	!pet "Compuserve RLE  "
+	!pet "1.00"
+	!pet "16.09.25"
+	!pet "A.Dettke        "
+
+; ----------------------------------------- Main
+
+start	lda #38		; Activity: Init
+	sta cntwert
+	ldx #0
+	stx sc_stop 	; init "break by STOP"
+	inx
+	stx adcnt
+	jsr getname 	; Filenamen sichern
+	tsx
+	stx stack
+
+; ----------------------------------------- Read File: Header
+
+	jsr gd_clrms	; Activity vorbereiten
+	jsr gd_xopen	; File öffnen
+	jsr basin 	; Startadresse überlesen
+	cmp #$1b		; Header: ESC?
+	bne err0
+	jsr basin
+	cmp #$47		; then "g"?
+	bne err0
+	jsr basin		; yes, then get mode (hires or medium)
+	cmp #$48		; "h"? (256x192)
+	beq +
+	cmp #$4d		; "m"? (128x96)
+	bne err0
+
+	ldy #9		; small (m)
+	bne ++
++	ldy #38		; large (h)
+++	sty ftype
+	sty cntwert	; Typ ist auch Activity-Zähler
+
+; ----------------------------------------- Read File: Bitmap
+
+	ldx #0		; out: "Reading"
+	jsr tcopy		; returns .y=0
+	lda #1
+	sta adcnt		; init activity counter
+
+	jsr readcode	; Image einlesen und konvertieren
+	bcs +
+
+; ----------------------------------------- Abschluss
+
+	jsr setinfo 	; Image Information setzen
++	jsr gd_xclose 	; File schließen
+
+	ldx #0		; reset: "Reading"
+	jsr tcopy
+
+sk10	jsr tog2hires 	; Render-Mode setzen, returns .a>0
+	sta gr_redisp	; Render-Mode aktivieren
+	jsr gd_xmess	; Floppy-Meldung (sehr kurz)
+	jsr gd_spron	; Mauszeiger an
+	sec		; Lader verlassen
+	rts
+
+; ----------------------------------------- Error Handler
+
+error	ldx stack
+	txs
+err0	jsr gd_xclose 	; File schließen
+	jsr sk10		; Abschluss
+	clc		; im Lader bleiben
+	rts
+
+; ----------------------------------------- File einlesen
+
+readcode	lda #16 		; Bildbreite 16 (small) oder 32 (large)
+	cmp ftype		; (Typ: 9 oder 38)
+	bcs +
+	asl
++	sta width		; Breite: 16 oder 32
+	lda #96		; Höhe: 12 (small) oder 24 (large)
+	lsr
+	lsr
+	cmp ftype		; abhängig vom Typ. s.o.)
+	bcc +
+	lsr
++	sta height	; Höhe: 12 oder 24
+
+	lda #0		; init:
+	sta mode		; mode: $00: ink, $ff: paper
+	sta dst
+	sta dst0
+	ldx #>sy_4bit	; Pixelziel: 4Bit (konvertiert)
+	stx dst+1
+	stx dst0+1
+	lda #$ff		; init pixel counter
+	sta counter
+
+; ----------------------------------------- Read Loop
+
+loop2	ldx #8		; eine Kachelzeile zählen
+	stx merky
+loop1	ldx width		; Breite zählen
+	stx merkx
+
+loop0	lda counter	; Zähler abgelaufen?
+	bpl loop		; nein, weiterzählen
+
+	jsr nextbyte
+	dec counter	; Counter ist jetzt Anzahl Pixel
+
+loop	ldx #4		; rendern:
+-	stx tilex
+	jsr renderlft	; zuerst linkes Pixel
+	jsr renderrgt	; dann rechtes Pixel
+	ldx tilex
+	dex
+	bne -		; vier Mal (= 8 Pixel: eine Kachellinie)
+
+	jsr action
+	ldy #0
+	clc		; nächste Kachel
+	lda dst
+	adc #28
+	sta dst
+	bcc +
+	inc dst+1
++	dec merkx		; alle Kacheln durch?
+	bne loop0		; nein, weiter
+
+	clc		; 8 Kachellinien zählen
+	lda dst0
+	adc #4
+	sta dst0
+	sta dst
+	lda dst0+1
+	adc #0
+	sta dst0+1
+	sta dst+1
+	dec merky		; alle Kachellinien durch?
+	bne loop1		; nein, weiter
+
+	clc 		; nächste Kachelzeile (von 24)
+	lda dst0		; plus 1248
+	adc #$e0
+	sta dst0
+	sta dst
+	lda dst0+1
+	adc #$04
+	sta dst0+1
+	sta dst+1
+	dec height	; alle Kachelzeilen durch?
+	bne loop2
+
+	rts		; ja, fertig geladen
+
+; ----------------------------------------- Render left Pixel
+
+renderlft	lda mode
+	and #$f0
+	sta (dst),y
+	jmp +
+
+; ----------------------------------------- Render right Pixel
+renderrgt	lda mode
+	and #$0f
+	ora (dst),y
+	sta (dst),y
+	inc dst
+	bne +
+	inc dst+1
++	dec counter
+
+; ----------------------------------------- Check if all pixels
+
+	lda counter	; Pixelzähler abgelaufen?
+	bpl +
+	jsr chgmode
+	jsr nextbyte	; ja, neuen Code holen
+	dec counter
++	rts
+
+; ----------------------------------------- Change Mode
+
+chgmode	lda mode		; bei 0: Farbwechsel
+	eor #$ff
+	sta mode
+	rts
+
+; -----------------------------------------
+
+nextbyte	jsr onebyte 	; ja, neues Code-Byte einlesen
+	sta byte
+	txa		; .x enthält den Status
+	bne jerror	; Abbruch bei Fehler oder Fileende
+	ldx sc_stop 	; oder STOP gedrückt?
+	bne jerror	; dann Abbruch
+	lda byte
+	cmp #$20		; Steuerzeichen?
+	bcc nextbyte	; ja, ignorieren
+	sbc #$20		; Byte dekodieren (Wert minus 32)
+	sta counter
+	lda counter	; Farbwechsel bei Code Null
+	bne +
+	jsr chgmode	; ja, Farbwechsel
+	jmp nextbyte
++	rts
+
+; -----------------------------------------
+
+jerror	jmp error
+
+; -----------------------------------------
+
+onebyte	jsr basin
+	ldx status
+	rts
+
+; ----------------------------------------- Set Render Mode
+
+tog2hires	lda #2		; für Umschalten auf Hires
+	!by $2c
+tog2multi	lda #0		; für Umschalten auf Multi
+	sta gr_cmode
+	lda #16
+	sta sc_br
+	lda #$4c		; self modifying
+	sta patch
+	jsr ev_sccont 	; Modus setzen und Anzeige anpassen
+	lda #$20		; unpatch
+	sta patch
+	rts
+
+; ----------------------------------------- Message Handler
+
+messout	ldx #<message
+	ldy #>message
+	jmp gd_xtxout2
+
+tcopy	ldy #0
+tc0	lda txt,x
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+
+action	dec adcnt		; Gauge out
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	cpy clrmess+1	; Gauge Overflow abfangen
+	bne act0
+	jsr clrmess
+act0	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts
+
+clrmess	ldx #20
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0
+	ldx #7
+	sty offy
+	stx offx
+	rts
+
+filltab	!by 160,93,103,127,126,124,105,109
+
+cntwert	!by 38
+
+txt	!scr " Reading",0	; 0
+
+message	!scr " Reading   "
+mess	!fill 21,32
+	!by 0
+
+; ----------------------------------------- Image Information Handler
+
+getname	ldx #0
+si0	lda ls_lastname,x
+	beq si1
+	sta nbuf,x
+	inx
+	cpx #16
+	bcc si0
+si1	rts
+
+setinfo	jsr setname
+	jsr setloader
+	jsr setmode
+	jmp setdata
+
+setname	lda #0
+	ldx #<ls_picname
+	ldy #>ls_picname
+	bne si3
+setloader	lda #17
+	ldx #<ls_iloader
+	ldy #>ls_iloader
+	bne si3
+setmode	lda #25
+	ldx #<ls_imode
+	ldy #>ls_imode
+	bne si3
+setdata	lda #33
+	ldx #<ls_idrive
+	ldy #>ls_idrive
+si3	stx sc_texttab
+	sty sc_texttab+1
+	tax
+	ldy #0
+si4	lda nbuf,x
+	beq si5
+	sta (sc_texttab),y
+	inx
+	iny
+	bne si4
+si5	rts
+
+nbuf	!fill 16,32
+	!by 0
+	!scr "CServe ",0
+	!scr "256x192",0
+	!scr "monochr",0
+
+; -----------------------------------------
+
+modend	!eof
