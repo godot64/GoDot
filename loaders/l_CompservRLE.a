@@ -10,6 +10,7 @@
 ;    Lader für monochrome Hires-Bilder im Compuserve-RLE-Format
 ;
 ;  1.00, 16.09.25, first release
+;  1.01, 18.09.25, added mode text for small images
 ;
 ; --------------------------------------------------
 
@@ -19,22 +20,21 @@
 	ftype	= $30
 	counter	= $31	; counts pixels of one color
 	stack	= $32
-	dst	= $33	; word, target in 4bit per row
+	dst	= $33	; word, target in 4bit rows (of $500 bytes)
 	dst0	= $35	; word, copy for next row
-	width	= $37
-	height	= $38
+	width	= $37	; in tiles
+	height	= $38	; in tiles
 	mode	= $39	; Schreibmodus, $00: pen, $ff: paper
-	merkx	= $3a
-	merky	= $3b
-	tilex	= $3c
+	merkx	= $3a	; counts image width
+	merky	= $3b	; counts image height
+	tilex	= $3c	; temp for .x
 	adcnt	= $3d	; activity counter
-	byte	= $3e
+	byte	= $3e	; temp for .a whilst reading file
 
 	offx	= ls_adrmisc
 	offy	= offx+1
 
-	patch	= $17af
-	data	= $2000
+	patch	= $17af	; address to patch GoDot (toggle of mode)
 
 ; ----------------------------------------- Header
 
@@ -65,8 +65,8 @@ start	lda #38		; Activity: Init
 
 	jsr gd_clrms	; Activity vorbereiten
 	jsr gd_xopen	; File öffnen
-	jsr basin 	; Startadresse überlesen
-	cmp #$1b		; Header: ESC?
+	jsr basin 	; Header:
+	cmp #$1b		; ESC?
 	bne err0
 	jsr basin
 	cmp #$47		; then "g"?
@@ -85,13 +85,26 @@ start	lda #38		; Activity: Init
 
 ; ----------------------------------------- Read File: Bitmap
 
+	tya
+	ldx moffs		; set modetext	### 1.01
+	ldy moffs
+	cmp #32
+	bcs +
+	ldy moffs+1
+-
++	lda modetext,y
+	sta dims,x
+	dey
+	dex
+	bpl -
+
 	ldx #0		; out: "Reading"
 	jsr tcopy		; returns .y=0
 	lda #1
 	sta adcnt		; init activity counter
 
 	jsr readcode	; Image einlesen und konvertieren
-	bcs +
+	bcs +		; .c is always set (!)
 
 ; ----------------------------------------- Abschluss
 
@@ -101,20 +114,20 @@ start	lda #38		; Activity: Init
 	ldx #0		; reset: "Reading"
 	jsr tcopy
 
-sk10	jsr tog2hires 	; Render-Mode setzen, returns .a>0
+sk10	jsr tog2hires 	; System-Render-Mode setzen, returns .a > 0
 	sta gr_redisp	; Render-Mode aktivieren
-	jsr gd_xmess	; Floppy-Meldung (sehr kurz)
+	jsr gd_xmess	; Floppy-Meldung (nur kurz zu sehen)
 	jsr gd_spron	; Mauszeiger an
 	sec		; Lader verlassen
 	rts
 
 ; ----------------------------------------- Error Handler
 
-error	ldx stack
+error	ldx stack		; return to file requester
 	txs
 err0	jsr gd_xclose 	; File schließen
 	jsr sk10		; Abschluss
-	clc		; im Lader bleiben
+	clc		; im Filerequester bleiben
 	rts
 
 ; ----------------------------------------- File einlesen
@@ -133,10 +146,10 @@ readcode	lda #16 		; Bildbreite 16 (small) oder 32 (large)
 +	sta height	; Höhe: 12 oder 24
 
 	lda #0		; init:
-	sta mode		; mode: $00: ink, $ff: paper
+	sta mode		; mode: $00: ink ($ff: paper)
 	sta dst
 	sta dst0
-	ldx #>sy_4bit	; Pixelziel: 4Bit (konvertiert)
+	ldx #>sy_4bit	; Pixelziel: 4Bit (konvertierte Daten)
 	stx dst+1
 	stx dst0+1
 	lda #$ff		; init pixel counter
@@ -144,7 +157,7 @@ readcode	lda #16 		; Bildbreite 16 (small) oder 32 (large)
 
 ; ----------------------------------------- Read Loop
 
-loop2	ldx #8		; eine Kachelzeile zählen
+loop2	ldx #8		; alle (8) Linien einer Kachelzeile zählen
 	stx merky
 loop1	ldx width		; Breite zählen
 	stx merkx
@@ -221,40 +234,40 @@ renderrgt	lda mode
 
 	lda counter	; Pixelzähler abgelaufen?
 	bpl +
-	jsr chgmode
-	jsr nextbyte	; ja, neuen Code holen
-	dec counter
+	jsr chgmode	; ja, Farbe umschalten
+	jsr nextbyte	; neuen Code holen
+	dec counter	; als Pixel-Zähler
 +	rts
 
 ; ----------------------------------------- Change Mode
 
-chgmode	lda mode		; bei 0: Farbwechsel
+chgmode	lda mode		; Farbwechsel
 	eor #$ff
 	sta mode
 	rts
 
 ; -----------------------------------------
 
-nextbyte	jsr onebyte 	; ja, neues Code-Byte einlesen
-	sta byte
+nextbyte	jsr onebyte 	; neues Code-Byte einlesen
+	sta byte		; merken
 	txa		; .x enthält den Status
 	bne jerror	; Abbruch bei Fehler oder Fileende
 	ldx sc_stop 	; oder STOP gedrückt?
 	bne jerror	; dann Abbruch
-	lda byte
+	lda byte		; weiter: Pixel zurückholen
 	cmp #$20		; Steuerzeichen?
 	bcc nextbyte	; ja, ignorieren
 	sbc #$20		; Byte dekodieren (Wert minus 32)
 	sta counter
 	lda counter	; Farbwechsel bei Code Null
 	bne +
-	jsr chgmode	; ja, Farbwechsel
-	jmp nextbyte
+	jsr chgmode	; Farbwechsel
+	jmp nextbyte	; nächstes Code-Byte einlesen
 +	rts
 
 ; -----------------------------------------
 
-jerror	jmp error
+jerror	jmp error		; Fehler, zurück zum Filerequester
 
 ; -----------------------------------------
 
@@ -266,7 +279,7 @@ onebyte	jsr basin
 
 tog2hires	lda #2		; für Umschalten auf Hires
 	!by $2c
-tog2multi	lda #0		; für Umschalten auf Multi
+tog2multi	lda #0		; für Umschalten auf Multi (unused)
 	sta gr_cmode
 	lda #16
 	sta sc_br
@@ -276,6 +289,11 @@ tog2multi	lda #0		; für Umschalten auf Multi
 	lda #$20		; unpatch
 	sta patch
 	rts
+
+; ----------------------------------------- Data
+
+modetext	!scr "256x192128x 96"
+moffs	!by 6,13
 
 ; ----------------------------------------- Message Handler
 
@@ -333,7 +351,7 @@ mess	!fill 21,32
 
 ; ----------------------------------------- Image Information Handler
 
-getname	ldx #0
+getname	ldx #0		; Filenamen sichern
 si0	lda ls_lastname,x
 	beq si1
 	sta nbuf,x
@@ -342,10 +360,10 @@ si0	lda ls_lastname,x
 	bcc si0
 si1	rts
 
-setinfo	jsr setname
-	jsr setloader
-	jsr setmode
-	jmp setdata
+setinfo	jsr setname	; Filenamen propagieren
+	jsr setloader	; Laderkürzel eintragen
+	jsr setmode	; Bildgröße eintragen
+	jmp setdata	; Datentyp eintragen
 
 setname	lda #0
 	ldx #<ls_picname
@@ -377,7 +395,7 @@ si5	rts
 nbuf	!fill 16,32
 	!by 0
 	!scr "CServe ",0
-	!scr "256x192",0
+dims	!scr "256x192",0
 	!scr "monochr",0
 
 ; -----------------------------------------
