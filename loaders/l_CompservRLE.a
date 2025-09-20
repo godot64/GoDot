@@ -11,6 +11,7 @@
 ;
 ;  1.00, 16.09.25, first release
 ;  1.01, 18.09.25, added mode text for small images
+;        20.09.25, more comments
 ;
 ; --------------------------------------------------
 
@@ -45,8 +46,8 @@
 	!wo modend
 	!wo $00
 	!pet "Compuserve RLE  "
-	!pet "1.00"
-	!pet "16.09.25"
+	!pet "1.01"
+	!pet "18.09.25"
 	!pet "A.Dettke        "
 
 ; ----------------------------------------- Main
@@ -58,7 +59,7 @@ start	lda #38		; Activity: Init
 	inx
 	stx adcnt
 	jsr getname 	; Filenamen sichern
-	tsx
+	tsx		; bei Fehler: Rückkehr an definierten Punkt (zum Filerequester)
 	stx stack
 
 ; ----------------------------------------- Read File: Header
@@ -86,7 +87,7 @@ start	lda #38		; Activity: Init
 ; ----------------------------------------- Read File: Bitmap
 
 	tya
-	ldx moffs		; set modetext	### 1.01
+	ldx moffs		; set infotext accordingly	### 1.01
 	ldy moffs
 	cmp #32
 	bcs +
@@ -98,23 +99,23 @@ start	lda #38		; Activity: Init
 	dex
 	bpl -
 
-	ldx #0		; out: "Reading"
+	ldx #0		; out: "Reading" (in gauge)
 	jsr tcopy		; returns .y=0
 	lda #1
 	sta adcnt		; init activity counter
 
 	jsr readcode	; Image einlesen und konvertieren
-	bcs +		; .c is always set (!)
+	bcs +		; .c is never set (!)
 
 ; ----------------------------------------- Abschluss
 
 	jsr setinfo 	; Image Information setzen
 +	jsr gd_xclose 	; File schließen
 
-	ldx #0		; reset: "Reading"
+	ldx #0		; reset gauge text to "Reading" (deprecated)
 	jsr tcopy
 
-sk10	jsr tog2hires 	; System-Render-Mode setzen, returns .a > 0
+sk10	jsr tog2hires 	; GoDots Render-Mode setzen, returns .a > 0
 	sta gr_redisp	; Render-Mode aktivieren
 	jsr gd_xmess	; Floppy-Meldung (nur kurz zu sehen)
 	jsr gd_spron	; Mauszeiger an
@@ -123,7 +124,7 @@ sk10	jsr tog2hires 	; System-Render-Mode setzen, returns .a > 0
 
 ; ----------------------------------------- Error Handler
 
-error	ldx stack		; return to file requester
+error	ldx stack		; ensure: return to file requester
 	txs
 err0	jsr gd_xclose 	; File schließen
 	jsr sk10		; Abschluss
@@ -178,16 +179,16 @@ loop	ldx #4		; rendern:
 
 	jsr action
 	ldy #0
-	clc		; nächste Kachel
+	clc		; nächste Kachel (von 32 oder 16)
 	lda dst
 	adc #28
 	sta dst
 	bcc +
 	inc dst+1
-+	dec merkx		; alle Kacheln durch?
++	dec merkx		; alle (32/16) Kacheln durch?
 	bne loop0		; nein, weiter
 
-	clc		; 8 Kachellinien zählen
+	clc		; nächste Kachellinie (von 8)
 	lda dst0
 	adc #4
 	sta dst0
@@ -199,7 +200,7 @@ loop	ldx #4		; rendern:
 	dec merky		; alle Kachellinien durch?
 	bne loop1		; nein, weiter
 
-	clc 		; nächste Kachelzeile (von 24)
+	clc 		; nächste Kachelzeile (von 24 oder 12)
 	lda dst0		; plus 1248
 	adc #$e0
 	sta dst0
@@ -211,24 +212,24 @@ loop	ldx #4		; rendern:
 	dec height	; alle Kachelzeilen durch?
 	bne loop2
 
-	rts		; ja, fertig geladen
+	rts		; ja, fertig geladen (returns .c clear)
 
 ; ----------------------------------------- Render left Pixel
 
-renderlft	lda mode
+renderlft	lda mode		; Schreibfarbe holen ($00 oder $ff)
 	and #$f0
-	sta (dst),y
+	sta (dst),y	; setzen linkes Pixel
 	jmp +
 
 ; ----------------------------------------- Render right Pixel
 renderrgt	lda mode
 	and #$0f
-	ora (dst),y
+	ora (dst),y	; setzen rechtes Pixel
 	sta (dst),y
-	inc dst
+	inc dst		; Zieladresse (im 4Bit) erhöhen (2 Pixel = 1 Byte)
 	bne +
 	inc dst+1
-+	dec counter
++	dec counter	; gesetzte Pixel zählen
 
 ; ----------------------------------------- Check if all pixels
 
@@ -236,12 +237,12 @@ renderrgt	lda mode
 	bpl +
 	jsr chgmode	; ja, Farbe umschalten
 	jsr nextbyte	; neuen Code holen
-	dec counter	; als Pixel-Zähler
+	dec counter	; als neuen Pixel-Zähler setzen
 +	rts
 
 ; ----------------------------------------- Change Mode
 
-chgmode	lda mode		; Farbwechsel
+chgmode	lda mode		; Farbwechsel ($00: schwarz, $ff: weiß)
 	eor #$ff
 	sta mode
 	rts
@@ -250,16 +251,16 @@ chgmode	lda mode		; Farbwechsel
 
 nextbyte	jsr onebyte 	; neues Code-Byte einlesen
 	sta byte		; merken
-	txa		; .x enthält den Status
+	txa		; .x enthält den Floppy-Status
 	bne jerror	; Abbruch bei Fehler oder Fileende
 	ldx sc_stop 	; oder STOP gedrückt?
-	bne jerror	; dann Abbruch
+	bne jerror	; dann auch Abbruch
 	lda byte		; weiter: Pixel zurückholen
 	cmp #$20		; Steuerzeichen?
 	bcc nextbyte	; ja, ignorieren
 	sbc #$20		; Byte dekodieren (Wert minus 32)
 	sta counter
-	lda counter	; Farbwechsel bei Code Null
+	lda counter	; nur Farbwechsel bei Code Null
 	bne +
 	jsr chgmode	; Farbwechsel
 	jmp nextbyte	; nächstes Code-Byte einlesen
@@ -271,50 +272,50 @@ jerror	jmp error		; Fehler, zurück zum Filerequester
 
 ; -----------------------------------------
 
-onebyte	jsr basin
-	ldx status
+onebyte	jsr basin		; Code-Byte einlesen
+	ldx status	; Floppy-Status holen
 	rts
 
 ; ----------------------------------------- Set Render Mode
 
-tog2hires	lda #2		; für Umschalten auf Hires
+tog2hires	lda #2		; GoDot Umschalten auf Hires
 	!by $2c
-tog2multi	lda #0		; für Umschalten auf Multi (unused)
+tog2multi	lda #0		; GoDot Umschalten auf Multi (unused)
 	sta gr_cmode
 	lda #16
 	sta sc_br
 	lda #$4c		; self modifying
 	sta patch
-	jsr ev_sccont 	; Modus setzen und Anzeige anpassen
+	jsr ev_sccont 	; neuen Modus setzen und Anzeige anpassen
 	lda #$20		; unpatch
 	sta patch
 	rts
 
 ; ----------------------------------------- Data
 
-modetext	!scr "256x192128x 96"
+modetext	!scr "256x192128x 96"	; Image-Info-Angabe
 moffs	!by 6,13
 
 ; ----------------------------------------- Message Handler
 
-messout	ldx #<message
+messout	ldx #<message	; Gauge-Message ausgeben
 	ldy #>message
 	jmp gd_xtxout2
 
-tcopy	ldy #0
+tcopy	ldy #0		; Gauge-Text eintragen
 tc0	lda txt,x
-	beq clrmess
+	beq clrmess	; danach Rest der Ausgabezeile löschen
 	sta message,y
 	inx
 	iny
 	bne tc0
 
-action	dec adcnt		; Gauge out
+action	dec adcnt		; Gauge-Zähler
 	bne ld4
 	lda cntwert
 	sta adcnt
 	ldy offy
-	cpy clrmess+1	; Gauge Overflow abfangen
+	cpy clrmess+1	; Overflow abfangen
 	bne act0
 	jsr clrmess
 act0	ldx offx
@@ -328,20 +329,20 @@ act0	ldx offx
 	sta offx
 ld4	rts
 
-clrmess	ldx #20
+clrmess	ldx #20		; Gauge Bar löschen
 	lda #32
 cl0	sta mess,x
 	dex
 	bpl cl0
-	ldy #0
+	ldy #0		; returns .y=0
 	ldx #7
 	sty offy
 	stx offx
 	rts
 
-filltab	!by 160,93,103,127,126,124,105,109
+filltab	!by 160,93,103,127,126,124,105,109	; Zeichen für Gauge Bar
 
-cntwert	!by 38
+cntwert	!by 38		; Aktualisierungszähler
 
 txt	!scr " Reading",0	; 0
 
@@ -351,7 +352,7 @@ mess	!fill 21,32
 
 ; ----------------------------------------- Image Information Handler
 
-getname	ldx #0		; Filenamen sichern
+getname	ldx #0		; Filenamen sichern (wird verworfen, wenn Diskfehler auftritt)
 si0	lda ls_lastname,x
 	beq si1
 	sta nbuf,x
@@ -360,13 +361,13 @@ si0	lda ls_lastname,x
 	bcc si0
 si1	rts
 
-setinfo	jsr setname	; Filenamen propagieren
+setinfo	jsr setname	; Filenamen propagieren (eintragen ab NBUF)
 	jsr setloader	; Laderkürzel eintragen
 	jsr setmode	; Bildgröße eintragen
 	jmp setdata	; Datentyp eintragen
 
 setname	lda #0
-	ldx #<ls_picname
+	ldx #<ls_picname	; nach Image Information in GoDots Mainscreen
 	ldy #>ls_picname
 	bne si3
 setloader	lda #17
@@ -392,11 +393,11 @@ si4	lda nbuf,x
 	bne si4
 si5	rts
 
-nbuf	!fill 16,32
+nbuf	!fill 16,32	; base
 	!by 0
-	!scr "CServe ",0
-dims	!scr "256x192",0
-	!scr "monochr",0
+	!scr "CServe ",0	; offset: 17
+dims	!scr "256x192",0	; offset: 25
+	!scr "monochr",0	; offset: 33
 
 ; -----------------------------------------
 
