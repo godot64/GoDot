@@ -15,6 +15,7 @@
 ;   1.05, 13.01.24, changed gui (a little)
 ;   1.06, 03.12.24, adapted to SuperCPU
 ;   1.07, 25.03.25, fixed: bug that crashed GoDot (buffer erased code)
+;   1.08, 09.01.26, changed gui slightly
 ;
 ; --------------------------------------
 
@@ -66,8 +67,8 @@
 	!by 0
 	!by 0
 	!tx "Double Quadrant "
-	!tx "1.07"
-	!tx "25.03.25"
+	!tx "1.08"
+	!tx "09.01.26"
 	!tx "W.Kling/A.Dettke"
 
 ; -------------------------------------- Main
@@ -108,7 +109,7 @@ evarea	ldy zeile		; ### 1.05
 	lda spalte	; click:
 	cmp #20		; 1 or 3?
 	bcs ++
-	cpy #11
+	cpy #10		; ### 1.08
 	bcs +
 	ldx #0
 	!by $2c
@@ -733,14 +734,13 @@ adl0	sta spr255+3,y
 
 ; --------------------------------------- Screenlist
 
-doublelst	!by 0
-	!by 4,14,12,16,$81,0,0
+doublelst	!by 0			; ### 1.08
+	!by 5,14,12,15,$81,0,0
 	!scr "Double",0
-	!by 8,15,10,9,$01,0,0
-	!by 9,16,8,5,$e0
+	!by 9,16,8,5,$c0
 	!wo evarea
 	!scr " 1 ",$6d,"2 ",0
-	!by 14,15,10,3,$c9
+	!by 14,15,10,3,$c0
 	!wo evarea5
 	!scr "LastClip",0
 	!by 17,14,12,3,$c9
@@ -749,7 +749,7 @@ doublelst	!by 0
 	!by 11,29,11,7,$4d
 	!wo ev_prviu
 
-	!by $c0,6,16,6
+	!by $c0,7,16,6
 	!scr "Select",0
 	!by $c0,10,16,6
 	!scr "------",0
@@ -757,6 +757,6 @@ doublelst	!by 0
 	!scr " 3 ",$6d,"4 ",0
 	!by $80
 
-selector	!by 10,16,8,4,0,0
+selector	!by 9,16,8,5,0,0
 
 modend	!eof
