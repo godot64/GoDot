@@ -12,6 +12,7 @@
 ;  1.00, 29.05.17: first release
 ;  1.01, 18.07.17: added Preview
 ;  1.02, 24.06.25: renamed two dither patterns
+;  1.03, 14.01.26: added: turbo
 ;
 ; ------------------------------------------------
 
@@ -51,6 +52,7 @@
 	spren		= $d015
 	sprxe		= $d01d
 	sprcol2		= $d029
+	turbo		= $d030
 
 ; ------------------------------------------------ Header
 
@@ -61,8 +63,8 @@
 	!wo modend
 	!wo 0		; reserved
 	!pet "Convert BW2Gray "
-	!pet "1.02"
-	!pet "24.06.25"
+	!pet "1.03"
+	!pet "14.01.26"
 	!pet "A.Dettke        "
 
 ; ------------------------------------------------ Main
@@ -596,6 +598,8 @@ resetbal	ldy #15		; Balancingtabelle resetten
 	sta gr_btab,y
 	dey
 	bpl -
+	iny
+	sty turbo		; de-activate turbo
 	lda #16
 	sta gr_ctr
 	sta gr_brt
@@ -721,6 +725,7 @@ initad
 	sty $07fb
 	lda #1
 	sta adcnt
+	sta turbo		; activate turbo
 	lda $d015
 	ora #$0c
 	sta $d015
