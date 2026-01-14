@@ -15,6 +15,7 @@
 ;    1.01, 25.10.18, re-organized code (by Arndt Dettke)
 ;    1.02, 28.10.18, implemented 16 (!) grays finally
 ;    1.03, 20.06.19, added init keyboard for SuperCPU
+;    1.04, 14.01.26, added: turbo
 ;
 ; ------------------------------------------------------------
 
@@ -50,6 +51,7 @@
 	border		= $d020
 	backgr		= $d021
 	sprcol2		= $d029
+	turbo		= $d030
 
 ; ----------------------------------------- Header
 
@@ -58,17 +60,17 @@
 	!by $20
 	!wo 0
 	!wo modend
-	!wo 0 
+	!wo 0
 	!tx "SIRDS Generator "
-	!tx "1.03"
-	!tx "20.06.19"
+	!tx "1.04"
+	!tx "14.01.26"
 	!tx "P.Steinseifer/AD"
 
 ; ----------------------------------------- Screenlist
 
 rdslst	!by $00
 	!by $09,$06,$13,$08,$02
-	!wo 0 
+	!wo 0
 	!by $0b,$07,$08,$03,$c0
 	!wo evmake
 	!scr " Make@"
@@ -76,31 +78,31 @@ rdslst	!by $00
 	!wo evmode
 modetx	!scr "......@"		; (bright/dark)
 	!by $0d,$07,$08,$03,$c0
-	!wo showsirds 
+	!wo showsirds
 	!scr " Show@"
 	!by $0d,$10,$08,$03,$c0
 	!wo evexit
 	!scr " Exit@"
-	!by $c0,$09,$07,$0f 
+	!by $c0,$09,$07,$0f
 	!scr "SIRDS Generator@"
-	!by $80 
+	!by $80
 
 ; ----------------------------------------- Splash Screen
 
 spllst	!by $00
-	!by $09,$06,$13,$08,$02 
-	!wo 0 
-	!by $c0,$09,$07,$0f 
+	!by $09,$06,$13,$08,$02
+	!wo 0
+	!by $c0,$09,$07,$0f
 	!scr " Single Image  @"
-	!by $c0,$0a,$07,$0f 
+	!by $c0,$0a,$07,$0f
 	!scr "  Random Dot   @"
-	!by $c0,$0b,$07,$0f 
+	!by $c0,$0b,$07,$0f
 	!scr "  Stereogram   @"
-	!by $c0,$0c,$07,$0f 
+	!by $c0,$0c,$07,$0f
 	!scr "C64 Version by @"
-	!by $c0,$0d,$07,$0f 
+	!by $c0,$0d,$07,$0f
 	!scr "     Peter     @"
-	!by $c0,$0e,$07,$0f 
+	!by $c0,$0e,$07,$0f
 	!scr "Steinseifer '94@"
 	!by $80
 
@@ -126,10 +128,10 @@ start	lda sc_screenvek	; save system GUI
 evexit	inc used
 	lda cmode
 	sta gr_cmode
-+	sec 
-	rts 
++	sec
+	rts
 
-; ----------------------------------------- 
+; -----------------------------------------
 
 used	!by 0
 
@@ -151,9 +153,9 @@ screen	ldx #<rdslst	; show requester
 initad	ldy #60
 	lda #0
 -	sta spr255+3,y	; Spriteblock 255 vorbereiten
-	dey 
+	dey
 	bpl -
-	sty spr255	; dünner Strich
+	sty spr255	; dï¿½nner Strich
 	sty spr255+1
 	sty spr255+2
 	lda #$0f		; Farbe hellgrau
@@ -163,7 +165,7 @@ initad	ldy #60
 	ora #$0c
 	sta sprxe
 
-	lda msbx		; x über 255
+	lda msbx		; x ï¿½ber 255
 	ora #$0c
 	sta msbx
 	lda #8		; x-Ordinate: 8 (plus 256)
@@ -179,11 +181,12 @@ initad	ldy #60
 	lda spren
 	ora #$0c		; Activity-Balken aktivieren
 	sta spren
-	lda #5		; Startzähler (5 mal 40 = 200)
+	lda #5		; Startzï¿½hler (5 mal 40 = 200)
 	sta adcnt
+	sta turbo		; activate turbo
 	rts
 
-; ----------------------------------------- 
+; -----------------------------------------
 
 clearad	lda spren		; Wanderbalken aus
 	and #$f3
@@ -191,9 +194,9 @@ clearad	lda spren		; Wanderbalken aus
 	lda msbx
 	and #$f3
 	sta msbx
-	rts 
+	rts
 
-; ----------------------------------------- 
+; -----------------------------------------
 
 adinc	dec adcnt
 	bne +
@@ -201,11 +204,11 @@ adinc	dec adcnt
 	inc spr2y+2
 	lda #5
 	sta adcnt
-+	rts 
++	rts
 
 ; ----------------------------------------- Event: Generate Sirds
 
-evmake	jsr gd_sproff	
+evmake	jsr gd_sproff
 	ldx #<spllst	; show splash screen
 	ldy #>spllst
 	jsr gd_screen
@@ -226,7 +229,7 @@ evmake	jsr gd_sproff
 	jsr generate	; generate sirds
 
 	jsr clearad
-	sei 
+	sei
 	lda #0		; set colors
 	sta pport
 	tax
@@ -235,7 +238,7 @@ evmake	jsr gd_sproff
 	sta svram1+250,x
 	sta svram2,x
 	sta svram2+250,x
-	inx 
+	inx
 	cpx #250
 	bne -
 
@@ -243,7 +246,8 @@ evmake	jsr gd_sproff
 	sta gr_cmode
 	lda svpport
 	sta pport
-	cli 
+	cli
+	sta turbo		; de-activate turbo
 	jsr gd_spron
 
 	jmp restore
@@ -264,18 +268,18 @@ strleft	!wo $1010
 strright	!wo $1010
 nextdrct	!wo $1010
 proceed	!wo $1010
-tileoffs	!by 0 
+tileoffs	!by 0
 
 hirows	!by $40,$45,$4a,$4f,$54,$59,$5e,$63
-	!by $68,$6d,$72,$77,$7c,$81,$86,$8b 
-	!by $90,$95,$9a,$9f,$a4,$a9,$ae,$b3,$b8 
+	!by $68,$6d,$72,$77,$7c,$81,$86,$8b
+	!by $90,$95,$9a,$9f,$a4,$a9,$ae,$b3,$b8
 
 lineslo	!by $00,$40,$80,$c0,$00,$40,$80,$c0
 	!by $00,$40,$80,$c0,$00,$40,$80,$c0
-	!by $00,$40,$80,$c0,$00,$40,$80,$c0,$00 
+	!by $00,$40,$80,$c0,$00,$40,$80,$c0,$00
 
 lineshi	!by $00,$01,$02,$03,$05,$06,$07,$08
-	!by $0a,$0b,$0c,$0d,$0f,$10,$11,$12 
+	!by $0a,$0b,$0c,$0d,$0f,$10,$11,$12
 	!by $14,$15,$16,$17,$19,$1a,$1b,$1c,$1e
 
 mask	!by $80,$40,$20,$10,$08,$04,$02,$01
@@ -296,14 +300,14 @@ comp4bit	lda svprocd+1
 	lda svprocd
 	and #$06
 	lsr
-	clc 
+	clc
 	adc in4bit
 	sta in4bit
 	lda lcnt		; get scanline
 	and #7		; isolate scanline per tile
 	asl		; compute 4bit (/4)
 	asl
-	clc 
+	clc
 	adc in4bit
 	sta in4bit
 	bcc +
@@ -313,22 +317,22 @@ comp4bit	lda svprocd+1
 	lsr
 	lsr
 	lsr		; /8
-	tax 
+	tax
 	lda hirows,x	; = block row
-	clc 
+	clc
 	adc in4bit+1
 	sta in4bit+1
 
 	rts 		; return in4bit address
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 get4bit	lda in4bit
 	sta mod14+1
 	lda in4bit+1
 	sta mod14+2
 mod14	lda $1000		; get 4bit
-	rts 
+	rts
 
 ; ------------------------------------------------ Set Bitmap Pixel
 
@@ -342,10 +346,10 @@ setbmpix	lda svprocd+1	; compute address
 	lsr
 	lsr
 	lsr
-	tay 
+	tay
 	lda lineslo,y
 
-	clc 
+	clc
 	adc inbitmap
 	sta inbitmap
 	lda lineshi,y
@@ -355,13 +359,13 @@ setbmpix	lda svprocd+1	; compute address
 
 	lda lcnt
 	and #7
-	clc 
+	clc
 	adc inbitmap
 	sta inbitmap
 	lda svprocd
 	and #7
 
-	tay 
+	tay
 	lda inbitmap
 	sta dst
 	lda inbitmap+1
@@ -370,30 +374,30 @@ setbmpix	lda svprocd+1	; compute address
 	ldy #0
 	ora (dst),y	; write pixel to bitmap
 	sta (dst),y
-	rts 
+	rts
 
-; ----------------------------------------- 
+; -----------------------------------------
 
 clearbm	lda #>bitmap	; clear bitmap (32 pages)
 	sta dst+1
 	lda #<bitmap
 	sta dst
-	tax 
+	tax
 	tay
 -	sta (dst),y
-	iny 
+	iny
 	bne -
 	inc dst+1
-	inx 
+	inx
 	cpx #32
 	bne -
-	rts 
+	rts
 
 ; ----------------------------------------- Event: Show Stereogram
 
 showsirds	jsr gd_sproff
 	lda border
-	pha 
+	pha
 	lda #0		; grafik an
 	sta border
 	lda #$3b
@@ -409,7 +413,7 @@ showsirds	jsr gd_sproff
 	sta vram+$0100,x
 	sta vram+$0200,x
 	sta vram+$02e8,x
-	inx 
+	inx
 	bne -
 
 	stx sc_stop	; wait
@@ -423,7 +427,7 @@ showsirds	jsr gd_sproff
 	sta grafreg
 	lda svcreg
 	sta charreg
-	pla 
+	pla
 	sta border
 
 restore	ldx list		; show requester again
@@ -434,22 +438,22 @@ restore	ldx list		; show requester again
 ; ----------------------------------------- clear buffers
 
 clrbufs	ldy #0
--	tya 
+-	tya
 	sta buf1,y	; aufsteigend
 	lda #0
 	sta buf2,y	; $00
-	iny 
+	iny
 	bne -
--	tya 
+-	tya
 	sta buf1+256,y	; aufsteigend
 	lda #1
 	sta buf2+256,y	; $01
-	iny 
+	iny
 	cpy #64
 	bne -
-	rts 
+	rts
 
-; ----------------------------------------- 
+; -----------------------------------------
 
 getstray	jsr comp4bit	; compute address
 	jsr get4bit	; get byte from 4bit
@@ -468,16 +472,16 @@ getstray	jsr comp4bit	; compute address
 +	txa
 	and #$0f		; even, right pixel
 
-	tax 
+	tax
 	lda straytab,x	; 40..32
 	sta stray
 	lsr
 	sta strayhlf	; 20..16
-	rts 
+	rts
 
-; ----------------------------------------- 
+; -----------------------------------------
 
-straytab	!by $2f,$2e,$2d,$2c,$2b,$2a,$29,$28 
+straytab	!by $2f,$2e,$2d,$2c,$2b,$2a,$29,$28
 	!by $27,$26,$25,$24,$23,$22,$21,$20
 
 stray 	!by $10
@@ -500,7 +504,7 @@ lloop1	lda proceed
 	jsr getstray	; get 4bit address + stray offsets
 
 	lda proceed
-	sec 
+	sec
 	sbc strayhlf
 	sta strleft
 	lda proceed+1
@@ -511,7 +515,7 @@ lloop1	lda proceed
 	jmp mk0		; yes, proceed
 
 +	lda strleft
-	clc 
+	clc
 	adc stray
 	sta strright
 	lda strleft+1
@@ -524,14 +528,14 @@ lloop1	lda proceed
 	jmp mk0		; yes, proceed
 
 mk1	lda #<buf1	; no, buffer
-	clc 
+	clc
 	adc strleft
 	sta mod1+1
 	lda #>buf1
 	adc strleft+1
 	sta mod1+2
 	lda #<buf2
-	clc 
+	clc
 	adc strleft
 	sta mod2+1
 	lda #>buf2
@@ -562,7 +566,7 @@ mod2	lda $1000		; get from buf2
 	cmp strright
 	bcs ++
 
-+	lda nextdrct	; next to left		
++	lda nextdrct	; next to left
 	sta strleft
 	lda nextdrct+1
 	sta strleft+1
@@ -578,14 +582,14 @@ mod2	lda $1000		; get from buf2
 	sta strright+1
 
 mk2	lda #<buf1
-	clc 
+	clc
 	adc strleft
 	sta mod3+1
 	lda #>buf1
 	adc strleft+1
 	sta mod3+2
 	lda #<buf2
-	clc 
+	clc
 	adc strleft
 	sta mod4+1
 	lda #>buf2
@@ -613,7 +617,7 @@ mk0	lda proceed
 	beq +
 	jmp lloop1
 
-; ----------------------------------------- 
+; -----------------------------------------
 
 +	jsr adinc		; ja, activity
 	lda #<319		; dann auf 319
@@ -622,28 +626,28 @@ mk0	lda proceed
 	sta proceed+1
 
 lloop2	lda proceed
-	clc 
+	clc
 	adc #<buf1
 	sta mod5+1
 	lda proceed+1
 	adc #>buf1
 	sta mod5+2
 	lda proceed
-	clc 
+	clc
 	adc #<buf2
 	sta mod6+1
 	lda proceed+1
 	adc #>buf2
 	sta mod6+2
 	lda proceed
-mod5	cmp $1000	
+mod5	cmp $1000
 	bne mk3
 	lda proceed+1
-mod6	cmp $1000	
+mod6	cmp $1000
 	bne mk3
 
 	lda proceed
-	clc 
+	clc
 	adc #<buf3
 	sta mod7+1
 	lda proceed+1
@@ -651,7 +655,7 @@ mod6	cmp $1000
 	sta mod7+2
 	ldy #0
 	lda (random),y
-mod13	eor #$ff	
+mod13	eor #$ff
 mod15	and #1
 mod7	sta $1000
 	inc random
@@ -665,34 +669,34 @@ mod7	sta $1000
 	lda tileoffs	; 0..7
 	and #7
 	sta tileoffs
-	tax 
+	tax
 	lda mask,x
 	sta mod15+1
 +	jmp mk4
 
 mk3	lda proceed
-	clc 
+	clc
 	adc #<buf1
 	sta mod8+1
 	lda proceed+1
 	adc #>buf1
 	sta mod8+2
 	lda proceed
-	clc 
+	clc
 	adc #<buf2
 	sta mod9+1
 	lda proceed+1
 	adc #>buf2
 	sta mod9+2
 	lda #<buf3
-	clc 
+	clc
 mod8	adc $1000		; add buf1
 	sta mod10+1
 	lda #>buf3
 mod9	adc $1000		; add buf2
 	sta mod10+2
 	lda proceed
-	clc 
+	clc
 	adc #<buf3
 	sta mod11+1
 	lda proceed+1
@@ -702,13 +706,13 @@ mod10	lda $1000		; get from buf3
 mod11	sta $1000		; and store there at different location
 
 mk4	lda proceed
-	clc 
+	clc
 	adc #<buf3
 	sta mod12+1
 	lda proceed+1
 	adc #>buf3
 	sta mod12+2
-mod12	lda $1000	
+mod12	lda $1000
 	beq +
 
 	lda proceed
@@ -718,7 +722,7 @@ mod12	lda $1000
 	jsr setbmpix
 
 +	lda proceed	; decrease proceed pointer
-	sec 
+	sec
 	sbc #1
 	sta proceed
 	lda proceed+1
@@ -735,7 +739,7 @@ mod12	lda $1000
 	jmp vlloop
 
 +	sta gr_redisp	; display has changed
-	rts 
+	rts
 
 ; ----------------------------------------- Set Mode
 
@@ -750,9 +754,9 @@ modeout	lda mod13+1
 	dex
 	dey
 	bpl -
-	rts 
+	rts
 
-; ------------------------------------------------------------- 
+; -------------------------------------------------------------
 
 modend	!eof
 
