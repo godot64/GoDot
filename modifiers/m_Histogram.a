@@ -4,7 +4,7 @@
 	!ct pet
 ;	!sl "labels.txt"
 
-; ------------------------------------------------------------ 
+; ------------------------------------------------------------
 ;
 ; mod.Histogram
 ; Module to retrieve information about the number of pixels of
@@ -23,8 +23,9 @@
 ;    1.07, 06.02.20, added: hilite gadget on Join or Swap
 ;    1.08, 12.07.21, bugfix: crash if run from REU and exec View (finally)
 ;    1.09, 17.07.21, removed: rejecting View if launched from REU
+;    1.10, 13.01.26, added: turbo on counting and applying
 ;
-; ------------------------------------------------------------ 
+; ------------------------------------------------------------
 
 
 ; --------------------------------------- Equates
@@ -47,23 +48,16 @@
 	offx		= $b2
 	offy		= $b3
 
-	src0		= $f7
-	lcnt8		= $fa
-	lcnt		= $fb
-	gbyte		= $fc
-	counter		= $fd
-
 	col0		= $0334
 
 	histlo		= $be00
 	histhi		= $be10
 
-	vram2		= $ce0b
-	vram1		= $de0b
 	cstart		= $ee0b
 
 	border		= $d020
 	bkgrnd		= $d021
+	turbo		= $d030
 
 ; --------------------------------------- Header
 
@@ -74,8 +68,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "4BitHistogram   "
-	!pet "1.09"
-	!pet "17.07.21"
+	!pet "1.10"
+	!pet "13.01.26"
 	!pet "A. Dettke       "
 
 ; --------------------------------------- Main
@@ -146,11 +140,13 @@ gt0	jsr gd_setpos
 initcount	ldx #0		; prepare activity display (gauge bar): "Counting"
 	!by $2c
 initwork	ldx #10		; this is for "Working"
-	jsr tcopy
-	jsr gd_clrms
+	jsr tcopy		; returns .y=0
+	jsr gd_clrms	; returns .x=0
 	lda cntwert
 	sta adcnt
-	stx offy
+	stx  offy
+	inx
+	stx turbo		; activate turbo
 	lda #7
 	sta offx
 	rts
@@ -160,7 +156,8 @@ initwork	ldx #10		; this is for "Working"
 done	jsr settab
 	jsr gd_clrms
 	ldx #20		; Offset to "Done."
-	jsr tcopy
+	jsr tcopy 	; returns .y=0
+	sty turbo		; de-activate turbo
 	jmp messout
 
 ; --------------------------------------- Show Requester
@@ -209,7 +206,7 @@ ep3 	sty sc_merk
 
 	lda #0		; reset number of colors
 	jsr shownum
-       
+
 ; --------------------------------------- Event: Histogram
 
 evhist 	jsr initcount
@@ -217,14 +214,14 @@ evhist 	jsr initcount
 	sty sc_merk
 	sty hdone
 	lda #>histlo
-	sta sc_merk+1           
+	sta sc_merk+1
 	tya		; clear histogram table at $be00
 	ldx #$20
 ht0 	sta (sc_merk),y
 	iny
 	dex
 	bpl ht0
-; --------------------------------------- 
+; ---------------------------------------
 	lda #$40		; start at $4000 (4Bit)
 	sta sc_merk+1
 	lda #$7d		; 32000 bytes
@@ -261,7 +258,7 @@ ht4 	dec ls_vekta8
 	ora ls_vekta8+1	; until 32000 bytes counted
 	bne hloop
 
-; --------------------------------------- 
+; ---------------------------------------
 
 	jsr numcols	; show number of colors in image
 	jsr done
@@ -313,7 +310,7 @@ unhilite	jsr sethilite
 	ldx #2
 	jmp gd_fcol	; .c=0
 
-; --------------------------------------- 
+; ---------------------------------------
 
 numcols	ldx #15		; count number of colors in image
 	ldy #0
@@ -385,7 +382,7 @@ ap1	pla
 	lda c64pal,x
 	pha
 ap2	pla
-	ora joinbuf	
+	ora joinbuf
 
 	sta (ls_vekta8),y	; write back
 	jsr action	; activity
@@ -430,7 +427,7 @@ sw0	jsr sethilite
 	jsr gd_eloop	; wait for clicks
 	pla		; restore old screenlist
 	sta sc_screenvek+1
-	pla 
+	pla
 	sta sc_screenvek
 	lda sc_stop	; break? (STOP/Cancel?)
 	beq jn0
@@ -504,7 +501,7 @@ sw4	sec
 	rts
 
 sw3	inc joinflag	; yes, switch to target
-	clc 
+	clc
 	rts
 
 ; --------------------------------------- Subevent: De-Select colors
@@ -512,10 +509,10 @@ sw3	inc joinflag	; yes, switch to target
 se_deslctj:
 	lda #2		; set flag
 	sta joinflag
-	clc 
+	clc
 	rts
 
-; --------------------------------------- 
+; ---------------------------------------
 
 deselect	lda #32		; blank position
 	jsr gd_fi0	; write to screen
@@ -750,7 +747,7 @@ joinlst	!by 0
 	!scr "move.@"
 	!by $80
 
-; --------------------------------------- 
+; ---------------------------------------
 
 swaplst	!by 0
 	!by 4,18,5,18,$70
@@ -771,7 +768,7 @@ swaplst	!by 0
 	!scr "to swap@"
 	!by $80
 
-; --------------------------------------- 
+; ---------------------------------------
 
 blk	!by 4,10,7,1
 blu	!by 5,10,7,1
@@ -955,7 +952,7 @@ tmode	ldx #$13
 	sta bkgrnd
 	rts
 
-; ------------------------------------------ 
+; ------------------------------------------
 
 setcveks	sei
 	lda #$35
@@ -964,7 +961,7 @@ setcveks	sei
 	ldx #$d8
 	bne scv0
 
-; ------------------------------------------ 
+; ------------------------------------------
 
 setbveks	lda therev1
 	ldx #4
@@ -975,7 +972,7 @@ scv0	stx ls_adrmisc+1
 	sty ls_adrmisc
 	dey
 
-; ------------------------------------------ 
+; ------------------------------------------
 
 setlast	sty gr_bkcol
 	ldy #<(cstart)
@@ -988,7 +985,7 @@ setlast	sty gr_bkcol
 	ldy #0
 	rts
 
-; ------------------------------------------ 
+; ------------------------------------------
 
 getcolors	jsr setcveks
 stco	lda (ls_adrmisc),y
@@ -1028,7 +1025,7 @@ scv1	lda #$36
 	sta gr_bkcol
 	rts
 
-; ------------------------------------------ 
+; ------------------------------------------
 
 setcolors	lda gr_bkcol
 	sta bkgrnd
@@ -1065,7 +1062,7 @@ stc4	lda (sc_vekt20),y
 	jsr setlast
 	beq stc4
 
-; ------------------------------------------ 
+; ------------------------------------------
 
 sethilite	ldx #3		; set data to (un)hilite gadgets
 -	lda joingad,y
@@ -1077,8 +1074,8 @@ sethilite	ldx #3		; set data to (un)hilite gadgets
 
 ; ------------------------------------------ Switch Graphics/Text
 
-	lda rm_swapw+3	; Modul läuft aus dem RAM heraus?
-	bne donot		; ja, View nicht ausführen
+	lda rm_swapw+3	; Modul lï¿½uft aus dem RAM heraus?
+	bne donot		; ja, View nicht ausfï¿½hren
 
 evview	lda gr_redisp
 	pha
@@ -1090,7 +1087,7 @@ evview	lda gr_redisp
 	jsr redis
 	jsr rp1
 	pla
-	sta gr_redisp	; restore auto render 
+	sta gr_redisp	; restore auto render
 	jmp showrequester	; redisplay color chooser
 
 ; --------------------------------------- Blink the Border
