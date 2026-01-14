@@ -3,14 +3,15 @@
 	!ct pet
 ;	!sl "labels.txt"
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 ;
 ; mod.Antialiasing
 ;
 ; 1.00, 31.07.19, fist release
 ; 1.01, 12.02.21, added: multicolor mode
+; 1.02, 14.01.26, added: turbo mode
 ;
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 ; -------------------------------------------------------------- Declarations
 
@@ -38,6 +39,7 @@
 	sprxe		= $d01d
 	border		= $d020
 	sprcol2		= $d029
+	turbo		= $d030
 
 ; -------------------------------------------------------------- Header
 
@@ -49,8 +51,8 @@
 	!wo modend
 	!wo 0		; reserved
 	!pet "Antialiasing    "
-	!pet "1.01"
-	!pet "12.02.21"
+	!pet "1.02"
+	!pet "14.01.26"
 	!pet "A.Dettke        "
 
 ; ------------------------------------------------ Main
@@ -66,11 +68,12 @@ start	jsr makechr	; generate listbox char
 	beq evleave	; no
 	lda rbalncng	; should balancing be resetted?
 	beq evleave
-	jsr breset	; yes
+	jsr breset	; yes (returns .a=0)
 
 ; ------------------------------------------------ Event: Leave
 
-evleave	sec		; leave modifier
+evleave	sta turbo		; de-activate turbo
+	sec		; leave modifier
 	rts
 
 ; ------------------------------------------------ Events: Reset Balancing
@@ -95,8 +98,8 @@ evbreset	ldx rbalncng		; set flag: Reset after processing
 breset	ldy #16		; Balancing-Tabelle initialisieren
 	sty gr_ctr
 	sty gr_brt
--	dey 
-	tya 
+-	dey
+	tya
 	sta gr_btab,y
 	bne -
 	rts
@@ -219,9 +222,9 @@ evapply	jsr init_sa	; init activity display
 	sta passes
 	rts		; .c=1
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 ; ------------------------------------------ Konvolution
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 
 konvol	lda mode
@@ -264,10 +267,10 @@ konvol	lda mode
 	lda qtab,x
 	sta buf_r+160,y
 
-	iny 
+	iny
 	cpy #160
 	bne -
-	rts 
+	rts
 
 aacolor	ldy #0
 -	ldx buf_m-1,y
@@ -288,14 +291,14 @@ aacolor	ldy #0
 	and #15
 	sta buf_r+160,y
 
-	iny 
+	iny
 	cpy #160
 	bne -
-	rts 
+	rts
 
-; ------------------------------------------------ 
-; ------------------------------------------------ 
-; ------------------------------------------------ 
+; ------------------------------------------------
+; ------------------------------------------------
+; ------------------------------------------------
 
 ; ------------------------------------------------ Puffer umlagern
 
@@ -308,20 +311,20 @@ umlagern	ldy #0		; von unten nach oben schieben
 	sta buf_m-1,y
 	lda buf_u+160,y
 	sta buf_m+160,y
-	iny 
+	iny
 	cpy #161
 	bne -
-	rts 
+	rts
 
-; ------------------------------------------------ Puffer füllen
+; ------------------------------------------------ Puffer fï¿½llen
 
 puffern	lda lcnt		; aktuelle Rasterzeile
-	pha 
+	pha
 	lsr		; durch 8
 	lsr
 	lsr
-	tax 
-	pla 
+	tax
+	pla
 	and #$07		; (rz and 7) * 4
 	asl
 	asl
@@ -339,7 +342,7 @@ puffern	lda lcnt		; aktuelle Rasterzeile
 
 --	ldy #0
 -	lda (src),y	; Pixel links
-	pha 
+	pha
 	lsr
 	lsr
 	lsr
@@ -354,12 +357,12 @@ puffern	lda lcnt		; aktuelle Rasterzeile
 	inc dst
 	bne +
 	inc dst+1
-+	iny 
++	iny
 	cpy #4		; 4mal (eine Kachel)
 	bne -
 
-	lda src		; nächste Kachel
-	clc 
+	lda src		; nï¿½chste Kachel
+	clc
 	adc #32
 	sta src
 	bcc +
@@ -367,21 +370,21 @@ puffern	lda lcnt		; aktuelle Rasterzeile
 +	dec tcnt		; 40 mal
 	bne --
 
-	lda buf_u		; für definierten Rand sorgen
+	lda buf_u		; fï¿½r definierten Rand sorgen
 	sta buf_u-1
 	lda buf_u+319
 	sta buf_u+320
-	rts 
+	rts
 
 ; ------------------------------------------------ Ergebnis nach 4Bit
 
 w_ergeb	lda lcnt
-	pha 
+	pha
 	lsr
 	lsr
 	lsr
-	tax 
-	pla 
+	tax
+	pla
 	and #$07
 	asl
 	asl
@@ -397,7 +400,7 @@ w_ergeb	lda lcnt
 	lda #40
 	sta tcnt
 --	ldy #0
--	lda (dst,x)	; Pixel wieder zusammenführen
+-	lda (dst,x)	; Pixel wieder zusammenfï¿½hren
 	asl
 	asl
 	asl
@@ -410,19 +413,19 @@ w_ergeb	lda lcnt
 	bne +
 	inc dst+1
 +	sta (src),y	; und speichern
-	iny 
+	iny
 	cpy #4
 	bne -
 
 	lda src
-	clc 
+	clc
 	adc #32
 	sta src
 	bcc +
 	inc src+1
 +	dec tcnt
 	bne --
-	rts 
+	rts
 
 ; ------------------------------------------------ Activity
 
@@ -432,7 +435,7 @@ adinc	dec adcnt
 	inc spr2y+2
 	lda #5
 	sta adcnt
-+	rts 
++	rts
 
 ; ------------------------------------------------ Abschluss Activity
 
@@ -442,19 +445,19 @@ abschl	lda spren		; Wanderbalken aus
 	lda msbx
 	and #$f3
 	sta msbx
-	lda #$ff		; Grafik verändert
+	lda #$ff		; Grafik verï¿½ndert
 	sta gr_redisp
 	sec 		; fertig
-	rts 
+	rts
 
 ; ------------------------------------------------ Init Activity
 
 init_sa	ldy #60
 	lda #0
 -	sta spr255+3,y	; Spriteblock 255 vorbereiten
-	dey 
+	dey
 	bpl -
-	sty spr255	; dünner Strich
+	sty spr255	; dï¿½nner Strich
 	sty spr255+1
 	sty spr255+2
 	lda #$0f		; Farbe hellgrau
@@ -464,7 +467,7 @@ init_sa	ldy #60
 	ora #$0c
 	sta sprxe
 
-	lda msbx		; x über 255
+	lda msbx		; x ï¿½ber 255
 	ora #$0c
 	sta msbx
 	lda #8		; x-Ordinate: 8 (plus 256)
@@ -482,6 +485,7 @@ init_sa	ldy #60
 	sta spren
 	lda #5
 	sta adcnt
+	sta turbo		; activate turbo
 	rts
 
 ; --------------------------- Kringel definieren
@@ -557,7 +561,7 @@ rsbaltx	!scr " no",0
 
 hi_rows	!by $40, $45, $4a, $4f, $54, $59, $5e, $63
 	!by $68, $6d, $72, $77, $7c, $81, $86, $8b
-	!by $90, $95, $9a, $9f, $a4, $a9, $ae, $b3, $b8 
+	!by $90, $95, $9a, $9f, $a4, $a9, $ae, $b3, $b8
 
 chschr	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
 
@@ -603,6 +607,6 @@ coltab	!by $00,$33,$33,$33,$33,$22,$22,$33,$33,$22,$33,$33,$33,$33,$33,$77
 dnibs	!by $00,$11,$22,$33,$44,$55,$66,$77	; double nibbles
 	!by $88,$99,$aa,$bb,$cc,$dd,$ee,$ff
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 modend	!eof
