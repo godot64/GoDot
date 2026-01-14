@@ -14,6 +14,7 @@
 ; both:   1.01, 06.07.17, combined modifier gray & color
 ;         1.02, 06.01.19, changed some colors in coltab
 ;         1.03, 09.02.19, completely recoded for correct results
+;         1.04, 14.01.26, added: turbo
 ;
 ; --------------------------------------
 
@@ -43,6 +44,7 @@
 	sprxe		= $d01d
 	border		= $d020
 	sprcol2		= $d029
+	turbo		= $d030
 
 ; -------------------------------------- Header
 
@@ -54,8 +56,8 @@
 	!wo modend
 	!wo 0
 	!pet "average values  "
-	!pet "1.03"
-	!pet "09.02.19"
+	!pet "1.04"
+	!pet "14.01.26"
 	!pet "W.Kling/AD      "
 addtx	!pet "gray:nib+nib/2  "
 	!pet "col:nib+nib->tab"
@@ -264,7 +266,7 @@ adinc	dec adcnt
 	inc spr2y+2
 	lda #5
 	sta adcnt
-+	rts 
++	rts
 
 ; -------------------------------------- Clear Bar
 
@@ -274,12 +276,14 @@ clearad	lda spren		; Wanderbalken aus
 	lda msbx
 	and #$f3
 	sta msbx
-	lda #$01
-	sta gr_redisp
+	ldy #0
+	sty turbo		; de-activate turbo
+	iny
+	sty gr_redisp	; force re-render
 
 ; -------------------------------------- Event: Cancel
 
-evcan	sec
+evcan	sec		; leave modifier
 	rts
 
 ; -------------------------------------- Init Bar
@@ -287,9 +291,9 @@ evcan	sec
 initad	ldy #60
 	lda #0
 -	sta spr255+3,y	; Spriteblock 255 vorbereiten
-	dey 
+	dey
 	bpl -
-	sty spr255	; dünner Strich
+	sty spr255	; dï¿½nner Strich
 	sty spr255+1
 	sty spr255+2
 	lda #$0f		; Farbe hellgrau
@@ -299,7 +303,7 @@ initad	ldy #60
 	ora #$0c
 	sta sprxe
 
-	lda msbx		; x über 255
+	lda msbx		; x ï¿½ber 255
 	ora #$0c
 	sta msbx
 	lda #8		; x-Ordinate: 8 (plus 256)
@@ -315,8 +319,9 @@ initad	ldy #60
 	lda spren
 	ora #$0c		; Activity-Balken aktivieren
 	sta spren
-	lda #5		; Startzähler (5 mal 40 = 200)
+	lda #5		; Startzï¿½hler (5 mal 40 = 200)
 	sta adcnt
+	sta turbo		; activate turbo (bit 0 to 1)
 	rts
 
 ; -------------------------------------- Requester
