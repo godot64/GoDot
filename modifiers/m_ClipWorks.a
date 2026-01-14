@@ -20,6 +20,7 @@
 ; 1.11, 28.02.20: added leave subrequester after work
 ; 1.12, 23.03.22: added automatic reaction to exceeding input values
 ; 1.13, 03.12.24: adapted to SuperCPU
+; 1.14, 13.01.26: added: turbo when shrinking or zooming image
 ;
 ; ------------------------------------------------
 
@@ -56,7 +57,6 @@
 	ibuff		= sy_global
 	spr255		= sy_global+$80
 	buf0		= sy_bigbuffer
-	bufend		= buf0-1
 	buf1		= buf0+512
 
 	modul		= $c000
@@ -72,9 +72,8 @@
 	rahmen		= $d020
 	backgr		= $d021
 	sprcol2		= $d029
+	turbo		= $d030
 
-	vram2		= $ce0b
-	vram1		= $de0b
 	cstart		= $ee0b
 	buf11		= buf1+320
 
@@ -88,8 +87,8 @@
 	!wo modend
 	!wo 0
 	!pet "ClipWorks       "
-	!pet "1.13"
-	!pet "03.12.24"
+	!pet "1.14"
+	!pet "13.01.26"
 	!pet "A. Dettke       "
 
 ; ------------------------------------------------ Main
@@ -889,7 +888,8 @@ sevshrink	lda #0		; flag
 	jsr swap		; save first page of module
 	jsr vres		; shrink/zoom vertically
 	jsr hres		; shrink/zoom horizonzally
-	jsr swap		; restore first page
+	jsr swap 		; restore first page
+	sty turbo		; de-activate turbo mode
 	jmp clearad	; activity off, finished
 
 ; ------------------------------------------------ vertically
@@ -913,7 +913,9 @@ ssh0	lda vratio+1,x	; zoom
 	lda vratio,x
 ssh1	sta scrf
 	lsr
-	sta aprxf
+	sta  aprxf
+	iny
+	sty turbo		; activate turbo mode
 
 	lda #8		; init activity
 	jsr initad
