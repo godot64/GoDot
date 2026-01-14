@@ -4,10 +4,10 @@
 	!ct pet
 ;	!sl "labels.txt"
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 ;
 ; mod.ReduceGrays
-; Modul zum Reduzieren der Farben nach dem 
+; Modul zum Reduzieren der Farben nach dem
 ; Error-Distribution-Verfahren
 ;
 ; 1.00, 06.04.93
@@ -20,8 +20,10 @@
 ; 1.03, 10.07.17, combined with EDmono
 ; 1.04, 11.11.18, added y2.20, all values corrected
 ; 1.05, 13.07.21, better UI
+; 1.06, 04.12.24, adapted to SuperCPU
+; 1.07, 14.01.26, added turbo
 ;
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 ; ------------------------------------------------ Declarations
 
@@ -42,20 +44,21 @@
 	ccol	= $41
 
 	makeqtab	= $17c9
-	numcols	= $1ee9
+	numcols	= $1eef
 	buffer	= $c600
 	cpalette	= $c740
 
-	sprptr		= $07f8
-	spr255		= $3fc0
+	sprptr	= $07f8
+	spr255	= $3fc0
 
-	spr2x		= $d004
-	spr2y		= $d005
-	msbx		= $d010
-	spren		= $d015
-	sprxe		= $d01d
-	border		= $d020
-	sprcol2		= $d029
+	spr2x	= $d004
+	spr2y	= $d005
+	msbx	= $d010
+	spren	= $d015
+	sprxe	= $d01d
+	border	= $d020
+	sprcol2	= $d029
+	turbo	= $d030
 
 ; ------------------------------------------------ Header
 
@@ -63,11 +66,11 @@
 	!by $20
 	!by $00
 	!by $00
-	!wo modend 
+	!wo modend
 	!wo 0
 	!pet "reduce ed gray  "
-	!pet "1.05"
-	!pet "13.07.21"
+	!pet "1.07"
+	!pet "14.01.26"
 	!pet "W.Kling/AD      "
 
 ; -------------------------------------- Main
@@ -96,7 +99,7 @@ evg0	inc gamma
 	dey
 	bpl -
 	ldx #<sgamma
-	ldy #>sgamma+1
+	ldy #>sgamma
 	jmp settext
 
 ; ------------------------------------------------ Event: Reduce to Monochrome
@@ -132,7 +135,7 @@ evhires	ldy #0		; flag for HIRES
 	ldy #0		; apply error distribution
 	sty perr
 -	lda (src),y
-	clc 
+	clc
 	adc perr
 	sta derr
 	lda (dst),y
@@ -147,7 +150,7 @@ evhires	ldy #0		; flag for HIRES
 	dey
 	beq ++		; 0.35 ($01)
 	dey
-	beq +++ 
+	beq +++
 	lda g220,x	; 2.20 ($03)
 	jmp hr0
 +++	lda g180,x	; 1.80 ($02)
@@ -163,11 +166,11 @@ evhires	ldy #0		; flag for HIRES
 
 hr0	ldy ymrk
 	sta m1err
-	
+
 	bit derr
 	bmi +
 	adc derr
-	sec 
+	sec
 	ror derr+1
 	jmp ++
 
@@ -183,7 +186,7 @@ hr0	ldy ymrk
 	bpl ++
 	cmp #$3c		; Mittelwert
 	bcc ++
-	lda mono2		; weiﬂ
+	lda mono2		; wei√ü
 	!by $2c
 ++	lda mono1		; schwarz
 	jmp +++
@@ -198,7 +201,7 @@ hr0	ldy ymrk
 +	lsr		; /8: index into palette
 	lsr
 	lsr
-	tax 
+	tax
 	lda cpalette,x	; get new color
 
 +++	sta (dst),y	; and set it
@@ -207,15 +210,15 @@ hr0	ldy ymrk
 	asl
 	sta m3err
 	lda m2err
-	sec 
+	sec
 	sbc m3err
-	clc 
+	clc
 	bpl +
-	sec 
+	sec
 +	ror
 	sta (src),y
 	sta perr
-	iny 
+	iny
 	bne +
 	inc dst+1
 	inc src+1
@@ -228,7 +231,7 @@ hr0	ldy ymrk
 	ora count+1
 	bne +
 
-	jsr putlineh	; then transfer it to 4bit 
+	jsr putlineh	; then transfer it to 4bit
 	jsr lloop
 	jmp --
 
@@ -238,10 +241,10 @@ hr0	ldy ymrk
 buildhpal	ldy #15		; prepare palette
 -	ldx gr_qtab,y	; regard quantization
 	lda gr_palette,x	; take GoDot palette
-	tax 
+	tax
 	lda godcols,x
 	sta cpalette,y	; build C64 palette
-	dey 
+	dey
 	bpl -
 	rts
 
@@ -255,7 +258,7 @@ evmcolor	jsr init
 	ldy #0		; apply error distribution
 	sty perr
 -	lda buffer,y
-	clc 
+	clc
 	adc perr
 	sta derr
 	lda sy_bigbuffer,y
@@ -265,7 +268,7 @@ evmcolor	jsr init
 	bit derr
 	bmi +
 	adc derr
-	sec 
+	sec
 	ror derr+1
 	jmp ++
 
@@ -283,7 +286,7 @@ evmcolor	jsr init
 +	lsr		; /8: index into palette
 	lsr
 	lsr
-	tax 
+	tax
 	lda cpalette,x	; get new color
 	sta sy_bigbuffer,y
 	asl
@@ -291,31 +294,31 @@ evmcolor	jsr init
 	asl
 	sta m3err
 	lda m2err
-	sec 
+	sec
 	sbc m3err
-	clc 
+	clc
 	bpl +
-	sec 
+	sec
 +	ror
 	sta buffer,y
 	sta perr
-	iny 
+	iny
 	cpy #160
 	bne -
-	jsr putlinem	; then transfer it to 4bit 
+	jsr putlinem	; then transfer it to 4bit
 
 	jsr lloop
 	jmp --
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 getlineh	lda linenr	; compute 4bit address
-	pha 
+	pha
 	lsr
 	lsr
 	lsr
-	tax 
-	pla 
+	tax
+	pla
 	and #7
 	asl
 	asl
@@ -332,7 +335,7 @@ getlineh	lda linenr	; compute 4bit address
 	sta bcnt
 --	ldy #0
 -	lda (src),y	; isolate one rasterline
-	pha 
+	pha
 	lsr		; linkes Pixel
 	lsr
 	lsr
@@ -347,29 +350,29 @@ getlineh	lda linenr	; compute 4bit address
 	inc dst
 	bne +
 	inc dst+1
-+	iny 
++	iny
 	cpy #4
 	bne -
 
-	lda src		; n‰chste Kachel
-	clc 
+	lda src		; n√§chste Kachel
+	clc
 	adc #32
 	sta src
 	bcc +
 	inc src+1
 +	dec bcnt		; bis alle durch (320 Pixel)
 	bne --
-	rts 
+	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 putlineh	lda linenr	; compute 4bit address
-	pha 
+	pha
 	lsr
 	lsr
 	lsr
-	tax 
-	pla 
+	tax
+	pla
 	and #7
 	asl
 	asl
@@ -398,29 +401,29 @@ putlineh	lda linenr	; compute 4bit address
 	bne +
 	inc dst+1
 +	sta (src),y
-	iny 
+	iny
 	cpy #4
 	bne -
 
-	lda src		; n‰chste Kachel
-	clc 
+	lda src		; n√§chste Kachel
+	clc
 	adc #32
 	sta src
 	bcc +
 	inc src+1
 +	dec bcnt		; bis alle durch
 	bne --
-	rts 
+	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 getlinem	lda linenr	; compute 4bit address
-	pha 
+	pha
 	lsr
 	lsr
 	lsr
-	tax 
-	pla 
+	tax
+	pla
 	and #7
 	asl
 	asl
@@ -442,25 +445,25 @@ getlinem	lda linenr	; compute 4bit address
 	sta sy_bigbuffer,x
 	lda (dst),y
 	and #15
-	clc 
+	clc
 	adc sy_bigbuffer,x
 	sta sy_bigbuffer,x
-	inx 
-	iny 
+	inx
+	iny
 	cpy #4
 	bne -
 
 	lda dst
-	clc 
+	clc
 	adc #32
 	sta dst
 	bcc +
 	inc dst+1
 +	dec bcnt		; bis alle durch
 	bne --
-	rts 
+	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 putlinem	lda src
 	ldy src+1
@@ -477,36 +480,36 @@ putlinem	lda src
 	asl
 	asl
 	ora sy_bigbuffer,x
-	inx 
+	inx
 	sta (dst),y
-	iny 
+	iny
 	cpy #4
 	bne -
 	lda dst
-	clc 
+	clc
 	adc #32
 	sta dst
 	bcc +
 	inc dst+1
 +	dec bcnt		; bis alle durch
 	bne --
-	rts 
+	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 makepal	ldy #0
 -	ldx gr_palette,y
 	lda godcols,x
 	sta npalette,y
-	iny 
+	iny
 	cpy gr_howmany
 	bne -
 	ldy #15
 --	ldx #0
 	lda #16
 	sta ccol
--	tya 
-	sec 
+-	tya
+	sec
 	sbc npalette,x
 	beq ++
 	bcs +
@@ -517,12 +520,12 @@ makepal	ldy #0
 ++	sta ccol
 	lda npalette,x
 	sta cpalette,y
-+	inx 
++	inx
 	cpx gr_howmany
 	bne -
-	dey 
+	dey
 	bpl --
-	rts 
+	rts
 
 ; ------------------------------------------------ Show # of Colors
 
@@ -534,7 +537,7 @@ shownum	lda gr_howmany
 +	stx colstx
 	sta colstx+1
 	ldx #<colsgad		; and output
-	ldy #>colsgad+1
+	ldy #>colsgad
 
 ; ------------------------------------------------ Text output
 
@@ -551,7 +554,7 @@ stt	jsr gd_setpos
 	ldy #6
 	jmp gd_xtxout1
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 makechar	ldx #15
 -	lda gammach,x
@@ -568,11 +571,11 @@ unmake	ldx #15
 	bpl -
 	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 npalette	!fill 16,5
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 fbhigh	!by $40,$45,$4a,$4f,$54
 	!by $59,$5e,$63,$68,$6d
@@ -580,7 +583,7 @@ fbhigh	!by $40,$45,$4a,$4f,$54
 	!by $8b,$90,$95,$9a,$9f
 	!by $a4,$a9,$ae,$b3,$b8
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 screenpos	!wo 0
 mode	!by 0
@@ -590,14 +593,18 @@ repair	!fill 16
 gamma	!by 0
 gammavals	!scr "1.000.351.802.20"
 goffs	!by 3,7,11,15
-gray	!scr "Gray "
+imode	!scr "320x200",0
+	!by $c0,$0f,$15,7
+	!scr "Gray "
+
+
 
 g035	!by $00,$2f,$3b,$44,$4c,$52,$57,$5c	; 1
 	!by $60,$64,$68,$6c,$6f,$72,$75,$78
 g180	!by $00,$01,$03,$07,$0b,$11,$17,$1e	; 2
 	!by $27,$30,$3a,$45,$50,$5d,$6a,$78
 g220	!by $00,$00,$01,$03,$07,$0b,$10,$16	; 3
-	!by $1e,$27,$31,$3d,$49,$58,$67,$78 
+	!by $1e,$27,$31,$3d,$49,$58,$67,$78
 
 godcols	!by $00,$0f,$04,$0c,$05,$0a,$01,$0d
 	!by $06,$02,$09,$03,$07,$0e,$08,$0b
@@ -606,7 +613,7 @@ godcols	!by $00,$0f,$04,$0c,$05,$0a,$01,$0d
 
 edlst	!by 0
 	!by 8,12,17,11,$81,0,0
-	!scr "Reduce Grays@"
+	!scr "Reduce Grays",0
 
 sgamma	!by 12,15,7,3,$c0
 	!wo evgamma
@@ -626,7 +633,7 @@ smcol	!by 16,22,7,3,$ce
 mcoltx	!scr "Multi",0
 	!by 18,12,17,3,$cb
 	!wo evcan
-	!scr "Cancel@"
+	!scr "Cancel",0
 
 	!by $c0,12,13,1
 	!by 223,0
@@ -675,26 +682,27 @@ resetpal	pla
 	dex
 	bpl -
 
-	lda mode
+	lda mode		; 0: Hires; $ff: Multi
 	beq +
 	bpl +
-	lda #$31
+	lda #$31		; Multi: "16" ("0" ist schon da)
 	ldx #$36
 	bne ++
-+	lda #$33
++	lda #$33		; Hires: "32"
 	ldx #$32
-++	sta ls_imode
-	stx ls_imode+1
-	ldx #4
--	lda gray,x
-	sta ls_idrive,x
+++	sta imode
+	stx imode+1
+	ldx #16
+-	lda imode,x
+	sta ls_imode,x
 	dex
 	bpl -
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
-clearad	lda #$ff
-	sta gr_redisp
+clearad	stx gr_redisp	; .x=$ff
+	inx
+	stx turbo		; de-activate turbo (.x=0)
 	lda spren
 	and #$f3
 	sta spren
@@ -705,16 +713,16 @@ clearad	lda #$ff
 ; ------------------------------------------------ Event: Cancel
 
 evcan	jsr unmake
-	sec 
+	sec
 	rts
 
 ; ------------------------------------------------ Init
 
 init	lda #0		; clear buffer
-	tay 
+	tay
 -	sta buffer,y
 	sta buffer+160,y
-	iny 
+	iny
 	cpy #160
 	bne -
 	sta linenr	; 200 rasterlines (from 0 to 199)
@@ -722,7 +730,7 @@ init	lda #0		; clear buffer
 initad 	ldy #$3c
 	lda #$00
 -	sta spr255+3,y
-	dey 
+	dey
 	bpl -
 	sty spr255
 	sty spr255+1
@@ -750,9 +758,10 @@ initad 	ldy #$3c
 	sta spren
 	lda #5
 	sta adcnt
-	rts 
+	sta turbo
+	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 modend	!eof
 
