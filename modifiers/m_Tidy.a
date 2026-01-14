@@ -4,14 +4,15 @@
 	!ct pet
 ;	!sl "labels.txt"
 
-; ----------------------------------------- 
+; -----------------------------------------
 ;
 ;  mod.Tidy
 ;   Module to get rid of unwanted pixels
 ;
 ;  1.00, 23.03.20: first release
+;  1.01, 14.01.26: added: turbo
 ;
-; ----------------------------------------- 
+; -----------------------------------------
 
 ; ----------------------------------------- Equates
 
@@ -48,6 +49,7 @@
 	sprxe		= $d01d
 	border		= $d020
 	sprcol2		= $d029
+	turbo		= $d030
 
 ; ----------------------------------------- Header
 
@@ -58,8 +60,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "CleanUpColPixels"
-	!tx "1.00"
-	!tx "23.03.20"
+	!tx "1.01"
+	!tx "14.01.26"
 	!tx "A.Dettke        "
 
 ; ----------------------------------------- Main
@@ -127,17 +129,17 @@ evapply	jsr initad
 
 ; ----------------------------------------- Event: Set Intensity Level
 
-evlevel	ldy level		; aktuelle Intensität
+evlevel	ldy level		; aktuelle Intensitï¿½t
 	lda spalte
 	cmp #24
 	bcs co4
-	tya		; links geklickt: abwärts
+	tya		; links geklickt: abwï¿½rts
 	dey
 	bmi co3
 	jmp co5
 co3	ldy #3
 
-co4	cpy #4		; rechts geklickt: aufwärts
+co4	cpy #4		; rechts geklickt: aufwï¿½rts
 	bcc co2
 	ldy #$ff
 co2	iny
@@ -296,7 +298,7 @@ ap1	lda thispixel
 	cmp #160
 	bcc -
 
-	rts 
+	rts
 
 ; ----------------------------------------- Puffer umlagern
 
@@ -309,20 +311,20 @@ umlagern	ldy #0		; von unten nach oben schieben
 	sta buf_m-1,y
 	lda buf_u+160,y
 	sta buf_m+160,y
-	iny 
+	iny
 	cpy #161
 	bne -
-	rts 
+	rts
 
-; ----------------------------------------- Puffer füllen
+; ----------------------------------------- Puffer fï¿½llen
 
 puffern	lda lcnt		; aktuelle Rasterzeile
-	pha 
+	pha
 	lsr		; durch 8
 	lsr
 	lsr
-	tax 
-	pla 
+	tax
+	pla
 	and #$07		; (rz and 7) * 4
 	asl
 	asl
@@ -340,7 +342,7 @@ puffern	lda lcnt		; aktuelle Rasterzeile
 
 --	ldy #0
 -	lda (src),y	; Pixel links
-	pha 
+	pha
 	lsr
 	lsr
 	lsr
@@ -355,12 +357,12 @@ puffern	lda lcnt		; aktuelle Rasterzeile
 	inc dst
 	bne +
 	inc dst+1
-+	iny 
++	iny
 	cpy #4		; 4mal (eine Kachel)
 	bne -
 
-	lda src		; nächste Kachel
-	clc 
+	lda src		; nï¿½chste Kachel
+	clc
 	adc #32
 	sta src
 	bcc +
@@ -368,21 +370,21 @@ puffern	lda lcnt		; aktuelle Rasterzeile
 +	dec tcnt		; 40 mal
 	bne --
 
-	lda buf_u		; für definierten Rand sorgen
+	lda buf_u		; fï¿½r definierten Rand sorgen
 	sta buf_u-1
 	lda buf_u+319
 	sta buf_u+320
-	rts 
+	rts
 
 ; ----------------------------------------- Ergebnis nach 4Bit
 
 w_ergeb	lda lcnt
-	pha 
+	pha
 	lsr
 	lsr
 	lsr
-	tax 
-	pla 
+	tax
+	pla
 	and #$07
 	asl
 	asl
@@ -398,7 +400,7 @@ w_ergeb	lda lcnt
 	lda #40
 	sta tcnt
 --	ldy #0
--	lda (dst,x)	; Pixel wieder zusammenführen
+-	lda (dst,x)	; Pixel wieder zusammenfï¿½hren
 	asl
 	asl
 	asl
@@ -411,19 +413,19 @@ w_ergeb	lda lcnt
 	bne +
 	inc dst+1
 +	sta (src),y	; und speichern
-	iny 
+	iny
 	cpy #4
 	bne -
 
 	lda src
-	clc 
+	clc
 	adc #32
 	sta src
 	bcc +
 	inc src+1
 +	dec tcnt
 	bne --
-	rts 
+	rts
 
 ; ----------------------------------------- Histograms
 
@@ -539,19 +541,21 @@ clearad	lda spren		; Wanderbalken aus
 	lda msbx
 	and #$f3
 	sta msbx
-	lda #$ff		; Grafik verändert,
-	sta gr_redisp	; also Flag für System setzen
+	ldy #0
+	sty turbo		; de-activate turbo
+	dey		; Grafik verï¿½ndert,
+	sty gr_redisp	; also Flag fï¿½r System setzen
 	clc 		; fertig
-+	rts 
++	rts
 
 ; ----------------------------------------- Init Activity
 
 initad	ldy #60		; Spriteblock 255 vorbereiten
 	lda #0
 -	sta spr255+3,y
-	dey 
+	dey
 	bpl -
-	sty spr255	; dünner Strich
+	sty spr255	; dï¿½nner Strich
 	sty spr255+1
 	sty spr255+2
 	lda #15		; Farbe hellgrau
@@ -561,7 +565,7 @@ initad	ldy #60		; Spriteblock 255 vorbereiten
 	ora #$0c
 	sta sprxe
 
-	lda msbx		; x über 255
+	lda msbx		; x ï¿½ber 255
 	ora #$0c
 	sta msbx
 	lda #8		; x-Ordinate: 8 (plus 256)
@@ -578,7 +582,8 @@ initad	ldy #60		; Spriteblock 255 vorbereiten
 	ora #$0c		; Activity-Balken aktivieren
 	sta spren
 
-setadcnt	lda #5		; Startzähler (hier: 5 mal 40 = 200)
+setadcnt	lda #5		; Startzï¿½hler (hier: 5 mal 40 = 200)
+	sta turbo		; activate turbo
 	sta adcnt
 	rts
 
@@ -597,7 +602,7 @@ c64pal	!by $00,$ff,$44,$cc,$55,$aa,$11,$dd
 
 hi_rows 	!by $40, $45, $4a, $4f, $54, $59, $5e, $63
 	!by $68, $6d, $72, $77, $7c, $81, $86, $8b
-	!by $90, $95, $9a, $9f, $a4, $a9, $ae, $b3, $b8 
+	!by $90, $95, $9a, $9f, $a4, $a9, $ae, $b3, $b8
 
 ; ----------------------------------------- Screenlist
 
@@ -610,7 +615,7 @@ palgad	!by 11,14,6,6,$47
 
 levelgad	!by 10,22,4,3,$e0
 	!wo evlevel
-leveltx	!scr " 2",0	
+leveltx	!scr " 2",0
 	!by 12,20,7,3,$cd
 	!wo evapply
 	!scr "Apply@"
@@ -624,6 +629,6 @@ title	!by $c0,9,14,4
 	!scr "+",0
 	!by $80
 
-; ----------------------------------------- 
+; -----------------------------------------
 
 modend	!eof
