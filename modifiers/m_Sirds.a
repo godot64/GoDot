@@ -16,6 +16,7 @@
 ;    1.02, 28.10.18, implemented 16 (!) grays finally
 ;    1.03, 20.06.19, added init keyboard for SuperCPU
 ;    1.04, 14.01.26, added: turbo
+;    1.05, 16.01.26, bugfix: turbo didn't stop anymore
 ;
 ; ------------------------------------------------------------
 
@@ -62,8 +63,8 @@
 	!wo modend
 	!wo 0
 	!tx "SIRDS Generator "
-	!tx "1.04"
-	!tx "14.01.26"
+	!tx "1.05"
+	!tx "16.01.26"
 	!tx "P.Steinseifer/AD"
 
 ; ----------------------------------------- Screenlist
@@ -242,10 +243,10 @@ evmake	jsr gd_sproff
 	cpx #250
 	bne -
 
-	lda #0
-	sta gr_cmode
 	lda svpport
 	sta pport
+	lda #0
+	sta gr_cmode
 	cli
 	sta turbo		; de-activate turbo
 	jsr gd_spron
