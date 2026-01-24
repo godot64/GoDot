@@ -1,0 +1,121 @@
+	!src "godotlib.lib"
+	*=$c000
+	!ct pet
+;	!sl "labels.txt"
+
+; ------------------------------------------------
+;
+; mod..SystemDrive
+;  module to set drive to access first
+;
+; 1.00, 24.01.26, first release
+;
+; ------------------------------------------------
+
+; ------------------------------------------------
+
+	jmp start
+	!by $20
+	!wo 0
+	!wo modend
+	!wo 0
+	!tx "Set System Drive"
+	!tx "1.00"
+	!tx "24.01.26"
+	!tx "A.Dettke        "
+
+; ------------------------------------------------
+
+start	jsr makech	; Listbox-Kringel
+	ldx #<bootlst	; Requester
+	ldy #>bootlst
+	jsr gd_screen
+	lda ls_sysdrive	; jetzigen systemdrive sichern
+	sta accdrv
+	jsr gd1		; und anzeigen
+	jsr gd_eloop	; auf Klicks warten
+
+; ------------------------------------------------ Event: Cancel
+
+evcan	sec 		; leave module
+	rts
+
+; ------------------------------------------------ Event: Get new Bootdrive
+
+evgetdrv	ldx accdrv	; Drivenummer erhöhen
+	inx
+	cpx #13		; bis 12 (einschließlich)
+	bne gd0
+	ldx #8		; bei 8 wieder anfangen
+gd0	txa
+	sta accdrv
+
+gd1	jsr gd_xcnvdez	; Nummer anzeigen
+	cpx #$30		; führende Null zu Space
+	bne gd2
+	ldx #32
+gd2	ldy #2
+	sta drvtx,y
+	txa
+	dey
+	sta drvtx,y
+
+zeig	lda #<accgad	; Kurzform des Text Output Handlers
+	sta sc_screentab
+	lda #>accgad
+	sta sc_screentab+1
+	lda #0
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #3
+	bne gt0
+	jsr gd_trim
+	jsr gd_initmove
+
+	ldy #6
+	jmp gd_xtxout1
+
+; ------------------------------------------------ Event: Accept
+
+evacc	lda accdrv	; gewählter Drive
+	sta ls_sysdrive	; wird Systemdrive
+	sec
+	rts
+
+; ------------------------------------------------
+
+makech	ldx #7
+mc0	lda char,x
+	sta sc_undochar,x
+	dex
+	bpl mc0
+	rts
+
+; ------------------------------------------------ Data
+
+char	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
+accdrv	!by 8
+
+; ------------------------------------------------ Screenlist
+
+bootlst	!by 0
+	!by 16,13,18,8,$81
+	!wo 0
+	!scr "System Drive",0
+accgad	!by 18,25,5,3,$c0
+	!wo evgetdrv
+drvtx	!scr 223,"..",0
+	!by 21,14,8,3,$cc
+	!wo evacc
+	!scr "Accept",0
+	!by 21,22,8,3,$cc
+	!wo evcan
+	!scr "Cancel",0
+	!by $c0,18,13,11
+	!scr "1st Access:",0
+	!by $80
+
+; ------------------------------------------------
+
+modend	!eof
