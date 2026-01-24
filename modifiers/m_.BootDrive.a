@@ -5,10 +5,11 @@
 
 ; ------------------------------------------------
 ;
-; mod..FirstDrive
-;  module to set the first access drive
+; mod..BootDrive
+;  module to set the boot drive
 ;
 ; 1.00, 04.12.93, first release
+; 1.01, 24.01.26, changed name for better usability
 ;
 ; ------------------------------------------------
 
@@ -19,9 +20,9 @@
 	!wo 0
 	!wo modend
 	!wo 0
-	!tx "Set first Drive "
-	!tx "1.00"
-	!tx "04.12.93"
+	!tx "Set Boot Drive  "
+	!tx "1.01"
+	!tx "24.01.26"
 	!tx "A.Dettke        "
 
 ; ------------------------------------------------
@@ -102,18 +103,18 @@ accdrv	!by 8
 firstlst	!by 0
 	!by 16,13,18,8,$81
 	!wo 0
-	!scr " Set FirstDrive @"
+	!scr "Set Boot Drive",0
 accgad	!by 18,25,5,3,$c0
 	!wo evgetdrv
-drvtx	!scr 223,"  @"
+drvtx	!scr 223,"  ",0
 	!by 21,14,8,3,$cc
 	!wo evacc
-	!scr "Accept@"
+	!scr "Accept",0
 	!by 21,22,8,3,$cc
 	!wo evcan
-	!scr "Cancel@"
+	!scr "Cancel",0
 	!by $c0,18,13,11
-	!scr "1st Access:@"
+	!scr "Booted from",0
 	!by $80
 
 ; ------------------------------------------------
