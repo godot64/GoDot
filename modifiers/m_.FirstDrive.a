@@ -3,16 +3,16 @@
 	!ct pet
 ;	!sl "labels.txt"
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 ;
 ; mod..FirstDrive
 ;  module to set the first access drive
 ;
 ; 1.00, 04.12.93, first release
 ;
-; ------------------------------------------------ 
+; ------------------------------------------------
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 	jmp start
 	!by $20
@@ -24,7 +24,7 @@
 	!tx "04.12.93"
 	!tx "A.Dettke        "
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 start	jsr makech	; Listbox-Kringel
 	ldx #<firstlst	; Requester
@@ -38,26 +38,26 @@ start	jsr makech	; Listbox-Kringel
 ; ------------------------------------------------ Event: Cancel
 
 evcan	sec 		; leave module
-	rts 
+	rts
 
 ; ------------------------------------------------ Event: Get new Bootdrive
 
-evgetdrv	ldx accdrv	; Drivenummer erhˆhen
-	inx 
-	cpx #12		; bis 12 (ausschlieﬂlich)
+evgetdrv	ldx accdrv	; Drivenummer erh√∂hen
+	inx
+	cpx #12		; bis 12 (ausschlie√ülich)
 	bne gd0
 	ldx #8		; bei 8 wieder anfangen
-gd0	txa 
+gd0	txa
 	sta accdrv
 
 gd1	jsr gd_xcnvdez	; Nummer anzeigen
-	cpx #$30		; f¸hrende Null zu Space
+	cpx #$30		; f√ºhrende Null zu Space
 	bne gd2
 	ldx #32
 gd2	ldy #2
 	sta drvtx,y
-	txa 
-	dey 
+	txa
+	dey
 	sta drvtx,y
 
 zeig	lda #<accgad	; Kurzform des Text Output Handlers
@@ -65,8 +65,8 @@ zeig	lda #<accgad	; Kurzform des Text Output Handlers
 	lda #>accgad
 	sta sc_screentab+1
 	lda #0
-	tax 
-	tay 
+	tax
+	tay
 gt0	jsr gd_setpos
 	cpx #3
 	bne gt0
@@ -78,19 +78,19 @@ gt0	jsr gd_setpos
 
 ; ------------------------------------------------ Event: Accept
 
-evacc	lda accdrv	; gew‰hlter Drive
+evacc	lda accdrv	; gew√§hlter Drive
 	sta ls_bootdrive	; wird Bootdrive
-	sec 
-	rts 
+	sec
+	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 makech	ldx #7
 mc0	lda char,x
 	sta sc_undochar,x
-	dex 
+	dex
 	bpl mc0
-	rts 
+	rts
 
 ; ------------------------------------------------ Data
 
@@ -116,6 +116,6 @@ drvtx	!scr 223,"  @"
 	!scr "1st Access:@"
 	!by $80
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 modend	!eof
