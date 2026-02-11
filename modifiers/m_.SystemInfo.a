@@ -14,6 +14,7 @@
 ; 1.06, 25.10.20, added SuperCPU info
 ; 1.07, 21.12.20, changed release date info
 ; 1.08, 03.12.24, adapted to SuperCPU
+; 1.09, 11.02.26, provide a decent release date
 ;
 ; ------------------------------------------------ Declarations
 
@@ -38,8 +39,8 @@
 	!wo modend
 	!wo $00
 	!pet "SystemInfo      "
-	!pet "1.08"
-	!pet "03.12.24"
+	!pet "1.09"
+	!pet "11.02.26"
 	!pet "M.Burggraf/AD   "
 
 ; ------------------------------------------------ Main
@@ -94,7 +95,7 @@ setsysfvs	ldx #8		; retrieve ">" significations from filerequester
 	ldy pmrk
 	inc pmrk
 	lda releasenm,y
-	jsr getdigits
+	jsr gd_xcnvdez
 	ldy ymrk
 	sta vupdtx+1,y
 	txa
