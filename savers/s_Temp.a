@@ -3,7 +3,7 @@
 	!ct pet
 ;	!sl "labels.txt"
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 ;
 ; svr.Temp
 ; Modul zum Speichern von Bildern in ein
@@ -11,21 +11,18 @@
 ;
 ; 0.99, 08.07.93, first release
 ; 1.00, 19.12.93, bug im VDC-Treiber: fixed
-; 1.01, 23.04.18, neu: present flag (header+8), added on 14.07.17 (für dev.REU)
-;                 bug in Overwrite, liefert falsches Flag zurück: fixed
+; 1.01, 23.04.18, neu: present flag (header+8), added on 14.07.17 (fÃ¼r dev.REU)
+;                 bug in Overwrite, liefert falsches Flag zurÃ¼ck: fixed
 ; 1.02, 21.06.24, bug in Save to VDC (wrong start address)
-; 
-; ------------------------------------------------ 
+; 1.03, 02.03.26, added list toggle sign
+;
+; ------------------------------------------------
 
 ; ------------------------------------------------ Declarations
 
 	bank		= $30
-	cnt		= $3e
 	entry		= $3a
-	offx		= ls_adrmisc
-	offy		= offx+1
 	mlen		= $fd
-	cpos		= mlen+1
 
 	avail		= $3f60
 	result		= avail-1
@@ -45,8 +42,8 @@ header	jmp start
 	!wo modend
 	!wo $0040			; ### 1.01: svr.Temp present
 	!pet "TEMP for all Ram"
-	!pet "1.02"
-	!pet "21.06.24"
+	!pet "1.03"
+	!pet "02.03.26"
 	!pet "A.Dettke        "
 
 addtxt	!pet "Offset: $8300 in"
@@ -66,6 +63,7 @@ st0	jsr gd_sproff
 	sec
 	lda ls_flen
 	beq st1
+	jsr makechr
 	jsr swerte
 	jsr gd_clrms
 	jsr svtemp
@@ -77,22 +75,22 @@ st2	php
 	plp
 	rts
 
-; --------------------------- 
+; ---------------------------
 ; --------------------------- Input Routines
 
 !src "input.inc"
 
-; --------------------------- 
-; --------------------------- 
+; ---------------------------
+; ---------------------------
 
 
-; ---------------------------------------- 
+; ----------------------------------------
 
-messout	ldx #<(message)
-	ldy #>(message)
+messout	ldx #<message
+	ldy #>message
 	jmp gd_xtxout2
 
-; ---------------------------------------- 
+; ----------------------------------------
 
 message	!scr "       Temp saved to RAM.       @"
 
@@ -105,7 +103,7 @@ err5	!scr "    RAM reserved for system.    "
 err6	!scr "  RAM valid. You can save now.  "
 err7	!scr "       Writing to RAM ...       "
 
-; ---------------------------------------- 
+; ----------------------------------------
 
 er0	jmp faila
 er1	jmp failb
@@ -142,14 +140,14 @@ stp0	tya		; REU attached?
 	txa		; no, Pagefox locked?
 	and #$10
 	bne er5		; yes, err message
-stp2	ldy ramtype	; publish ramtype 
+stp2	ldy ramtype	; publish ramtype
 	jsr wtype
 	jsr st2		; pointer on
 	lda #$ff		; init errorhandling
 	sta failtype
 
-	ldx #<(stmplst)	; open requester
-	ldy #>(stmplst)
+	ldx #<stmplst	; open requester
+	ldy #>stmplst
 	jmp gd_xmloop	; and wait
 
 stp1	lda ls_drive	; REU selected?
@@ -170,9 +168,9 @@ wt0	lda ttexts,y
 	bcc wt0
 	rts
 
-; ---------------------------------------- 
+; ----------------------------------------
 ; ---------------------------------------- Event: Save Temp
-; ---------------------------------------- 
+; ----------------------------------------
 
 sevsavet	jsr iffail	; last action faulty? (no return if yes)
 	ldx actram	; which ram? (continue there)
@@ -204,7 +202,7 @@ sr0	lda reudata,x
 	jsr gd_reu
 	jmp faile		; message
 
-; ---------------------------------------- 
+; ----------------------------------------
 
 pfox	jmp spfox
 jvdc	jmp svdc
@@ -217,8 +215,8 @@ overwr	jsr failc		; message ("Select 'save' ...")
 	lda sc_screenvek+1
 	sta txflag
 	pha
-	ldx #<(overlst)	; open new screenlist
-	ldy #>(overlst)
+	ldx #<overlst	; open new screenlist
+	ldy #>overlst
 	jsr gd_screen
 	jsr gd_eloop	; wait...
 	pla		; restore old screenlist
@@ -344,7 +342,7 @@ svdc	lda rm_tmpsaved	; temp in use?
 
 	jsr failh
 	jsr gd_sproff	; pointer off     ###  1.02 -
-	tay		; 
+	tay		;
 	lda #>sy_4bit	; save from $4000 ### -1.02
 	sta sc_vekt20+1
 	sty sc_vekt20
@@ -376,7 +374,7 @@ wv1	dec ls_vekta8
 	jsr gd_spron	; pointer on
 	jmp faile		; message
 
-; ---------------------------------------- 
+; ----------------------------------------
 
 clrlo	inx
 	lda #0
@@ -450,11 +448,11 @@ tgea	jmp faila
 tgeb	jmp failb
 tgef	jmp failf
 
-; ---------------------------------------- 
+; ----------------------------------------
 
-gettab	lda #<(toggle)
+gettab	lda #<toggle
 	sta sc_screentab
-	lda #>(toggle)
+	lda #>toggle
 	sta sc_screentab+1
 	lda #0
 	tax
@@ -466,7 +464,7 @@ gt0	jsr gd_setpos
 	jsr gd_trim
 	jmp gd_initmove
 
-; ---------------------------------------- 
+; ----------------------------------------
 
 avail32k	ldx #0
 ak0	lda a32k,x	; umlagern
@@ -476,7 +474,7 @@ ak0	lda a32k,x	; umlagern
 	bne ak0
 	jmp avail
 
-a32k	lda reudata+4	; noch 32000 Bytes frei?
+a32k	lda reudata+4	; 32000 Bytes frei?
 	sta rdata
 	jsr gd_getback
 	ldy #$7d
@@ -494,7 +492,7 @@ a32k	lda reudata+4	; noch 32000 Bytes frei?
 	lda result
 	rts
 
-; ---------------------------------------- 
+; ----------------------------------------
 
 faila	ldx #0
 	!by $2c
@@ -527,51 +525,67 @@ fl0	lda err0,x
 sevleave	sec
 	rts
 
-; ------------------------------------------------ 
+; --------------------------- Kringel definieren
 
+makechr	ldx #7
+-	lda chschr,x
+	sta sc_undochar,x
+	dex
+	bpl -
+	rts
+
+; ------------------------------------------------
+
+chschr	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
 reudata	!by 0,$40,0,$83,7,0,$7d
 awerte	!by 0,$40,0,$83,7,0,$7d
 toggles	!by $ff,$ff,0, 1, 2, 3,$ff,$ff, 4
 txoffs	!by $ff,$ff,0,20,40,60,$ff,$ff,80
 rams	!by 2,3,4,5,8
 typereu	!by 0,0,0,0,3,7,0,0,1,0
-ttexts	!scr "       VDC 64       "
-	!scr "      Pagefox       "
-	!scr "      REU 1764      "
-	!scr "      REU 1750      "
-	!scr "      REU 1700      "
+ttexts	!scr $df,"      VDC 64       "
+	!scr $df,"     Pagefox       "
+	!scr $df,"     REU 1764      "
+	!scr $df,"     REU 1750      "
+	!scr $df,"     REU 1700      "
 txflag	!by 0
 failtype	!by $ff
-ramtype	!by 0
+ramtype	!by 0			; welches RAM (drv 12) ist aktiv?
 ramset	!by 0
 actram	!by 0
 tmpmk	!by 0
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 stmplst	!by 0
-	!by 3,8,22,15,$81,0,0
-	!scr "Save Temp@"
-toggle	!by 8,8,22,3,$ca,<(sevtogg),>(sevtogg)
-rtype	!fill 20,32
+	!by 3,8,22,15,$81
+	!wo 0
+	!scr "Save Temp",0		; title
+toggle	!by 8,8,22,3,$ca
+	!wo sevtogg
+rtype	!fill 20,32		; bei start: kein Inhalt
 	!by 0
-	!by 11,8,22,3,$ca,<(sevsavet),>(sevsavet)
-	!scr "Save@"
-	!by 14,8,22,3,$ca,<(sevleave),>(sevleave)
-	!scr "Leave@"
+	!by 11,8,22,3,$ca
+	!wo sevsavet
+	!scr "Save",0
+	!by 14,8,22,3,$ca
+	!wo sevleave
+	!scr "Leave",0
 	!by $c0,5,8,20
-	!scr " Select Destination @"
+	!scr " Select Destination ",0	; subtitle
 	!by $80
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 overlst	!by 0
-	!by 11,8,22,3,$ca,<(sevowr),>(sevowr)
-	!scr "Save@"
-	!by 14,8,22,3,$ca,<(sevleave),>(sevleave)
-	!scr "Cancel@"
+	!by 11,8,22,3, $ca
+	!wo sevowr
+	!scr "Save",0
+	!by 14,8,22,3, $ca
+	!wo sevleave
+	!scr "Cancel",0
 	!by $80
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 modend	!eof
