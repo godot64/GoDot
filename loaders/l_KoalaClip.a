@@ -1,0 +1,597 @@
+
+	!src <godotlib.lib>
+	*= $c000
+	!ct pet
+;	!sl "labels.txt"
+
+; -----------------------------------------
+;
+;  ldr.KoalaClip
+;  Loader for Multicolor Images of any size up to 40x25 tiles
+;
+;  1.00, 09.03.26:  first release
+;
+; -----------------------------------------
+
+
+; ----------------------------------------- Equates
+
+	dst		= $30	; /$31
+	adcnt		= $32
+	byte		= $33
+	cnt		= $34
+	vr		= $35	; /$36
+	cr		= $37	; /$38
+	final		= $39	; /$3a
+	amountw		= $3b	; /$3c
+	vcounter		= $3d
+	hcounter		= $3e
+
+	status		= $90
+
+	offx		= ls_adrmisc
+	offy		= offx+1
+
+	patch		= $17af		; needed to toggle GoDot to multi mode
+	vrbuf		= $c600		; video ram
+	crbuf		= vrbuf+1000	; color ram
+	col0		= vrbuf+2000	; background color
+
+; ----------------------------------------- Header
+
+	jmp start
+	!by $80
+	!wo $04
+	!wo modend
+	!wo $00
+	!tx "Load Koala Clips"
+	!tx "1.00"
+	!tx "09.03.26"
+	!tx "A.Dettke        "
+
+; ----------------------------------------- Main
+
+start	lda #50		; set activity counter
+	sta cntwert
+	ldx #0
+	stx sc_stop	; init break by STOP
+	inx
+	stx adcnt
+
+	jsr setclpv 	; write clip data to requester
+	lda used		; manage load process
+	beq +
+	inc used
+
+	ldx #<koalst	; build requester
+	ldy #>koalst
+	jsr gd_screen
+	jsr gd_eloop 	; and now wait for gadget clicks
++	sec
+	rts
+
+; ----------------------------------------- Read Bitmap
+
+jerror	jmp error		; manage errors
+jmess	jmp errmess
+
+; ----------------------------------------- Event: From Clip
+
+evfrclip	ldx #4		; set clipmode: 4
+	!by $2c
+; ----------------------------------------- Event: From File
+
+evfrfile	ldx #2		; set filemode: 2
+	stx mode
+	ldx #8		; open GoDot's file requester
+	jsr gd_xload
+	lda ls_flen	; file chosen?
+	beq jerror 	; no, just leave
+
+	sta ls_temp	; yes, set name parameters
+	lda #< ls_nambuf	; .a is 0
+	sta ls_vekta8
+	lda #> ls_nambuf
+	sta ls_vekta8 + 1
+
+	jsr gd_xopen 	; open file
+	bcs jerror	; Fehler?
+	ldx mode
+-	jsr basin		; no, skip start address (plus bytes 3 and 4 according to mode)
+	dex
+	bne -
+	lda mode		; filemode?
+	cmp #3
+	bcs +
+
+	stx fdone 	; (.x=0)
+	tax
+	jsr basin 	; yes, get clipdata from file (in tiles)
+	sta clipdata
+	jsr basin
+	sta clipdata+1
++	jsr basin		; (if mode is clipmode: only get dims)
+	sta width
+	jsr basin
+	sta height
+	jsr setfilev 	; write file's clip data to requester (only in file mode!)
+
+	clc		; exceeding lower border?
+	lda height
+	adc clipdata
+	cmp #26
+	bcs jmess 	; yes, error message
+
+	ldx #<sy_4bit	; no, set destination address ($4000)
+	lda #>sy_4bit
+	stx sc_texttab
+	sta sc_texttab + 1
+	stx dst
+	sta dst + 1
+	stx final
+	sta final+1
+	jsr getpos 	; and compute final destination
+	jsr getwidth	; compute amount of bytes for width (in rendered data)
+
+	jsr gd_clrms	; init gauge
+	ldx #20		; out: "Bitmap"
+	jsr tcopy
+
+	ldx height	; count height (in block rows)
+	stx vcounter
+
+lp0	lda amountw	; count width (in bytes)
+	sta ls_vekta8
+	lda amountw+1
+	sta ls_vekta8+1
+
+loop	jsr basin		; read bitmap
+	ldx sc_stop 	; STOP pressed?
+	beq +
+	jmp error		; yes, quit
++	sta byte		; nein, weitermachen
+	jsr action	; activity
+	ldy #0		; convert Koala to 4Bit:
+	ldx #4		; make 4 bytes from 1 (= 8 pixels)
+bloop	lda #0		; pre-convert to 4bit (4x2 Bit in den .a rotieren)
+	asl byte
+	rol
+	asl byte
+	rol
+	sta (sc_texttab),y
+	inc sc_texttab
+	bne sk
+	inc sc_texttab+1
+sk	dex
+	bne bloop
+
+	lda ls_vekta8	; count
+	bne sk1
+	dec ls_vekta8+1
+sk1	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	beq +		; if 0: next row
+
+	lda status	; floppy error?
+	beq loop		; no
+
++	lda dst		; restore last starting position
+	sta sc_texttab
+	clc
+	lda dst + 1	; and add $500 for next row
+	adc #5
+	sta dst + 1
+	sta sc_texttab+1
+	dec vcounter	; count down rows
+	bne lp0		; if 0: proceed (generate colors from bit pairs)
+
+; ----------------------------------------- Read Colors
+
+	jsr amount	; compute: height x width bytes to read
+	lda #<vrbuf	; set video buffer address
+	sta sc_texttab
+	lda #>vrbuf
+	sta sc_texttab+1
+
+	lda #13		; out: "Colors"
+	sta cntwert
+	ldx #1
+	sta adcnt
+	dex
+	jsr tcopy
+	jsr colorloop	; read
+
+	jsr amount	; compute: height x width bytes to read
+	lda #<crbuf	; set color ram buffer address
+	sta sc_texttab
+	lda #>crbuf
+	sta sc_texttab + 1
+	jsr colorloop	; read
+
+; ----------------------------------------- Read Background Color
+
+	ldy #0
+	jsr basin		; get background color
+	and #15		; make sure bgcolor is only 1 nibble
+	sta col0		; store to col0
+
+; ----------------------------------------- Convert File Colors to 4Bit
+
+	jsr gd_xclose	; close file
+
+	lda #<vrbuf	; set buffer addresses
+	sta vr
+	lda #>vrbuf
+	sta vr+1
+	lda #<crbuf
+	sta cr
+	lda #>crbuf
+	sta cr+1
+	lda final		; set 4bit address to start-of-clip
+	sta sc_texttab
+	sta dst
+	lda final+1
+	sta sc_texttab + 1
+	sta dst+1
+
+	lda #200		; out: "Convert"
+	sta cntwert
+	ldx #10
+	stx adcnt
+	jsr tcopy		; returns .y=0
+
+	ldx height	; count n rows
+	stx vcounter
+loop3	ldx width		; count n bytes (width)
+	stx hcounter
+
+loop2	lda (vr),y	; convert video ram to VIC regs (per tile)
+	pha
+	lsr
+	lsr
+	lsr
+	lsr
+	sta col0+1	; ink
+	pla
+	and #$0f
+	sta col0+2	; paper
+	lda (cr),y	; convert color ram to...
+	and #$0f
+	sta col0+3	; ...individual color
+
+	lda #32		; one tile
+	sta cnt
+bloop1	jsr action
+	ldy #0
+	lda (sc_texttab),y	; get pre-rendered 4bit data
+	tax
+	lda col0,x	; convert to 4bit
+	tax
+	lda dnib,x	; (make double nibs)
+	sta (sc_texttab),y
+	inc sc_texttab	; proceed in 4bit tile
+	bne sk6
+	inc sc_texttab+1
+sk6	dec cnt
+	bne bloop1
+
+	inc vr		; advance in buffers (next tile)
+	bne sk7
+	inc vr+1
+sk7	inc cr
+	bne sk8
+	inc cr+1
+
+sk8	dec hcounter
+	bne loop2
+	clc
+	lda dst
+	sta sc_texttab
+	lda dst+1
+	adc #5
+	sta dst + 1
+	sta sc_texttab + 1
+	dec vcounter
+	bne loop3
+
+	ldx #20		; reset text output
+	jsr tcopy
+
+; ----------------------------------------- Abschluss
+
+	jsr tog2multi	; toggle GoDot to multi mode
+
+sk10	jsr gd_xmess	; floppy message
+	jsr gd_spron	; mouse pointer on
+
+; ----------------------------------------- Event: Leave Module
+
+evcancel	lda #$ff		; reset process manager
+	sta used
+	sec		; leave loader
+	rts
+
+; ----------------------------------------- Farben einlesen
+
+colorloop	jsr basin		; now get and store bytes
+	ldx sc_stop	; STOP pressed?
+	bne err2
+	sta (sc_texttab),y
+	jsr action	; activity
+	ldy #0
+	inc sc_texttab	; proceed in buffer
+	bne sk3
+	inc sc_texttab+1
+sk3	lda ls_vekta8	; count down
+	bne sk4
+	dec ls_vekta8+1
+sk4	dec ls_vekta8
+	lda ls_vekta8
+	ora ls_vekta8+1
+	bne colorloop	; until 0
+	rts
+
+; ----------------------------------------- Error Messages
+
+errmess	jsr gd_xclose	; close file
+	jsr gd_spron
+	jsr gd_clrms	; init gauge
+	jsr clrmess
+	ldx #30
+-	lda txt, x
+	sta message-30, x
+	beq +
+	inx
+	bne -
++	jsr evcancel
+	jmp messout
+
+err2	pla
+	pla
+error	jsr gd_xclose	; close file
+	jsr sk10		; Abschluss
+	clc		; stay in loader
+	rts
+
+; ----------------------------------------- Set Render Mode
+
+tog2multi	lda #0		; für Umschalten auf Multi????
+	sta gr_cmode
+	lda #16
+	sta sc_br
+	lda #$4c		; self modifying
+	sta patch
+	jsr ev_sccont	; Modus setzen und Anzeige anpassen
+	lda #$20		; unpatch
+	sta patch
+	rts
+
+; ----------------------------------------- Compute Clip Position
+
+getpos	ldx clipdata	; Zeile: 0? (.a enthält sc_texttab+1)
+	beq +
+
+	clc		; nein, plus Zeile x $0500
+-	adc #5
+	dex
+	bne -
+	sta sc_texttab+1	; result
+	sta dst + 1
+	sta final+1
+
++	ldx clipdata+1	; Spalte: 0?
+	beq ++
+
+	lda sc_texttab	; nein, plus Spalte x 32
+-	clc
+	adc #32
+	bcc +
+	inc sc_texttab+1	; = result
+	inc dst + 1
+	inc final+1
++	dex
+	bne -
+	sta sc_texttab
+	sta dst
+	sta final
+
+++	rts
+
+; ----------------------------------------- Compute Amount of Bytes for Width in Rendered Image
+
+getwidth	ldx width		; width x 8
+	lda #0
+	sta amountw+1
+--	clc
+-	adc #8
+	bcc +
+	inc amountw + 1
++	dex
+	bne --
+	sta amountw	; = result in bytes
+	rts
+
+; ----------------------------------------- Compute Amount of Bytes for Color Data
+
+amount	ldx height
+	lda #0
+	sta ls_vekta8+1
+-	clc
+	adc width
+	bcc +
+	inc ls_vekta8+1
++	dex
+	bne -
+	sta ls_vekta8
+	rts
+
+; ----------------------------------------- Show File Clip Data
+
+setfilev	cpx #5
+	bcs +
+	bit fdone
+	bmi +
+	lda clipdata
+	jsr makeziff
+	stx flzltx
+	sta flzltx + 1
+	lda clipdata+1
+	jsr makeziff
+	stx flsptx
+	sta flsptx + 1
+	lda width
+	jsr makeziff
+	stx flbrtx
+	sta flbrtx + 1
+	lda height
+	jsr makeziff
+	stx flhotx
+	sta flhotx + 1
+	dec fdone
++	rts
+
+; ----------------------------------------- Show System Clip Data
+
+setclpv	lda sc_lastclpzl
+	sta clipdata
+	jsr makeziff
+	stx clzltx
+	sta clzltx + 1
+	lda sc_lastclpsp
+	sta clipdata+1
+	jsr makeziff
+	stx clsptx
+	sta clsptx + 1
+	lda sc_lastclpbr
+	jsr makeziff
+	stx clbrtx
+	sta clbrtx + 1
+	lda sc_lastclpho
+	jsr makeziff
+	stx clhotx
+	sta clhotx + 1
+	rts
+
+; -----------------------------------------
+
+makeziff	jsr gd_xcnvdez
+	cpx #$30
+	bne +
+	ldx #$20
++	rts
+
+; ----------------------------------------- Screenlist for Requester
+
+koalst	!by 0
+	!by 6,11,19,14,$81,0,0
+	!scr "Load Koala Clip",0
+
+	!by 9,17,13,3,$8d
+	!wo 0
+flzltx	!scr " 0,"
+flsptx	!scr " 0,"
+flbrtx	!scr " 0,"
+flhotx	!scr " 0",0
+
+	!by 11,17,13,3,$8e
+	!wo 0
+clzltx	!scr "00,"
+clsptx	!scr "00,"
+clbrtx	!scr "00,"
+clhotx	!scr "00",0
+
+	!by 13,17,13,3,$ce
+	!wo evfrfile
+	!scr " From File ",0
+
+	!by 15,17,13,3,$ce
+	!wo evfrclip
+	!scr "  To Clip  ",0
+
+	!by 17,11,19,3,$cb
+	!wo evcancel
+	!scr " Leave",0
+
+	!by $c0, 9 , 11 , 5
+	!scr "File:",0
+	!by $c0,11,11,5
+	!scr "Clip:" , 0
+	!by $c0 , 14 , 11 , 4
+	!scr "Load",0
+	!by $80
+
+; ----------------------------------------- Message Handling
+
+messout	ldx #<message	; ausgeben
+	ldy #>message
+	jmp gd_xtxout2
+
+tcopy	ldy #0		; anwählen
+tc0	lda txt,x
+	beq clrmess
+	sta message,y
+	inx
+	iny
+	bne tc0
+
+action	dec adcnt		; Gauge-Bar bewegen
+	bne ld4
+	lda cntwert
+	sta adcnt
+	ldy offy
+	cpy clrmess+1
+	bne act0
+	jsr clrmess
+act0	ldx offx
+	lda filltab,x
+	sta mess,y
+	jsr messout
+	dec offx
+	bpl ld4
+	inc offy
+	lda #7
+	sta offx
+ld4	rts
+
+clrmess	ldx #22		; Message initialisieren
+	lda #32
+cl0	sta mess,x
+	dex
+	bpl cl0
+	ldy #0
+	ldx #7
+	sty offy
+	stx offx
+	rts
+
+filltab	!by 160,93,103,127,126,124,105,109
+
+txt	!scr " Colors  ",0	; 0
+	!scr " Convert ",0	; 10
+	!scr " Bitmap  ",0	; 20
+	!scr " ERROR: Exceeding lower Border! ",0	; 30
+
+message	!fill 9,32
+mess	!fill 23,32
+	!by 0
+
+; ----------------------------------------- Data
+
+dnib	!by $00,$ff,$44,$cc,$55,$aa,$11,$dd
+	!by $66,$22,$99,$33,$77,$ee,$88,$bb
+
+cntwert	!by 50
+used	!by $ff
+mode	!by 2
+fdone	!by 0
+
+clipdata	!by 0,0
+height	!by 12
+width	!by 12
+
+; -----------------------------------------
+
+modend	!eof
+
+
