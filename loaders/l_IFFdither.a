@@ -1,5 +1,5 @@
 
-	!src "godotlib.lib"
+	!src <godotlib.lib>
 	*= $c000
 	!ct pet
 ;	!sl "labels.txt"
@@ -7,23 +7,24 @@
 ; ---------------------------
 ;
 ;    ldr.IFFdither
-;    Lader für IFF OCS 
-;    bis zu einer Größe von 1024x768
-;    unterstützt HAM, EHB und Interlace
+;    Lader fÃ¼r IFF OCS
+;    bis zu einer GrÃ¶ÃŸe von 1024x768
+;    unterstÃ¼tzt HAM, EHB und Interlace
 ;    erzeugt Multicolor-Dithering
 ;
 ;    0.99: 17.09.93, first release
 ;    1.00: 06.11.16, added Balancing and Level
 ;                    improved dithering tables at grey1 and grey2
 ;    1.01: 14.09.21, added: break loading process with STOP key
+;    1.02: 19.03.26, added: alternative dithertype (plus gadgets to select)
 ;
 ; ---------------------------
 
 ; --------------------------- Equates
 
 	shift		= $028d
-	screen		= $0400
 
+	rasterize		= $33	; /$34
 	red		= $35
 	grn		= $36
 	blu		= $37
@@ -71,6 +72,7 @@
 	bbk		= gbk+64
 	dbuf		= $cd00
 	dbuf1		= dbuf+64
+	dithtab		= dbuf+192
 
 	p0		= $bd00
 	p1		= p0+128
@@ -89,8 +91,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "AMIGA ILBM (OCS)"
-	!pet "1.01"
-	!pet "14.09.21"
+	!pet "1.02"
+	!pet "19.03.26"
 	!pet "W.Kling/A.Dettke"
 
 	!pet "MaxPlanes = 6   "
@@ -111,8 +113,8 @@ stt0	lda gr_rgb,x
 	stx sc_stop	; init break by STOP ### 1.01
 
 stt1	ldx used
-	bmi requ
 	beq cancel
+	bmi requ
 	cpx #3
 	bcs cancel
 ;
@@ -135,6 +137,7 @@ cl	sta mess,x
 	sta adcnt
 	lda #0
 	sta offy
+	jsr setdither
 
 	jsr checkiff
 	ldy #0
@@ -163,24 +166,25 @@ err	jsr gd_xclose
 
 cancel	lda #$ff		; SE: Leave Loader
 	sta used
-	lda shift		; Shift (-Lock) gedrückt?
+	lda shift		; Shift (-Lock) gedrÃ¼ckt?
 	and #1
 	bne cn2		; ja, Sprung
 
 	ldy #16		; sonst: Balancing-Tabelle initialisieren
 	sty gr_ctr
 	sty gr_brt
-lll	dey 
-	tya 
+lll	dey
+	tya
 	sta gr_btab,y
 	bne lll
 
 cn2	sec 		; Leave Loader to Main Screen
-	rts 
+	rts
 ;
 ; ---------------------------
 
 requ	inc used
+	jsr makechr
 	ldx #<(ifflst)
 	ldy #>(ifflst)
 	jsr gd_xmloop
@@ -199,7 +203,20 @@ sevgray   inc used
 	sta used
 	sec
 	rts
-;
+
+; --------------------------- Event: Set Dithertype
+
+setdither	lda dith
+	bne +
+	lda #<cltabn
+	ldx #>cltabn
+	bne ++
++	lda #<cltabo
+	ldx #>cltabo
+++	sta rasterize
+	stx rasterize+1
+	rts
+
 ; ---------------------------
 
 adinc	ldy offy
@@ -520,10 +537,10 @@ gpl4	ldy gpy
 	jsr convcol
 	ldx gpx
 	sta pal,x
-	tya 
+	tya
 	sta pal+64,x
 	lda patty
-	sta screen,x
+	sta dithtab,x
 fedup	inx
 	dec gpy
 	bne gpl4
@@ -760,7 +777,7 @@ gray1	!by 3,3,2,2,2,2,1,1,1,1,0,0,0,0,4,4
 gray2	!by 2,2,2,1,1,1,1,0,0,0,0,4,4,4,4,4
 
 pats	!by $00,$04,$07,$0b,$00,$04,$07,$0b
-	!by $00,$04,$07,$0b,$00,$05,$0a,$10 
+	!by $00,$04,$07,$0b,$00,$05,$0a,$10
 
 ; ---------------------------
 
@@ -790,30 +807,30 @@ scl1	lda rbk,x
 	jsr convcol
 	ldx gpx
 	sta pal+32,x
-	tya 
+	tya
 	sta pal+96,x
 	lda rbuf
-	sta screen+32,x
-	dex 
+	sta dithtab+32,x
+	dex
 	bpl scl1
-scs1	rts 
+scs1	rts
 
 scl2	lda pal+64,x
 	and #15
-	lsr 
-	tay 
+	lsr
+	tay
 	lda dnib,y
 	sta pal+96,x
-	dey 
+	dey
 	bpl scl3
-	iny 
+	iny
 scl3	lda dnib,y
 	sta pal+32,x
-	lda screen,x
-	sta screen+32,x
-	dex 
+	lda dithtab,x
+	sta dithtab+32,x
+	dex
 	bpl scl2
-	rts 
+	rts
 
 setvmode  ldx planes
 	dex
@@ -850,7 +867,7 @@ vmodes	!pet "  2   4   8  61  23  46 bhe mah "
 
 readline  lda #<(p0)
 	ldx #>(p0)
-	sta pbuf
+	sta pbuf		; .a=0
 	stx pbuf+1
 	sta red
 	sta grn
@@ -871,6 +888,9 @@ rll	jsr basin
 	dex
 	bpl rll
 	bmi rls
+
+; ---------------------------
+
 decomp	dex
 	jsr basin
 rll1	sta (pbuf),y
@@ -985,24 +1005,24 @@ dnib	!by $00,$11,$22,$33
 
 makegray	ldy red
 	lda rtab,y
-	clc 
+	clc
 	ldy grn
 	adc gtab,y
 	ldy blu
 	adc btab,y
-	tay 
+	tay
 	and #$0f
 	sta rbuf
-	tya 
-	lsr 
-	lsr 
-	lsr 
-	lsr 
-	tax 
+	tya
+	lsr
+	lsr
+	lsr
+	lsr
+	tax
 	lda dnib,x
-	inx 
+	inx
 	ldy dnib,x
-	rts 
+	rts
 
 ; ---------------------------
 
@@ -1116,34 +1136,39 @@ rdy1	rts
 ;
 raster 	sta ybuf
 	lda lcnt
-	asl 
-	asl 
+	asl
+	asl
 	and #15
 	ora bcnt
-	tay 
-	lda cltab,y
+	tay
+	lda (rasterize),y
 	ldy ybuf
-	cmp screen,y
+	cmp dithtab,y
 	beq s6
 	bcc s6
 	lda pal,y
-	rts 
+	rts
 s6	lda pal+64,y
-	rts 
+	rts
 
 ; ---------------------------
 
-cltab 	!by $10,$08,$0e,$06
+cltabo 	!by $10,$08,$0e,$06		; old pattern
 	!by $04,$0c,$02,$0a
 	!by $0d,$05,$0f,$07
 	!by $01,$09,$03,$0b
+
+cltabn	!by $0d,$08,$0e,$06		; new pattern
+	!by $07,$0f,$05,$0c
+	!by $10,$04,$0b,$02
+	!by $03,$0a,$01,$09
 
 rtab 	!by $00,$05,$0a,$0f,$13,$18,$1d,$22
 	!by $26,$2b,$30,$35,$3a,$3e,$43,$48
 gtab 	!by $00,$09,$13,$1c,$26,$2f,$39,$42
 	!by $4c,$55,$5e,$68,$71,$7b,$84,$8e
 btab 	!by $00,$02,$03,$05,$07,$09,$0a,$0c
-	!by $0e,$10,$12,$13,$15,$17,$19,$1a 
+	!by $0e,$10,$12,$13,$15,$17,$19,$1a
 
 ; ---------------------------
 
@@ -1201,7 +1226,7 @@ hs1	tax
 	sta pal+16
 	sty pal+80
 	lda rbuf
-	sta screen+16
+	sta dithtab+16
 	ldx xbuf
 	lda #$10
 	bpl pr1
@@ -1243,7 +1268,7 @@ hs2	tax
 	sta pal+16
 	sty pal+80
 	lda rbuf
-	sta screen+16
+	sta dithtab+16
 	ldx xbuf
 	lda #$10
 	bpl pr2
@@ -1317,23 +1342,38 @@ used	!by $ff
 which	!by 0
 level	!by 3
 lvlnum	!pet "012345"
-;
+dith	!by 0
+doffs	!by 3,7
+dithtype	!scr "OblqVert"
+chschr	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
+
 ; ---------------------------
 
 ifflst	!by 0
-	!by 4,11,18,16,$81,0,0
-	!scr "Load IFF dith@"
-	!by 9,11,18,3,$ca,<(sevgray),>(sevgray)
-	!scr "Gray Scale@"
-	!by 12,11,11,3,$c8,<(sevcol),>(sevcol)
-	!scr "Color@"
-lvlgad	!by 12,22,7,3,$cf,<(sevlvl),>(sevlvl)
-	!scr "Lvl "
-lvltx	!by $33,0
-	!by 15,11,18,3,$ca,<(cn2),>(cn2)
-	!scr "Cancel Load@"
-	!by $c0,6,14,10
-	!scr "Convert to@" 
+	!by 6,11,18,13,$81
+	!wo 0
+	!scr "Load IFF dith",0
+	!by 10,11,18,3,$ca
+	!wo sevgray
+	!scr "Gray Scale",0
+	!by 12,11,11,3,$c8
+	!wo sevcol
+	!scr "Color",0
+lvlgad	!by 12,22,7,3,$ce
+	!wo sevlvl
+	!scr $df,"Lvl"
+lvltx	!scr "3",0
+dithgad	!by 14,22,7,3,$ce
+	!wo evdither
+	!by $df
+dithtx	!scr"Oblq",0
+	!by 16,11,18,3,$cb
+	!wo cn2
+	!scr "Cancel Load",0
+	!by $c0,8,14,10
+	!scr "Convert to",0
+	!by $c0,14,13,7
+	!scr "Dither:",0
 	!by $80
 ;
 ; ---------------------------
@@ -1353,16 +1393,46 @@ lvl0	ldx level
 	stx level
 lvl1	lda lvlnum,x
 	sta lvltx
-	jsr gettab
-	ldy #6
-	jmp gd_xtxout1
-;
+	jsr gettab1
+	bcc ++
+
 ; ---------------------------
 
-gettab	lda #<(lvlgad)
+evdither	ldy dith
+	beq +
+	ldy #$ff
++	iny
+	sty dith
+	ldx doffs,y
+	ldy #3
+-	lda dithtype,x
+	sta dithtx,y
+	dex
+	dey
+	bpl -
+	jsr gettab2
+++	ldy #6
+	jmp gd_xtxout1
+
+; --------------------------- Kringel definieren
+
+makechr	ldx #7
+-	lda chschr,x
+	sta sc_undochar,x
+	dex
+	bpl -
+	rts
+
+; ---------------------------
+
+gettab2	lda #<dithgad
 	sta sc_screentab
-	lda #>(lvlgad)
-	sta sc_screentab+1
+	lda #>dithgad
+	bne +
+gettab1	lda #<lvlgad
+	sta sc_screentab
+	lda #>lvlgad
++	sta sc_screentab+1
 	lda #0
 	tax
 	tay
@@ -1399,20 +1469,20 @@ sinfo0	lda dtextc,x
 	jmp setdata
 ;
 setname   lda #0
-	ldx #<(ls_picname)
-	ldy #>(ls_picname)
+	ldx #<ls_picname
+	ldy #>ls_picname
 	bne si3
 setloader lda #17
-	ldx #<(ls_iloader)
-	ldy #>(ls_iloader)
+	ldx #<ls_iloader
+	ldy #>ls_iloader
 	bne si3
 setmode   lda #25
-	ldx #<(ls_imode)
-	ldy #>(ls_imode)
+	ldx #<ls_imode
+	ldy #>ls_imode
 	bne si3
 setdata   lda #33
-	ldx #<(ls_idrive)
-	ldy #>(ls_idrive)
+	ldx #<ls_idrive
+	ldy #>ls_idrive
 si3	stx sc_texttab
 	sty sc_texttab+1
 	tax
@@ -1427,9 +1497,9 @@ si5	rts
 ;
 nbuf	!fill 16,32
 	!by 0
-viewmode  !scr "IFF    @"
-modetx	!scr "160x200@"
-datatype  !scr "Color@"
+viewmode  !scr "IFFdith",0
+modetx	!scr "160x200",0
+datatype  !scr "Color",0
 
 dtextc	!scr "Color"
 dtextg	!scr "Gray "
