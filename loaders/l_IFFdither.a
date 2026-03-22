@@ -17,6 +17,7 @@
 ;                    improved dithering tables at grey1 and grey2
 ;    1.01: 14.09.21, added: break loading process with STOP key
 ;    1.02: 19.03.26, added: alternative dithertype (plus gadgets to select)
+;          22.03.26, added: more comments
 ;
 ; ---------------------------
 
@@ -29,7 +30,6 @@
 	grn		= $36
 	blu		= $37
 	min		= $38
-	gsum		= min
 	minx		= $3a
 	cmg		= $3b
 	lace		= $3c
@@ -61,7 +61,6 @@
 	lcnt		= $fb
 	bcnt		= $fc
 	plmask		= $fd
-	hamnib		= plmask
 	bytes		= $fe
 ;
 	pal		= $3f40
@@ -87,7 +86,7 @@
 header	jmp start
 	!by $80
 	!by 4
-	!by 1		     ; dirty
+	!by 1			; dirty
 	!wo modend
 	!wo 0
 	!pet "AMIGA ILBM (OCS)"
@@ -95,7 +94,7 @@ header	jmp start
 	!pet "19.03.26"
 	!pet "W.Kling/A.Dettke"
 
-	!pet "MaxPlanes = 6   "
+	!pet "MaxPlanes = 6   "	; descriptional text
 	!pet "MaxWidth  = 1024"
 	!pet "MaxPalette= 256 "
 	!pet "AutoResize= 50% "
@@ -104,7 +103,7 @@ header	jmp start
 ;
 ; --------------------------- Main
 
-start	ldx #47
+start	ldx #47		; retrieve current RGB palette settings from system
 stt0	lda gr_rgb,x
 	sta cred,x
 	dex
@@ -112,18 +111,19 @@ stt0	lda gr_rgb,x
 	inx
 	stx sc_stop	; init break by STOP ### 1.01
 
-stt1	ldx used
-	beq cancel
-	bmi requ
-	cpx #3
+stt1	ldx used		; used is...
+	beq cancel	; 0: load was cancelled
+	bmi requ		; negative on start: open requester
+	cpx #3		; 3: loader finished
 	bcs cancel
 ;
-	dec used
-	jsr getname
-	jsr gd_xopen
-	jsr gd_clrms
+	dec used		; everything else (1 or 2, dec used to 0 or 1)
+	jsr getname	; save filename
+	jsr gd_xopen	; open file
+	jsr gd_clrms	; clear message bar
+
 	ldx #6
-cl0	lda ilbm,x
+cl0	lda ilbm,x	; reset message
 	sta message,x
 	dex
 	bpl cl0
@@ -133,38 +133,39 @@ cl	sta mess,x
 	dex
 	bpl cl
 
-	lda #200
+	lda #200		; set activity data
 	sta adcnt
 	lda #0
 	sta offy
-	jsr setdither
+	jsr setdither	; set current dither type (default: oblique)
 
-	jsr checkiff
-	ldy #0
+	jsr checkiff	; check if file is IFF (doesn't return on fail)
+
+	ldy #0		; reset plane buffers (6)
 	tya
 clbl	sta p0,y
 	sta p2,y
 	sta p4,y
 	iny
 	bne clbl
-	jsr getbody
+	jsr getbody	; read image body
 
-	lda which
+	lda which		; determine color mode (color or gray)
 	beq cl01
-	jsr getdatac
+	jsr getdatac	; set image info respectively
 	beq cl02
 cl01	jsr getdatag
 
-cl02	jsr cancel
-err	jsr gd_xclose
-	lda #$03
+cl02	jsr cancel	; reset loader management values
+err	jsr gd_xclose	; close file
+	lda #$03		; switch mouse pointer on (?! jsr gd_spron !?)
 	sta $d015
-	jsr gd_xmess
-	bcc cn2
+	jsr gd_xmess	; show floppy message (for a blink)
+	bcc cn2		; uncond. branch
 
 ; --------------------------- Exit Loader
 
-cancel	lda #$ff		; SE: Leave Loader
+cancel	lda #$ff		; SE: Leave Loader, reset used
 	sta used
 	lda shift		; Shift (-Lock) gedrückt?
 	and #1
@@ -180,26 +181,26 @@ lll	dey
 
 cn2	sec 		; Leave Loader to Main Screen
 	rts
-;
-; ---------------------------
 
-requ	inc used
-	jsr makechr
-	ldx #<(ifflst)
-	ldy #>(ifflst)
-	jsr gd_xmloop
-	jmp stt1
-;
-; ---------------------------
+; --------------------------- Show Requester
 
-sevcol	inc used
-sevgray   inc used
+requ	inc used		; used: now 0
+	jsr makechr	; create listbox char
+	ldx #<ifflst	; show requester
+	ldy #>ifflst
+	jsr gd_xmloop	; wait for mouse input
+	jmp stt1		; loop back to start of loader
+;
+; --------------------------- Events: Color and Gray Scale
+
+sevcol	inc used		; used: 2
+sevgray   inc used		; used: 1
 	ldx used
 	dex
-	stx which
-	ldx #1
-	jsr gd_xload
-	lda #3
+	stx which		; set as color mode
+	ldx #1		; open file requester
+	jsr gd_xload	; recursion: load iff file (routine from label stt1)
+	lda #3		; end up here: set flag to leave loader
 	sta used
 	sec
 	rts
@@ -208,23 +209,23 @@ sevgray   inc used
 
 setdither	lda dith
 	bne +
-	lda #<cltabn
+	lda #<cltabn	; flag is 0: new type dither
 	ldx #>cltabn
 	bne ++
-+	lda #<cltabo
++	lda #<cltabo	; flag is 1: old type
 	ldx #>cltabo
 ++	sta rasterize
 	stx rasterize+1
 	rts
 
-; ---------------------------
+; --------------------------- Activity (short version, deprecated)
 
 adinc	ldy offy
-	dec adcnt
+	dec adcnt		; dec activity counter
 	lda adcnt
-	and #7
+	and #7		; is 0?
 	bne adskip
-	lda filltab
+	lda filltab	; yes, get proceed char
 	sta mess,y
 	inc offy
 	bne messout
@@ -232,18 +233,18 @@ adskip	tax
 	lda filltab,x
 	sta mess,y
 ;
-messout   ldx #<(message)
-	ldy #>(message)
+messout   ldx #<message	; advance gauge bar
+	ldy #>message
 	jmp gd_xtxout2
 ;
 filltab   !by 160,93,103,127,126,124,105,109
-;
 ilbm	!scr " ILBM  "
+
 message   !scr " ILBM  "
-mess	!pet "                         "
+mess	!fill 25,32
 	!by 0
 ;
-; ---------------------------
+; --------------------------- Error Messages
 
 err1	!scr "ERROR: Width must be <1024 pxls."
 err2	!scr "    ERROR: Not an IFF file.     "
@@ -251,56 +252,58 @@ err3	!scr "  ERROR: No valid IFF picture.  "
 err4	!scr "    ERROR: Too many colors.     "
 err5	!scr "  Loading terminated by STOP.   "
 
-; ---------------------------
+; --------------------------- Check file for IFF
 
-checkiff  ldy #3
+checkiff  ldy #3		; read 4 bytes
 il1	jsr basin
-	cmp form,y
-	bne faila
+	cmp form,y	; "FORM"?
+	bne faila		; no
 	dey
 	bpl il1
-	jsr dum4
-	ldy #7
+	jsr dum4		; yes, skip another 4 bytes (length)
+	ldy #7		; read 7 bytes
 il2	jsr basin
-	cmp ilbmbmhd,y
-	bne failb
+	cmp ilbmbmhd,y	; "ILBMBMHD"?
+	bne failb		; no
 	dey
 	bpl il2
-	jsr dum4
-	sta chl
-	jsr gethd
-	cpx #7
+	jsr dum4		; yes, skip 4 bytes
+	sta chl		; last byte is length (save it)
+	jsr gethd		; now get complete header
+
+	cpx #7		; in .x: amount of planes (max: 6)
 	bcs faild
-	lda xsize+1
+	lda xsize+1	; image > 1024 in width?
 	beq ghs2
-	cmp #>(1024)
+	cmp #>1024
 	beq ghs1
-	bcs failc
+	bcs failc		; yes, error
 	bcc ghs2
 ghs1	lda xsize
 	bne failc
-ghs2	lda #<(cmap)
-	ldx #>(cmap)
+
+ghs2	lda #<cmap	; no, search for CMAP chunk
+	ldx #>cmap
 	jsr search
-	ldx #3
+	ldx #3		; skip 3 bytes
 	jsr dumx
-	sta gpy+1
+	sta gpy+1		; amount of colors (hi)
 	jsr basin
-	sta gpy
+	sta gpy		; (lo)
 	ora cmgfake
 	sta cmgfake
 	jsr chkcols
 	bcs faild
 	jsr setconv
 	jsr getpal
-	lda #<(body)
-	ldx #>(body)
+	lda #<body	; search for BODY chunk
+	ldx #>body
 	jsr search
-	jsr setcmg
-	jsr setvmode
-	jmp dum4
+	jsr setcmg	; set color mode
+	jsr setvmode	; set view mode
+	jmp dum4		; skip 4 bytes finally
 ;
-; ---------------------------
+; --------------------------- ERROR Messages
 
 faila	ldx #32
 	!by $2c
@@ -349,26 +352,26 @@ ccs1	lda gpy
 	cmp #1
 ccs2	rts
 ;
-; ---------------------------
+; --------------------------- Init distributor
 
 setconv   ldx used
 	beq il3
-	lda #<(assigncol)
-	ldy #>(assigncol)
+	lda #<assigncol
+	ldy #>assigncol
 	bne il4
-il3	lda #<(makegray)
-	ldy #>(makegray)
+il3	lda #<makegray
+	ldy #>makegray
 il4	sta convmode
 	sty convmode+1
 	rts
 ;
-; ---------------------------
+; --------------------------- Distributor
 
 convcol   jmp (convmode)
 ;
 convmode  !by 0,0
 
-; ---------------------------
+; --------------------------- Skip data bytes
 ;
 dum4	ldx #4
 dumx	jsr basin
@@ -376,35 +379,38 @@ dumx	jsr basin
 	bne dumx
 	rts
 ;
-; ---------------------------
+; --------------------------- Read Header information
 
-gethd	ldx #0
+gethd	ldx #0		; save header to buffer
 hdloop	jsr basin
 	sta hdbuf,x
 	inx
 	cpx chl
 	bne hdloop
-	lda hdbuf
-	sta xsize+1
+
+	lda hdbuf		; get...
+	sta xsize+1	; image size: x
 	lda hdbuf+1
 	sta xsize
-	lda hdbuf+2
+	lda hdbuf+2	; image size: y
 	sta ysize+1
 	lda hdbuf+3
 	sta ysize
-	lda #0
+	lda #0		; preset lace mode (to off)
 	sta lace
 	sta lacefake
 	sta cmg
-	lda hdbuf+2
+
+	lda hdbuf+2	; determine lace mode (get hight hi)
 	beq nolace
-	cmp #$02
+	cmp #$02		; more than 1? (yes: must be lace)
 	bcs lace0
-	lda hdbuf+3
+	lda hdbuf+3	; lo: more than 290? (yes: must be lace)
 	cmp #$23
 	bcc nolace
 lace0	inc lacefake
-nolace	ldx planes
+
+nolace	ldx planes	; compute bytes to read in x direction (width)
 	stx cmgfake
 	lda pltab,x
 	sta plmask
@@ -424,7 +430,8 @@ nolace	ldx planes
 	and #8
 	bne hds1
 	inc bytes
-hds1	lda hdbuf+10
+
+hds1	lda hdbuf+10	; get compress flag
 	sta comp
 	rts
 ;
@@ -433,72 +440,75 @@ hds1	lda hdbuf+10
 cmgfake   !by 0
 lacefake  !by 0
 ;
-; ---------------------------
+; --------------------------- Chunk Search
 
-search	sta name
+search	sta name		; address of chunk name
 	stx name+1
 searchl   lda #0
 	sta okflg
 	sta cgflg
 	ldy #3
 l6	jsr basin
-	cmp (name),y
+	cmp (name),y	; is chunk to search for?
 	beq s1
-	inc okflg
-s1	cmp camg,y
+	inc okflg		; no, count misses
+s1	cmp camg,y	; is it "CAMG" perhaps? (don't miss CAMG!)
 	beq s11
-	inc cgflg
+	inc cgflg		; no, count misses
 s11	dey
 	bpl l6
-	lda okflg
-	beq ok
-	lda cgflg
-	beq getcmg
-	ldx #3
+
+	lda okflg		; searched chunk found?
+	beq ok		; yes, leave search
+	lda cgflg		; or CAMG found?
+	beq getcmg	; yes, get CAMG chunk
+
+	ldx #3		; not found any of these, skip 3 bytes
 	jsr dumx
-	sta chl+1
-	jsr basin
-	sta chl
-	and #1
+	sta chl+1		; store last retrieved value (hibyte)
+	jsr basin		; store next value (lobyte)
+	sta chl		; of length of current chunk (which is to skip)
+	and #1		; lobyte 0?
 	beq l7
-	inc chl
-	bne l7
-	inc chl+1
-l7	jsr basin
+	inc chl		; no, inc lo
+	bne l7		; now 0?
+	inc chl+1		; yes, inc hi
+
+l7	jsr basin		; skip cureent chunk
 	lda chl
 	bne s2
-	dec chl+1
+	dec chl+1		; count length
 s2	dec chl
-	lda chl
+	lda chl		; length down to 0?
 	ora chl+1
 	bne l7
-	beq searchl
-ok	rts
+	beq searchl	; yes, continue search for wanted chunk
+ok	rts		; until found
 ;
-; ---------------------------
+; --------------------------- Get CAMG Chunk
 
-getcmg	jsr dum4
-	ldx #3
+getcmg	jsr dum4		; skip length (4 bytes)
+	ldx #3		; preset viewmode
 	stx cmg
-	jsr dumx
-	and #$08
+	jsr dumx		; skip 3 bytes
+	and #$08		; last byte (hi): 1xxx xxxx xxxx (HAM)?
 	cmp #$08
 	bne gcs1
-	lda #54
+	lda #54		; yes, set flag
 	sta cmg
-gcs1	jsr basin
+gcs1	jsr basin		; next (lo): 1xxx x1xx
 	tax
-	and #4
-	sta lace
+	and #4		; lace?
+	sta lace		; yes, set flag
 	txa
 	and #$80
-	cmp #$80
+	cmp #$80		; extra halfbrite?
 	bne gcs2
-	lda #102
+	lda #102		; yes, set flag (overwriting possible HAM flag)
 	sta cmg
-gcs2	jmp searchl
+gcs2	jmp searchl	; continue chunk search
 ;
-; ---------------------------
+; --------------------------- Read Palette Bytes
 
 getpal	ldx #0
 gpl4	ldy gpy
@@ -507,7 +517,7 @@ gpl4	ldy gpy
 	lsr
 	lsr
 	lsr
-	jsr balancing
+	jsr balancing	; care for balancing
 	sta red
 	sta rbk,x
 	dey
@@ -534,13 +544,13 @@ gpl4	ldy gpy
 	stx gpx
 	cpx #64
 	bcs fedup
-	jsr convcol
+	jsr convcol	; convert to c64
 	ldx gpx
 	sta pal,x
 	tya
 	sta pal+64,x
 	lda patty
-	sta dithtab,x
+	sta dithtab,x	; create dither table
 fedup	inx
 	dec gpy
 	bne gpl4
@@ -550,15 +560,15 @@ palq	rts
 ;
 ; ---------------------------
 
-balancing	stx gpx
+balancing	stx gpx		; process balancing
 	tax
 	lda gr_btab,x
 	ldx gpx
 	rts
 
-; ---------------------------
+; --------------------------- Assign Colors from RGB
 
-assigncol lda red
+assigncol lda red		; commentation: see m_DecodeGIF64c.a
 	clc
 	adc grn
 	adc blu
@@ -655,7 +665,7 @@ bsk	inx
 	bne cl6
 ;
 	stx min+1
-	ldx level		; level
+	ldx level
 ml1	lda dbuf1,x
 	tay
 	cmp min+1
@@ -680,10 +690,10 @@ ms2	inx
 	sta smin
 	ldy minx
 	sty sminx
-	lda #$ff		; level-1!
+	lda #$ff
 	sta dbuf1,y
 	stx min+1
-	ldx level		; level
+	ldx level
 ms23	lda dbuf1,x
 	tay
 	cmp min+1
@@ -779,22 +789,23 @@ gray2	!by 2,2,2,1,1,1,1,0,0,0,0,4,4,4,4,4
 pats	!by $00,$04,$07,$0b,$00,$04,$07,$0b
 	!by $00,$04,$07,$0b,$00,$05,$0a,$10
 
-; ---------------------------
+; --------------------------- Colors
 
-setcmg	lda cmg
+setcmg	lda cmg		; .x=0
 	bne scs0
-	lda cmgfake
+	lda cmgfake	; contains number of planes
 	sta cmg
-	lda lacefake
+	lda lacefake	; must be lace: if >0
 	sta lace
 scs0	lda cmg
-	cmp #102
-	bne scs1
-	ldx #31
-	ldy used
+	cmp #102		; extra half brite?
+	bne scs1		; no, leave
+
+	ldx #31		; yes, .x=31
+	ldy used		; get mode (gray or color)
 	beq scl2
 
-scl1	lda rbk,x
+scl1	lda rbk,x		; gray: get palette from file
 	lsr
 	sta red
 	lda gbk,x
@@ -804,9 +815,9 @@ scl1	lda rbk,x
 	lsr
 	sta blu
 	stx gpx
-	jsr convcol
+	jsr convcol	; convert to 4Bit
 	ldx gpx
-	sta pal+32,x
+	sta pal+32,x	; and store values
 	tya
 	sta pal+96,x
 	lda rbuf
@@ -815,38 +826,40 @@ scl1	lda rbk,x
 	bpl scl1
 scs1	rts
 
-scl2	lda pal+64,x
+scl2	lda pal+64,x	; color: get balanced stored palette
 	and #15
 	lsr
 	tay
-	lda dnib,y
-	sta pal+96,x
+	lda dnib,y	; produce 4bit double nibbles
+	sta pal+96,x	; and store
 	dey
-	bpl scl3
+	bpl scl3		; don't use <0
 	iny
 scl3	lda dnib,y
 	sta pal+32,x
-	lda dithtab,x
+	lda dithtab,x	; double the table (for EHB)
 	sta dithtab+32,x
 	dex
 	bpl scl2
 	rts
 
-setvmode  ldx planes
+; --------------------------- Viewmode
+
+setvmode  ldx planes	; set view mode, get amount of planes
 	dex
 	lda cmg
-	cmp #54
+	cmp #54		; HAM?
 	bne svms1
-	ldx #7
-svms1	cmp #102
+	ldx #7		; yes, 6 planes
+svms1	cmp #102		; lace?
 	bne svms2
-	inx
-svms2	txa
+	inx		; yes
+svms2	txa		; no
 	asl
 	asl
 	tax
 	ldy #3
-svml	lda vmodes,x
+svml	lda vmodes,x	; show info text
 	sta viewmode+3,y
 	inx
 	dey
@@ -863,23 +876,25 @@ nopal	rts
 ;
 vmodes	!pet "  2   4   8  61  23  46 bhe mah "
 ;
-; ---------------------------
+; --------------------------- Read one Pixel Line
 
-readline  lda #<(p0)
-	ldx #>(p0)
+readline  lda #<p0		; to plane buffer 0
+	ldx #>p0
 	sta pbuf		; .a=0
 	stx pbuf+1
-	sta red
+	sta red		; init colors
 	sta grn
 	sta blu
 	lda planes
 	sta pcnt
+
 nline	ldy #0
 	ldx sc_stop	; STOP pressed?	### 1.01
 	bne jfaile
-	lda comp
-	beq uncomp
-next	jsr basin
+	lda comp		; compressed?
+	beq uncomp	; no, read uncompressed data
+
+next	jsr basin		; yes, decompress
 	tax
 	bmi decomp
 rll	jsr basin
@@ -889,7 +904,7 @@ rll	jsr basin
 	bpl rll
 	bmi rls
 
-; ---------------------------
+; --------------------------- Decompress
 
 decomp	dex
 	jsr basin
@@ -897,11 +912,11 @@ rll1	sta (pbuf),y
 	iny
 	inx
 	bne rll1
-rls	cpy bytes
+rls	cpy bytes		; until width
 	bcc next
 	bcs rls1
 ;
-; ---------------------------
+; --------------------------- read uncompressed part
 
 uncomp	jsr basin
 	bcs fail2
@@ -917,12 +932,12 @@ rls1	lda pbuf
 	inc pbuf+1
 rls2	dec pcnt
 	bne nline
-	lda xsize+1
+	lda xsize+1	; must image be scaled down?
 	lsr
-	bne squeeze
+	bne squeeze	; yes, go there
 	rts
 ;
-; ---------------------------
+; --------------------------- Errors
 
 jfaile	jmp faile
 
@@ -933,35 +948,37 @@ fail3	pla
 	inc used
 	rts
 ;
-; ---------------------------
+; --------------------------- Scale down files >320x200
 
-squeeze   lda #<(p0)
-	ldx #>(p0)
+squeeze   lda #<p0		; get data from plane buffer 0
+	ldx #>p0
 	sta pbuf
 	stx pbuf+1
 	lda planes
 	sta pcnt
+
 sql0	ldx #0
 	ldy #0
-sql1	lda (pbuf),y
+sql1	lda (pbuf),y	; get plane data, shift into bbuf
 	asl
 	rol bbuf
-	asl
-	asl
-	rol bbuf
-	asl
+	asl		; skip one bit
 	asl
 	rol bbuf
-	asl
+	asl		; skip one bit
 	asl
 	rol bbuf
+	asl		; skip one bit
 	asl
-	sta (pbuf),y
-	iny
+	rol bbuf
+	asl		; skip one bit (now 8 bits squeezed to 4)
+	sta (pbuf),y	; store back 0
+
+	iny		; get next plane byte
 	lda (pbuf),y
-	asl
+	asl		; shift again into bbuf (thus squeezing 16 to 8)
 	rol bbuf
-	asl
+	asl		; see above
 	asl
 	rol bbuf
 	asl
@@ -972,24 +989,27 @@ sql1	lda (pbuf),y
 	rol bbuf
 	asl
 	sta (pbuf),y
-	sty ybuf
-	txa
+
+	sty ybuf		; index merken
+	txa		; .y to 0
 	tay
-	lda bbuf
+	lda bbuf		; write squeezed value
 	sta (pbuf),y
 	inx
 	ldy ybuf
+
 	iny
-	cpy bytes
+	cpy bytes		; until width
 	bne sql1
-	lda pbuf
+
+	lda pbuf		; advance to next plane
 	clc
 	adc #128
 	sta pbuf
 	bcc sqs1
 	inc pbuf+1
-sqs1	dec pcnt
-	bne sql0
+sqs1	dec pcnt		; dec plane counter
+	bne sql0		; process next plane
 	rts
 ;
 ; ---------------------------
@@ -1001,9 +1021,9 @@ dnib	!by $00,$11,$22,$33
 	!by $88,$99,$aa,$bb
 	!by $cc,$dd,$ee,$ff,$bb
 ;
-; ---------------------------
+; --------------------------- Convert to Gray values
 
-makegray	ldy red
+makegray	ldy red		; average the three values of RGB
 	lda rtab,y
 	clc
 	ldy grn
@@ -1019,36 +1039,36 @@ makegray	ldy red
 	lsr
 	lsr
 	tax
-	lda dnib,x
+	lda dnib,x	; return same double nibble in .a and .y
 	inx
 	ldy dnib,x
 	rts
 
-; ---------------------------
+; --------------------------- Read IFF Body Chunk (Bitmap Pixels)
 
 getbody   lda cmg
-	cmp #54
+	cmp #54		; HAM?
 	bne noham3
-	jmp getham
+	jmp getham	; yes, other routine
 
-noham3	lda #<($4000)
-	ldx #>($4000)
+noham3	lda #<$4000	; no, set start of 4Bit data
+	ldx #>$4000
 	sta dst0
 	sta dst
 	stx dst0+1
 	stx dst+1
 
-	lda #25
+	lda #25		; count 25 block rows
 	sta lcnt8
 
-lnloop8   lda #7
+lnloop8   lda #7		; count 7 rasterlines (tile height)
 	sta lcnt
 
-lnloop	jsr adinc
-	jsr readline
-	ldx lace
+lnloop	jsr adinc		; activity
+	jsr readline	; read 1 rasterline
+	ldx lace		; lace?
 	beq lcs0
-	jsr readline
+	jsr readline	; yes, read 1 more rasterline
 lcs0	dec palcnt
 	bne lcs01
 	lda #4
@@ -1057,10 +1077,11 @@ lcs0	dec palcnt
 	ldx lace
 	beq lcs01
 	jsr readline
+
 lcs01	ldx #0
-byloop	lda #3
+byloop	lda #3		; counts 4 (4bit) pixels
 	sta bcnt
-btloop	asl p5,x
+btloop	asl p5,x		; gather from planes
 	rol
 	asl p4,x
 	rol
@@ -1072,11 +1093,11 @@ btloop	asl p5,x
 	rol
 	asl p0,x
 	rol
-	and plmask
-	jsr raster
+	and plmask	; delimit to amount of colors in file
+	jsr raster	; rasterize pixel
 	and #$f0
-	sta bbuf
-	asl p5,x
+	sta bbuf		; store result as left (4bit) pixel
+	asl p5,x		; now for the right pixel: gather
 	rol
 	asl p4,x
 	rol
@@ -1088,27 +1109,28 @@ btloop	asl p5,x
 	rol
 	asl p0,x
 	rol
-	and plmask
-	jsr raster
+	and plmask	; delimit
+	jsr raster	; rasterize pixel
 	and #$0f
-	ora bbuf
+	ora bbuf		; combine result w/ left pixel
 	ldy #0
-	sta (dst),y
+	sta (dst),y	; store to 4bit bitmap
 	inc dst
 	bne s3
 	inc dst+1
-s3	dec bcnt
+s3	dec bcnt		; count pixels
 	bpl btloop
-	lda dst
+	lda dst		; proceed to next tile
 	clc
 	adc #28
 	sta dst
 	bcc s4
 	inc dst+1
-s4	inx
+s4	inx		; until 40 (then rasterline is processed)
 	cpx #40
 	bne byloop
-	lda dst0
+
+	lda dst0		; add 4 to address next rasterline
 	clc
 	adc #4
 	sta dst0
@@ -1117,48 +1139,48 @@ s4	inx
 	inc dst0+1
 s5	lda dst0+1
 	sta dst+1
-	dec lcnt
+	dec lcnt		; count rasterlines (8)
 	bmi rdy
 	jmp lnloop
-rdy	lda dst0
+rdy	lda dst0		; then address next block row
 	clc
-	adc #<(1248)
+	adc #<1248
 	sta dst0
 	sta dst
 	lda dst0+1
-	adc #>(1248)
+	adc #>1248
 	sta dst0+1
 	sta dst+1
-	dec lcnt8
+	dec lcnt8		; count block rows
 	beq rdy1
-	jmp lnloop8
-rdy1	rts
+	jmp lnloop8	; and loop
+rdy1	rts		; until finished
 ;
-raster 	sta ybuf
-	lda lcnt
+raster 	sta ybuf		; rasterize colors: save pixel (in .a)
+	lda lcnt		; which rasterline? (0..7, times 4, lower 4 bits)
 	asl
 	asl
 	and #15
-	ora bcnt
+	ora bcnt		; combine with pixel number (0..3)
 	tay
-	lda (rasterize),y
-	ldy ybuf
+	lda (rasterize),y	; fetch a pattern (from cltabo/n below)
+	ldy ybuf		; get pixel as index into compare table
 	cmp dithtab,y
 	beq s6
 	bcc s6
-	lda pal,y
+	lda pal,y		; and finally return rasterized value
 	rts
 s6	lda pal+64,y
 	rts
 
 ; ---------------------------
 
-cltabo 	!by $10,$08,$0e,$06		; old pattern
+cltabo 	!by $10,$08,$0e,$06		; old pattern (vertical)
 	!by $04,$0c,$02,$0a
 	!by $0d,$05,$0f,$07
 	!by $01,$09,$03,$0b
 
-cltabn	!by $0d,$08,$0e,$06		; new pattern
+cltabn	!by $0d,$08,$0e,$06		; new pattern (oblique)
 	!by $07,$0f,$05,$0c
 	!by $10,$04,$0b,$02
 	!by $03,$0a,$01,$09
@@ -1170,23 +1192,24 @@ gtab 	!by $00,$09,$13,$1c,$26,$2f,$39,$42
 btab 	!by $00,$02,$03,$05,$07,$09,$0a,$0c
 	!by $0e,$10,$12,$13,$15,$17,$19,$1a
 
-; ---------------------------
+; --------------------------- Read HAM image data
 
-getham	lda #<($4000)
-	ldx #>($4000)
+getham	lda #<$4000	; set start of 4Bit data
+	ldx #>$4000
 	sta dst0
 	sta dst
 	stx dst0+1
 	stx dst+1
-	lda #25
+
+	lda #25		; count 25 block rows
 	sta lcnt8
-hlnloop8  lda #7
+hlnloop8  lda #7		; count 7 rasterlines (tile height)
 	sta lcnt
-hlnloop   jsr adinc
-	jsr readline
-	ldx lace
+hlnloop   jsr adinc		; activity
+	jsr readline	; read 1 rasterline
+	ldx lace		; lace?
 	beq lcs1
-	jsr readline
+	jsr readline	; yes, read 1 more rasterline
 lcs1	dec palcnt
 	bne lcs11
 	lda #4
@@ -1195,10 +1218,11 @@ lcs1	dec palcnt
 	lda lace
 	beq lcs11
 	jsr readline
+
 lcs11	ldx #0
-hbyloop   lda #3
+hbyloop   lda #3		; counts 4 (4bit) pixels
 	sta bcnt
-hbtloop   asl p3,x
+hbtloop   asl p3,x		; gather pixels from planes (in HAM mode, left pixel)
 	rol
 	asl p2,x
 	rol
@@ -1216,32 +1240,32 @@ hbtloop   asl p3,x
 	beq pure
 	stx xbuf
 
-	eor #$02
+	eor #$02		; HAM stuff
 	cmp #$03
 	bne hs1
 	and #$02
 hs1	tax
 	sty red,x
-	jsr convcol
+	jsr convcol	; convert colors to 4bit
 	sta pal+16
 	sty pal+80
 	lda rbuf
 	sta dithtab+16
 	ldx xbuf
-	lda #$10
+	lda #$10		; and rasterize
 	bpl pr1
 
-pure	lda rbk,y
+pure	lda rbk,y		; normal color (not HAMmed)
 	sta red
 	lda gbk,y
 	sta grn
 	lda bbk,y
 	sta blu
-pr1	jsr raster
+pr1	jsr raster	; rasterize
 ;
-hok	and #$f0
+hok	and #$f0		; store result (left part of double nibble)
 	sta bbuf
-	asl p3,x
+	asl p3,x		; now for right pixel
 	rol
 	asl p2,x
 	rol
@@ -1257,6 +1281,7 @@ hok	and #$f0
 	rol
 	and #3
 	beq pure1
+
 	stx xbuf
 	eor #$02
 	cmp #$03
@@ -1272,7 +1297,8 @@ hs2	tax
 	ldx xbuf
 	lda #$10
 	bpl pr2
-pure1	lda rbk,y
+
+pure1	lda rbk,y		; unHAMmed pixels
 	sta red
 	lda gbk,y
 	sta grn
@@ -1287,20 +1313,22 @@ hok1	and #$0f
 	inc dst
 	bne hs3
 	inc dst+1
-hs3	dec bcnt
+hs3	dec bcnt		; count pixels (0..3)
 	bmi hs31
 	jmp hbtloop
-hs31	lda dst
+
+hs31	lda dst		; next tile (in 4bit)
 	clc
 	adc #28
 	sta dst
 	bcc hs4
 	inc dst+1
-hs4	inx
+hs4	inx		; count width (40 tiles)
 	cpx #40
 	beq hs41
 	jmp hbyloop
-hs41	lda dst0
+
+hs41	lda dst0		; address next rasterline
 	clc
 	adc #4
 	sta dst0
@@ -1309,24 +1337,25 @@ hs41	lda dst0
 	inc dst0+1
 hs5	lda dst0+1
 	sta dst+1
-	dec lcnt
+	dec lcnt		; count rasterlines (0..7)
 	bmi hrdy
 	jmp hlnloop
-hrdy	lda dst0
+
+hrdy	lda dst0		; address next block row
 	clc
-	adc #<(1248)
+	adc #<1248
 	sta dst0
 	sta dst
 	lda dst0+1
-	adc #>(1248)
+	adc #>1248
 	sta dst0+1
 	sta dst+1
-	dec lcnt8
+	dec lcnt8		; count block rows (1..25)
 	beq hrdy1
 	jmp hlnloop8
-hrdy1	rts
+hrdy1	rts		; until finished
 ;
-; ---------------------------
+; --------------------------- Data
 
 form	!pet "mrof"
 ilbmbmhd  !pet "dhmbmbli"
@@ -1347,7 +1376,7 @@ doffs	!by 3,7
 dithtype	!scr "OblqVert"
 chschr	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
 
-; ---------------------------
+; --------------------------- Screenlist
 
 ifflst	!by 0
 	!by 6,11,18,13,$81
@@ -1376,16 +1405,16 @@ dithtx	!scr"Oblq",0
 	!scr "Dither:",0
 	!by $80
 ;
-; ---------------------------
+; --------------------------- Event: Set Level
 
-sevlvl	lda spalte
+sevlvl	lda spalte	; where clicked? (column)
 	cmp #25
 	bcs lvlinc
-lvldec	dec level
+lvldec	dec level		; left of 25: dec level
 	bpl lvl0
 	lda #4
 	sta level
-lvlinc	inc level
+lvlinc	inc level		; right of 24: inc level
 lvl0	ldx level
 	cpx #6
 	bcc lvl1
@@ -1393,15 +1422,15 @@ lvl0	ldx level
 	stx level
 lvl1	lda lvlnum,x
 	sta lvltx
-	jsr gettab1
+	jsr gettab1	; show
 	bcc ++
 
-; ---------------------------
+; --------------------------- Event: Set Dither Type
 
-evdither	ldy dith
+evdither	ldy dith		; current dither type?
 	beq +
-	ldy #$ff
-+	iny
+	ldy #$ff		; if 1: set to 0
++	iny		; if 0: inc to 1
 	sty dith
 	ldx doffs,y
 	ldy #3
@@ -1411,25 +1440,25 @@ evdither	ldy dith
 	dey
 	bpl -
 	jsr gettab2
-++	ldy #6
+++	ldy #6		; show
 	jmp gd_xtxout1
 
 ; --------------------------- Kringel definieren
 
-makechr	ldx #7
+makechr	ldx #7		; create listbox char
 -	lda chschr,x
 	sta sc_undochar,x
 	dex
 	bpl -
 	rts
 
-; ---------------------------
+; --------------------------- Text output management
 
-gettab2	lda #<dithgad
+gettab2	lda #<dithgad	; show contents of dither gadget
 	sta sc_screentab
 	lda #>dithgad
 	bne +
-gettab1	lda #<lvlgad
+gettab1	lda #<lvlgad	; show contents of level gadget
 	sta sc_screentab
 	lda #>lvlgad
 +	sta sc_screentab+1
@@ -1443,9 +1472,9 @@ gt0	jsr gd_setpos
 	jsr gd_trim
 	jmp gd_initmove
 ;
-; ---------------------------
+; --------------------------- file info management
 
-getname   ldx #0
+getname   ldx #0		; save name of chosen file for image info
 si0	lda ls_lastname,x
 	beq si1
 	sta nbuf,x
@@ -1454,7 +1483,7 @@ si0	lda ls_lastname,x
 	bcc si0
 si1	rts
 ;
-getdatac  ldx #4
+getdatac  ldx #4		; set data for image info
 	!by $2c
 getdatag  ldx #9
 	ldy #4
