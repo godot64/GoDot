@@ -1583,10 +1583,10 @@ ew0	lda tabspr,x	; get x-position
 	sta gd_xbeyond	; ###
 	jmp dp00
 
-mwipe	ldx #3
-	stx spritehi	; set mouse back to mover
-	jsr setstart
+mwipe	jsr setstart	; ### 1.48; re-compute 4bit address of window
 	jsr evwipe	; ### 1.43; process wipe from mover
+	lda #3
+	sta spritehi	; set mouse back to mover
 	lda #94
 	sta spritey
 	sta spritey-2
