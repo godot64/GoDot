@@ -1,10 +1,10 @@
 
-	!src "godotlib.lib"
+	!src <godotlib.lib>
 	*= $c000
 	!ct pet
 ;	!sl "labels.txt"
 
-; ------------------------------------------------------------ 
+; ------------------------------------------------------------
 ;
 ; mod.PixelEdit
 ; 	Module to edit the 4bit memory 8 times magnified
@@ -38,8 +38,9 @@
 ;   1.45, 03.01.21: added ability to edit in Multicolor (using double pixels)
 ;   1.46, 04.02.21: added automatic recognition of gmode on startup
 ;   1.47, 07.02.21: bugfix: endless recursion when changing mode from keyboard
+;   1.48, 27.03.26: bugfix: wipe from mover started 3 too far right
 ;
-; ------------------------------------------------------------ 
+; ------------------------------------------------------------
 
 ; --------------------------------------- Equates
 
@@ -58,7 +59,7 @@
 	mky 		= $3d
 	vpos 		= $3e
 	vertical		= $3f	; ### v1.32 (saves space)
-	horizont		= $40	; ### 
+	horizont		= $40	; ###
 	oldv		= $41	; ###
 	oldh		= $42	; ### bis hier
 	slot		= $45
@@ -102,8 +103,8 @@
 	!wo modend
 	!wo 0
 	!pet "Edit 4bit pixels"
-	!pet "1.46"
-	!pet "04.02.21"
+	!pet "1.48"
+	!pet "27.03.26"
 	!pet "AD/ H.McMenamin "
 
 ; ------------------------------------------ Main
@@ -137,7 +138,7 @@ start:	jsr makech	; define new character
 	jsr initmode	; show in gadget		### --
 	jmp gd_eloop	; wait... (what else within GoDot?)
 
-; ------------------------------------------ 
+; ------------------------------------------
 
 cancel:	jsr restcols	; restore screen colors
 	ldy #0
@@ -267,7 +268,7 @@ initmode	lda #17		; invoked from keyboard:
 	jsr setevent	; search Mode event in screenlist
 	jmp evemode	; and execute it
 
-; ------------------------------------------ 
+; ------------------------------------------
 
 evemode	ldx emode		; 0: Hires - 1: Multi
 	beq +
@@ -435,7 +436,7 @@ masp:	lda sprstore,x	; load sprite
 	sta sprites+5
 	sta sprites+6
 	sta sprites+7
-	jsr sprbox   
+	jsr sprbox
 ; ------------------------------------------ set vert loc
 	lda #111
 	sta sprp2+1
@@ -516,17 +517,17 @@ ckgads	lda spalte	; horizontal in Gadgetgebiet?
 	bcc jended	; ja, Edit beenden
 
 	cmp gdzl2		; ist im Chooser? (ab 10)
-	bcc ok1		; nein, darüber
+	bcc ok1		; nein, darÃ¼ber
 	cmp gdho2		; (bis 14)
 	bcc jended	; ja, Edit beenden
 
 	cmp gdzl3		; ist im Mode-Toggle? (in 17)
-	bcc ok1		; nein, darüber
+	bcc ok1		; nein, darÃ¼ber
 	cmp gdho3		; (bis 18)
 	bcc jended	; ja, Edit beenden
 
 	cmp gdzl2		; ist im Edit-Toggle? (in 20)
-	bcc ok1		; nein, darüber
+	bcc ok1		; nein, darÃ¼ber
 	ldx #30		; set fake mouse move
 	stx spalte
 	cmp gdho2		; (bis 21)
@@ -602,10 +603,10 @@ edx3:	lda sc_keyprs	; FIRE/RETURN/STOP?
 	beq ed0
 	jmp keymove	; keyboard if CBM or Shift pressed
 
-; ------------------------------------------ 
+; ------------------------------------------
 edit:	lda sc_stop	; if STOP (>0): end edit
 	beq ed1		; no STOP
-; ------------------------------------------ 
+; ------------------------------------------
 
 endedit	lda sc_normtext	; STOP: exit, restore Edit gadget
 	sta sc_chgcol
@@ -625,7 +626,7 @@ ed3:	lda editgad,y
 sl5:	clc		; leave function
 	rts
 
-; ------------------------------------------ 
+; ------------------------------------------
 
 ed1:	sta sc_loop	; init memflag
 	lda screenpnt	; save current 4Bit pointer
@@ -759,9 +760,9 @@ pe4:	cpx #62		; "q" key
 pe5:	cpx #37		; "k" key
 	bne pe6
 	jsr tdelay
-	lda sprenable 
+	lda sprenable
 	eor #$fc		; flip sprites
-	sta sprenable 
+	sta sprenable
 pe6:	cpx #41		; "p" key
 	bne pete
 	stx sc_loop
@@ -773,7 +774,7 @@ pe6:	cpx #41		; "p" key
 	jsr tdelay	; key delay
 	jmp ed0		; back to edit loop
 
-; ------------------------------------------ 
+; ------------------------------------------
 
 pete:	cpx #60		; left mouse button?
 	beq shifted
@@ -782,7 +783,7 @@ pete:	cpx #60		; left mouse button?
 	cmp #2		; CBM?
 	bne kmc3		; no, loop
 
-; ------------------------------------------ 
+; ------------------------------------------
 
 unshifted:
 	cpx #2		; CRSR right
@@ -829,7 +830,7 @@ kmc3	bne km3
 	jsr evwipe
 	bcc km3
 
-; ------------------------------------------ 
+; ------------------------------------------
 
 shifted:	cpx #60		; Shift Space (left mouse button)?
 	bne km9
@@ -1035,7 +1036,7 @@ eg2	cpx #35		; "Q" (for change grid color)
 	jsr fixgcl
 eg31	cpx #37		; "B" (for Bottom Right)
 	beq evbotrght
-eg3	cpx #34		; "W" (for Wipe)		
+eg3	cpx #34		; "W" (for Wipe)
 	bne em3
 	jsr mwipe
 em3:	clc
@@ -1045,27 +1046,27 @@ em3:	clc
 
 evdown:	jsr down		; scroll down
 	jmp dp00		; display
-; ------------------------------------------ 
+; ------------------------------------------
 evdwnrght:
 	jsr evdown
 	jmp evright
-; ------------------------------------------ 
+; ------------------------------------------
 evdwnleft:
 	jsr evdown
 	jmp evleft
-; ------------------------------------------ 
+; ------------------------------------------
 evup:	jsr up		; scroll up
 	jmp dp00 		; display
-; ------------------------------------------ 
+; ------------------------------------------
 evuprght:	jsr evup
 	jmp evright
-; ------------------------------------------ 
+; ------------------------------------------
 evupleft:	jsr evup
 	jmp evleft
-; ------------------------------------------ 
+; ------------------------------------------
 evright:	jsr right		; scroll right
 	jmp dp00		; display
-; ------------------------------------------ 
+; ------------------------------------------
 evleft:	jsr left		; scroll left
 	jmp dp00		; display
 
@@ -1075,13 +1076,13 @@ evhome:	ldy #0
 	sty vertical 	; row/column: 0
 	sty horizont
 	jmp home		; display
-; ------------------------------------------ 
+; ------------------------------------------
 evcenter:	lda #11		; center position
 	sta vertical
 	lda #18
 	sta horizont
 	jmp home		; display
-; ------------------------------------------ 
+; ------------------------------------------
 evbotrght:
 	lda #22		; bottom right position
 	sta vertical
@@ -1089,7 +1090,7 @@ evbotrght:
 	sta horizont
 	jmp home		; display
 
-; ------------------------------------------ 
+; ------------------------------------------
 evtoprght:
 	lda #0		; top right position
 	sta vertical
@@ -1097,7 +1098,7 @@ evtoprght:
 	sta horizont
 	jmp home		; display
 
-; ------------------------------------------ 
+; ------------------------------------------
 evbotleft:
 	lda #22		; bottom left position
 	sta vertical
@@ -1149,7 +1150,7 @@ left:	ldx horizont
 	dex
 	bmi ri0
 	stx horizont
-	sec		; previous 4Bit column
+minus3	sec		; previous 4Bit column
 	lda screenpnt
 	sbc #32
 	sta screenpnt
@@ -1232,17 +1233,17 @@ checkcols	sei 		; GoDot off
 
 	lda #$36		; GoDot on again
 	sta pport
-	cli 
-	rts 
+	cli
+	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 sethicol	lda (slot,x)	; get type of module (at $c003): $20, $40, $80
-	tay 
+	tay
 	and #$40		; is saver there? (contains vram1)
 	beq +		; no, next type
 
-	jsr c147		; yes, set color buffer 
+	jsr c147		; yes, set color buffer
 	sta v1buf
 	bne ++
 
@@ -1256,14 +1257,14 @@ sethicol	lda (slot,x)	; get type of module (at $c003): $20, $40, $80
 +	jsr c147		; so, it's a modifier (contains vram2)
 	sta v2buf
 
-++	rts 
+++	rts
 
 c147 	lda slot+1	; get hibyte...
 	ora #$0e		; ...and OR %00001110 to it (ie $ce)
 	rts 		; thus: get correct hi address of color buffers
 
 ; ### 1.31 bis hier ---
-; ------------------------------------------ 
+; ------------------------------------------
 
 dp13:	sty sc_stop	; re-init stop flag
 	lda sc_maincolor	; restore colors
@@ -1391,7 +1392,7 @@ rp2:	jsr getcolors
 	jsr gd_screen
 rp3:	clc
 	rts
-	
+
 tmode:	ldx #$13
 	lda #$1b
 	stx $d018
@@ -1399,19 +1400,19 @@ tmode:	ldx #$13
 	lda #$08
 	sta $d016
 	rts
-	
+
 ; ------------------------------------------
 
 setcveks:	sei
 	lda #$35
 	sta pport
-	lda cbuf 		; color ram ### 1.31 
+	lda cbuf 		; color ram ### 1.31
 	ldx #$d8
 	bne scv0
-	
-; ------------------------------------------ 
 
-setbveks	lda v1buf 	; vram1 ### 1.31 
+; ------------------------------------------
+
+setbveks	lda v1buf 	; vram1 ### 1.31
 	ldx #4
 	dec pport
 scv0:	stx $b3
@@ -1420,7 +1421,7 @@ scv0:	stx $b3
 	sty $b2
 	dey
 
-; ------------------------------------------ 
+; ------------------------------------------
 
 setlast:	sty gr_bkcol
 	ldy #<cstart
@@ -1433,7 +1434,7 @@ setlast:	sty gr_bkcol
 	ldy #0
 	rts
 
-; ------------------------------------------ 
+; ------------------------------------------
 
 count:	inc $20
 	bne cou5
@@ -1449,7 +1450,7 @@ cou7:	dec $a8
 	ora $a9
 	rts
 
-; ------------------------------------------ 
+; ------------------------------------------
 
 getcolors:
 	jsr setcveks
@@ -1479,7 +1480,7 @@ stc1:	lda ($b2),y
 	ldy gr_bkcol
 	bpl scv1
 	ldy #0
-	lda v2buf 	; vram2 ### 1.31 
+	lda v2buf 	; vram2 ### 1.31
 	jsr setlast
 	beq stc1
 scv1:	lda #$36
@@ -1490,7 +1491,7 @@ scv1:	lda #$36
 	sta gr_bkcol
 	rts
 
-; ------------------------------------------ 
+; ------------------------------------------
 
 setcolors:
 	lda gr_bkcol
@@ -1524,11 +1525,11 @@ stc4:	lda ($20),y
 	bpl scv1
 	pla
 	tay
-	lda v2buf 	; vram2 ### 1.31 
+	lda v2buf 	; vram2 ### 1.31
 	jsr setlast
 	beq stc4
 
-; ------------------------------------------ 
+; ------------------------------------------
 
 redisplay:
 	lda gr_redisp
@@ -1582,9 +1583,10 @@ ew0	lda tabspr,x	; get x-position
 	sta gd_xbeyond	; ###
 	jmp dp00
 
-mwipe	jsr evwipe	; ### 1.43; process wipe from mover
-	lda #3		; set mouse back to mover
-	sta spritehi
+mwipe	ldx #3
+	stx spritehi	; set mouse back to mover
+	jsr setstart
+	jsr evwipe	; ### 1.43; process wipe from mover
 	lda #94
 	sta spritey
 	sta spritey-2
@@ -1645,7 +1647,7 @@ f6:	sta (mac),y	; selected color
 f7	sty gr_redisp
 	jmp home
 
-; ------------------------------------------ 
+; ------------------------------------------
 
 hv1:	lda screenpnt+1	; lda msb
 	inc rahmen	; flash border
@@ -1723,7 +1725,7 @@ coltx	!scr " 0@"
 	!by $c0,1,33,4
 	!scr "Y:"
 rowtx	!scr " 0@"
-	
+
 	!by $c0,4,33,4
 	!by 91
 	!scr "O"
@@ -1736,7 +1738,7 @@ rowtx	!scr " 0@"
 
 	!by $c0,6,33,4
 	!scr "WQLB@"
-	
+
 	!by $c0,23,255,26	; Message: Edit Mode
 	!scr "STOP exits from Edit Mode.@"
 	!by $80
@@ -1746,14 +1748,14 @@ coltx2	!scr " 0@"
 rowgad	!by 2,36,2
 rowtx2	!scr " 0@"
 
-; ------------------------------------------ 
+; ------------------------------------------
 
 rotf:	jsr hv1		; get block address
 	jsr cloop		; get pixels for storing in stow & stoy
-	lda #0 		; set limits for moving to 
+	lda #0 		; set limits for moving to
 	sta ymk		; grstore (graphic store)
 	jsr adup
-	inc mac		; 2nd col 
+	inc mac		; 2nd col
 	jsr cloop		; repeat for each column
 	lda #8
 	sta ymk
@@ -1770,13 +1772,13 @@ rotf:	jsr hv1		; get block address
 	jsr adup
 	jmp f3		; buffer to screen
 
-; ------------------------------------------ 
+; ------------------------------------------
 cloop:	clc		; work horse for entire block
 	ldx #0		; set registers at zero
 	ldy #0		; for each line
 	lda #0
 ; ------------------------------------------ get lt nybl
-aloop:	lda (mac),y	; - get byte from (mac) and mask 
+aloop:	lda (mac),y	; - get byte from (mac) and mask
 	and #$f0
 	sta stoy,x	; buffer for lt nybles
 	iny
@@ -1787,15 +1789,15 @@ aloop:	lda (mac),y	; - get byte from (mac) and mask
 ; ------------------------------------------ get rt nyble
 	ldx #0 		; set registers at zero
 	ldy #0		; for each line
-bloop:	lda (mac),y	; - get byte from (mac) and mask 
+bloop:	lda (mac),y	; - get byte from (mac) and mask
 	and #$0f
 	asl
 	asl
 	asl
 	asl
-	sta stow,x	; buffer for rt nybles 
+	sta stow,x	; buffer for rt nybles
 	iny		; lined up after stoy
-	iny			
+	iny
 	inx
 	cpx #16		; check for 8 cycles
 	bne bloop		; if <8 then back to stclose
@@ -1807,9 +1809,9 @@ adup:	ldx #0
 	ldy ymk
 	tya
 	adc #7
-	sta yml	
+	sta yml
 	tay
-ad1:	clc 
+ad1:	clc
 	lda stow,x 	; get rt nybl
 	lsr 		; shift to a lft nybl
 	lsr
@@ -1822,13 +1824,13 @@ ad1:	clc
 	adc t1		; add the 2
 	dey
 	sta grstore,y	; store in work buffer
-	inx		; repeats until all work buff 
+	inx		; repeats until all work buff
 	inx 		; is filled
 	cpy ymk
 	bne ad1
 	rts
 
-; ------------------------------------------ 
+; ------------------------------------------
 
 gdsp	!by 34
 gdbr	!by 38
@@ -1859,7 +1861,7 @@ newnavs	!by $00,$00,$00,$00,$0e,$08,$0a,$01
 	!by $07,$0f,$0f,$0f,$0f,$0f,$0f,$07
 	!by $e0,$f0,$f0,$f0,$f0,$f0,$f0,$e0
 
-; ------------------------------------------ 
+; ------------------------------------------
 
 modend:	!eof
 
