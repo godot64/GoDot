@@ -1,5 +1,5 @@
 
-	!src "godotlib.lib"
+	!src <godotlib.lib>
 	*= $c000
 	!ct pet
 ;	!sl "labels.txt"
@@ -14,6 +14,7 @@
 ;                 added new filetypes
 ; 1.04, 31.10.18, bugfix: Loadstar Hires wasn't recognized anymore
 ; 1.05, 10.12.20, update: added latest filetypes (like PICT, IP and PNG)
+; 1.06, 01.04.26, bugfix: could crash while reconstructing memory
 ;
 ; --------------------------------------
 
@@ -23,8 +24,9 @@
 	len		= ls_temp
 	status		= $90
 
-	units		= $1cf8
-	loadtx		= $1ec9
+	units		= $1cfd		; neutralize Delete in File-Requester
+	loadtx		= $1ecf		; text "Load" in Main-Requester
+					; ! caution: absolute addresses!
 	dir_of_file	= sy_bigbuffer
 	flength		= dir_of_file+$20
 	blockbuf		= $be00
@@ -39,29 +41,31 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "Filetype Checker"
-	!pet "1.05"
-	!pet "10.12.20"
+	!pet "1.06"
+	!pet "01.04.26"
 	!pet "A.Dettke        "
 
 ; --------------------------------------------- Requester
 
 select	lda gd_modswitch
 	pha
-	lda #$80
+
+	lda #$80		; neutralize "Delete" gadget in mainlst
 	sta units+6
 	inc used
-	jsr toggle	; .y=$ff
+	jsr toggle	; .y=$ff, toggle "Load" to "Info" in filelst
 	ldx #0
 	stx ls_flen
 	inx
-	jsr gd_xload	; Requester ausgeben und warten
+	jsr gd_xload	; File-Requester ausgeben und warten
+
 	pla
 	sta gd_modswitch
 	lda #$ff
 	sta used
-	lda #$d0
+	lda #$d0		; activate "Delete" gadget again
 	sta units+6
-nofile	jsr sprite_on
+nofile	jsr sprite_on	; includes: toggle "Info" back to "Load"
 	sec
 	rts
 
@@ -71,12 +75,12 @@ start	lda #$ff		; Offset in die Ausgabezeile
 	sta offset
 	lda #>dir_of_file	; Offset auf Filenamen (Hi)
 	sta fnameoff+1
-stt0	lda used
+	lda used
 	bmi select
 
 ; --------------------------------------------- Read necessary Data
 
-rdentry	jsr gd_clrms	; Status-Gadget lˆschen
+rdentry	jsr gd_clrms	; Status-Gadget l√∂schen
 	stx warn		; .x=0
 	ldy #15		; File-Namen puffern
 sel5	lda ls_nambuf,y
@@ -84,7 +88,7 @@ sel5	lda ls_nambuf,y
 	dey
 	bpl sel5
 	iny
-	tya		; Blockpuffer lˆschen
+	tya		; Blockpuffer l√∂schen
 sel6	sta blockbuf,y
 	iny
 	bne sel6
@@ -92,7 +96,7 @@ sel6	sta blockbuf,y
 	cmp #$c1
 	bne stt1
 
-	ldx #4		; ja, dann Namen f¸r die Anzeige korrigieren
+	ldx #4		; ja, dann Namen f√ºr die Anzeige korrigieren
 sel7	dex
 	beq sel8
 	lda pic,x		; folgt "PIC"?
@@ -100,7 +104,7 @@ sel7	dex
 	beq sel7
 sel8	txa
 	bne stt1		; nein, kein Koala
-	lda #$81		; ja, Koala: Pik einf¸gen und Namensl‰nge auf 15
+	lda #$81		; ja, Koala: Pik einf√ºgen und Namensl√§nge auf 15
 	sta dollar+2
 	sta ls_nambuf
 	lda #15
@@ -111,7 +115,7 @@ stt1	ldx len
 	stx lmerk
 	cpx #16
 	beq stt2
-	lda #$2a		; Stern anh‰ngen, wenn k¸rzer als 16
+	lda #$2a		; Stern anh√§ngen, wenn k√ºrzer als 16
 	sta dollar+2,x
 	sta ls_nambuf,x
 	inc len
@@ -133,11 +137,11 @@ stt3	lda ls_flen	; 2.: Direintrag puffern
 	ldx #<(dollar)	; Filenamen setzen ("$:name")
 	ldy #>(dollar)
 	jsr filnam
-	lda #12		; File setzen (Directory f¸r *dieses* File)
+	lda #12		; File setzen (Directory f√ºr *dieses* File)
 	ldx ls_drive
 	ldy #0
 	jsr filpar
-	lda #0		; Load-Flag 
+	lda #0		; Load-Flag
 	tax		; und <dir_of_file
 	ldy #>dir_of_file	; laden nach $bd00
 	sei
@@ -146,7 +150,7 @@ stt3	lda ls_flen	; 2.: Direintrag puffern
 
 ; --------------------------------------
 
-	ldy #31		; Meldungsausgabepuffer lˆschen
+	ldy #31		; Meldungsausgabepuffer l√∂schen
 	lda #32
 fr1	sta message,y
 	dey
@@ -157,7 +161,7 @@ fr1	sta message,y
 	ldx #$24		; Offset auf Filenamen (Lo)
 	lda flength+1
 	bne +
-	lda flength	; je nach Filel‰nge:
+	lda flength	; je nach Filel√§nge:
 	cmp #100		; dreistellig?
 	bcs +
 	inx
@@ -185,7 +189,7 @@ toggle	ldy #3		; Gadgettext tauschen
 	clc		; im Requester bleiben
 	rts
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
 filerr	jsr gd_clrms	; "Could not get Information"
 	ldx #<(ferr)
@@ -194,7 +198,7 @@ filerr	jsr gd_clrms	; "Could not get Information"
 endseq	jsr messout
 	jmp gd_spron	; .c=0
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
 fileread	jsr gd_xopen	; einen Block nach $be00 puffern
 	lda #0
@@ -214,19 +218,19 @@ err	php
 	plp
 	rts
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
 messout	ldx #<(message)	; Ergebnis anzeigen
 	ldy #>(message)
 	jmp gd_xtxout2
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
 onebyte	jsr basin		; ein Byte einlesen
 	ldx status
 	rts
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
 dollar	!pet "$:"
 	!fill 16,32
@@ -236,14 +240,14 @@ warn	!by 0
 offset	!by 0
 lmerk	!by 0
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
 message	!fill 32,32
 	!by 0
 length	!pet "     /"
 	!by 0
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
 info	!scr "Info"
 num	!pet "8192"
@@ -255,7 +259,7 @@ bmhd	!pet "bmhd"
 maybe	!scr "??? "
 	!by 0
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
 jbasic	jmp sbasic
 jgodot	jmp sgodot
@@ -296,7 +300,7 @@ checkfile	lda blockbuf	; Byte 0 im File testen
 	beq jiff
 	cmp #10		; $0a: PCX
 	beq jpcx
-	cmp #$f0		; $f0: FLIP, Funpaint, FLI Designer 2, 
+	cmp #$f0		; $f0: FLIP, Funpaint, FLI Designer 2,
 	beq jflip
 	cmp #66		; "B": Scanntronik Screen, VBM
 	beq jpfox
@@ -339,14 +343,14 @@ checkfile	lda blockbuf	; Byte 0 im File testen
 	bne sgeos		; nein, GEOS?
 	jmp sstarp	; ja, Starpainter?
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
 scpc	jsr isocp
 	ldx #<cpc
 	lda #>cpc
 	bne set
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
 spng	ldx #<png
 	lda #>png
@@ -358,13 +362,13 @@ spmagic	ldx #<pmagic
 	lda #>pmagic
 	bne set
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
 sspec	ldx #<zx
 	lda #>zx
 	bne set
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
 sfgm	cpx #$2e
 	bne noidea
@@ -372,7 +376,7 @@ gfgm	ldx #<fgm
 	lda #>fgm
 	bne set
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
 smillu	lda blockbuf+1	; folgt $18?
 	cmp #$18
@@ -381,7 +385,7 @@ smillu	lda blockbuf+1	; folgt $18?
 	lda #>millu
 	bne set
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
 seps	lda blockbuf+1	; folgt "!"?
 	cmp #$21
@@ -390,7 +394,7 @@ seps	lda blockbuf+1	; folgt "!"?
 	lda #>eps
 	bne set
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
 sgeos	ldy #0
 	lda (fnameoff),y	; beide erste Zeichen Punkte?
@@ -406,7 +410,7 @@ sgeos	ldy #0
 	ldx #<(geos)	; ja, GEOS-File
 	lda #>(geos)
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
 set	stx ls_vekta8	; Info in Ausgabepuffer eintragen
 	sta ls_vekta8+1
@@ -423,18 +427,18 @@ set1	dex
 	stx offset
 	rts
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
-noidea	lda flength	; Filel‰nge 28?
+noidea	lda flength	; Filel√§nge 28?
 	cmp #28		; dann eher ZX Spectrum
 	beq sspec
 
-	jsr laenge	; Filel‰nge anzeigen, Keine Ahnung
+	jsr laenge	; Filel√§nge anzeigen, Keine Ahnung
 	ldx #<(none)
 	lda #>(none)
 nd0	jmp set
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
 skoala	ldy #1		; Apostroph im Filenamen?
 	lda (fnameoff),y
@@ -443,7 +447,7 @@ skoala	ldy #1		; Apostroph im Filenamen?
 	ldx #<(gigap)	; ja, Gigapaint
 	lda #>(gigap)
 	jsr set
-	lda flength	; Filel‰nge
+	lda flength	; Filel√§nge
 	cmp #32
 	beq sk1
 	ldx #<(gpmulti)	; Multi bei 40
@@ -453,7 +457,7 @@ sk1	ldx #<(gphires)	; Hires bei 32
 	lda #>(gphires)
 	bne nd0
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
 sk0	ldy #0
 	lda (fnameoff),y	; Pik im Filenamen?
@@ -467,13 +471,13 @@ sk0	ldy #0
 	ldx #<(ckoala)
 	lda #>(ckoala)
 	bne nd0
-sk01	jsr laenge	; nein, L‰nge anzeigen
+sk01	jsr laenge	; nein, L√§nge anzeigen
 	jsr smaybe	; 3 Fragezeichen
 sk00	ldx #<(koala)	; ja, Koala
 	lda #>(koala)
 	bne nd0
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
 sblpad	lda flength	; 41 Blocks?
 	cmp #41		; dann Blazing Paddles
@@ -500,7 +504,7 @@ sblpad	lda flength	; 41 Blocks?
 	lda #>(blpad)
 nd10	bne nd0
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
 sdoodle	ldy #0
 	lda (fnameoff),y	; "jj" im Filenamen?
@@ -529,13 +533,13 @@ jppsetp	lda flength
 	bne -
 +	jmp jpsetp	; sonst Pagesetter
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
 smaybe	ldx #<(maybe)	; drei Fragezeichen
 	lda #>(maybe)
 	jmp set
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
 samica	ldy #2
 	lda (fnameoff),y	; "]" im Filenamen?
@@ -546,7 +550,7 @@ samica	ldy #2
 	lda #>(amica)
 nd1	bne nd10
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
 sartist	dey
 	lda (fnameoff),y
@@ -570,9 +574,9 @@ shi0	ldx #<(phiman)	; compressed Hires Manager
 	lda #>(phiman)
 	bne nd1
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
-shimraw	lda flength	; L‰nge 65 Blocks?
+shimraw	lda flength	; L√§nge 65 Blocks?
 	cmp #65
 	bne smdisk
 	ldy #1
@@ -588,7 +592,7 @@ shi1	ldx #<(himan)	; ungepackter HM
 	lda #>(himan)
 nd11	bne nd1
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
 smdisk	cmp #69		; 69 Blocks?
 	bne sdiash
@@ -598,7 +602,7 @@ smdisk	cmp #69		; 69 Blocks?
 
 sdiash	cmp #61		; 61 Blocks?
 	beq sd4
-	lda lmerk		; Namensl‰nge 16?
+	lda lmerk		; Namensl√§nge 16?
 	cmp #16
 	bne diash
 sd4	ldy #16
@@ -619,9 +623,9 @@ sd2	txa		; MCS
 	jsr smaybe
 	bne smcs
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
-diash	lda flength	; Filel‰nge 126 Blocks?
+diash	lda flength	; Filel√§nge 126 Blocks?
 	cmp #126
 	beq srgodot
 	cmp #133		; 133 Blocks?
@@ -649,17 +653,17 @@ shp1	ldx #<loadsth
 	lda #>(dia)
 	bne nd11
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
 jnoi	jmp noidea	; sonst unbekannt
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
 gunp	ldx #<(gun)	; dann Gunpaint
 	lda #>(gun)
 	bne nd11
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
 adiash	lda blockbuf+10	; "1" im File?
 	cmp #$31
@@ -670,40 +674,40 @@ ad1	ldx #<(adia)	; dann Autostart Diashow
 	lda #>(adia)
 	bne nd12
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
 scdu	ldx #<(cdu)	; CDU Paint
 	lda #>(cdu)
 	bne nd12
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
 smcs	ldx #<(mcs)	; MCS
 	lda #>(mcs)
 	bne nd12
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
 srgodot	ldx #<(rgodot)	; GoDot ungepackt
 	lda #>(rgodot)
 ndx	bne nd12
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
 shypra	ldx #<(hypra)	; Hypra Ass
 	lda #>(hypra)
 	bne ndx
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
 spset	ldx #<(pset)	; Pagesetter
 	lda #>(pset)
 	bne ndx
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
 sdraz	lda flength
-	cmp #40		; Dateil‰nge 40 Blocks?
+	cmp #40		; Dateil√§nge 40 Blocks?
 	bne sdz0
 	ldx #<vidcom	; ja, Vidcom
 	lda #>vidcom
@@ -716,7 +720,7 @@ sdz0	cmp #77		; 72/77 Blocks?
 	lda blockbuf+2	; "D" im File? ("Draz")
 	cmp #$44
 	bne sgfgm
-	lda blockbuf+6	; "L" f¸r "Lace"?
+	lda blockbuf+6	; "L" f√ºr "Lace"?
 	cmp #$50
 	bne +
 ++	ldx #<(drazl)	; L: Drazlace
@@ -736,13 +740,13 @@ spshopb	jsr smaybe	; Printshop B?
 	lda #>pshop
 	bne ndx
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
 strue	ldx #<(truep)	; Truepaint
 	lda #>(truep)
 	bne ndx
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
 sfufli	lda flength	; 69 Blocks?
 	cmp #69
@@ -755,7 +759,7 @@ spfufli	ldx #<cfunet
 	lda #>cfunet
 	bne ndx01
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
 jskoala	jmp skoala
 jstarpp	jmp sstarpp
@@ -807,13 +811,13 @@ sc64	lda blockbuf+1	; Startadresse lo = $00
 	cmp #$20		; $2000: Bitmap, Nufli
 	beq sbitmap
 	cmp #$40		; $4000: Amica Paint, AFLI, Artist, Diashow M., Gunpaint, Hires Manager,
-			;        Loadstar, MCS, Magic Disk, Paint Magic, 
+			;        Loadstar, MCS, Magic Disk, Paint Magic,
 	beq jamica
 	cmp #$1c		; $1c00: Pagesetter
 	beq jdoodle
 	cmp #$18		; $1800: P4 Botticelli
 	beq jbotti
-	cmp #$78		; $7800: P4 Botticelli, Saracen P., 
+	cmp #$78		; $7800: P4 Botticelli, Saracen P.,
 	beq jbotti
 	cmp #$49		; $4900: Pagesetter Charset
 	beq jpsetc
@@ -826,19 +830,19 @@ smprog	tax
 	cmp #2
 	beq jcpc
 
-	lda flength	; Filel‰nge 28?
+	lda flength	; Filel√§nge 28?
 	cmp #28		; dann eher ZX Spectrum
 	bne +
 	jmp sspec
 
 +	txa
 	beq svdc
-	jsr laenge	; nichts trifft zu, dann: L‰nge anzeigen
+	jsr laenge	; nichts trifft zu, dann: L√§nge anzeigen
 	ldx #<(mprog)	; Maschinencode
 	lda #>(mprog)
 ndx2	jmp set
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
 svdc	ldx #<vdc		; IPaint oder Basic8
 	lda #>vdc
@@ -859,7 +863,7 @@ sbasic	lda blockbuf+6	; SYS im File?
 	bne ssmprog
 	jmp adiash	; Autostart Diashow Maker?
 
-ssmprog	jsr laenge	; sonst: L‰nge anzeigen
+ssmprog	jsr laenge	; sonst: L√§nge anzeigen
 	ldx #<(sysmprog)	; Maschinencode mit Basic-Header
 	lda #>(sysmprog)
 	bne ndx2
@@ -875,14 +879,14 @@ sxray	lda flength
 
 ; --------------------------------------------- File is BASIC
 
-nbasic	jsr laenge	; L‰nge anzeigen
+nbasic	jsr laenge	; L√§nge anzeigen
 	ldx #<(basic)	; Basic
 	lda #>(basic)
 nd2	bne ndx2
 
 ; --------------------------------------------- File is C64 Bitmap
 
-sbitmap	lda flength	; Filel‰nge 36 Blocks?
+sbitmap	lda flength	; Filel√§nge 36 Blocks?
 	cmp #91		; 91 Blocks?
 	beq snufli
 	cmp #36
@@ -913,7 +917,7 @@ snufli	ldx #<nufli
 
 ; --------------------------------------------- File is OCP
 
-socp	cmp #37		; Filel‰nge 37 Blocks?
+socp	cmp #37		; Filel√§nge 37 Blocks?
 	beq shieddic
 	cmp #40		; 40 Blocks?
 	beq saocp
@@ -927,7 +931,7 @@ saocp	ldx #<(aocp)	; Advanced OCP
 	lda #>(aocp)
 	bne nd2
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
 sjpg	lda blockbuf+1
 	cmp #$d8
@@ -937,7 +941,7 @@ sjpg	lda blockbuf+1
 	lda #>(jpg)
 	bne nd2
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
 shieddic	ldx #<(hieddi)	; Hi-Eddi
 	lda #>(hieddi)
@@ -1067,7 +1071,7 @@ sflip	lda blockbuf+1	; Startadresse $38xx?
 	cmp #$3f		; $3fxx?
 	bne noi
 
-	lda flength	; Filel‰nge 69 Blocks?
+	lda flength	; Filel√§nge 69 Blocks?
 	cmp #69
 	beq sfl3		; dann Fli-Designer
 	lda blockbuf+14
@@ -1094,7 +1098,7 @@ sfl3	lda #$32
 
 ; --------------------------------------------- File is FLIP uncompressed
 
-sflipraw	lda flength	; Filel‰nge 68 Blocks?
+sflipraw	lda flength	; Filel√§nge 68 Blocks?
 	cmp #68
 	bne +
 
@@ -1139,7 +1143,7 @@ nd4	bne nd31
 
 ; --------------------------------------------- File is Degas
 
-sdegas	lda flength	; Filel‰nge 127 Blocks?
+sdegas	lda flength	; Filel√§nge 127 Blocks?
 	cmp #127
 	bne noi2
 	lda blockbuf	; compressed?
@@ -1187,7 +1191,7 @@ ss3	cmp #$e4		; $e4?
 	bne nd4
 ss4	jmp smaybe
 
-; --------------------------------------------- File is IFF 
+; --------------------------------------------- File is IFF
 
 siff	ldx #4		; Kennung "FORM"?
 g5	dex
@@ -1266,9 +1270,9 @@ iff4	jsr laenge
 	lda #>(iff)
 	jmp set
 
-; --------------------------------------------- File is PCX 
+; --------------------------------------------- File is PCX
 
-spcx	jsr laenge	; L‰nge anzeigen
+spcx	jsr laenge	; L√§nge anzeigen
 	ldx #<(pcx)
 	lda #>(pcx)
 	jsr set
@@ -1302,7 +1306,7 @@ sti0	ldx #<(tifpc)	; nein, "I"
 	lda #>(tifpc)
 	bne pc2
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
 noi1	jmp noi
 
@@ -1312,27 +1316,27 @@ spsetb	ldx #<(psetb)	; Pagesetter Block
 	lda #>(psetb)
 	bne pc2
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
-spsetp	ldx #<(psetp)	; Pagesetter 
+spsetp	ldx #<(psetp)	; Pagesetter
 	lda #>(psetp)
 	bne pc2
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
 sbotti	ldx #<(botti)	; Botticelli
 	lda #>(botti)
 	bne pc2
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
 spsetc	ldx #<(psetc)	; Pagesetter Charset
 	lda #>(psetc)
 	bne pc2
 
-; --------------------------------------------- File-L‰nge beziffern
+; --------------------------------------------- File-L√§nge beziffern
 
-rlaen	ldx flength	; L‰nge in Ziffern wandeln
+rlaen	ldx flength	; L√§nge in Ziffern wandeln
 	lda flength+1
 xyz	sta $62
 	stx $63
@@ -1344,7 +1348,7 @@ xyz	sta $62
 	dec 1
 	rts
 
-; --------------------------------------------- File-L‰nge anzeigen
+; --------------------------------------------- File-L√§nge anzeigen
 
 laenge	jsr rlaen		; und eintragen
 	ldx #$ff
@@ -1365,108 +1369,108 @@ lg1	sta length,x
 
 ; --------------------------------------------- Resulting Output Messages
 
-zx	!scr "ZX Spectrum@"
-fgm	!scr "FGM Clipart@"
-millu	!scr "Micro Illustrator@"
+zx	!scr "ZX Spectrum",0
+fgm	!scr "FGM Clipart",0
+millu	!scr "Micro Illustrator",0
 cfunet	!scr "Cmpr "
-funet	!scr "FLIGraph@"
-cdu	!scr "CDUPaint@"
-artist	!scr "Artist64@"
-afli	!scr "AFLI@"
-nufli	!scr "NuFLI@"
-loadsth	!scr "Loadstar Hir@"
-loadstm	!scr "Loadstar Mul@"
-magicd	!scr "Magic Disk EMC@"
-pmagic	!scr "Paint Magic@"
+funet	!scr "FLIGraph",0
+cdu	!scr "CDUPaint",0
+artist	!scr "Artist64",0
+afli	!scr "AFLI",0
+nufli	!scr "NuFLI",0
+loadsth	!scr "Loadstar Hir",0
+loadstm	!scr "Loadstar Mul",0
+magicd	!scr "Magic Disk EMC",0
+pmagic	!scr "Paint Magic",0
 ppperfect	!scr "Pckd "
-pperfect	!scr "Pixel Perfect (IFLI)@"
-imagesys	!scr "Image System@"
-jpg	!scr "JPG (JPGViewer)@"
-newsroom	!scr "Newsroom@"
-pshop	!scr "Printshop@"
-pmaster	!scr "Printmaster@"
-vidcom	!scr "Vidcom@"
-saracen	!scr "Saracen Paint@"
-gun	!scr "Gunpaint (IFLI)@"
+pperfect	!scr "Pixel Perfect (IFLI)",0
+imagesys	!scr "Image System",0
+jpg	!scr "JPG (JPGViewer)",0
+newsroom	!scr "Newsroom",0
+pshop	!scr "Printshop",0
+pmaster	!scr "Printmaster",0
+vidcom	!scr "Vidcom",0
+saracen	!scr "Saracen Paint",0
+gun	!scr "Gunpaint (IFLI)",0
 ckoala	!scr "Cmpr "
-koala	!scr "Koala@"
-blpad	!scr "BlPaddles@"
+koala	!scr "Koala",0
+blpad	!scr "BlPaddles",0
 cdoodle	!scr "Cmpr "
-doodle	!scr "Doodle@"
+doodle	!scr "Doodle",0
 aocp	!scr "Adv. "
-ocp	!scr "OCP Art Studio@"
-cpc	!scr " CPC@"
-starp	!scr "Starpainter@"
-starpg	!scr "Graphics@"
-starph	!scr "Help@"
-starpp	!scr "Pattern@"
-starpc	!scr "CharSet@"
-starpm	!scr "Measures@"
+ocp	!scr "OCP Art Studio",0
+cpc	!scr " CPC",0
+starp	!scr "Starpainter",0
+starpg	!scr "Graphics",0
+starph	!scr "Help",0
+starpp	!scr "Pattern",0
+starpc	!scr "CharSet",0
+starpm	!scr "Measures",0
 adia	!scr "Autostart "
-dia	!scr "Diashow Maker@"
-scan	!scr "Scanntronik @"
-pfox	!scr "Pagefox (PFoxSelect)@"
-gb	!scr "GB (PFox*)@"
-bs	!scr "BS (PFoxSelect)@"
-ptext	!scr "Textfile (no ldr)@"
-pchar	!scr "CSet (m.PFoxFonts)@"
-hieddi	!scr "Hi-Eddi@"
-amica	!scr "Amica Paint@"
+dia	!scr "Diashow Maker",0
+scan	!scr "Scanntronik ",0
+pfox	!scr "Pagefox (PFoxSelect)",0
+gb	!scr "GB (PFox*)",0
+bs	!scr "BS (PFoxSelect)",0
+ptext	!scr "Textfile (no ldr)",0
+pchar	!scr "CSet (m.PFoxFonts)",0
+hieddi	!scr "Hi-Eddi",0
+amica	!scr "Amica Paint",0
 iff	!scr "IFF "
 x	!scr "   x"
 y	!scr "    "
-planes	!scr "  Pl.@"
-basic	!scr "Basic@"
+planes	!scr "  Pl.",0
+basic	!scr "Basic",0
 sysmprog	!scr "Basic headed "
-mprog	!scr "MCode@"
+mprog	!scr "MCode",0
 bitmap	!scr "Bitmap "
-bm8xxx	!scr "8    Bytes (HiresBitmap)@"
-mcs	!scr " MCS FLI (MCS)@"
-hypra	!scr "Hypra Ass Src@"
-degas	!scr "Atari PI3 (DegasPI3)@"
-gigap	!scr "Giga Paint @"
-gphires	!scr "HiresBitmap@"
-gpmulti	!scr "Multicolor (Koala)@"
-geos	!scr "C64 GEOS (GeoPaint)@"
-eps	!scr "Encaps. PostScript@"
+bm8xxx	!scr "8    Bytes (HiresBitmap)",0
+mcs	!scr " MCS FLI (MCS)",0
+hypra	!scr "Hypra Ass Src",0
+degas	!scr "Atari PI3 (DegasPI3)",0
+gigap	!scr "Giga Paint ",0
+gphires	!scr "HiresBitmap",0
+gpmulti	!scr "Multicolor (Koala)",0
+geos	!scr "C64 GEOS (GeoPaint)",0
+eps	!scr "Encaps. PostScript",0
 pflip	!scr "Cmpr "
-flip	!scr "FLIPainter (Flip)@"
+flip	!scr "FLIPainter (Flip)",0
 phiman	!scr "Cmpr "
-himan	!scr "Hires Manager (HiManRaw)@"
+himan	!scr "Hires Manager (HiManRaw)",0
 fp2p	!scr "Cmpr "
-fp2u	!scr "Funpaint (IFLI)@"
-pcx	!scr "PCX @"
-png	!scr "PNG@"
-ega	!scr "16 (PCX-EGA)@"
-vga	!scr "256 (PCX-VGA320)@"
-none	!scr "No Idea@"
+fp2u	!scr "Funpaint (IFLI)",0
+pcx	!scr "PCX ",0
+png	!scr "PNG",0
+ega	!scr "16 (PCX-EGA)",0
+vga	!scr "256 (PCX-VGA320)",0
+none	!scr "No Idea",0
 rgodot	!scr "Raw "
-godot	!scr "GoDot (4Bit*)@"
-cgodot	!scr "GoDot Clip (4Bit*)@"
-fgodot	!scr "GoDot Font (Fonts)@"
-spgodot	!scr "GoDot Sprite Set (SPSto4Bit)@"
-cogodot	!scr "GoDot Conv. (m.Convolve)@"
-mpgodot	!scr "GoDot Pointer (m.NewPointer)@"
+godot	!scr "GoDot (4Bit*)",0
+cgodot	!scr "GoDot Clip (4Bit*)",0
+fgodot	!scr "GoDot Font (Fonts)",0
+spgodot	!scr "GoDot Sprite Set (SPSto4Bit)",0
+cogodot	!scr "GoDot Conv. (m.Convolve)",0
+mpgodot	!scr "GoDot Pointer (m.NewPointer)",0
 gif8	!scr "GIF8"
-giftyp	!scr " a@"
-ferr	!scr "   Couldn't get Information.   @"
-viza	!scr "Vizawrite Text@"
-tifpc	!scr "TIF PC (no ldr)@"
-tifmac	!scr "TIF Mac (no ldr)@"
-pset	!scr "Plus4 PS Page (PSetSelect)@"
-psetb	!scr "Plus4 PS Block (no ldr)@"
-psetc	!scr "Plus4 PS CSet (no ldr)@"
-psetp	!scr "Plus4 PS Screen (no ldr)@"
-botti	!scr "Plus4 (Botticelli)@"
-drazl	!scr "DrazLace MCI (DrazPaint)@"
-drazp	!scr "DrazPaint MC@"
-truep	!scr "Truepaint MCI@"
+giftyp	!scr " a",0
+ferr	!scr "   Couldn't get Information.   ",0
+viza	!scr "Vizawrite Text",0
+tifpc	!scr "TIF PC (no ldr)",0
+tifmac	!scr "TIF Mac (no ldr)",0
+pset	!scr "Plus4 PS Page (PSetSelect)",0
+psetb	!scr "Plus4 PS Block (no ldr)",0
+psetc	!scr "Plus4 PS CSet (no ldr)",0
+psetp	!scr "Plus4 PS Screen (no ldr)",0
+botti	!scr "Plus4 (Botticelli)",0
+drazl	!scr "DrazLace MCI (DrazPaint)",0
+drazp	!scr "DrazPaint MC",0
+truep	!scr "Truepaint MCI",0
 flid	!scr "FLI-Designer "
-flidnr	!scr "1@"
-svbm	!scr "VBM@"
-vdc	!scr "IPaint/Basic8@"
-xray	!scr "XRay (IFLI)@"
+flidnr	!scr "1",0
+svbm	!scr "VBM",0
+vdc	!scr "IPaint/Basic8",0
+xray	!scr "XRay (IFLI)",0
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
 modend	!eof
