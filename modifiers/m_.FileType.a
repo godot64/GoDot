@@ -15,6 +15,7 @@
 ; 1.04, 31.10.18, bugfix: Loadstar Hires wasn't recognized anymore
 ; 1.05, 10.12.20, update: added latest filetypes (like PICT, IP and PNG)
 ; 1.06, 01.04.26, bugfix: could crash while reconstructing memory
+; 1.07, 05.04.26, added: .TIM (TSB format)
 ;
 ; --------------------------------------
 
@@ -41,8 +42,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "Filetype Checker"
-	!pet "1.06"
-	!pet "01.04.26"
+	!pet "1.07"
+	!pet "05.04.26"
 	!pet "A.Dettke        "
 
 ; --------------------------------------------- Requester
@@ -279,8 +280,6 @@ jperf	jmp spperf	; ### 1.03, bis hier --
 
 ; --------------------------------------
 ; --------------------------------------------- Checkfile: Which type?
-; First method: check start address, first byte in file
-; --------------------------------------
 ; --------------------------------------
 
 checkfile	lda blockbuf	; Byte 0 im File testen
@@ -290,7 +289,7 @@ checkfile	lda blockbuf	; Byte 0 im File testen
 			;      Diashow M., Doodle, Draz, Flip, Funet, FGM, Pixel Perfect, Koala
 			;      Hires Manager, Image System, Loadstar, MCS, Newsroom, Nufli, OCP
 			;      Paint Magic, Pagesetter, Saracen P., Truepaint, Vidcom, Printshop
-			;      Degas
+			;      Degas, TIM, PIX
 	dex
 	beq jbasic	; $01: Basicfile, XRay
 
@@ -433,7 +432,7 @@ noidea	lda flength	; Filelänge 28?
 	cmp #28		; dann eher ZX Spectrum
 	beq sspec
 
-	jsr laenge	; Filelänge anzeigen, Keine Ahnung
+	jsr laenge	; Filelänge anzeigen, Keine Ahnung ausgeben
 	ldx #<(none)
 	lda #>(none)
 nd0	jmp set
@@ -627,8 +626,9 @@ sd2	txa		; MCS
 
 diash	lda flength	; Filelänge 126 Blocks?
 	cmp #126
-	beq srgodot
-	cmp #133		; 133 Blocks?
+	bne +
+	jmp srgodot
++	cmp #133		; 133 Blocks?
 	beq gunp
 
 	lda blockbuf+2
@@ -684,13 +684,13 @@ scdu	ldx #<(cdu)	; CDU Paint
 
 smcs	ldx #<(mcs)	; MCS
 	lda #>(mcs)
-	bne nd12
+ndx	bne nd12
 
 ; ---------------------------------------------
-
-srgodot	ldx #<(rgodot)	; GoDot ungepackt
-	lda #>(rgodot)
-ndx	bne nd12
+;
+;srgodot	ldx #<(rgodot)	; GoDot ungepackt
+;	lda #>(rgodot)
+;	bne nd12
 
 ; ---------------------------------------------
 
@@ -775,6 +775,8 @@ jpsetp	jmp spsetp
 jbotti	jmp sbotti
 jtrue	jmp strue
 jcpc	jmp scpc
+;jpix	jmp pix
+;jbyp	jmp byp
 
 ; --------------------------------------------- Startadresse LO = $00
 ; Startadresse HI?
@@ -806,7 +808,7 @@ sc64	lda blockbuf+1	; Startadresse lo = $00
 	beq jstarp
 	cmp #$e4		; $e400: Starpainter
 	beq jstarp
-	cmp #$e0		; $e000: Starpainter
+	cmp #$e0		; $e000: Starpainter, TIM
 	beq jstarpp
 	cmp #$20		; $2000: Bitmap, Nufli
 	beq sbitmap
@@ -821,6 +823,10 @@ sc64	lda blockbuf+1	; Startadresse lo = $00
 	beq jbotti
 	cmp #$49		; $4900: Pagesetter Charset
 	beq jpsetc
+;	cmp #$9a		; $9a00: PIX
+;	beq jpix
+;	cmp #$cc		; $cc00: BYP (also $0400)
+; 	beq jbyp
 
 ; --------------------------------------------- File is Machine Code
 
@@ -951,11 +957,20 @@ nd20	bne nd2
 
 sgodot	ldx #$ff		; Kennung vergleichen
 g1	inx
-	lda blockbuf,x	; "GOD"
+	cpx #4
+	beq srgodot
+	lda blockbuf,x	; "GOD0"
 	cmp god0,x
 	beq g1
+	dex		; nein, GIF?
+	beq sgif
 
-	cmp #$31		; "0" oder "1"?
+srgodot	pha		; ja, letztes Zeichen merken
+	jsr g00		; "GoDot"
+	pla		; Zeichen ist:
+	cmp #$30		; "0"?
+	beq g11
+	cmp #$31		; "1"?
 	beq g21
 	cmp #$33		; "3"?
 	beq g20
@@ -965,27 +980,35 @@ g1	inx
 	beq g23
 	cmp #$38		; "8"?
 	beq g24
-g2	cpx #4		; oder keins?
-	bne sgif
+	cmp #126		; raw?
+	beq g12
 
-	ldx #<(godot)	; 0: GoDot Image
-	lda #>(godot)
-	bne nd20
-g21	ldx #<(cgodot)	; 1: GoDot Clip
-	lda #>(cgodot)
-	bne nd20
+; ---------------------------------------------
+
+g00	ldx #<godot	; preset "GoDot "
+	lda #>godot
+	bne nd3
+g12	ldx #<rgodot	; raw GoDot ungepackt
+	lda #>rgodot
+	bne nd3
+g11	ldx #<godot4	; 0: GoDot Image
+	lda #>godot4
+	bne nd3
+g21	ldx #<cgodot	; 1: GoDot Clip
+	lda #>cgodot
+	bne nd3
 g20	ldx #<mpgodot	; 3: GoDot Mouse Pointer
 	lda #>mpgodot
-	bne nd20
-g22	ldx #<(fgodot)	; 5: GoDot Font
-	lda #>(fgodot)
-	bne nd20
-g23	ldx #<(spgodot)	; 7: GoDot Spriteset
-	lda #>(spgodot)
-	bne nd20
-g24	ldx #<(cogodot)	; 8: GoDot Convolution File
-	lda #>(cogodot)
-nd3	bne nd20
+	bne nd3
+g22	ldx #<fgodot	; 5: GoDot Font
+	lda #>fgodot
+	bne nd3
+g23	ldx #<spgodot	; 7: GoDot Spriteset
+	lda #>spgodot
+	bne nd3
+g24	ldx #<cogodot	; 8: GoDot Convolution File
+	lda #>cogodot
+nd3	jmp set
 
 ; --------------------------------------------- File is GIF
 
@@ -1002,7 +1025,7 @@ g4	txa
 	sta giftyp
 	ldx #<(gif8)
 	lda #>(gif8)
-	bne nd20
+	bne nd3
 
 ; --------------------------------------------- File is Scanntronik
 
@@ -1165,7 +1188,14 @@ noi0	bne noi2
 
 	txa
 sstarpp	pha
-	ldx #<(starp)
+	lda flength	; TSB? (.tim)
+	cmp #41
+	bne +
+	pla
+	ldx #<tim		; ja, ausgeben, Ende
+	lda #>tim
+	bne nd4
++	ldx #<(starp)	; nein, Starpainter
 	lda #>(starp)
 	jsr set
 	pla
@@ -1444,24 +1474,25 @@ png	!scr "PNG",0
 ega	!scr "16 (PCX-EGA)",0
 vga	!scr "256 (PCX-VGA320)",0
 none	!scr "No Idea",0
-rgodot	!scr "Raw "
-godot	!scr "GoDot (4Bit*)",0
-cgodot	!scr "GoDot Clip (4Bit*)",0
-fgodot	!scr "GoDot Font (Fonts)",0
-spgodot	!scr "GoDot Sprite Set (SPSto4Bit)",0
-cogodot	!scr "GoDot Conv. (m.Convolve)",0
-mpgodot	!scr "GoDot Pointer (m.NewPointer)",0
+godot	!scr "GoDot ",0
+rgodot	!scr "Raw",0
+godot4	!scr "(4Bit*)",0
+cgodot	!scr "Clip (4Bit*)",0
+fgodot	!scr "Font (Fonts)",0
+spgodot	!scr "Sprite Set (SPSto4Bit)",0
+cogodot	!scr "Conv. (m.Convolve)",0
+mpgodot	!scr "Pointer (m.NewPointer)",0
 gif8	!scr "GIF8"
 giftyp	!scr " a",0
 ferr	!scr "   Couldn't get Information.   ",0
 viza	!scr "Vizawrite Text",0
 tifpc	!scr "TIF PC (no ldr)",0
 tifmac	!scr "TIF Mac (no ldr)",0
-pset	!scr "Plus4 PS Page (PSetSelect)",0
-psetb	!scr "Plus4 PS Block (no ldr)",0
-psetc	!scr "Plus4 PS CSet (no ldr)",0
-psetp	!scr "Plus4 PS Screen (no ldr)",0
-botti	!scr "Plus4 (Botticelli)",0
+pset	!scr "Pl4 PS Page (PSetSelect)",0
+psetb	!scr "Pl4 PS Block (no ldr)",0
+psetc	!scr "Pl4 PS CSet (no ldr)",0
+psetp	!scr "Pl4 PS Screen (no ldr)",0
+botti	!scr "Pl4 (Botticelli)",0
 drazl	!scr "DrazLace MCI (DrazPaint)",0
 drazp	!scr "DrazPaint MC",0
 truep	!scr "Truepaint MCI",0
@@ -1470,6 +1501,9 @@ flidnr	!scr "1",0
 svbm	!scr "VBM",0
 vdc	!scr "IPaint/Basic8",0
 xray	!scr "XRay (IFLI)",0
+tim	!scr "TSB",0
+;byp	!scr "TSB-Screens",0
+;pix	!scr "Koala Clip",0
 
 ; ---------------------------------------------
 
