@@ -39,6 +39,7 @@
 ;   1.46, 04.02.21: added automatic recognition of gmode on startup
 ;   1.47, 07.02.21: bugfix: endless recursion when changing mode from keyboard
 ;   1.48, 27.03.26: bugfix: wipe from mover started 3 too far right
+;   1.49, 07.04.26: added: also counting backwards when choosing color per "p"
 ;
 ; ------------------------------------------------------------
 
@@ -103,8 +104,8 @@
 	!wo modend
 	!wo 0
 	!pet "Edit 4bit pixels"
-	!pet "1.48"
-	!pet "27.03.26"
+	!pet "1.49"
+	!pet "07.04.26"
 	!pet "AD/ H.McMenamin "
 
 ; ------------------------------------------ Main
@@ -594,6 +595,7 @@ edx3:	lda sc_keyprs	; FIRE/RETURN/STOP?
 	bcs edx1
 
 +	lda commoflag	; check for CBM/Shift
+	sta pshift	; save to check shift
 	beq edit		; no, other key
 	ldx #0
 	stx sc_keyprs
@@ -754,7 +756,12 @@ pe3:	cpx #48		; "pound" key
 	jsr f5		; col to screen
 pe4:	cpx #62		; "q" key
 	bne pe5
-	inc grclr		; change grid color
+	lda pshift	; Shift-"Q"?	### 1.49
+	cmp #1
+	bne +
+	dec grclr
+	dec grclr
++	inc grclr		; change grid color
 	jsr tdelay
 	jsr fixgcl
 pe5:	cpx #37		; "k" key
@@ -766,7 +773,12 @@ pe5:	cpx #37		; "k" key
 pe6:	cpx #41		; "p" key
 	bne pete
 	stx sc_loop
-	inc col		; increment current color
+	lda pshift	; Shift-"P"?	### 1.49
+	cmp #1
+	bne +
+	dec col		; yes, decrement color backwards
+	dec col
++	inc col		; increment current color
 	lda col
 	and #15
 	tax
@@ -1843,6 +1855,7 @@ gdho2	!by 14
 gdho3	!by 18
 gdho4	!by 21
 
+pshift	!by 0
 t1:	!by 0
 ymk:	!by 0
 yml:	!by 0
