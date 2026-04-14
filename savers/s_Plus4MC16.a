@@ -1,9 +1,9 @@
-	!src "godotlib.lib"
+	!src <godotlib.lib>
 	*= $c000
 	!ct pet
 ;	!sl "labels.txt"
 
-; ------------------------------------------------     
+; ------------------------------------------------
 ;
 ; svr.Plus4MC16
 ;  Saver to convert any C64 multicolor image to Plus4 Botticelli
@@ -13,8 +13,9 @@
 ;   1.02, 28.11.93, added: signature in saved file
 ;   1.03, 28.08.18, enhanced palettes
 ;   1.04, 01.09.18, now two chooseable palettes
+;   1.05, 14.04.26, "near org" palette nearer to org
 ;
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 ; ------------------------------------------------ Equates
 
@@ -49,7 +50,7 @@
 
 	vram		= $cb00
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 header	jmp start
 	!by $40
@@ -58,18 +59,18 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "Plus4 MultiColor"
-ver	!tx "1.04"
-	!tx "31.08.18"
+ver	!tx "1.05"
+	!tx "14.04.26"
 	!tx "A.Dettke/W.Kling"
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 start	ldx gr_nr
-	dex 
+	dex
 	bne saver
 	jmp initinp
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 saver	ldx #31
 	jsr creset
@@ -82,7 +83,7 @@ st0	ldx used
 
 	jsr gd_sproff
 	lda gd_modswitch
-	pha 
+	pha
 	lda ls_flen
 	beq st3
 
@@ -106,19 +107,19 @@ st2	jsr clrch
 	bne st3
 	jsr setname
 
-st3	pla 
+st3	pla
 	sta gd_modswitch
 	jsr gd_spron
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 canc	lda #$ff
 	sta used
 	sta gr_redisp	; rendered image gets affected by vram
-cn2	sec 
-	rts 
+cn2	sec
+	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 requ	inc used
 	ldx #<p4lst
@@ -126,19 +127,19 @@ requ	inc used
 	jsr gd_xmloop
 	jmp st0
 
-; --------------------------- 
+; ---------------------------
 ; --------------------------- Input Routines
 
-!src "input.inc"
+!src <input.inc>
 
-; --------------------------- 
-; --------------------------- 
+; ---------------------------
+; ---------------------------
 
 pw	!tx "w,p,"
 drinit	!tx "i0"
 wflen	!by 0
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 wopen	jsr inull
 	bne err8
@@ -146,12 +147,12 @@ wopen	jsr inull
 	ldx #3
 wo1	lda pw,x
 	sta ls_nambuf,y
-	iny 
-	dex 
+	iny
+	dex
 	bpl wo1
 	sty wflen
 	lda #12
-	tay 
+	tay
 	ldx ls_drive
 	jsr filpar
 	lda wflen
@@ -168,8 +169,8 @@ inull	ldx #<drinit
 err9	jsr gd_xmess
 	lda ls_err2
 	and #15
-err8	sec 
-	rts 
+err8	sec
+	rts
 
 ; --------------------------- Activity Gauge
 
@@ -208,7 +209,7 @@ cl0	sta mess,x
 	dex
 	bpl cl0
 	ldy #0		; init counters
-	ldx #7	
+	ldx #7
 	sty offy
 	stx offx
 	rts
@@ -271,13 +272,13 @@ writeted	ldx #<making	; first: histograms
 	ldy #3
 mskl	lda mask1,y
 	sta mask,y
-	dey 
+	dey
 	bpl mskl
 
 	lda #0
 	ldy #31
 cl1	sta hist0,y
-	dey 
+	dey
 	bpl cl1
 
 	lda #<sy_4bit	; count 4bit colors
@@ -288,39 +289,39 @@ cl1	sta hist0,y
 loop0	lda #0		; clear buffer
 	ldy #15
 cl2	sta hist,y
-	dey 
+	dey
 	bpl cl2
 
 	ldy #31
 hl0	lda (src),y	; count in each tile
 	and #$0f
-	tax 
+	tax
 	inc hist,x
-	dey 
+	dey
 	bpl hl0
 
 	ldx #2
 	ldy #15
 hm1	lda hist,y
 	beq hms
-	dex 
+	dex
 	bmi add
-hms	dey 
+hms	dey
 	bpl hm1
 	bmi addskip
 
 add	ldx #15
 hl1	lda hist,x
-	clc 
+	clc
 	adc hist0,x
 	sta hist0,x
 	bcc as0
 	inc hist0+16,x
-as0	dex 
+as0	dex
 	bpl hl1
 
 addskip	lda src
-	clc 
+	clc
 	adc #32
 	sta src
 	bcc loop0
@@ -329,7 +330,7 @@ as1	lda src+1
 	cmp #>sy_bigbuffer	; until 4bit ends
 	bne loop0
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 	lda #0
 	sta max
@@ -347,12 +348,12 @@ ml0	lda hist0+16,y
 tstlo0	lda hist0,y
 	cmp max
 	bcc next0
-	tax 
+	tax
 	lda hist0+16,y
 set0	stx max
 	sta max+1
 	sty bgcol0
-next0	dey 
+next0	dey
 	bpl ml0
 
 	lda #0
@@ -376,18 +377,18 @@ tstlo1	lda hist0,y
 	cmp max
 	bcc next1
 	beq next1
-	tax 
+	tax
 	lda hist0+16,y
 set1	stx max
 	sta max+1
 	sty bgcol3
-next1	dey 
+next1	dey
 	bpl ml1
 
 	lda #32
 	sta col0+4
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 	lda #<sy_4bit
 	ldx #>sy_4bit
@@ -401,15 +402,15 @@ next1	dey
 loop3	ldy #15
 	lda #0
 ch1	sta hist,y
-	dey 
+	dey
 	bpl ch1
 
 	ldy #31
 hl2	lda (src),y
 	and #$0f
-	tax 
+	tax
 	inc hist,x
-	dey 
+	dey
 	bpl hl2
 	lda #0
 	ldx bgcol0
@@ -418,7 +419,7 @@ hl2	lda (src),y
 	sta hist,x
 
 	lda src
-	clc 
+	clc
 	adc #32
 	sta src
 	bcc s9
@@ -438,7 +439,7 @@ m3	lda hist,y
 	bcc s10
 	sta max
 	sty maxcol
-s10	dey 
+s10	dey
 	bpl m3
 
 	lda #0
@@ -454,14 +455,14 @@ m31	lda hist,y
 	bcc s101
 	sta max
 	sty maxcol1
-s101	dey 
+s101	dey
 	bpl m31
 
 	lda maxcol1
-	asl 
-	asl 
-	asl 
-	asl 
+	asl
+	asl
+	asl
+	asl
 	ora maxcol
 	ldy #0
 	sta (dst),y
@@ -500,7 +501,7 @@ hl51	lda bits,y
 	sta nr0,y
 	lda #32
 	sta col0,y
-	dey 
+	dey
 	bpl hl51
 
 	lda bgcol0
@@ -510,10 +511,10 @@ hl51	lda bits,y
 
 	ldy #0
 	lda (src3),y
-	lsr 
-	lsr 
-	lsr 
-	lsr 
+	lsr
+	lsr
+	lsr
+	lsr
 	cmp bgcol0
 	beq s18
 	sta col0+2
@@ -530,37 +531,37 @@ ly	lda col0,x
 	cmp col0,y
 	bcc s23
 	beq s23
-	pha 
+	pha
 	lda col0,y
 	sta col0,x
-	pla 
+	pla
 	sta col0,y
 	lda nr0,x
-	pha 
+	pha
 	lda nr0,y
 	sta nr0,x
-	pla 
+	pla
 	sta nr0,y
-s23	dey 
+s23	dey
 	cpy xbuf
 	bne ly
-	inx 
+	inx
 	cpx #3
 	bne lx
 	ldy #$ff
 	sty hstart
-htl	iny 
+htl	iny
 	lda col0,y
-	clc 
+	clc
 	adc col0+1,y
-	lsr 
+	lsr
 	cmp #16
 	bcc s24
 	lda #15
 s24	sta hend
 	lda nr0,y
 	ldx hstart
-htl1	inx 
+htl1	inx
 	sta htab,x
 	cpx hend
 	bcc htl1
@@ -577,18 +578,18 @@ zlloop	lda #0
 	ldy #3
 rl	lda (src),y
 	and #$0f
-	tax 
+	tax
 	lda htab,x
 	and mask,y
 	ora byte
 	sta byte
-	dey 
+	dey
 	bpl rl
 
 	jsr write
 
 	lda src
-	clc 
+	clc
 	adc #4
 	sta src
 	bcc s26
@@ -604,9 +605,9 @@ s28	lda src+1
 	beq ok121
 	jmp bmloop
 
-ok121	rts 
+ok121	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 writevram	sta src
 	stx src+1
@@ -633,7 +634,7 @@ writevram	sta src
 	ldy #3
 vl	lda ver,y
 	sta vv0,y
-	dey 
+	dey
 	bpl vl
 
 	lda #<vram
@@ -644,16 +645,16 @@ vl	lda ver,y
 	sta cnt4
 vrloop0	ldy #0
 vrloop	lda (src3),y
-	tax 
+	tax
 	lda ted,x
 
 	jsr write
 
-	iny 
+	iny
 	cpy #250
 	bne vrloop
 	lda src3
-	clc 
+	clc
 	adc #250
 	sta src3
 	bcc vrs
@@ -664,7 +665,7 @@ vrs	dec cnt4
 	ldy #0		; fill gap with saver signature
 l241	lda bottab,y
 	jsr write
-	iny 
+	iny
 	cpy #24
 	bne l241
 
@@ -673,9 +674,9 @@ l241	lda bottab,y
 	stx nib1
 	sta nib2
 
-	rts 
+	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 bottab	!tx "GoDot TEDsaver"
 vv0	!tx "0.00"
@@ -689,45 +690,45 @@ mask1	!by $c0		; %11000000
 	!by $0c		; %00001100
 	!by $03		; %00000011
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
-write	pha 
-	txa 
-	pha 
-	tya 
-	pha 
+write	pha
+	txa
+	pha
+	tya
+	pha
 	jsr action
-	pla 
-	tay 
-	pla 
-	tax 
-	pla 
+	pla
+	tay
+	pla
+	tax
+	pla
 	jmp bsout
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 maketed	ldx #0
-mted	txa 
-	lsr 
-	lsr 
-	lsr 
-	lsr 
-	tay 
+mted	txa
+	lsr
+	lsr
+	lsr
+	lsr
+	tay
 	lda (src),y
 	and nib1
 	sta bbuf
-	txa 
+	txa
 	and #$0f
-	tay 
+	tay
 	lda (src),y
 	and nib2
 	ora bbuf
 	sta ted,x
-	inx 
+	inx
 	bne mted
-	rts 
+	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 max	!by 0,0
 data	!by 0
@@ -751,13 +752,13 @@ pals	!scr " GoDot  Near Org"
 poffs	!by 7,15
 wpal	!by 0
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 ;             blk blu bwn dgr red pur ora mgr lbl lrd grn lgr cya yel lgn wht
 
 farbe	!by $00,$66,$99,$11,$22,$44,$88,$11,$dd,$22,$55,$11,$33,$77,$ff,$11	; color
 	!by $00,$00,$11,$00,$22,$33,$33,$33,$44,$44,$44,$66,$66,$66,$55,$77	; luma
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 grau	!by $00,$11,$11,$11		; chroma
 	!by $11,$11,$11,$11
@@ -769,15 +770,15 @@ grau	!by $00,$11,$11,$11		; chroma
 	!by $44,$44,$55,$55
 	!by $66,$66,$66,$77
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 paletten	!by $00,$66,$99,$11,$22,$44,$88,$11,$dd,$22,$55,$11,$33,$77,$ff,$11	; GoDot
 	!by $00,$00,$11,$00,$22,$33,$33,$33,$44,$44,$44,$66,$66,$66,$55,$77	; 31
 
-	!by $00,$66,$99,$11,$22,$44,$88,$11,$66,$88,$55,$11,$33,$77,$55,$11	; near original
-	!by $00,$22,$33,$33,$33,$33,$33,$44,$44,$44,$44,$55,$55,$66,$66,$77	; 63
+	!by $00,$66,$99,$11,$22,$44,$88,$11,$66,$22,$55,$11,$33,$77,$55,$11	; near original
+	!by $00,$22,$22,$33,$33,$33,$44,$44,$44,$55,$55,$66,$66,$66,$66,$77	; 63
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 dnibs	!by $00,$11,$22,$33,$44,$55,$66,$77
 	!by $88,$99,$aa,$bb,$cc,$dd,$ee,$ff
@@ -792,22 +793,22 @@ sevcol	inc used
 
 sevgrey	inc used
 	ldx used
-	dex 
+	dex
 	lda roffs,x
-	tax 
+	tax
 	lda pmode
 	bne svc1
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 creset	ldy #31
 svc0	lda farbe,x
 	sta chroma,y
-	dex 
-	dey 
+	dex
+	dey
 	bpl svc0
-svc1	sec 
-	rts 
+svc1	sec
+	rts
 
 ; ------------------------------------------------ Event: Set New Palette Values
 
@@ -823,7 +824,7 @@ evsetpal	lda wpal		; (kann erweitert werden)
 	ldy #0		; .y=0, Offset auf gettext-Vektor
 	jmp settext
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 chgpalet	lda #32
 	ldx wpal		; welche Palette?
@@ -842,7 +843,7 @@ chgpalet	lda #32
 	bpl -
 	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 chgpaltx	ldx poffs,y
 	ldy #7
@@ -864,9 +865,9 @@ sevpload	jsr chgdrv
 	jsr namegt
 
 	lda sc_screenvek
-	pha 
+	pha
 	lda sc_screenvek+1
-	pha 
+	pha
 	ldx #<p4pal
 	ldy #>p4pal
 	stx ls_adrmisc
@@ -875,7 +876,7 @@ sevpload	jsr chgdrv
 	sta ls_flen
 	sta drstate
 	lda gd_modswitch
-	pha 
+	pha
 	jsr lddir
 	jsr gd_eloop
 	lda ls_flen
@@ -890,15 +891,15 @@ sevpload	jsr chgdrv
 	!by $2c
 lp0	lda #3
 	sta used
-	pla 
+	pla
 	sta gd_modswitch
 
 	jsr chgdrv
-	pla 
-	tay 
+	pla
+	tay
 	sta sc_screenvek+1
-	pla 
-	tax 
+	pla
+	tax
 	sta sc_screenvek
 	jsr gd_screen
 
@@ -909,19 +910,19 @@ lp0	lda #3
 	jsr getnmbuf
 	jsr namebk
 
-	sec 
-	rts 
+	sec
+	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 lddir	lda #<pal
-	pha 
+	pha
 	lda #>pal
-	pha 
+	pha
 	lda #8
 	jmp gd_xloadsave
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 readpal	jsr gd_xopen
 	jsr onebyte
@@ -934,94 +935,94 @@ ld6	lda status
 	bne lderr
 	jsr basin
 	sta (sc_vekt20),y
-	iny 
+	iny
 	cpy #16
 	bne ld6
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 lderr	jsr gd_xclose
 	jsr gd_spron
-	sec 
-	rts 
+	sec
+	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 onebyte	jsr basin
 	ldy #0
 	ldx status
-	rts 
+	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 makepal	ldx #0
 mp0	stx xmrk
 	lda p4pal,x
-	tay 
+	tay
 	and #$f0
-	lsr 
-	lsr 
-	lsr 
-	lsr 
-	tax 
+	lsr
+	lsr
+	lsr
+	lsr
+	tax
 	lda dnibs,x
 	ldx xmrk
 	sta luma,x
-	tya 
+	tya
 	and #$0f
-	tax 
+	tax
 	lda dnibs,x
 	ldx xmrk
 	sta chroma,x
-	inx 
+	inx
 	cpx #16
 	bne mp0
-	rts 
+	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 chgdrv	lda ls_sysdrive
 	ldx ls_bootdrive
 	sta ls_bootdrive
 	stx ls_sysdrive
-	rts 
+	rts
 
 ; ------------------------------------------------ Event: Cancel
 
 sevcanc	lda #3
 	sta used
-	sec 
-	rts 
+	sec
+	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 getnmbuf	ldy #15
 gnb0	lda ls_nambuf,y
 	ldx nmbuf,y
 	sta nmbuf,y
-	txa 
+	txa
 	sta ls_nambuf,y
-	dey 
+	dey
 	bpl gnb0
-	rts 
+	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 namebk	ldy #15
 nb0	lda name2,y
 	sta ls_lastname,y
-	dey 
+	dey
 	bpl nb0
-	rts 
+	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 namegt	ldy #15
 ng0	lda ls_lastname,y
 	sta name2,y
-	dey 
+	dey
 	bpl ng0
-	rts 
+	rts
 
 ; --------------------------- Kringel definieren
 
@@ -1036,7 +1037,7 @@ makechr	ldx #7
 
 gettext	!wo palgad
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 settext	lda #<gettext
 	sta sc_texttab
@@ -1044,12 +1045,12 @@ settext	lda #<gettext
 	sta sc_texttab+1
 	lda (sc_texttab),y
 	sta sc_screentab
-	iny 
+	iny
 	lda (sc_texttab),y
 	sta sc_screentab+1
 	lda #0
-	tax 
-	tay 
+	tax
+	tay
 -	jsr gd_setpos
 	cpx #4
 	bne -
@@ -1058,7 +1059,7 @@ settext	lda #<gettext
 	ldy #6
 	jmp gd_xtxout1
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 p4lst	!by 0
 	!by 4,11,18,16,$81
@@ -1087,6 +1088,6 @@ paltx	!scr " GoDot  @"
 	!scr "C64pal@"
 	!by $80
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 modend	!eof
