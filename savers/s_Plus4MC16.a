@@ -14,6 +14,7 @@
 ;   1.03, 28.08.18, enhanced palettes
 ;   1.04, 01.09.18, now two chooseable palettes
 ;   1.05, 14.04.26, "near org" palette nearer to org
+;   1.06, 15.04.26, changed gui, "near org" now default
 ;
 ; ------------------------------------------------
 
@@ -59,8 +60,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "Plus4 MultiColor"
-ver	!tx "1.05"
-	!tx "14.04.26"
+ver	!tx "1.06"
+	!tx "15.04.26"
 	!tx "A.Dettke/W.Kling"
 
 ; ------------------------------------------------
@@ -750,7 +751,7 @@ drstate	!by 0
 
 pals	!scr " GoDot  Near Org"
 poffs	!by 7,15
-wpal	!by 0
+wpal	!by 1
 
 ; ------------------------------------------------
 ;             blk blu bwn dgr red pur ora mgr lbl lrd grn lgr cya yel lgn wht
@@ -1062,30 +1063,30 @@ settext	lda #<gettext
 ; ------------------------------------------------
 
 p4lst	!by 0
-	!by 4,11,18,16,$81
+	!by 4,11,18,17,$81
 	!wo 0
-	!scr "Save Plus4MColor@"
+	!scr "Save Plus4MColor",0
 palgad	!by 9,18,11,3,$cf
 	!wo evsetpal
 	!by 223
-paltx	!scr " GoDot  @"
-	!by 11,11,18,3,$cb
+paltx	!scr "Near Org",0
+	!by 12,11,18,3,$c9
 	!wo sevcol
-	!scr " Save w/ C64pal@"
-	!by 13,11,18,3,$cb
+	!scr " Save w/ C64pal",0
+	!by 14,11,18,3,$cb
 	!wo sevgrey
-	!scr " as Gray 8@"
-	!by 15,11,18,3,$cb
+	!scr " as Gray 8",0
+	!by 16,11,18,3,$cb
 	!wo sevpload
-	!scr " w/ Custom Pal@"
-	!by 17,11,18,3,$cb
+	!scr " w/ Custom Pal",0
+	!by 18,11,18,3,$cb
 	!wo sevcanc
-	!scr "Cancel Save@"
+	!scr "Cancel Save",0
 
 	!by $c0,6,14,11
-	!scr "Select Mode@"
+	!scr "Select Mode",0
 	!by $c0,9,11,7
-	!scr "C64pal@"
+	!scr "C64pal",0
 	!by $80
 
 ; ------------------------------------------------
