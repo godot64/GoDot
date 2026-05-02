@@ -1,0 +1,386 @@
+	!src <godotlib.lib>
+	!cpu m65
+	*= $c000
+	!ct pet
+; -----------------------------------------
+;
+;  mod.M65.Render
+;   Module to render GoDot 4Bit data to Mega65 (True Hires / True Colors)
+;
+;  1.00, 01.05.26, first release
+;
+; -----------------------------------------
+
+; ----------------------------------------- Equates
+
+	hyppo	= $00
+
+	screen	= $30	; /..$33
+	scrram	= $34	; /$35
+	cnt500	= $36	; /$37
+	src0	= $38	; /$39
+	src1	= $3a	; /$3b
+
+
+	bcode	= $1000		; bcode=$40000/$40
+
+	mswitch	= $d02f
+	scrnptr	= $d060		; /..$d063
+
+; ----------------------------------------- Header
+
+header	jmp start
+	!by $20		; = this is a modifier
+	!by 0
+	!by 0
+	!wo modend
+	!wo 0
+	!tx "M65 Render Image"
+	!tx "1.00"
+	!tx "01.05.26"
+	!tx "A.Dettke        "
+
+; ----------------------------------------- Main
+
+start	lda sy_mega65	; check Mega65 flag
+	bne +
+	ldx #<nomegalst	; when 0: C64 (fail)
+	ldy #>nomegalst
+	jsr gd_screen
+	beq ++		; finish modifier
+
++	ldx #<mrendlst	; go: build requester
+	ldy #>mrendlst
+	jsr gd_screen	; returns .a=0
+
+++	jmp gd_eloop	; now wait for gadget clicks
+
+; --------------------------------------- Init NCM Screen
+
+setncm	lda #$47		; "G"(ardner), Switch to VIC-IV mode.
+	sta mswitch
+	lda #$53		; "S"(tephens)
+	sta mswitch
+
+	ldx #0
+	lda $d05d
+	jsr savevals
+	lda #%10000000	; $80, Disable hotreg
+	trb $d05d
+
+	lda $d04c
+	jsr savevals
+	lda #80		; Ensure textxpos is 80
+	sta $d04c
+
+	lda $d031
+	jsr savevals
+	lda #%10100000	; Disable attr; select 40-column mode (h640=0)
+	trb $d031
+
+	lda $d054
+	jsr savevals
+	lda #%00000101	; Enable SEAM (chr16); enable fclrhi
+	tsb $d054
+
+	lda $d058
+	jsr savevals
+	lda #40		; linestep = 20 x 2
+	sta $d058
+	lda $d059
+	jsr savevals
+	lda #0
+	sta $d059
+
+	lda $d05e
+	jsr savevals
+	lda #20		; chrcount = 20
+	sta $d05e
+
+	ldy #0		; save current scrnptr
+-	lda $d060,y
+	jsr savevals
+	iny
+	cpy #4
+	bcc -
+	dey
+	lda #0		; set scrnptr to $5.0000
+-	sta scrnptr,y	; for Mega65
+	dey
+	bpl -
+	ldy #5		; bank of "cset" data (5)
+	sty scrnptr+2	; for Mega65
+	sta $d020		; Set border and background colors to blk
+	sta $d021
+	rts
+
+savevals	sta preset,x
+	inx
+	rts
+
+; --------------------------------------- Re-Init Standard Screen
+
+unsetncm	ldx #0
+	jsr restore	; hotreg
+	sta $d05d
+	jsr restore	; textpos
+	sta $d04c
+	jsr restore	; attr./40 columns
+	sta $d031
+	jsr restore	; SEAM
+	sta $d054
+	jsr restore	; linestep lo
+	sta $d058
+	jsr restore	; hi
+	sta $d059
+	jsr restore	; chrcount
+	sta $d05e
+	ldy #0
+-	jsr restore	; scrnptr (4 bytes)
+	sta $d060,x
+	iny
+	cpy #4
+	bcc -
+
+	lda #0		; switch back to VIC-II mode.
+	sta mswitch
+	sta mswitch
+	lda #$12
+	sta $d018
+
+	lda sc_maincolor	; Set background and border
+	sta $d021
+	sta $d020
+	rts		; .c is set
+
+restore	lda preset,x
+	inx
+	rts
+
+; --------------------------------------- Event: Leave Modifier
+
+trscreen
+evleave	sec		; leave modifier
+	rts
+
+; --------------------------------------- Event: Render True Hires
+
+evtrhires	jsr trans4bit	; convert 4Bit to Mega65
+	jsr setncm	; NCM einschalten
+	jsr trscreen	; screen pointer to $5.0000: generate screencodes
+	jsr wait
+
+; --------------------------------------- Event: Render True Multicolor
+
+evtrmulti
+	jmp unsetncm	; .c: set
+
+; -------------------------------------- Event: Toggle Speed
+
+resetspd	ldx #0		; .x= 0: Slow
+	!by $2c
+
+setspeed	ldx #1		; .x= 1: Fast (Active)
+	jmp speed
+
+; ---------------------------------------
+
+speed	lda speedval,x	; activate speed (POKE 0,speedval)
+	sta hyppo
+	rts
+
+; --------------------------------------- Distribute 4Bit Pixels and convert Colors
+
+transport	ldy #0
+-	lda (src1),y
+	tax		; .x als Index in Lookup Table
+	lda inverted,x	; Nibbles invertieren und Farbe setzen
+	sta [screen],z	; straight nach Target: $4.0000 (00 00 04 00)
+	inc screen	; Target immer um 1 erhöhen
+	bne +
+	inc screen+1
++	iny
+	cpy #4
+	bcc -
+	rts
+
+; --------------------------------------- Transport 4Bit to Mega65
+
+trans4bit	ldx #3		; set target to $04.0000 (in $30..$33)
+	lda #0
+	sta src1
+-	sta screen,x
+	dex
+	bpl -
+	ldx #4
+	stx screen+2
+
+	ldz #0		; .z: Far-Zeiger-Index (immer 0)
+	lda #<sy_4bit	; 4Bit als "Zeichensatz" in den Mega65 kopieren
+	ldx #>sy_4bit
+
+-	sta src1		; Zeiger auf Source setzen (4Bit)
+	stx src1+1
+
+	jsr transport	; 4 Bytes (8 linke Pixel) übertragen
+	lda src1
+	pha
+	ora #$20
+	sta src1
+	jsr transport	; jetzt die 8 rechten Pixel daneben
+	pla
+
+	clc
+	adc #4		; Source um 4 Bytes weiterrücken
+	sta src1
+	bcc +
+	inc src1+1
++	lda src1
+	tax
+	and #$20
+	beq +
+	txa
+	clc
+	adc #$20
+	sta src1
+	bcc +
+	inc src1+1
++	lda src1
+	ldx src1+1
+	cpx #$bd		; bis $bd00 erreicht (32000 Bytes 4Bit fertig)
+	bne -
+
+	stz screen	; now for the colors
+	stz screen+1
+	lda #$f8		; .z=0, writes 1000 double colors (of 64 bytes each)
+	sta screen+2	; (2000 bytes)
+	lda #$0f
+	sta screen+3
+loop2	lda #8		; NCM bit setzen
+	sta [screen],z
+	lda #$0f
+	inz
+	sta [screen],z	; Palettenindex: 0
+	inz
+	bne loop2
+	inc screen+1
+	lda screen+1
+	cmp #$05
+	bcc loop2
+
+	ldz #0
+	stz screen+3	; .z=0
+	lda #5		; init screen to $5.0000
+	sta screen+2
+	stz screen+1
+	stz screen+0
+	stz cnt500
+	stz cnt500+1
+	lda #<bcode	; init bcode to $1000 (points to $4.0000)
+	sta scrram
+	lda #>bcode
+	sta scrram+1
+
+loop3	lda scrram
+	sta [screen],z
+	lda scrram+1
+	inw screen
+	sta [screen],z
+	inw screen
+	inc cnt500
+	bne +
+	inc cnt500+1
+
++	inc scrram
+	bne +
+	inc scrram+1
++	lda cnt500
+	lda cnt500+1
+	cmp #>1025
+	bcc loop3
+	cmp #<1025
+	bcc loop3
+
+	rts
+
+; ----------------------------------------- Wait for Clicks
+
+wait	lda #0
+	sta sc_stop
+	sta sc_keyprs
+waiton	lda joy		; wait for click or STOP
+	eor #$ff
+	and #$10
+	ora sc_keyprs
+	ora sc_stop
+	beq waiton
+	rts
+
+; --------------------------------------- Data
+
+preset	!fill 11
+speedval	!by 64,65
+
+; --------------------------------------- Inverted Color Nibbles
+; invert a byte value nibblewise by just using its value: ldx byte, lda inverted,x
+
+inverted	!by $00,$60,$90,$b0,$20,$40,$80,$c0,$e0,$a0,$50,$f0,$30,$70,$d0,$10
+	!by $06,$66,$96,$b6,$26,$46,$86,$c6,$e6,$a6,$56,$f6,$36,$76,$d6,$16
+	!by $09,$69,$99,$b9,$29,$49,$89,$c9,$e9,$a9,$59,$f9,$39,$79,$d9,$19
+	!by $0b,$6b,$9b,$bb,$2b,$4b,$8b,$cb,$eb,$ab,$5b,$fb,$3b,$7b,$db,$1b
+	!by $02,$62,$92,$b2,$22,$42,$82,$c2,$e2,$a2,$52,$f2,$32,$72,$d2,$12
+	!by $04,$64,$94,$b4,$24,$44,$84,$c4,$e4,$a4,$54,$f4,$34,$74,$d4,$14
+	!by $08,$68,$98,$b8,$28,$48,$88,$c8,$e8,$a8,$58,$f8,$38,$78,$d8,$18
+	!by $0c,$6c,$9c,$bc,$2c,$4c,$8c,$cc,$ec,$ac,$5c,$fc,$3c,$7c,$dc,$1c
+	!by $0e,$6e,$9e,$be,$2e,$4e,$8e,$ce,$ee,$ae,$5e,$fe,$3e,$7e,$de,$1e
+	!by $0a,$6a,$9a,$ba,$2a,$4a,$8a,$ca,$ea,$aa,$5a,$fa,$3a,$7a,$da,$1a
+	!by $05,$65,$95,$b5,$25,$45,$85,$c5,$e5,$a5,$55,$f5,$35,$75,$d5,$15
+	!by $0f,$6f,$9f,$bf,$2f,$4f,$8f,$cf,$ef,$af,$5f,$ff,$3f,$7f,$df,$1f
+	!by $03,$63,$93,$b3,$23,$43,$83,$c3,$e3,$a3,$53,$f3,$33,$73,$d3,$13
+	!by $07,$67,$97,$b7,$27,$47,$87,$c7,$e7,$a7,$57,$f7,$37,$77,$d7,$17
+	!by $0d,$6d,$9d,$bd,$2d,$4d,$8d,$cd,$ed,$ad,$5d,$fd,$3d,$7d,$dd,$1d
+	!by $01,$61,$91,$b1,$21,$41,$81,$c1,$e1,$a1,$51,$f1,$31,$71,$d1,$11
+
+; --------------------------------------- Screenlists
+
+mrendlst	!by 0
+	!by 8,15,12,9
+	!by $91
+	!wo 0
+	!scr "M65 Render",0
+
+thgad	!by 10,15,12,3,$c9
+	!wo evtrhires
+	!scr "True Hires",0
+
+tmgad	!by 12,15,12,3,$cb
+	!wo evtrmulti
+	!scr "True Multi",0
+
+leave	!by 14,15,12,3,$cb
+	!wo evleave
+	!scr "Leave",0
+
+	!by $80
+
+; --------------------------------------- No Mega65 List
+
+nomegalst	!by 0
+	!by 8,14,12,10,$81,0,0
+	!scr "M65 Render",0
+	!by 15,19,7,3,$cd
+	!wo evleave
+	!scr "Leave",0
+
+	!by $c0,10,16,6
+	!scr "Only a",0
+	!by $c0,11,16,6
+	!scr "Mega65",0
+	!by $c0,12,15,8
+	!scr "will do!",0
+
+	!by $80
+
+; ---------------------------------------
+
+modend	!eof
