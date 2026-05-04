@@ -167,7 +167,7 @@ evleave	sec		; leave modifier
 
 evtrhires	jsr trans4bit	; convert 4Bit to Mega65
 	jsr setncm	; NCM einschalten
-	jsr trans4bit	; screen pointer to $5.0000: generate screencodes
+	jsr trscreen	; screen pointer to $5.0000: generate screencodes
 	jsr wait
 
 ; --------------------------------------- Event: Render True Multicolor
