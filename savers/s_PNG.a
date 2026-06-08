@@ -1,12 +1,12 @@
 
-	!src "godotlib.lib"
+	!src <godotlib.lib>
 	*= $c000
 	!ct pet
 
-; ----------------------------------------- 
+; -----------------------------------------
 ;
 ; svr.PNG
-;     PNG Saver for any GoDot images 
+;     PNG Saver for any GoDot images
 ;     CRC32 routines inspired by John Selck
 ;     Adler32 routines inspired by cc65 (U. von Bassewitz)
 ;
@@ -17,6 +17,7 @@
 ; 1.04: 31.03.22, exchanged palettes (VICE - PALette_v1)
 ;                 changed IFLI palette, now based on PALette_v1
 ; 1.05, 06.04.22, bugfix, didn't reset reu record
+;       08.06.26, added correct version number to file output
 ;
 ; ----------------------------------------- Header
 ;
@@ -66,7 +67,7 @@ cvers	!pet "1.05"		; Versionsnummer
 
 	rahmen	= $d020
 
-; ----------------------------------------- 
+; -----------------------------------------
 
 start	ldx gr_nr		; Funktionsnummer testen
 	dex
@@ -77,7 +78,7 @@ start	ldx gr_nr		; Funktionsnummer testen
 
 sk12	jmp noreu
 
-; ----------------------------------------- 
+; -----------------------------------------
 
 saver	lda ls_ramdrive	; REU angeschlossen?
 	and #15
@@ -91,18 +92,18 @@ saver	lda ls_ramdrive	; REU angeschlossen?
 st11	jsr gd_sproff	; Sprites aus
 	lda gd_modswitch	; Slot retten
 	pha
-	lda ls_flen	; Filename übergeben?
+	lda ls_flen	; Filename Ã¼bergeben?
 	beq st1		; nein
 
 	sta wflen		; sonst: retten
 	jsr addpng	; Namen erweitern
-	lda #1		; Counter für Activity setzen
+	lda #1		; Counter fÃ¼r Activity setzen
 	sta adcnt
 	sta cntwert
 	lda #9		; Undo-Kommando vorbereiten
 	sta getundo+1
 
-	jsr wopen		; Writefile öffnen
+	jsr wopen		; Writefile Ã¶ffnen
 	bne st2		; wenn Fehler: Ende
 
 	jsr adlerinit	; prepare zlib adler checksum
@@ -133,13 +134,13 @@ st12	jsr initreu
 	sec		; Leave-Flag
 	rts		; fertig
 
-; ----------------------------------------- 
+; -----------------------------------------
 ; -------------------------- Input Routines
 
-!src "input.inc"
+!src <input.inc>
 
 ; --------------------------/Input Routines
-; ----------------------------------------- 
+; -----------------------------------------
 
 ; ----------------------------------------- Disk Access
 
@@ -155,7 +156,7 @@ filepos	!wo $1000		; Start of 4Bit data in REU
 
 wopen	jsr inull		; Initialize
 	bne err8
-	ldy wflen		; ",p,w" anhängen
+	ldy wflen		; ",p,w" anhÃ¤ngen
 	ldx #3
 wo1	lda pw,x
 	sta ls_nambuf,y
@@ -200,7 +201,7 @@ tc0 	lda txt,x		; Offset in .x!
 
 action	dec adcnt		; Activity, wenn 0
 	bne ld4
-	lda cntwert	; dann: Reload des Zählers
+	lda cntwert	; dann: Reload des ZÃ¤hlers
 	sta adcnt
 	ldy offy
 	cpy clrmess+1
@@ -210,19 +211,19 @@ act0	ldx offx
 	lda filltab,x
 	sta mess,y
 	jsr messout	; Balken ausgeben
-	dec offx		; Ende nächstes Mal dicker
-	bpl ld4		; bis gefüllt
-	inc offy		; dann Balken länger
-	lda #7		; Ende wieder dünn
+	dec offx		; Ende nÃ¤chstes Mal dicker
+	bpl ld4		; bis gefÃ¼llt
+	inc offy		; dann Balken lÃ¤nger
+	lda #7		; Ende wieder dÃ¼nn
 	sta offx
 ld4 	rts
 
-clrmess	ldx #25		; Puffer für Balken löschen
+clrmess	ldx #25		; Puffer fÃ¼r Balken lÃ¶schen
 	lda #32
 cl0	sta mess,x
 	dex
 	bpl cl0
-	ldy #0		; Balkenlänge 0 
+	ldy #0		; BalkenlÃ¤nge 0
 	ldx #7		; Dicke am Ende 0
 	sty offy
 	stx offx
@@ -322,7 +323,7 @@ setvals	ldy #0		; width
 	ldx gr_cmode
 	beq +
 	lsr
-+	jsr convert	; convert to binary 
++	jsr convert	; convert to binary
 	stx width4+1
 	sta width4
 	stx width8+1
@@ -349,7 +350,7 @@ setclip	lda #$10		; 4Bit starting from $1000 in REU
 	sty clpsp
 	lda #40
 	sta clpbr
-	lda #25 
+	lda #25
 	sta clpho
 	lda #0		; later: sc_clipped!
 	beq scp8
@@ -381,24 +382,24 @@ scp5	lda sc_lastclpbr
 	sta clpho
 scp8	rts
 
-; ----------------------------------------- 
+; -----------------------------------------
 ; ------------------------------- Write PNG
-; ----------------------------------------- 
+; -----------------------------------------
 
 write	lda gr_cmode	; Hires (0) oder Multi (>0)?
 	bne +
-	lda #<png4head	; Header für 4bit ausgeben
+	lda #<png4head	; Header fÃ¼r 4bit ausgeben
 	ldx #>png4head
 	sta src
 	stx src+1
 	ldx #>182
-	lda #<182		; Länge 182 Bytes (ab da: Grafikdaten)
+	lda #<182		; LÃ¤nge 182 Bytes (ab da: Grafikdaten)
 	bne ++
-+	lda #<png8head	; Header für 8bit ausgeben
++	lda #<png8head	; Header fÃ¼r 8bit ausgeben
 	ldx #>png8head
 	sta src
 	stx src+1
-	lda #<902		; Länge 902 Bytes (ab da: Grafikdaten)
+	lda #<902		; LÃ¤nge 902 Bytes (ab da: Grafikdaten)
 	ldx #>902
 ++	sta ls_vekta8
 	stx ls_vekta8+1
@@ -412,7 +413,7 @@ wr0	lda (src),y
 	tay		; .a=0
 -	lda gr_cmode	; je nach Grafikmodus:
 	bne +
-	lda idat4,y	; crc32 für IDAT-Chunk berechnen
+	lda idat4,y	; crc32 fÃ¼r IDAT-Chunk berechnen
 	bne ++
 +	lda idat8,y	; start crc32 bei Chunkname
 ++	jsr collect
@@ -422,16 +423,16 @@ wr0	lda (src),y
 
 	lda #9		; Funktion "Undo ins Ram" setzen
 	sta getundo+1
-	jsr doundo	; automatisches Undo ausführen
+	jsr doundo	; automatisches Undo ausfÃ¼hren
 
 	jsr scanlines	; Checksummen generieren und Bilddaten wegschreiben
-	jsr writechks	; adler32/CRC32 abschließen/Checksummen schreiben
+	jsr writechks	; adler32/CRC32 abschlieÃŸen/Checksummen schreiben
 	jsr setfooter	; PNG-Abschlussblock aufbereiten
 
-	jsr clrch		; File schließen
+	jsr clrch		; File schlieÃŸen
 	lda #8		; Funktion "Undo aus dem Ram" setzen
 	sta getundo+1
-	jsr doundo	; und ausführen
+	jsr doundo	; und ausfÃ¼hren
 	sec		; Leave-Flag
 	rts		; fertig
 
@@ -446,7 +447,7 @@ writechks	lda asum2+1	; get final Adler32
 	lda asum1
 	jsr crcit
 
-	jsr mkcrc32	; CRC32 abschließen (.x=4)
+	jsr mkcrc32	; CRC32 abschlieÃŸen (.x=4)
 -	lda asum2,x	; und ausgeben
 	jsr bsout
 	inx
@@ -454,16 +455,16 @@ writechks	lda asum2+1	; get final Adler32
 	bne -
 	rts
 
-crcit	jsr collect	; Adler in CRC32 einfließen lassen
+crcit	jsr collect	; Adler in CRC32 einflieÃŸen lassen
 	jmp bsout		; und ausgeben
 
-; ----------------------------------------- 
+; -----------------------------------------
 
 encode	jsr bsout		; write to file
 	jsr collect	; generate crc32 checksum
 	jmp adler32	; generate zlib adler checksum
 
-; ----------------------------------------- 
+; -----------------------------------------
 
 setfooter	ldy #0
 -	lda pngfooter,y
@@ -475,7 +476,7 @@ setfooter	ldy #0
 
 ; ----------------------------------------- Scanlines
 
-scanlines	ldx #6		; Ram-Record erst löschen
+scanlines	ldx #6		; Ram-Record erst lÃ¶schen
 	lda #0
 sl0	sta rm_werte,x
 	dex
@@ -487,7 +488,7 @@ sl0	sta rm_werte,x
 
 	lda filepos	; set startaddress (aus UNDO)
 	ldx filepos+1
-	sta src		; Hilfszeiger für die Blockzeilen
+	sta src		; Hilfszeiger fÃ¼r die Blockzeilen
 	sta rm_werte+2
 	stx src+1
 	stx rm_werte+3
@@ -495,7 +496,7 @@ sl0	sta rm_werte,x
 	lda clpho		; Anzahl Blockzeilen (25 on full screen)
 	sta lcnt8
 
-lnloop8	lda #8		; zählt 1 Blockzeile (8 Linien)
+lnloop8	lda #8		; zÃ¤hlt 1 Blockzeile (8 Linien)
 	sta lcnt
 
 tloop8	lda clpbr		; count x tiles (40 on full screen)
@@ -515,15 +516,15 @@ btloop	stx xmerk		; (x und y retten)
 	lda sc_merk
 	jsr encode	; write color as is, compute checksums
 
-	ldx xmerk		; (x und y zurück)
+	ldx xmerk		; (x und y zurÃ¼ck)
 	ldy ymerk
-	inc rm_werte+2	; vorrücken im Undo
+	inc rm_werte+2	; vorrÃ¼cken im Undo
 	bne s4
 	inc rm_werte+3
 s4	dex		; 4 Bytes = 1 Kachellinie
 	bne lnloop
 
-	clc		; nächste Kachel
+	clc		; nÃ¤chste Kachel
 	lda rm_werte+2
 	adc #28
 	sta rm_werte+2
@@ -532,7 +533,7 @@ s4	dex		; 4 Bytes = 1 Kachellinie
 s3	dec tilecnt
 	bne tloop
 
-	lda src		; nächste Kachellinie
+	lda src		; nÃ¤chste Kachellinie
 	clc
 	adc #4
 	sta src
@@ -541,11 +542,11 @@ s3	dec tilecnt
 	inc src+1
 s5	lda src+1
 	sta rm_werte+3
-	jsr action	; Laufbalken vorrücken (200 mal)
+	jsr action	; Laufbalken vorrÃ¼cken (200 mal)
 	dec lcnt
 	bne tloop8
 
-s51	lda src		; nächste Blockzeile
+s51	lda src		; nÃ¤chste Blockzeile
 	clc
 	adc #<1248
 	sta src
@@ -585,7 +586,7 @@ plte4	!by $00,$00,$00,$00,$00,$aa,$66,$44,$00	; gets changed
 	!by $ff,$77,$77,$00,$cc,$55,$bb,$bb,$bb
 	!by $aa,$ff,$ee,$ee,$ee,$77,$aa,$ff,$66
 	!by $ff,$ff,$ff
-crcpl4	!by $2b,$59,$d8,$22 
+crcpl4	!by $2b,$59,$d8,$22
 
 	!by $00,$00,$00,$09		; aspect: 9 Bytes (+12)
 	!raw "pHYs"		; Aspekt 1:1
@@ -598,16 +599,16 @@ crca4	!by $d2,$dd,$7e,$fc		; crc32
 	!raw "tEXt"
 	!raw "Comment",0
 	!raw "Saved by C64 GoDot PNG saver "
-	!tx "1.04"
-	!by $30,$82,$d8,$f8 	; crc32
+	!tx "1.05"
+	!by $47,$85,$e8,$6e 	; crc32 (https://www.lddgo.net/en/encrypt/crc)
 
 imgdata4	!by $00,$00,$7d,$d3		; (32200) Bytes (+15)
 idat4	!raw "IDAT"		; Bilddaten
 	!by $78			; zlib: 32K slide/Deflated
 	!by $01			;       uncompressed
 	!by $01			;       last block (of 1)
-ilen4	!wo $7dc8			; Länge (32200=40*4*200+200)
-	!wo $8237			; 2er-Komplement von Länge
+ilen4	!wo $7dc8			; LÃ¤nge (32200=40*4*200+200)
+	!wo $8237			; 2er-Komplement von LÃ¤nge
 
 ; hier folgen die Pixeldaten (Indexe in RGB-Palette, die Adler32-Checksumme
 ; und die CRC32-Checksumme), es geht los mit dem Filterbyte ($00)
@@ -725,16 +726,16 @@ comment	!by $00,$00,$00,$29		; Comment: 41 Bytes (+12)
 	!raw "tEXt"
 	!raw "Comment",0
 	!raw "Saved by C64 GoDot PNG saver "
-version	!tx "1.04"
-	!by $30,$82,$d8,$f8 	; crc32
+version	!tx "1.05"
+	!by $47,$85,$e8,$6e 	; crc32 (https://www.lddgo.net/en/encrypt/crc)
 
 imgdata	!by $00,$00,$7d,$d3		; (32200) Bytes (+15 (+8))
 idat8	!raw "IDAT"		; Bilddaten
 	!by $78			; zlib: 32K slide/Deflated
 	!by $01			;       uncompressed
 	!by $01			;       last block (of 1)
-ilen8	!wo $7dc8			; Länge (32200=20*8*200+200)
-	!wo $8237			; 2er-Komplement von Länge
+ilen8	!wo $7dc8			; LÃ¤nge (32200=20*8*200+200)
+	!wo $8237			; 2er-Komplement von LÃ¤nge
 
 ; hier folgen die Pixeldaten (Indexe in RGB-Palette, die Adler32-Checksumme
 ; und die CRC32-Checksumme), es geht los mit dem Filterbyte ($00)
@@ -790,9 +791,9 @@ palptoing	!by $00,$00,$00, $3e,$31,$a2, $57,$42,$00, $54,$54,$54
 	!by $7a,$bf,$c7, $d0,$dc,$71, $ac,$ea,$88, $ff,$ff,$ff
 crcp6	!by $71,$e3,$ac,$ba
 
-; ----------------------------------------- 
+; -----------------------------------------
 ; ---------------------------------- DoUndo
-; ----------------------------------------- 
+; -----------------------------------------
 
 doundo	lda #<undo	; eigentliche Routine verschieben
 	ldx #>undo	; (weil das Modul ausgeblendet wird)
@@ -803,7 +804,7 @@ sloop	lda (ls_vekta8),y
 	sta sy_global,y	; nach GLOBAL
 	dey
 	bpl sloop
-	jmp sy_global	; und dann ausführen
+	jmp sy_global	; und dann ausfÃ¼hren
 
 undo 	jsr gd_swapd	; Ram einblenden
 	ldx #10		; FirstInit
@@ -820,14 +821,14 @@ md0	sta rm_werte,x
 	sta rm_werte+3
 	lda #$7d		; 32000 Bytes
 	sta rm_werte+6
-	lda #1		; Flag für 4Bit-Undo setzen
+	lda #1		; Flag fÃ¼r 4Bit-Undo setzen
 	sta rm_nextentry
 
 getundo	ldx #9		; und DoUndo
 	jsr rm_ramvec
 	ldx #1		; danach ForceOff (Ram ausblenden)
-	jsr rm_ramvec	
-	jmp gd_sproff	; und Sprite wieder aus, zurück
+	jsr rm_ramvec
+	jmp gd_sproff	; und Sprite wieder aus, zurÃ¼ck
 
 ; ----------------------------------------- CRC32 Result
 
@@ -892,7 +893,7 @@ prepbufs	ldy #0		; start value: 0 (end: 255)
 	ror crcbuf+1
 	ror crcbuf
 	bcc +
-	lda crcbuf	; if .c set: 
+	lda crcbuf	; if .c set:
 	eor #$20		; apply reverted polynomial: $edb88320
 	sta crcbuf
 	lda crcbuf+1
@@ -977,9 +978,9 @@ adlerinit	ldx #0		; asum1=1
 	stx asum1
 	rts
 
-; ----------------------------------------- Filenamen verlängern
+; ----------------------------------------- Filenamen verlÃ¤ngern
 
-addpng	pha		; Länge merken
+addpng	pha		; LÃ¤nge merken
 	tay
 	dey
 	ldx #0
@@ -992,25 +993,25 @@ ag4	lda ls_nambuf,y	; endet auf ".PNG"?
 	bcc ag4
 	pla		; ja, fertig
 	rts
-	
+
 ag2	pla
-	tay		; Name länger als 12 Zeichen?
+	tay		; Name lÃ¤nger als 12 Zeichen?
 	cpy #13
 	bcs ag0		; ja, behandeln
 
-ag5	ldx #3		; nein, ".png" anhängen
+ag5	ldx #3		; nein, ".png" anhÃ¤ngen
 ag1	lda pngtx,x
 ag3	sta ls_nambuf,y
-	lda pngtxs,x	; auch für Image Info
+	lda pngtxs,x	; auch fÃ¼r Image Info
 	sta ls_lastname,y
 	iny
 	dex
 	bpl ag1
-	sty wflen		; neue Länge merken, fertig
+	sty wflen		; neue LÃ¤nge merken, fertig
 	sty ls_flen
 	rts
 
-ag0	dey		; auf 12 verkürzen
+ag0	dey		; auf 12 verkÃ¼rzen
 	cpy #12
 	bne ag0
 	beq ag5		; unbed. Sprung
@@ -1018,9 +1019,9 @@ ag0	dey		; auf 12 verkürzen
 ; ---------------------------------------- Init rm_werte
 
 initreu	ldx #6
-	lda #0		; RM_WERTE (am Ende): 
+	lda #0		; RM_WERTE (am Ende):
 sl01	sta rm_werte,x	; $00, $c0, $00, $00, 0, 0, 0
-	dex		; - C64 - | -  REU   - | Anzahl 
+	dex		; - C64 - | -  REU   - | Anzahl
 	bpl sl01
 	lda #$c0
 	sta rm_werte+1
@@ -1045,6 +1046,6 @@ graphon	lda rahmen	; save border color
 stay	clc
 	rts
 
-; ----------------------------------------------------- 
+; -----------------------------------------------------
 
 modend 	!eof
