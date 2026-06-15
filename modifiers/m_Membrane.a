@@ -1,5 +1,5 @@
 
-	!src "godotlib.lib"
+	!src <godotlib.lib>
 	*= $c000
 	!ct pet
 ;	!sl "labels.txt"
@@ -12,6 +12,7 @@
 ;   1.00, 24.07.19: first release
 ;   1.01, 04.09.21: added option to create "scanlines"
 ;   1.02, 19.07.25: changed 12.5% multicolor pattern to: interweaved
+;   1.03, 14.06.26: added upside down patterns for 12.5% and 25%
 ;
 ; ------------------------------------------
 
@@ -21,18 +22,25 @@
 	!wo modend
 	!wo 0
 	!pet "Make Membranes  "
-	!pet "1.02"
-	!pet "19.07.25"
+	!pet "1.03"
+	!pet "14.06.26"
 	!pet "A. Dettke       "
 
 ; ------------------------------------------
 
-	dst		= $30	; /$31
-	xbuf		= $32
-	ybuf		= $33
-	merk		= $34
+	dst	= $30	; /$31
+	xbuf	= $32
+	ybuf	= $33
+	merk	= $34
 
-	rendered		= $2000
+	zeile	= sc_merk
+
+	hup	= gr_pattern+8
+	upside	= gr_pattern+40
+	mup	= gr_pattern+64
+	downside	= gr_pattern+96
+
+	rendered	= $2000
 
 ; --------------------------------------- Main
 
@@ -42,8 +50,8 @@ start 	ldx sc_screenvek	; save current screenlist (mainlst)
 	stx list+1
 	lda gr_redisp	; save current rendermode
 	sta redisp
-	jsr makechr
 	jsr makepats
+	jsr makechr
 	jsr showreq	; show requester
 	jmp gd_eloop	; wait for clicks
 
@@ -55,7 +63,7 @@ evexit	jsr makepats
 
 ; ----------------------------------------- Event: Revert
 
-evrevert	ldx #79
+evrevert	ldx #111
 -	lda gr_pattern,x
 	eor #$ff
 	sta gr_pattern,x
@@ -67,26 +75,26 @@ evrevert	ldx #79
 +	stx reverted
 	txa
 	beq +
-	lda #"1"
-	ldx #"0"
+	lda #"1"		; Prozentanzeige anpassen:
+	ldx #"0"		; 100% statt 0%
 	sta all
 	stx all+1
-	lda #"7"
+	lda #"7"		; 87.5% statt 12.5%
 	ldx #"8"
 	bne ++
-+	lda #" "
++	lda #" "		; 0% statt 100%
 	sta all
 	sta all+1
-	lda #"2"
+	lda #"2"		; 12.5% statt 87.5%
 	ldx #"1"
-++	stx eight
+++	stx eight		; 25% statt 75% und umgekehrt
 	sta eight+1
 	sta four
 	jmp showreq
 
 ; ----------------------------------------- Event: Switch Mode
 
-evmode: 	ldx mode		; Mode: Hires/Multi
+evmode: 	ldx mode		; Mode: Hires/Multi umstellen
 	inx
 	cpx #2
 	bcc md0
@@ -101,11 +109,11 @@ md1	lda modetxt,y
 	bpl md1
 
 	ldx #7
--	lda mode
+-	lda mode		; Grafikmodus (Pattern austauschen):
 	beq +
-	ldy #4
+	ldy #4		; gegen Multi
 	!by $2c
-+	ldy #0
++	ldy #0		; gegen Hires
 	lda mdpats,y
 	sta mod0,x
 	iny
@@ -120,21 +128,21 @@ md1	lda modetxt,y
 	dex
 	bpl -
 
-	ldx #<mdtx
+	ldx #<mdtx	; zeigen
 	ldy #>mdtx
 	jsr gd_xtxout2
 	jmp showreq
 
 ; ------------------------------------------ Event: Apply Pattern
 
-evapply	lda strength
+evapply	lda strength	; chose pattern line (# in .a) from membpats
 	asl
 	asl
 	asl
-	ldx mode
+	ldx mode		; hires or multi?
 	beq +
 	clc
-	adc #40
+	adc #56		; if multi: add 56 as offset
 +	sta xbuf
 
 	lda #<1000	; 1000 Bytes ändern
@@ -146,7 +154,7 @@ evapply	lda strength
 	lda #>rendered
 	sta dst+1
 
---	ldx xbuf
+--	ldx xbuf		; Grafik-Screen füllen
 	ldy #0
 -	lda gr_pattern,x
 	sta (dst),y
@@ -163,21 +171,36 @@ evapply	lda strength
 	bcc --
 	inc dst+1
 	bne --
-+	jmp evview
++	jmp evview	; und anzeigen
 
 ; ------------------------------------------ Events: Set Strength
 
-evplain	ldy #0
+evplain	ldy #0		; 0% (empty pattern)
 	!by $2c
-eveighth	ldy #1
+eveighth	ldy #1		; 12.5%
 	!by $2c
-evquarter	ldy #2
+evquarter	ldy #2		; 25%
 	!by $2c
-evhalf	ldy #3
+evhalf	ldy #3		; 50%
 	!by $2c
-evscnlne	ldy #4
+evscnlne	ldy #4		; scanlines
 	sty strength
 	jmp indicate
+
+; ------------------------------------------ Event: Turn Pattern upside down
+
+evupdown	jsr tupsdwn	; toggle patterns
+	ldx upsdwn	; flag: turn pattern upside down (1) or not (0)
+	beq +
+	ldx #$ff
++	inx
+	stx upsdwn
+	lda strength	; keep pointer arrow in its row
+	asl
+	clc
+	adc #8
+	sta zeile
+	jmp showreq	; show (up/dwn) arrow (on the appropriate row)
 
 ; ------------------------------------------ Event: View
 
@@ -199,17 +222,20 @@ kl	lda sc_stop
 showreq	ldx #<memblst	; display Membrane requester
 	ldy #>memblst
 	jsr gd_screen
+	jsr clear		; clear arrow columns
 	lda strength
 	sta ybuf
-	jsr showind
+sr2	jsr showind	; and show arrow again
 	clc
 	rts
 
-; --------------------------------------- Kringel definieren
+; --------------------------------------- Kringel/Arrow definieren
 
 makechr	ldx #7
 -	lda chschr,x
-	sta sc_undochar,x
+	sta sc_undochar,x		; $df
+	lda darrow,x
+	sta sc_undochar+168,x	; $ee
 	dex
 	bpl -
 	rts
@@ -218,10 +244,10 @@ makechr	ldx #7
 
 ; ---------------------------------------- Switch Graphics/Text
 
-view:	ldx #1
+view:	ldx #1		; set fake redisp flag (allow redisplay)
 	stx gr_redisp
 
-redis:	ldy #251
+	ldy #251
 	lda #$f0		; ink: lgrey, paper: black
 red0	sta $03ff,y
 	sta $04f9,y
@@ -230,15 +256,15 @@ red0	sta $03ff,y
 	dey
 	bne red0
 
-rp4:	lda #$1b		; hires graphics on
+	lda #$1b		; hires graphics on
 	sta $d018
 	lda #$3b
 	sta $d011
 	lda gr_redisp 	; leave if flag set
 	bne rp3
 
-rp2:	jsr tmode
-	ldx list
+rp2:	jsr tmode		; text mode on
+	ldx list		; show main screen
 	ldy list+1
 	jsr gd_screen
 rp3:	clc
@@ -264,8 +290,8 @@ cou7 	dec ls_vekta8
 
 ; ------------------------------------------ Toggle to new navi icons
 
-makepats:	ldx #79
-mn0:	lda gr_pattern,x	; buffer syspattern (chars 224 to 228)
+makepats:	ldx #119
+mn0:	lda gr_pattern,x	; buffer all syspattern (chars 224 to 238)
 	ldy membpats,x
 	sta membpats,x
 	tya
@@ -274,60 +300,117 @@ mn0:	lda gr_pattern,x	; buffer syspattern (chars 224 to 228)
 	bpl mn0
 	rts
 
+; ------------------------------------------ Toggle UpsideDown Patterns
+
+tupsdwn	ldx #15
+mn1:	lda hup,x
+	ldy upside,x	; exchange hires
+	sta upside,x
+	tya
+	sta hup,x
+	dex
+	bpl mn1
+mn2:	inx
+	lda mup,x
+	ldy downside,x	; and multi patterns
+	sta downside,x
+	tya
+	sta mup,x
+	cpx #15
+	bcc mn2
+	rts
+
 ; ------------------------------------------ Show Indicator Arrow
 
 indicate	lda #32		; statt Pfeil: Leerzeichen
-	sta indicator
-	sty ybuf		; .y: aktuelle Position (merken)
+	sta indicator+1
+	sty ybuf		; .y: aktuelle Zeile (merken)
 	ldx #4
 	stx xbuf
--	lda xbuf		; löschen (alle Positionen)
+-	lda xbuf		; löschen (alle Positionen von unten nach oben)
 	jsr rep
 	dec xbuf
 	bpl -
 
-showind	lda #$5e		; Pfeil holen
-	sta indicator
-	lda ybuf		; Position holen
+showind	lda upsdwn	; upside down aktiviert?
+	beq +		; nein, skip
+	lda strength	; ja, Pfeil zu weit oben?
+	beq +
+	cmp #3		; oder zu weit unten?
+	bcs +		; wenn ja, skip
 
-rep	asl
+	lda #$ee		; sonst: Doppelpfeil holen
+	!by $2c
++	lda #$5e		; Pfeil holen
+	sta indicator+1
+	lda ybuf		; Position holen: Zeile
+
+rep	ldy #2		; Breite
+	ldx #18		; Spalte
+	asl
 	sta merk
 	clc
-	lda #8
+	lda #8		; Zeile (startet mit 16)
 	adc merk
-	ldx #19
-	ldy #1
-	jsr gd_setpar
+rep2	jsr gd_setpar
 	jsr gd_initmove
 	ldx #<indicator	; Pfeil ausgeben
 	ldy #>indicator
 	jmp gd_xtxout2
 
-; ------------------------------------------ Data
+; ------------------------------------------ Clear UpsideDown Gadget
 
-chschr	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
+clear	lda indicator+1	; Arrow retten
+	pha
+	lda #32		; ebenso statt Pfeil: Leerzeichen
+	sta indicator+1
+	sty ybuf		; .y: aktuelle Position (merken)
+	lda #9		; Zeile
+	sta xbuf
+-	ldx #18		; Spalte
+	ldy #2		; Breite
+	jsr rep2		; löschen von Zeile 9 bis 13
+	inc xbuf
+	lda xbuf
+	cmp #14
+	bcc -
+	pla
+	sta indicator+1	; Arrow zurück
+	rts
+
+; ------------------------------------------ Data
 
 list	!wo 0
 redisp 	!by 0
-indicator	!by $5e,0				; r-arrow
+indicator	!by $20,$5e,0			; r-arrow
 mode	!by 0
 modetxt	!scr $df," Hires",$df," Multi"
 mdoffs	!by 6,13
 mdpats	!by $e0,$e1,$e2,$e3
-	!by $e5,$e6,$e7,$e8
+	!by $e7,$e8,$e9,$ea
 strength	!by 3
+upsdwn	!by 0
 reverted	!by 0
 
-membpats	!by $00,$00,$00,$00,$00,$00,$00,$00	; hires
-	!by $88,$00,$22,$00,$88,$00,$22,$00
-	!by $88,$22,$88,$22,$88,$22,$88,$22
-	!by $aa,$55,$aa,$55,$aa,$55,$aa,$55
-	!by $00,$ff,$00,$ff,$00,$ff,$00,$ff	; scanline
-	!by $00,$00,$00,$00,$00,$00,$00,$00	; multi
-	!by $cc,$00,$00,$00,$33,$00,$00,$00	; ### 1.02
-	!by $cc,$00,$33,$00,$cc,$00,$33,$00
-	!by $cc,$33,$cc,$33,$cc,$33,$cc,$33
-	!by $00,$ff,$00,$ff,$00,$ff,$00,$ff	; scanline
+chschr	!by $00,$3a,$46,$4e,$40,$40,$3c,$00	; char $df
+
+membpats	!by $00,$00,$00,$00,$00,$00,$00,$00	; hires:   0%
+	!by $88,$00,$22,$00,$88,$00,$22,$00	;       12,5%
+	!by $88,$22,$88,$22,$88,$22,$88,$22	;         25%
+	!by $aa,$55,$aa,$55,$aa,$55,$aa,$55	;         50%
+	!by $00,$ff,$00,$ff,$00,$ff,$00,$ff	; scanlines
+	!by $00,$44,$00,$11,$00,$44,$00,$11	;       12,5% upside down
+	!by $44,$11,$44,$11,$44,$11,$44,$11	;         25%
+
+	!by $00,$00,$00,$00,$00,$00,$00,$00	; multi:   0%
+	!by $cc,$00,$00,$00,$33,$00,$00,$00	;       12,5% ### 1.02
+	!by $cc,$00,$33,$00,$cc,$00,$33,$00	;         25%
+	!by $cc,$33,$cc,$33,$cc,$33,$cc,$33	;         50%
+	!by $00,$ff,$00,$ff,$00,$ff,$00,$ff	; scanlines
+	!by $00,$00,$00,$cc,$00,$00,$00,$33	;       12,5%
+	!by $00,$cc,$00,$33,$00,$cc,$00,$33	;         25%
+
+darrow	!by $08,$14,$36,$14,$14,$36,$14,$08	; char $fe
 
 ; --------------------------------------- Screenlist
 
@@ -335,6 +418,8 @@ memblst	!by 0
 	!by 3,11,19,19,$81
 	!wo 0
 	!scr "Generate Membrane@"
+	!by 9,18,3,5,$40
+	!wo evupdown
 	!by 7,20,10,3,$cd
 	!wo evplain
 mod0	!by $e0,$e0,$e0,$e0,$e0,$e0,$e0,$e0,0
@@ -349,7 +434,7 @@ mod2	!by $e2,$e2,$e2,$e2,$e2,$e2,$e2,$e2,0
 mod3	!by $e3,$e3,$e3,$e3,$e3,$e3,$e3,$e3,0
 	!by 15,20,10,3,$ce
 	!wo evscnlne
-	!by $e9,$e9,$e9,$e9,$e9,$e9,$e9,$e9,0
+	!by $eb,$eb,$eb,$eb,$eb,$eb,$eb,$eb,0
 	!by 17,11,6,3,$c7
 	!wo evrevert
 	!scr "Rvrt",0
