@@ -10,6 +10,7 @@
 ;  Loader for Multicolor Images of any size up to 40x25 tiles
 ;
 ;  1.00, 09.03.26:  first release
+;  1.01, 16.06.26:  bugfix: now recognizes clipfiles correctly
 ;
 ; -----------------------------------------
 
@@ -26,6 +27,7 @@
 	amountw		= $3b	; /$3c
 	vcounter		= $3d
 	hcounter		= $3e
+	fcode		= $3f
 
 	status		= $90
 
@@ -45,8 +47,8 @@
 	!wo modend
 	!wo $00
 	!tx "Load Koala Clips"
-	!tx "1.00"
-	!tx "09.03.26"
+	!tx "1.01"
+	!tx "16.06.26"
 	!tx "A.Dettke        "
 
 ; ----------------------------------------- Main
@@ -73,7 +75,10 @@ start	lda #50		; set activity counter
 ; ----------------------------------------- Read Bitmap
 
 jerror	jmp error		; manage errors
-jmess	jmp errmess
+jmess1	ldx #30
+	!by $2c
+jmess2	ldx #63
+	jmp errmess
 
 ; ----------------------------------------- Event: From Clip
 
@@ -96,21 +101,24 @@ evfrfile	ldx #2		; set filemode: 2
 
 	jsr gd_xopen 	; open file
 	bcs jerror	; Fehler?
-	ldx mode
--	jsr basin		; no, skip start address (plus bytes 3 and 4 according to mode)
-	dex
-	bne -
+	jsr basin		; no, skip start address (plus bytes 3 and 4 according to mode)
+	jsr basin		; this should be #$9a
+	cmp #$9a		; is a clipfile?
+	bne jmess2	; no, error
 	lda mode		; filemode?
 	cmp #3
-	bcs +
+	bcs +		; 4= clipmode
 
-	stx fdone 	; (.x=0)
-	tax
-	jsr basin 	; yes, get clipdata from file (in tiles)
+	jsr basin 	; get clipdata from file (in tiles)
 	sta clipdata
 	jsr basin
 	sta clipdata+1
-+	jsr basin		; (if mode is clipmode: only get dims)
+	ldx #0
+	stx fdone 	; is clipmode
+	beq ++
++	jsr basin		; 2= filemode: skip position bytes
+	jsr basin
+++	jsr basin		; get dim bytes
 	sta width
 	jsr basin
 	sta height
@@ -120,7 +128,7 @@ evfrfile	ldx #2		; set filemode: 2
 	lda height
 	adc clipdata
 	cmp #26
-	bcs jmess 	; yes, error message
+	bcs jmess1 	; yes, error message
 
 	ldx #<sy_4bit	; no, set destination address ($4000)
 	lda #>sy_4bit
@@ -334,15 +342,18 @@ sk4	dec ls_vekta8
 
 ; ----------------------------------------- Error Messages
 
-errmess	jsr gd_xclose	; close file
+errmess	stx fcode
+	jsr gd_xclose	; close file
 	jsr gd_spron
 	jsr gd_clrms	; init gauge
 	jsr clrmess
-	ldx #30
+	ldx fcode
+	ldy #30
 -	lda txt, x
-	sta message-30, x
+	sta message-30, y
 	beq +
 	inx
+	iny
 	bne -
 +	jsr evcancel
 	jmp messout
@@ -571,6 +582,7 @@ txt	!scr " Colors  ",0	; 0
 	!scr " Convert ",0	; 10
 	!scr " Bitmap  ",0	; 20
 	!scr " ERROR: Exceeding lower Border! ",0	; 30
+	!scr " ERROR: This is no Koala Clip!  ",0	; 62
 
 message	!fill 9,32
 mess	!fill 23,32
@@ -586,6 +598,7 @@ used	!by $ff
 mode	!by 2
 fdone	!by 0
 
+saddr	!by 0
 clipdata	!by 0,0
 height	!by 12
 width	!by 12
