@@ -1,14 +1,14 @@
 
-	!src "godotlib.lib"
+	!src <godotlib.lib>
 	*= $c000
 	!ct pet
 ;	!sl "labels.txt"
 
-; ------------------------------------------------------------ 
+; ------------------------------------------------------------
 ;
 ; ldr.4Bit&Mask
-; Lader für 4Bit mit der Möglichkeit, Flächen per (Hires-) Maske
-; auszusparen und damit zu schützen
+; Lader fÃ¼r 4Bit mit der MÃ¶glichkeit, FlÃ¤chen per (Hires-) Maske
+; auszusparen und damit zu schÃ¼tzen
 ;
 ;    1.04, 18.12.93, bugfixes
 ;    1.05
@@ -23,8 +23,10 @@
 ;    1.14, 11.09.21, added: break loading process with STOP key
 ;    1.15, 13.12.21, changed: Mask from Clip (now even when inactive)
 ;    1.16, 19.12.21, added: way to merge mask in difference mode
+;    1.17, 24.04.24, changed: *only* C= and CTRL to MERGE /w EXOR
+;    1.18, 18.06.26, added: also exor masks from disk
 ;
-; ------------------------------------------------------------ 
+; ------------------------------------------------------------
 
 	filetype		= $30
 	counter		= $31
@@ -64,8 +66,8 @@ header 	jmp start
 	!wo modend
 	!wo 0
 	!pet "4Bit+BmMask+Clip"
-	!pet "1.16"
-	!pet "19.12.21"
+	!pet "1.18"
+	!pet "18.06.26"
 	!pet "A.Dettke/W.Kling"
 
 ; ----------------------------------------- Leave Loader
@@ -166,7 +168,7 @@ ob6 	cmp #3		; from VDC?
 	beq ld61
 	jsr srt7		; no, Undo
 	bcc ld61
-; ----------------------------------------- 
+; -----------------------------------------
 ob7	jsr getname	; save filename
 	jsr gd_xopen	; open file
 	jsr onebyte	; packed/raw 4bit?
@@ -184,7 +186,7 @@ ld60 	jsr onebyte
 	tya
 	bne ld61
 	sta filetype	; set type
-; ----------------------------------------- 
+; -----------------------------------------
 ld61 	asl filetype
 	lda filetype	; 4Bit Clip?
 	and #2
@@ -223,7 +225,7 @@ ld62 	jsr gd_clrms	; 0: To Full
 	ldy masksrc+1
 	sta masksrcw
 	sty masksrcw+1
-; ----------------------------------------- 
+; -----------------------------------------
 ld0 	ldx breite	; set counters
 	stx ls_vekta8
 	ldy breite+1
@@ -405,7 +407,7 @@ messout 	ldx #<message
 	ldy #>message
 	jmp gd_xtxout2
 
-; ----------------------------------------- 
+; -----------------------------------------
 
 error 	jsr ld3
 	clc
@@ -417,7 +419,7 @@ onebyte 	jsr basin
 	ldx $90
 	rts
 
-; ----------------------------------------- 
+; -----------------------------------------
 
 filltab 	!by 160,93,103,127,126,124,105,109
 cntwert 	!by 200
@@ -480,7 +482,7 @@ usemsktxt	!scr "yes@"
 	!scr "Use Mask:@"
 	!by $80
 
-; ----------------------------------------- 
+; -----------------------------------------
 
 fromwhich	!scr "ClipDiskUndoTempVDC2"
 used 	!by $ff
@@ -616,7 +618,7 @@ sevmfrom	ldx mflag
 	beq +
 	lda rm_ramundo	; Undo rendered vorhanden?
 	and #2
-	beq sevmfrom	; nein, zurückstellen
+	beq sevmfrom	; nein, zurÃ¼ckstellen
 	ldx #11		; Undo (1)
 	!by $2c
 +	ldx #7		; oder Disk (0)
@@ -632,17 +634,17 @@ sevmfrom	ldx mflag
 ; ----------------------------------------- Event: Set Source of Mask for Load
 
 sevfrom 	lda fflag
-	cmp #1		; Obergrenze? 
+	cmp #1		; Obergrenze?
 	bne mrt0
-	lda #$fe		; ja, zurück auf Anfang (#$ff)
+	lda #$fe		; ja, zurÃ¼ck auf Anfang (#$ff)
 	sta fflag
-mrt0 	inc fflag		; nächste Einstellung
-	lda fflag	
+mrt0 	inc fflag		; nÃ¤chste Einstellung
+	lda fflag
 	beq mrt1		; fflag=0 ?
 	bmi mrt2		; fflag=$ff ?
 	lda rm_ramundo	; nein, dann fflag=1 (Undo), Undo rendered vorhanden?
 	and #2
-	beq sevfrom	; nein, nächste
+	beq sevfrom	; nein, nÃ¤chste
 	ldx #11		; ja, eintragen
 	!by $2c
 mrt1 	ldx #7		; 0: Disk
@@ -658,7 +660,7 @@ mrt3 	lda fromwhich,x
 mrt4	ldy #6
 	jmp gd_xtxout1
 
-; ----------------------------------------- 
+; -----------------------------------------
 
 getmtab	lda #<mfrom
 	sta sc_screentab
@@ -687,7 +689,7 @@ sin1 	inc used		; 0: from Disk
 	jsr gd_xload
 	jsr vw2
 	jmp cancel
-	
+
 sin3	cmp #1
 	beq install	; 1: from Undo
 	jmp instclip	; $ff: from Clip
@@ -767,7 +769,7 @@ in01	lda in00,x	; sie durch das RAM-Device
 	sta sy_global,x	; ausgeblendet wird
 	dex
 	bpl in01
-	jmp sy_global	; und dort ausführen:
+	jmp sy_global	; und dort ausfÃ¼hren:
 
 in00	jsr gd_swapd	; RAM einblenden
 	inx		; .x=0
@@ -778,21 +780,23 @@ in00	jsr gd_swapd	; RAM einblenden
 	ldx #10		; set .x=10: FirstInit
 	jsr rm_ramvec
 	lda #2		; fake: so tun, als ob
-	sta rm_nextentry	; Undo Rendered geklickt wäre
+	sta rm_nextentry	; Undo Rendered geklickt wÃ¤re
 	ldx #8		; FetchUndo
 	jsr rm_ramvec
 	ldx #1		; ForceOff, RAM ausblenden
 	jsr rm_ramvec
-	jmp ld6		; zurück zum Requester
+	jmp ld6		; zurÃ¼ck zum Requester
 
 ; ----------------------------------------- Merge Mask
 
-merge	lda shift		; Shift, C= or CTRL? ### 1.16
+merge	lda shift		; C= or CTRL? ### 1.16
+	and #$fe		; not shift! (is part of mouse click!) ### 1.17
 	beq +
 	lda #$51		; for shortness: self modifying code
 	!by $2c
 +	lda #$11
-	sta modify
+	sta modify1
+	sta modify2	; ### 1.18
 
 	lda mflag		; from Undo?
 	beq +
@@ -801,7 +805,7 @@ merge	lda shift		; Shift, C= or CTRL? ### 1.16
 	jsr openumask	; yes, set parameters
 in30	ldy #0
 	jsr readreu	; and process data
-modify	ora (sc_texttab),y	; ### 1.16 this gets self modified
+modify1	ora (sc_texttab),y	; ### 1.16 this gets self modified
 	sta (sc_texttab),y
 	jsr action
 	jsr cou5
@@ -811,7 +815,7 @@ modify	ora (sc_texttab),y	; ### 1.16 this gets self modified
 + 	jsr openmask	; from Disk
 in3 	ldy #0
 	jsr basin
-	ora (sc_texttab),y
+modify2	ora (sc_texttab),y
 	sta (sc_texttab),y
 	jsr action
 	jsr cou5
@@ -941,7 +945,7 @@ adl0 	sta $3fc3,y
 	sta $d015
 	rts
 
-; ----------------------------------------- 
+; -----------------------------------------
 
 clearad 	lda $d015
 	and #243
@@ -1070,7 +1074,7 @@ srt0 	inc flag4
 
 	lda rm_ramundo	; dann Undo
 	and #1		; Undo vorhanden?
-	beq next		; nein, nächste
+	beq next		; nein, nÃ¤chste
 
 srt7 	ldx #$10		; Undo
 	lda #0
@@ -1172,7 +1176,7 @@ nbuf 	!fill 16,32
 	!scr "320x200@"
 datatype 	!scr "Color@"
 
-; ----------------------------------------- Event: Set Load Mode 
+; ----------------------------------------- Event: Set Load Mode
 
 evusemask	ldx usemskflg
 	beq em0
@@ -1238,7 +1242,7 @@ setclip	lda #$40		; $4000 (4bit)
 	lda #$20		; $2000 (Mask)
 	sta masksrc+1
 	ldy #0
-	sty sc_texttab 
+	sty sc_texttab
 	sty masksrc
 stcl	lda mclip		; plus Clip row * 1280
 	beq scp11
@@ -1278,7 +1282,7 @@ scp51	lda sc_texttab
 	ldy sc_texttab+1
 	sta dst
 	sty dst+1
-	rts 
+	rts
 
 ; ----------------------------------------- Set Cliptop/File
 
@@ -1318,7 +1322,7 @@ gm2	lda sc_lastclpzl,y
 	lda sc_lastclpzl+1
 	adc sc_lastclpzl+2
 	sta rrand
-	lda sc_lastclpzl+3	; height from Clip 
+	lda sc_lastclpzl+3	; height from Clip
 	bne gm7
 
 ; ----------------------------------------- Set Clip from File
