@@ -9,6 +9,7 @@
 ;
 ;  1.00, 01.05.26, first release
 ;  1.01, 21.05.26, added: FCM (up to 136 colors on screen)
+;  1.02, 23.06.26, changed: leave modifier *only* when hitting LEAVE
 ;
 ; -----------------------------------------
 
@@ -36,8 +37,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "M65 Render Image"
-	!tx "1.01"
-	!tx "21.05.26"
+	!tx "1.02"
+	!tx "23.06.26"
 	!tx "A.Dettke        "
 
 ; ----------------------------------------- Main
@@ -49,7 +50,11 @@ start	lda sy_mega65	; check Mega65 flag
 	jsr gd_screen
 	beq ++		; finish modifier
 
-+	ldx #<mrendlst	; go: build requester
++	lda sc_screenvek	; save vector to main screen
+	ldx sc_screenvek+1
+	sta mainlst
+	stx mainlst+1
+reenter	ldx #<mrendlst	; go: build requester
 	ldy #>mrendlst
 	jsr gd_screen	; returns .a=0
 
@@ -223,6 +228,10 @@ evtrmulti	lda #80		; set linestep to 40 x 2
 	bpl -
 
 +	jsr unset		; Mega65 auf Standard-Screen zurücksetzen
+	ldx mainlst	; ### 1.02
+	ldy mainlst+1
+	jsr gd_screen
+	jmp reenter
 
 ; --------------------------------------- Event: Leave Modifier
 
@@ -485,6 +494,7 @@ speedis	!by 0
 ncmbit	!by 0
 foregrnd	!by 0
 commodore	!by 0
+mainlst	!wo 0
 
 ; --------------------------------------- Inverted Color Nibbles for NCM
 ; invert a byte value nibblewise by just using its value: ldx byte, lda inverted,x
