@@ -13,6 +13,7 @@
 ;   1.01, 04.09.21: added option to create "scanlines"
 ;   1.02, 19.07.25: changed 12.5% multicolor pattern to: interweaved
 ;   1.03, 14.06.26: added upside down patterns for 12.5% and 25%
+;   1.04, 23.06.26: bugfix, didn't write darrow data correctly
 ;
 ; ------------------------------------------
 
@@ -22,8 +23,8 @@
 	!wo modend
 	!wo 0
 	!pet "Make Membranes  "
-	!pet "1.03"
-	!pet "14.06.26"
+	!pet "1.04"
+	!pet "23.06.26"
 	!pet "A. Dettke       "
 
 ; ------------------------------------------
@@ -235,7 +236,7 @@ makechr	ldx #7
 -	lda chschr,x
 	sta sc_undochar,x		; $df
 	lda darrow,x
-	sta sc_undochar+168,x	; $ee
+	sta sc_undochar+112,x	; $ee	### 1.04
 	dex
 	bpl -
 	rts
