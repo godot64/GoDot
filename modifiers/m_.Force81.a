@@ -1,10 +1,10 @@
 
-	!src "godotlib.lib"
+	!src <godotlib.lib>
 	*= $c000
 	!ct pet
 ;	!sl "labels.txt"
 
-; ----------------------------------------- 
+; -----------------------------------------
 ;
 ;  mod.Force81
 ;   Module to set a drive to 1581 when hardware
@@ -14,8 +14,10 @@
 ;  1.01, 12.03.22, bugfix, could hang,
 ;                          could have undefined drive type
 ;                  added circular selection of drive number
+;  1.02, 22.06.26, changed: only leave modifier when explicitly hitting LEAVE
+;  1.03, 24.06.26, added reaction to APPLY (border blinks green)
 ;
-; ----------------------------------------- 
+; -----------------------------------------
 
 ; ----------------------------------------- Equates
 
@@ -23,6 +25,8 @@
 	spalte	= zeile+1
 
 	cnvdez	= $1b05
+	rahmen	= $d020
+
 
 ; ----------------------------------------- Header
 
@@ -33,11 +37,11 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "Force 1581 drive"
-	!tx "1.01"
-	!tx "12.03.22"
+	!tx "1.03"
+	!tx "24.06.26"
 	!tx "A.Dettke        "
 
-; ----------------------------------------- Main 
+; ----------------------------------------- Main
 
 start	ldx #<screenlst	; build requester
 	ldy #>screenlst
@@ -49,7 +53,7 @@ start	ldx #<screenlst	; build requester
 evcancel	sec
 	rts
 
-; ----------------------------------------- Event: Select Drive 
+; ----------------------------------------- Event: Select Drive
 
 evselect	ldx drivenr	; last drive number
 	lda spalte	; where clicked?
@@ -76,7 +80,7 @@ evselect	ldx drivenr	; last drive number
 	cpx #$30
 	beq +
 	txa
-+	sta selcttx	
++	sta selcttx
 	jmp textout	; and show
 
 ; ----------------------------------------- Event: Apply
@@ -90,7 +94,19 @@ evapply	ldx drivenr	; get drive number
 	sta ls_ftabt-8,x	; dir track: 40
 	lda #3
 	sta ls_ftabs-8,x	; dir sector: 3
-	sec		; leave module
+	ldy #5		; blink green		### 1.03
+
+; ----------------------------------------------------- Blink the Border
+
+graphon	lda rahmen	; save border color
+	pha
+	sty rahmen	; set new color (in .y, e.g. "2" for red)
+	ldx #$40
+	jsr gd_dl2	; delay
+	pla
+	sta rahmen	; reset old border color
+	stx sy_tbuffer	; clear key strokes
+stay	clc		; (### 1.02)
 	rts
 
 ; ----------------------------------------- Text Output Handler
@@ -154,6 +170,6 @@ selcttx	!scr " 8",0
 
 	!by $80
 
-; ----------------------------------------- 
+; -----------------------------------------
 
 modend	!eof
