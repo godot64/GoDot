@@ -1,5 +1,5 @@
 
-	!src "godotlib.lib"
+	!src <godotlib.lib>
 	*= $c000
 	!ct pet
 ;	!sl "labels.txt"
@@ -12,6 +12,7 @@
 ;
 ;  1.00: 11.06.25, first release
 ;  1.01: 12.06.25, recognition of Mega65 already in launcher
+;  1.02: 25.06.26, added activation response (blink the border)
 ;
 ; ------------------------------------------------------------
 
@@ -19,6 +20,7 @@
 ; ------------------------------------------------------------ Declarations
 
 	hyppo	= $00
+	rahmen	= $d020
 
 ; ------------------------------------------------------------ Header
 
@@ -28,32 +30,36 @@ modul	jmp start
 	!wo modend
 	!by $00,$00
 	!tx "FAST/SLOW Mega65"
-	!tx "1.01"
-	!tx "12.06.25"
+	!tx "1.02"
+	!tx "25.06.26"
 	!tx "A.Dettke        "
 
 ; ---------------------------------------
 
-start	lda sy_mega65
+start	lda sy_mega65	; on a mega65?
 	bne +
-	ldx #<nomegalst	; 2 or 3: C64 or C65 (fail)
+	ldx #<nomegalst	;no: C64
 	ldy #>nomegalst
 	jsr gd_screen
-	jmp gd_eloop	; finish
+	jmp gd_eloop
 
-+	ldx #<screenlst	; build requester
++	ldx #<screenlst	; yes, build requester
 	ldy #>screenlst
 	jsr gd_screen
 	jsr resetspd	; force slow on start
+	ldy #6		; blue			### 1.02
+	jsr graphon	; blink border
 	jmp gd_eloop	; now wait for gadget clicks
 
 ; -------------------------------------- Event: Toggle Speed
 
 resetspd	ldx #0		; .x= 0: Slow
-	!by $2c
+	beq +
 
-evspeed	ldx #1		; .x= 1: Fast (Active)
-	jsr setspeed
+evspeed	ldy #5		; green			### 1.02
+	jsr graphon	; blnk border
+	ldx #1		; .x= 1: Fast (Active)
++	jsr setspeed
 
 ; ---------------------------------------
 
@@ -64,6 +70,19 @@ evcancel	sec		; leave operator
 
 setspeed	lda speedval,x	; activate speed (POKE 0,speedval)
 	sta hyppo
+	rts
+
+; ----------------------------------------------------- Blink the Border
+
+graphon	lda rahmen	; save border color
+	pha
+	sty rahmen	; set new color (in .y, e.g. "2" for red)
+	ldx #$40
+	jsr gd_dl2	; delay
+	pla
+	sta rahmen	; reset old border color
+	stx sy_tbuffer	; clear key strokes
+stay	clc		; (### 1.02)
 	rts
 
 ; ----------------------------------------- Data
