@@ -1,5 +1,5 @@
 
-	!src "godotlib.lib"
+	!src <godotlib.lib>
 	*= $c000
 	!ct pet
 ;	!sl "labels.txt"
@@ -22,6 +22,7 @@
 ; 1.05, 13.07.21, better UI
 ; 1.06, 04.12.24, adapted to SuperCPU
 ; 1.07, 14.01.26, added turbo
+; 1.08, 01.07.26, added: change number of grays within requester
 ;
 ; ------------------------------------------------
 
@@ -42,21 +43,24 @@
 	derr	= $3f
 	count	= $41
 	ccol	= $41
+	spalte	= sc_merk+1
+
+	defphi	= $03ce
 
 	makeqtab	= $17c9
 	numcols	= $1eef
+	paldflt	= $be20
 	buffer	= $c600
-	cpalette	= $c740
+	cpalette	= buffer+320
 
 	sprptr	= $07f8
+	etab	= $3f70
 	spr255	= $3fc0
 
 	spr2x	= $d004
 	spr2y	= $d005
-	msbx	= $d010
 	spren	= $d015
 	sprxe	= $d01d
-	border	= $d020
 	sprcol2	= $d029
 	turbo	= $d030
 
@@ -69,8 +73,8 @@
 	!wo modend
 	!wo 0
 	!pet "reduce ed gray  "
-	!pet "1.07"
-	!pet "14.01.26"
+	!pet "1.08"
+	!pet "01.07.26"
 	!pet "W.Kling/AD      "
 
 ; -------------------------------------- Main
@@ -81,6 +85,28 @@ start	jsr makechar	; create gamma char
 	jsr gd_screen	; show requester
 	jsr shownum	; show # of colors
 	jmp gd_eloop	; wait for clicks
+
+; ------------------------------------------------ Event: Change Number of Colors
+
+evcols	ldx gr_howmany	; current number of cols	### 1.08
+	lda spalte	; where clicked?
+	cmp #20
+	bcc +
+
+	lda #2		; minimum number
+	inx		; right: increment
+	cpx #17		; more then 16?
+	bcs ++ 		; don't exceed
+	bcc +++
+
++	lda #16 		; maximum number
+	dex		; left : decrement
+	cpx #1		; less than 2?
+	bcs +++
+++	tax
+
++++	stx gr_howmany	; set new number
+	jmp shownum 	; and show
 
 ; ------------------------------------------------ Event: Set Gamma Values
 
@@ -111,6 +137,7 @@ evmono	ldy #1		; flag for MONO
 
 evhires	ldy #0		; flag for HIRES
 +	sty mode
+	jsr se_pdeft	; compute default palette colors
 	jsr init		; clear buffer, start activity display
 
 	jsr buildhpal
@@ -237,8 +264,8 @@ hr0	ldy ymrk
 
 +	jmp -
 
-
-buildhpal	ldy #15		; prepare palette
+buildhpal	jsr gd_makeqtab	; compute quantization table
+	ldy #15		; prepare palette
 -	ldx gr_qtab,y	; regard quantization
 	lda gr_palette,x	; take GoDot palette
 	tax
@@ -250,7 +277,8 @@ buildhpal	ldy #15		; prepare palette
 
 ; ------------------------------------------------ Event: Reduce Multicolor
 
-evmcolor	jsr init
+evmcolor	jsr se_pdeft	; recompute palette colors
+	jsr init
 	sty mode		; .y=$ff, flag for MULTI
 	jsr makepal
 
@@ -561,7 +589,7 @@ makechar	ldx #15
 	sta sc_undochar,x
 	dex
 	bpl -
-stay	clc
+	clc
 	rts
 
 unmake	ldx #15
@@ -585,10 +613,9 @@ fbhigh	!by $40,$45,$4a,$4f,$54
 
 ; ------------------------------------------------
 
-screenpos	!wo 0
 mode	!by 0
-gammach	!by $00,$0c,$6e,$6d,$38,$7c,$c6,$7c
-chschr	!by $00,$3a,$46,$4e,$40,$40,$3c,$00
+gammach	!by $00,$0c,$6e,$6d,$38,$7c,$c6,$7c	; gamma sign
+	!by $00,$3a,$46,$4e,$40,$40,$3c,$00	; listbox sign
 repair	!fill 16
 gamma	!by 0
 gammavals	!scr "1.000.351.802.20"
@@ -596,8 +623,6 @@ goffs	!by 3,7,11,15
 imode	!scr "320x200",0
 	!by $c0,$0f,$15,7
 	!scr "Gray "
-
-
 
 g035	!by $00,$2f,$3b,$44,$4c,$52,$57,$5c	; 1
 	!by $60,$64,$68,$6c,$6f,$72,$75,$78
@@ -619,18 +644,18 @@ sgamma	!by 12,15,7,3,$c0
 	!wo evgamma
 	!by 224
 gammatx	!scr "1.00",0
-colsgad	!by 15,18,4,3,$a0
-	!wo 0
+colsgad	!by 15,18,4,3,$e0
+	!wo evcols
 colstx	!scr "16",0
 	!by 12,22,7,3,$cf
 	!wo evmono
 	!scr "Mono ",0
-shires	!by 14,22,7,3,$ce
+	!by 14,22,7,3,$ce
 	!wo evhires
-hirestx	!scr "Hires",0
-smcol	!by 16,22,7,3,$ce
+	!scr "Hires",0
+	!by 16,22,7,3,$ce
 	!wo evmcolor
-mcoltx	!scr "Multi",0
+	!scr "Multi",0
 	!by 18,12,17,3,$cb
 	!wo evcan
 	!scr "Cancel",0
@@ -644,6 +669,38 @@ mcoltx	!scr "Multi",0
 	!by $c0,10,13,7
 	!scr "Params:",0
 	!by $80
+
+; -------------------------------------------------- Subevent: Set Default Palette
+
+se_pdeft  ldx gr_howmany	; get number of colors to be rendered
+	cpx #$10		; is 16?
+	bne dpl1
+	lda #$ff		; yes, set flagword to $ffff
+	sta sc_merk+1
+	bne dpl2
+dpl1	dex		; no, index minus 2
+	dex
+	lda defphi,x	; get flagword for this particular palette
+	sta sc_merk+1
+	lda gr_defpals,x
+dpl2	sta sc_merk
+
+	ldy #$00		; palettes are coded bitwise
+	ldx #$00		; index into base palette
+dpl	asl sc_merk+1	; shift flags left
+	rol sc_merk
+	bcc dps
+	lda gr_basepal,x	; bit set: get associated color
+	sta gr_palette,y	; enlist in current palette
+	iny
+	cpy gr_howmany	; until all colors
+	beq dpok
+
+dps	inx		; increment index
+	cpx #$10		; until 16
+	bne dpl
+
+dpok	rts
 
 ; ------------------------------------------------ adinc
 
@@ -698,9 +755,9 @@ resetpal	pla
 	dex
 	bpl -
 
-; ------------------------------------------------
+; ------------------------------------------------ Clear Activity Display
 
-clearad	stx gr_redisp	; .x=$ff
+	stx gr_redisp	; .x=$ff
 	inx
 	stx turbo		; de-activate turbo (.x=0)
 	lda spren
@@ -716,7 +773,7 @@ evcan	jsr unmake
 	sec
 	rts
 
-; ------------------------------------------------ Init
+; ------------------------------------------------ Init Activity Display
 
 init	lda #0		; clear buffer
 	tay
@@ -727,7 +784,7 @@ init	lda #0		; clear buffer
 	bne -
 	sta linenr	; 200 rasterlines (from 0 to 199)
 
-initad 	ldy #$3c
+ 	ldy #$3c		; init ad
 	lda #$00
 -	sta spr255+3,y
 	dey
