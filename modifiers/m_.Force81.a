@@ -16,6 +16,7 @@
 ;                  added circular selection of drive number
 ;  1.02, 22.06.26, changed: only leave modifier when explicitly hitting LEAVE
 ;  1.03, 24.06.26, added reaction to APPLY (border blinks green)
+;  1.04, 10.07.26, added immediate leave if clicking left on "Apply"
 ;
 ; -----------------------------------------
 
@@ -37,8 +38,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "Force 1581 drive"
-	!tx "1.03"
-	!tx "24.06.26"
+	!tx "1.04"
+	!tx "10.07.26"
 	!tx "A.Dettke        "
 
 ; ----------------------------------------- Main
@@ -105,9 +106,14 @@ graphon	lda rahmen	; save border color
 	jsr gd_dl2	; delay
 	pla
 	sta rahmen	; reset old border color
-	stx sy_tbuffer	; clear key strokes
-stay	clc		; (### 1.02)
-	rts
+	stx sy_tbuffer 	; clear key strokes
+	lda spalte	; where clicked...
+	cmp #19
+	bcs +
+	sec		; (revert carry)
+	!by $24
++	clc
+	rts		; ...so leave or not
 
 ; ----------------------------------------- Text Output Handler
 
