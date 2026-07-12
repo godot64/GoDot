@@ -10,6 +10,7 @@
 ;  1.00, 01.05.26, first release
 ;  1.01, 21.05.26, added: FCM (up to 136 colors on screen)
 ;  1.02, 23.06.26, changed: leave modifier *only* when hitting LEAVE
+;  1.03, 10.07.26, added: another button to apply and leave immediately
 ;
 ; -----------------------------------------
 
@@ -21,6 +22,8 @@
 	src1	= $38	; /$39
 	vector	= $3a	; /$3b
 	palette	= $3c	; /$3d
+	leavenow	= $3e
+	spalte	= sc_merk+1
 
 	bcode	= $1000	; bcode=$40000/$40
 
@@ -37,8 +40,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!tx "M65 Render Image"
-	!tx "1.02"
-	!tx "23.06.26"
+	!tx "1.03"
+	!tx "10.07.26"
 	!tx "A.Dettke        "
 
 ; ----------------------------------------- Main
@@ -53,12 +56,16 @@ start	lda sy_mega65	; check Mega65 flag
 +	lda sc_screenvek	; save vector to main screen
 	ldx sc_screenvek+1
 	sta mainlst
-	stx mainlst+1
-reenter	ldx #<mrendlst	; go: build requester
-	ldy #>mrendlst
-	jsr gd_screen	; returns .a=0
-
+	stx mainlst + 1
+reenter	jsr renderreq 	; returns .a=0
+	sta leavenow
 ++	jmp gd_eloop	; now wait for gadget clicks
+
+; ----------------------------------------- Main
+
+renderreq	ldx #<mrendlst	; go: build requester
+	ldy #>mrendlst
+	jmp gd_screen
 
 ; --------------------------------------- Activate VIC IV
 
@@ -176,7 +183,9 @@ clrscreen sta $d707		; inline DMA
 
 ; --------------------------------------- Event: Render True Hires
 
-evtrhires	lda #40		; set linestep to 20 x 2
+evtrhires	lda spalte
+	sta leavenow
+	lda #40		; set linestep to 20 x 2
 	sta mode
 
 	jsr trans4bit	; convert 4Bit to Mega65
@@ -188,7 +197,9 @@ evtrhires	lda #40		; set linestep to 20 x 2
 
 ; --------------------------------------- Event: Render True Multicolor
 
-evtrmulti	lda #80		; set linestep to 40 x 2
+evtrmulti	lda spalte
+	sta leavenow
+	lda #80		; set linestep to 40 x 2
 	sta mode
 
 	jsr vic4on	; VIC IV einschalten
@@ -228,6 +239,9 @@ evtrmulti	lda #80		; set linestep to 40 x 2
 	bpl -
 
 +	jsr unset		; Mega65 auf Standard-Screen zurücksetzen
+	lda leavenow
+	cmp #21
+	bcc evleave
 	ldx mainlst	; ### 1.02
 	ldy mainlst+1
 	jsr gd_screen
@@ -260,7 +274,7 @@ setspeed	lda $d054		; 40 MHz einschalten
 	sta speedis
 	bit $d054
 	bvs +
-	lda #$40
+	lda #$40		; if not yet done
 	ora $d031
 	sta $d031
 	lda #$40
