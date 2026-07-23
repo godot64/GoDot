@@ -1,8 +1,8 @@
 
-	!src "godotlib.lib"
+	!src <godotlib.lib>
 	*= $c000
 
-; --------------------------------------- 
+; ---------------------------------------
 ;
 ; mod.TurnScreen
 ;  Turn a chooseable 25x25 tiles area by 90 degrees
@@ -11,8 +11,9 @@
 ; 1.01, 05.10.05:
 ; 1.02, 05.06.17: enhanced: graphics redisplay when executed from REU
 ; 1.03, 13.06.18: set default direction to "turn right"
+; 1.04, 23.07.26: change buffer address from TEMP ($078300) to UNDO ($001000)
 ;
-; --------------------------------------- 
+; ---------------------------------------
 
 ; --------------------------------------- Header
 
@@ -22,12 +23,14 @@
             !wo (modend)
             !by $00,$00
             !pet "TurnScreen 90 dg"
-            !pet "1.03"
-            !pet "13.06.18"
+            !pet "1.04"
+            !pet "23.07.26"
             !pet "A.Dettke        "
 
 ; --------------------------------------- Equates
 
+	bufadr		= $10	; constant: hibyte of buffer address (Undo)
+	bufend		= bufadr+$50	; hibyte of buffer end address
 	pport		= $01
 
 	merky		= $30
@@ -48,10 +51,8 @@
 	v2buf		= $48
 	cbuf		= $49
 
-	buf		= rm_werte+2	; (value= $8300 in bank 7)
+	buf		= rm_werte+2	; (value here= $1000 in bank 0)
 	lutable		= $cd00
-	vram2		= $ce0b
-	vram1		= $de0b
 	cstart		= $ee0b
 
 ; --------------------------------------- Main
@@ -76,23 +77,23 @@ start 	lda ls_ramdrive	; REU attached?
 
 	jsr checkcols	; where is which module? (for re-display) ### 1.01
 	jsr setdata
-	ldx #<(turnlst)
+	ldx #<(turnlst)	; show requester
 	ldy #>(turnlst)
-scr0	jsr gd_screen
+	jsr gd_screen
 	jsr lolite
 	ldx #11
 	jsr lolite2
 	lda warnflag
 	bne scr01
 	jsr warn
-scr01	jsr gd_eloop	; wait for events
+scr01	jsr gd_eloop	; and wait for events
 
-scr02	pla 		; restore module management flag
+scr02	pla 		; then restore module management flag
 	sta gd_modswitch
-	jsr initreu
+	jsr initreu	; init REU record
 	lda #$c0
 	sta rm_werte+1
-	sec		; finished
+	sec		; and finish
 	rts
 
 sk12	jmp noreu
@@ -136,7 +137,7 @@ adl1	lda #15		; light gray
 	lda #5		; set progression counter
 	sta adcnt
 	rts
-; ----------------------------------- 
+; -----------------------------------
 
 clearad	lda $d015		; display mouse pointer only
 	and #$f3
@@ -151,7 +152,7 @@ clearad	lda $d015		; display mouse pointer only
 
 warning	lda warnflag	; warn-requester disabled?
 	bne wn1		; yes, leave
-	
+
 	lda #0		; set result flag
 	sta exflag
 	ldx #<(warnlst)	; display requester
@@ -168,17 +169,17 @@ wn1	clc
 wn0 	sec
 	rts
 
-; --------------------------------------- Warning anyway
+; --------------------------------------- Event: Warning: anyway
 
 evanyway	inc exflag	; enable warning
-	sec 
+	sec
 	rts
 
-; --------------------------------------- Turn the Clip
+; --------------------------------------- Event: Turn the Clip
 
 evexec	jsr setstart	; Start address of Clip
 	jsr setbr		; width of Clip
-	lda #25		; and its height
+	lda #25		; and its height (25x25)
 	sta hoehe
 	lda #25
 	sta breite
@@ -189,7 +190,7 @@ evexec	jsr setstart	; Start address of Clip
 
 	lda emptyflag	; erase 4Bit?
 	bne ex3
-	ldy #0		; yes
+	ldy #0		; yes, clear 32000 bytes to $00
 	sty sc_texttab
 	ldx #$40
 	stx sc_texttab+1
@@ -201,7 +202,7 @@ ex4	sta (sc_texttab),y
 	dex
 	bne ex4
 
-ex3	jsr adl1
+ex3	jsr adl1		; activity
 	lda dirflag	; direction to turn to?
 	beq ex0
 	jsr backl24	; left
@@ -212,11 +213,11 @@ ex0	jsr lookup	; right
 
 ex1	jmp clearad	; finished, clip turned
 
-; --------------------------------------- Input of new Clip values
+; --------------------------------------- Event: Input of new Clip values
 
 evinpsp	ldx #1		; Flag for SPALTE (column)
 	stx inmerk
-	ldx #10		; Init Special Input 
+	ldx #10		; Init Special Input
 	stx sc_iflag
 ar1	lda ziff,x
 	sta sy_global,x
@@ -238,9 +239,9 @@ ar1	lda ziff,x
 	sta $14
 	sta $14+1
 
-; --------------------------------------- 
+; ---------------------------------------
 
-getword	iny		; convert to digits
+getword	iny		; convert word to digits
 	lda (ls_vekta8),y
 	cmp #32
 	beq getword
@@ -281,11 +282,11 @@ gw0	lda inmerk	; Limit check: Zeile+Höhe, Spalte+Breite
 	eor #3
 	tay
 	txa
-	beq gw1		; Zeile? (y=3 for Hoehe)
+	beq gw1		; Zeile? (y=3 for Höhe)
 	cpx #1		; Spalte? (y=2 for Breite)
 	beq gw1
 
-	lda $14		; Breite/Hoehe: get value
+	lda $14		; Breite/Höhe: get value
 	beq gw2		; when zero: no change
 	bne gw4
 
@@ -294,7 +295,7 @@ gw3	clc		; add input value
 	adc $14
 	sta $14+1	; save
 	sec
-	lda max-2,y	; compare to Maximum 
+	lda max-2,y	; compare to Maximum
 	sbc $14+1
 	bcc gw2		; ok?
 	lda $14		; yes, set new value
@@ -316,7 +317,7 @@ gw4	lda lclpzl,y	; Breite: y=1 / Höhe: y=0
 	pla
 	jmp gw3		; and countercheck
 
-; --------------------------------------- Set direction
+; --------------------------------------- Event: Set direction of turn
 
 evdir	ldx dirflag	; 0: right / 1: left
 	beq ed0
@@ -337,7 +338,7 @@ ed2	lda direction,y
 ed3	ldy #6
 	jmp gd_xtxout1
 
-; ----------------------------------------- Erase 4Bit 
+; ----------------------------------------- Event: Toggle Erase 4Bit Flag
 
 evempty	lda emptyflag
 	beq em0
@@ -361,7 +362,7 @@ adj3	jsr gettab2
 	ldy #6
 	jmp gd_xtxout1
 
-; ----------------------------------------- disable Warnscreen 
+; ----------------------------------------- Toggle Warnscreen flag
 
 warn	ldx warnflag
 	beq ew0
@@ -382,7 +383,7 @@ scr1	lda carea,x
 	ldx #2
 	jmp gd_fcol
 
-; ----------------------------------------- Output Text
+; ----------------------------------------- Text Output Handler
 
 gettab	lda #<(dirgad)
 	sta sc_screentab
@@ -414,22 +415,22 @@ sd1	stx toptxt
 setreu	jsr initreu
 	ldx #1		; read/write 1 byte
 	stx rm_werte+5
-	lda #gbyte	; set source address
+	lda #gbyte	; set source address ($003c)
 	sta rm_werte
-	lda ls_ramdrive	; compute Temp address
+	lda ls_ramdrive	; compute REU address
 	and #15
 	tax
-	lda reubanks,x	; bank of Temp
+	lda reubanks,x	; bank of REU buffer ($00)
 	sta rm_werte+4
-	lda #$83		; offset ($8300)
+	lda #bufadr	; offset ($1000: Undo)	### 1.04
 	sta rm_werte+3	; (= buf+1)
 	rts
 
 ; ---------------------------------------- Init rm_werte
 
 initreu	ldx #6
-	lda #0		; RM_WERTE: 
-sl0	sta rm_werte,x	; gbyte, $00, $00, $83, 7, 1, 0
+	lda #0		; RM_WERTE (für REU buffer gemäß SETREU):
+sl0	sta rm_werte,x	; wenn TEMP: gbyte, $00, $00, $83, 7, 1, 0
 	dex
 	bpl sl0
 	rts
@@ -507,7 +508,7 @@ lu0	txa
 	bne lu0
 	rts
 
-; --------------------------------------- buffer data in REU
+; --------------------------------------- do buffer data in REU
 
 tobuf	ldy #0
 	sty lire
@@ -515,9 +516,9 @@ tobuf	ldy #0
 	sty gbyte
 	ldx #4
 	stx tilecnt
-	
+
 tr01	lda #0
-	jsr writereu	; erase Buffer ($8300-$d2ff)
+	jsr writereu	; erase REU-Buffer ($1000-$5fff)
 	jsr incbuf
 	lda buf
 	and #1
@@ -529,11 +530,11 @@ tr01	lda #0
 	inc $d005		; then advance bar
 	inc $d005+2
 tr010	lda buf+1
-	cmp #$d3		; 20000 bytes (plus)
+	cmp #bufend	; 20000 bytes (plus)	### 1.04
 	bne tr01
-	lda #$83		; Buffer to $8300 again
+	lda #bufadr	; Buffer to $1000 again	### 1.04
 	sta buf+1
-	lda sc_texttab	; save Start address 
+	lda sc_texttab	; save Start address
 	sta dst
 	lda sc_texttab+1
 	sta dst+1
@@ -549,7 +550,7 @@ tr3	ldx #8		; counter for 1 tile
 	beq tr03
 tr02	jsr second	; right Pixels
 
-tr03	clc		; point to next below
+tr03	clc		; point to next row below
 	lda sc_texttab
 	adc #$e0
 	sta sc_texttab
@@ -579,7 +580,7 @@ tr5	dec tilecnt	; counter for horizontal tiles
 	bne tr6
 	inc dst+1
 
-tr6	dec adcnt		; display activity 
+tr6	dec adcnt		; display activity
 	bne tr60
 	lda #5
 	sta adcnt		; reset counter if down
@@ -644,7 +645,7 @@ first	lda (sc_texttab),y
 tr11	pha
 	jsr readreu
 	pla
-	ora gbyte		; write to Buffer 
+	ora gbyte		; write to Buffer
 	jsr writereu
 	clc		; point to next pixel below
 	lda sc_texttab
@@ -675,7 +676,7 @@ second	lda (sc_texttab),y
 tr110	pha
 	jsr readreu
 	pla
-	ora gbyte		; write to Buffer 
+	ora gbyte		; write to Buffer
 	jsr writereu
 	clc		; point to Pixel below
 	lda sc_texttab
@@ -698,7 +699,7 @@ tr220	dex		; 1 tile finished?
 backl24	lda #$40		; Start 4Bit at $4000
 	sta sc_texttab+1
 	sta dst+1
-	lda #$83		; Start Buffer at $8304
+	lda #bufadr	; Start Buffer at $1004	### 1.04
 	sta buf+1
 	lda #4
 	sta buf
@@ -754,7 +755,7 @@ bc1	ldy #0
 	sta buf
 	bcs bc0
 	dec buf+1
-bc0	jsr readreu	; move 4 Bytes 
+bc0	jsr readreu	; move 4 Bytes
 	jsr incbuf
 	sta (dst),y
 	iny
@@ -783,7 +784,7 @@ bc01	sec		; no, move left
 	bcs bc5
 	dec dst+1
 
-bc5	dec adcnt		; display activity 
+bc5	dec adcnt		; display activity
 	bne s6
 	lda #201		; reset counter if down
 	sta adcnt
@@ -812,7 +813,7 @@ s6	dex		; 32 Bytes per tile
 backr24	lda #$40		; Start 4Bit $4000
 	sta sc_texttab+1
 	sta dst+1
-	lda #$83		; Start Buffer $8300
+	lda #bufadr	; Start Buffer $1000	### 1.04
 	sta buf+1
 	ldy #0
 	sty sc_texttab
@@ -829,7 +830,7 @@ backr24	lda #$40		; Start 4Bit $4000
 	adc #3
 	sta ls_vekta8
 	bcc rc40
-	inc ls_vekta8+1 
+	inc ls_vekta8+1
 rc40	clc
 	lda sc_texttab
 	adc ls_vekta8
@@ -850,7 +851,7 @@ rc3	ldx ls_vekta8	; move one tile line
 
 rc1	ldx #4
 	stx cntx
-rc0	jsr readreu	; move 4 Bytes 
+rc0	jsr readreu	; move 4 Bytes
 	tax
 	lda lutable,x
 	sta (dst),y
@@ -918,7 +919,7 @@ checkcols	sei 		; GoDot off
 	sty slot
 
 	lda #$f0		; ...Slot4, check for types of module there
-	sta slot+1	; (may be cram when input is active)
+	sta slot+1	; (may be CRAM when input is active)
 	jsr sethicol	; (otherwise unchanged)
 
 	lda #$c0		; ...Slot1 and check
@@ -935,17 +936,17 @@ checkcols	sei 		; GoDot off
 
 	lda #$36		; GoDot on again
 	sta pport
-	cli 
-	rts 
+	cli
+	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 sethicol	lda (slot,x)	; get type of module (at $c003): $20, $40, $80
-	tay 
+	tay
 	and #$40		; is saver there? (contains vram1)
 	beq +		; no, next type
 
-	jsr c147		; yes, set color buffer 
+	jsr c147		; yes, set color buffer
 	sta v1buf
 	bne ++
 
@@ -959,14 +960,14 @@ sethicol	lda (slot,x)	; get type of module (at $c003): $20, $40, $80
 +	jsr c147		; so, it's a modifier (contains vram2)
 	sta v2buf
 
-++	rts 
+++	rts
 
 c147 	lda slot+1	; get hibyte...
 	ora #$0e		; ...and OR %00001110 to it (ie $ce)
 	rts 		; thus: get correct hi address of color buffers
 
 ; ### 1.01 bis hier ---
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 redis	jsr setcolors
 	lda gr_cmode
@@ -1012,13 +1013,13 @@ tmode	ldx #$13
 setcveks:	sei
 	lda #$35
 	sta pport
-	lda cbuf 		; color ram ### 1.01 
+	lda cbuf 		; color ram ### 1.01
 	ldx #$d8
 	bne scv0
-	
-; ------------------------------------------ 
 
-setbveks	lda v1buf 	; vram1 ### 1.01 
+; ------------------------------------------
+
+setbveks	lda v1buf 	; vram1 ### 1.01
 	ldx #4
 	dec pport
 scv0:	stx $b3
@@ -1027,7 +1028,7 @@ scv0:	stx $b3
 	sty $b2
 	dey
 
-; ------------------------------------------ 
+; ------------------------------------------
 
 setlast:	sty gr_bkcol
 	ldy #<(cstart)
@@ -1040,7 +1041,7 @@ setlast:	sty gr_bkcol
 	ldy #0
 	rts
 
-; ------------------------------------------ 
+; ------------------------------------------
 
 count:	inc $20
 	bne cou5
@@ -1056,7 +1057,7 @@ cou7:	dec $a8
 	ora $a9
 	rts
 
-; ------------------------------------------ 
+; ------------------------------------------
 
 getcolors:
 	jsr setcveks
@@ -1086,7 +1087,7 @@ stc1:	lda ($b2),y
 	ldy gr_bkcol
 	bpl scv1
 	ldy #0
-	lda v2buf 	; vram2 ### 1.01 
+	lda v2buf 	; vram2 ### 1.01
 	jsr setlast
 	beq stc1
 scv1:	lda #$36
@@ -1097,7 +1098,7 @@ scv1:	lda #$36
 	sta gr_bkcol
 	rts
 
-; ------------------------------------------ 
+; ------------------------------------------
 
 setcolors:
 	lda gr_bkcol
@@ -1131,11 +1132,11 @@ stc4:	lda ($20),y
 	bpl scv1
 	pla
 	tay
-	lda v2buf 	; vram2 ### 1.01 
+	lda v2buf 	; vram2 ### 1.01
 	jsr setlast
 	beq stc4
 
-; ------------------------------------------ 
+; ------------------------------------------
 
 redisplay:
 	lda gr_redisp	; save auto render
@@ -1155,7 +1156,7 @@ showclip	lda sc_screenvek
 	pha
 	lda sc_screenvek+1
 	pha
-	ldx #0		; empty keyboard buffer 
+	ldx #0		; empty keyboard buffer
 	stx sy_tbuffer
 	jsr redisplay	; Graphics on
 	lda #0		; set Clip data
@@ -1167,7 +1168,7 @@ showclip	lda sc_screenvek
 sh0	jsr invertcl	; invert area
 	ldx #250	; wait
 	jsr gd_dl2
-	lda toggle	; toggle Blinkflag 
+	lda toggle	; toggle Blinkflag
 	eor #1
 	sta toggle
 	lda $dc00		; Joystick?
@@ -1180,7 +1181,7 @@ sh1	lda toggle	; Blink Phase is ON?
 	and #1
 	beq sh0		; no, wait
 	jsr invertcl	; then OFF
-	jsr rp2		; restore Screen 
+	jsr rp2		; restore Screen
 	pla
 	tay
 	sta sc_screenvek+1
@@ -1194,7 +1195,7 @@ sh1	lda toggle	; Blink Phase is ON?
 	clc
 	rts
 
-; --------------------------------------- invert Clip 
+; --------------------------------------- invert Clip
 
 invertcl	ldx #0		; Screenflag to Text mode
 	stx sc_loop
@@ -1225,7 +1226,7 @@ inv2	inx		; reached Clip height?
 	bne inv0
 inv3	rts
 
-; ----------------------------------------------------- 
+; -----------------------------------------------------
 
 noreu 	ldx #<(warnreulst)
 	ldy #>(warnreulst)
@@ -1255,7 +1256,7 @@ clpsp	!by 0
 lire 	!by 0
 nibble	!by 0
 carea	!by 12,11,12,3,10,15,7,1,10,11,12,1
-reubanks	!by 0,0,0,0,3,7,0,0,1,0
+reubanks	!by 0,0,0,0,3,0,0,0,1,0
 
 ; --------------------------------------- Screenlist Warning
 
