@@ -16,7 +16,8 @@
 ;                  added STOP from graphics screen
 ;                  re-init of STOP after display
 ;  1.04, 20.06.19, added init keyboard for SuperCPU
-;        10.08.26, more comments
+;        09.08.26, more comments
+;  1.05, 10.08.26, changed: don't be forced to re-render in lower color modes
 ;
 ; ------------------------------------------------------------
 
@@ -56,8 +57,8 @@
 	!wo modend
 	!wo 0
 	!pet "colors/block    "
-	!pet "1.04"
-	!pet "20.06.19"
+	!pet "1.05"
+	!pet "10.08.26"
 	!pet "W.Kling/A.Dettke"
 
 ; --------------------------------------------- Main
@@ -144,14 +145,14 @@ hmskip2	dey
 	clc
 	adc #$d4		; und im Farbram die Art des Ergebnisses einfärben
 	sta dst+1
-	lda #5		; 5 (grün, Anzahl ist *gleich* Render-Max-Vorgabe)
+	lda #8		; 5 (orange, Anzahl ist *gleich* Render-Max-Vorgabe)
 	ldx gr_howmany	; nimm Render-Max und
 	cpx hmtotal	; vergleiche mit total (aus allen Farben)
 	beq ++		; gleich (dann grün, sollte problemlos sein)
-	bcs +		; kleiner (dann hilite: weiß, kein Problem bei dieser Kachel)
+	bcs +		; kleiner (dann heller Text, kein Problem bei dieser Kachel)
 	lda #2		; sonst 2 (rot, Anzahl ist *größer* als Render-Max-Vorgabe)
 	bne ++		; (hier kann es also Color Clashes oder Fehlfärbungen geben)
-+	lda sc_hilite
++	lda sc_light
 ++	sta (dst),y	; ins Farbram
 
 	pla		; weiter:
@@ -188,26 +189,36 @@ wloop	lda sc_keyprs
 -
 +	rts		; so leave
 
-++	lda gr_redisp	; Maus: Bild schon gerendert?
-	bne +
+++	lda gr_redisp	; Render-Modus sichern
+	pha		;   (Warnmeldung früher von hier aus: BNE +)
+	lda gr_cmode	; auf jeden Fall im Multi mode
+	pha
+	lda #2
+	sta gr_cmode
+	lda #0		; init STOP
 	sta sc_stop
 	sta sc_keyprs
-	jsr redisplay	; dann zeigen
+	sta gr_redisp
+	jsr redisplay	; Bild zeigen (in Multi, 16 Farben)
+	pla
+	sta gr_cmode	; alles zurücksetzen
+	pla
+	sta gr_redisp
 	lda sc_stop
 	bne -
 	jmp evhowmany	; und neu zählen
 
-+	jsr gd_clrms	; sonst: Warnmeldung
-	lda #2
-	sta 646
-	ldx #<message
-	ldy #>message
-	jsr gd_xtxout2
-	jmp wloop		; und auf STOP warten
+;+	jsr gd_clrms	; sonst: Warnmeldung (not used anymore)
+;	lda #2
+;	sta 646
+;	ldx #<message
+;	ldy #>message
+;	jsr gd_xtxout2
+;	jmp wloop		; und auf STOP warten
 
 ; ---------------------------------------------
 
-clrscreen	lda #15		; Cursorfarbe: weiß
+clrscreen	lda #15		; Cursorfarbe: hellgrau
 	sta 646
 	lda #147		; CLR/HOME
 	jmp bsout
