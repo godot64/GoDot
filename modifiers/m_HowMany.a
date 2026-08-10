@@ -1,10 +1,9 @@
 
-	!src "godotlib.lib"
+	!src <godotlib.lib>
 	*= $c000
 	!ct pet
-;	!sl "labels.txt"
 
-; ------------------------------------------------------------ 
+; ------------------------------------------------------------
 ;
 ;  mod.Howmany
 ;
@@ -17,8 +16,9 @@
 ;                  added STOP from graphics screen
 ;                  re-init of STOP after display
 ;  1.04, 20.06.19, added init keyboard for SuperCPU
+;        10.08.26, more comments
 ;
-; ------------------------------------------------------------ 
+; ------------------------------------------------------------
 
 ; --------------------------------------------- Declarations
 
@@ -64,113 +64,114 @@
 
 start	lda gd_modswitch	; save module management byte
 	pha
-	jsr check
-	jsr evhowmany
+	jsr check		; where is which color buffer?
+	jsr evhowmany	; count colors according to the balancing settings
 	pla
-	sta gd_modswitch
+	sta gd_modswitch	; restore management byte
 	lda #0
-	sta sc_stop
+	sta sc_stop	; init stop key
 	sec
 	rts
 
 ; --------------------------------------------- Howmany
 
-evhowmany	jsr clrscreen
-	lda #<sy_4bit
+evhowmany	jsr clrscreen	; clear text screen
+	lda #<sy_4bit	; set working vectors:
 	ldy #>sy_4bit
-	sta src
+	sta src		; the colors
 	sty src+1
 	lda #<screen
 	ldy #>screen
-	sta dst
+	sta dst		; the digits
 	sty dst+1
 
 clrhist	lda #0		; clear histograms
 	ldy #15
 chloop	sta hist,y
 	sta hist2,y
-	dey 
+	dey
 	bpl chloop
 
-	ldy #31		; eine Kachel:
-hloop	lda gr_cmode	; Grafikmodus? (0: Hires)
+	ldy #31		; eine Kachel untersuchen:
+hloop	lda gr_cmode	; welcher Grafikmodus? (0: Hires)
 	bne hskip
-	lda (src),y	; Hires: oberes Nibble (linkes Pixel)
-	lsr 
-	lsr 
-	lsr 
-	lsr 
+
+	lda (src),y	; also Hires: a) oberes Nibble (linkes Pixel)
+	lsr
+	lsr
+	lsr
+	lsr
 	tax
-	inc hist2,x	; ungefiltert z‰hlen (wirklich alle Farben)
-	lda gr_btab,x	; Quantisierung ber¸cksichtigen (Anzahl Renderfarben)
-	tax 
-	lda gr_qtab,x	; Balancing ber¸cksichtigen
-	tax 
-	inc hist,x	; Farbh‰ufigkeit z‰hlen
-hskip	lda (src),y	; unteres Nibble (rechtes Pixel)
+	inc hist2,x	; ungefiltert z√§hlen (alle Farben)
+	lda gr_btab,x	; dann Quantisierung ber√ºcksichtigen (Anzahl Renderfarben)
+	tax
+	lda gr_qtab,x	; Balancing ber√ºcksichtigen
+	tax
+	inc hist,x	; und jetzt Farbh√§ufigkeit z√§hlen
+
+hskip	lda (src),y	; b) unteres Nibble (rechtes Pixel, exklusiv bei Multi)
 	and #$0f
 	tax
-	inc hist2,x	; ungefiltert z‰hlen
-	lda gr_btab,x	; Quantisierung ber¸cksichtigen (Anzahl Renderfarben)
-	tax 
-	lda gr_qtab,x	; Balancing ber¸cksichtigen
-	tax 
-	inc hist,x	; Farbh‰ufigkeit z‰hlen
-	dey 
+	inc hist2,x	; ungefiltert z√§hlen (√ºber alle Farben)
+	lda gr_btab,x	; dann Quantisierung ber√ºcksichtigen (Anzahl Renderfarben)
+	tax
+	lda gr_qtab,x	; Balancing ber√ºcksichtigen
+	tax
+	inc hist,x	; und jetzt Farbh√§ufigkeit z√§hlen
+	dey
 	bpl hloop
 
-	lda #0		; Anzahl initialisieren
+	lda #0		; Anzahl(en) initialisieren
 	sta howmany
 	sta hmtotal
-	ldy #15		; Anzahl zu ber¸cksichtigender Farben z‰hlen
-hmloop	lda hist,y
+	ldy #15		; Anzahl zu ber√ºcksichtigender Farben z√§hlen
+hmloop	lda hist,y	; wenn Farbe nicht vorgekommen: skip
 	beq hmskip
 	inc howmany
-hmskip	lda hist2,y	; Anzahl aller Farben z‰hlen
+hmskip	lda hist2,y	; Anzahl √ºber alle Farben z√§hlen (wenn vorgekommen)
 	beq hmskip2
 	inc hmtotal
-hmskip2	dey 
+hmskip2	dey
 	bpl hmloop
 
-	ldx howmany	; wie viele?
-	lda chars,x	; nach Ziffer wandeln (0 bis 16)
+	ldx howmany	; wie viele (von den gefilterten)?
+	lda chars,x	; nach Hexziffer wandeln (0 bis f; 16=*)
 	ldy #0
-	sta (dst),y	; in den Screen
+	sta (dst),y	; in den Screen schreiben
 	lda dst+1
-	pha 
+	pha
 
-	clc 
-	adc #$d4		; und ins Farbram
+	clc
+	adc #$d4		; und im Farbram die Art des Ergebnisses einf√§rben
 	sta dst+1
-	lda #5		; gr¸n (Anzahl *gleich* Render-Max)
-	ldx gr_howmany	; nimm Render-Max
-	cpx hmtotal	; Vergleich mit total
-	beq ++
-	bcs +
-	lda #2		; rot (Anzahl *grˆﬂer* Render-Max)
-	bne ++
+	lda #5		; 5 (gr√ºn, Anzahl ist *gleich* Render-Max-Vorgabe)
+	ldx gr_howmany	; nimm Render-Max und
+	cpx hmtotal	; vergleiche mit total (aus allen Farben)
+	beq ++		; gleich (dann gr√ºn, sollte problemlos sein)
+	bcs +		; kleiner (dann hilite: wei√ü, kein Problem bei dieser Kachel)
+	lda #2		; sonst 2 (rot, Anzahl ist *gr√∂√üer* als Render-Max-Vorgabe)
+	bne ++		; (hier kann es also Color Clashes oder Fehlf√§rbungen geben)
 +	lda sc_hilite
-++	sta (dst),y
+++	sta (dst),y	; ins Farbram
 
-	pla 
-	sta dst+1
+	pla		; weiter:
+	sta dst+1		; zur√ºck zum Textram
 
-	lda src		; n‰chste Kachel 4Bit...
-	clc 
+	lda src		; n√§chste Kachel 4Bit anw√§hlen...
+	clc
 	adc #32
 	sta src
 	bcc skip0
 	inc src+1
-
-skip0	inc dst		; ...Screen
+skip0	inc dst		; ...und im Textscreen
 	bne skip1
 	inc dst+1
 skip1	lda src+1
 	cmp #>sy_bigbuffer	; bis 4Bit-Ende
 	beq +
-	jmp clrhist	; sonst von vorn
+	jmp clrhist	; sonst von vorn, weitermachen
 
-; --------------------------------------------- Wait
+; --------------------------------------------- Wait for STOP
 
 +	lda #0
 	sta sc_keyprs	; dann: warten auf Taste
@@ -185,18 +186,18 @@ wloop	lda sc_keyprs
 	cmp #2		; alle anderen: verwerfen
 	bne wloop
 -
-+	rts 
++	rts		; so leave
 
-++	lda gr_redisp	; Maus: schon gerendert?
+++	lda gr_redisp	; Maus: Bild schon gerendert?
 	bne +
 	sta sc_stop
 	sta sc_keyprs
 	jsr redisplay	; dann zeigen
 	lda sc_stop
 	bne -
-	jmp evhowmany	; und neu z‰hlen
+	jmp evhowmany	; und neu z√§hlen
 
-+	jsr gd_clrms	; sonst: Meldung
++	jsr gd_clrms	; sonst: Warnmeldung
 	lda #2
 	sta 646
 	ldx #<message
@@ -204,9 +205,9 @@ wloop	lda sc_keyprs
 	jsr gd_xtxout2
 	jmp wloop		; und auf STOP warten
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
-clrscreen	lda #15		; Cursorfarbe: weiﬂ
+clrscreen	lda #15		; Cursorfarbe: wei√ü
 	sta 646
 	lda #147		; CLR/HOME
 	jmp bsout
@@ -214,7 +215,7 @@ clrscreen	lda #15		; Cursorfarbe: weiﬂ
 ; --------------------------------------------- Data
 
 chars	!pet "0123456789abcdef*"
-message	!scr " Please render graphics first! @"
+message	!scr " Please render graphics first! ",0
 list	!wo 0
 
 ; ------------------------------------------------ Welche Farben liegen wo?
@@ -244,17 +245,17 @@ check	sei 		; GoDot off
 
 	lda #$36		; GoDot on again
 	sta pport
-	cli 
-	rts 
+	cli
+	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 sethicol	lda (slot,x)	; get type of module (at $c003): $20, $40, $80
-	tay 
+	tay
 	and #$40		; is saver there? (contains vram1)
 	beq +		; no, next type
 
-	jsr c147		; yes, set color buffer 
+	jsr c147		; yes, set color buffer
 	sta v1buf
 	bne ++
 
@@ -268,15 +269,15 @@ sethicol	lda (slot,x)	; get type of module (at $c003): $20, $40, $80
 +	jsr c147		; so, it's a modifier (contains vram2)
 	sta v2buf
 
-++	rts 
+++	rts
 
 c147 	lda slot+1	; get hibyte...
 	ora #$0e		; ...and OR %00001110 to it (ie $ce)
 	rts 		; thus: get correct hi address of color buffers
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 ; ------------------------------------------------ graphics display
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 redisplay	ldx gr_palette	; set border to color 0 (normally black)
 	stx rahmen
@@ -317,12 +318,12 @@ tmode	ldx #$13
 	sta backgr
 	rts
 
-; ------------------------------------------------ 
-; ------------------------------------------------ 
+; ------------------------------------------------
+; ------------------------------------------------
 ; Routines to handle GoDot's graphics color buffers
 ; for comments see sources for god.upmem
-; ------------------------------------------------ 
-; ------------------------------------------------ 
+; ------------------------------------------------
+; ------------------------------------------------
 
 setcveks	sei
 	lda #$35
@@ -436,6 +437,6 @@ stc4	lda (sc_vekt20),y
 	jsr setlast
 	beq stc4
 
-; --------------------------------------------- 
+; ---------------------------------------------
 
-modend	!eof 
+modend	!eof
