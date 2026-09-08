@@ -980,7 +980,7 @@ bank	!by 6			; in Bank x (default is 1750 = 6)
 ; -----------------------------------------
 ; -----------------------------------------
 ;
-;   display interlace fli
+;   display interlace fli (taken from Fun Painter II by M. Trenz)
 ;
 ; -----------------------------------------
 ; -----------------------------------------
@@ -1309,19 +1309,18 @@ ptch	cli
 	jsr bsout
 
 ; --------------------------------------- Restore Rendered Image Data to C64
-; ### 1.07
+; ### 1.08
 	lda #<rest1
-	sta spt+1
 	jsr swap
 	lda #$91		; command: fetch
 	jsr gd_reu	; execute command
 	lda #<rest2
-	sta spt+1
 	jsr swap
 
 	jmp into		; finally start GoDot
 
-swap	ldx #6
+swap	sta spt+1
+	ldx #6
 spt	lda rest1,x	; 1024 bytes from $072000 in REU to $2000 in C64
 	sta rm_werte,x
 	dex
