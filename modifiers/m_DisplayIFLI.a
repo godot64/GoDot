@@ -17,6 +17,7 @@
 ;   1.05, 06.04.22, bugfix, didn't reset reu record
 ;   1.06, 04.12.24, adapted to SuperCPU
 ;   1.07, 07.09.26, bugfix: save the first 1024 bytes of Rendered
+;   1.08, 08.09.26, fixed follow-up bug (didn't execute new modfiers anymore)
 ;
 ; ------------------------------------------------------------
 
@@ -42,7 +43,7 @@
 ; display IFLI:
 
 	fallback		= sy_numbers+36
-	backpack		= $01b0
+	backpack		= $01c8
 	sprptr		= $07f8
 	into		= $1417
 	swap4096		= $1714
@@ -92,8 +93,8 @@ header 	jmp start
 	!wo modend
 	!wo 0
 	!tx "IFLI Display    "
-	!tx "1.07"
-	!tx "07.09.26"
+	!tx "1.08"
+	!tx "08.09.26"
 	!tx "A.Dettke/M.Trenz"
 
 ; --------------------------------------- Main
@@ -1269,7 +1270,7 @@ fback	sei		; jump in here ($0124)
 	lda #$60		; RTS
 	sta fb2
 	jsr swapreu	; swap $0000 - $cfff
-	lda #$a9		; LDA
+	lda #$a9		; LDA #xx
 	sta fb2
 	lda #$92
 	sta reucom
@@ -1309,17 +1310,26 @@ ptch	cli
 
 ; --------------------------------------- Restore Rendered Image Data to C64
 ; ### 1.07
-	ldx #6		; reset reu record
--	lda restw,x	; 1024 bytes from $072000 in REU to $2000 in C64
-	sta rm_werte,x
-	dex
-	bpl -
+	lda #<rest1
+	sta spt+1
+	jsr swap
 	lda #$91		; command: fetch
 	jsr gd_reu	; execute command
+	lda #<rest2
+	sta spt+1
+	jsr swap
 
 	jmp into		; finally start GoDot
 
-restw	!by $00, $20, $00, $20, 7, 0, 4
+swap	ldx #6
+spt	lda rest1,x	; 1024 bytes from $072000 in REU to $2000 in C64
+	sta rm_werte,x
+	dex
+	bpl spt
+	rts
+
+rest1	!by $00,$20,$00,$20, 7, $00,$04
+rest2	!by $00,$c0,$00,$00, 0, $00,$10
 
 }
 
