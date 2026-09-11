@@ -1,25 +1,28 @@
 
-	!src "godotlib.lib"
+	!src <godotlib.lib>
 	*= $c000
 	!ct pet
 
-; ------------------------------------------------------------ 
+; ------------------------------------------------------------
 ;
 ; mod..NewPointer
 ; Modul zum Erstellen eines alternativen Mauszeigers
 ;
 ; 1.00, 13.06.92, first release
 ; 1.01, 25.07.17, Modul sicherer gemacht
-; 1.02, 07.11.20, Zeiger-Hotspot begrenzt auf Spritegröße
+; 1.02, 07.11.20, Zeiger-Hotspot begrenzt auf SpritegrÃ¶ÃŸe
 ; 1.03, 10.11.20, added: set default values if no hotspot data in file
 ; 2.00, 16.11.20, now: true pointer editor
 ; 2.01, 20.11.20, changed: file structure (to allow multicolor sprites)
+; 2.02, 10.09.26, changed: reduced data format
 ;
-; ------------------------------------------------------------ 
+; ------------------------------------------------------------
 
 ; ----------------------------------------- Equates
 
 	pport		= $01
+	sprslot		= 11	; ### 2.02
+
 	indentx		= 24
 	maxx		= 24
 	indenty		= 50
@@ -63,8 +66,8 @@ header	jmp start
 	!wo modend
 	!wo 0
 	!pet "EditMousePointer"
-	!pet "2.01"
-	!pet "20.11.20"
+	!pet "2.02"
+	!pet "10.09.26"
 	!pet "A. Dettke       "
 
 ; ----------------------------------------- Main
@@ -87,11 +90,11 @@ evuse	lda fgcol		; Set sprite colors
 	ldx bgcol
 	sta sprcol0
 	stx sprcol1
-	sec 
+	sec
 	lda #indentx	; set hotspot
 	sbc xoff
 	sta sy_soffx
-	sec 
+	sec
 	lda #indenty
 	sbc yoff
 	sta sy_soffy
@@ -122,7 +125,7 @@ evsave	jsr chgdrv	; Sysdrive auf Bootdrive umlenken
 	ldy #>buffer
 	stx ls_adrmisc
 	sty ls_adrmisc+1
-	lda #0		; und mit 0 vorbesetzen (für Rückmeldung)
+	lda #0		; und mit 0 vorbesetzen (fÃ¼r RÃ¼ckmeldung)
 	sta ls_flen
 	lda gd_modswitch	; Modul-Management
 	pha
@@ -131,7 +134,7 @@ evsave	jsr chgdrv	; Sysdrive auf Bootdrive umlenken
 	sta ls_loadsave
 	jsr gd_eloop	; now wait...
 
-	lda ls_flen	; file chosen?	
+	lda ls_flen	; file chosen?
 	beq sp0
 
 	jsr writeptr	; yes, write file
@@ -145,20 +148,20 @@ evload	jsr chgdrv	; Sysdrive auf Bootdrive umlenken
 	ldy #>buffer
 	stx ls_adrmisc	; (wird bei Klick auf LOAD nach sc_vekt20 geschrieben)
 	sty ls_adrmisc+1
-	lda #0		; und mit 0 vorbesetzen (für Rückmeldung)
+	lda #0		; und mit 0 vorbesetzen (fÃ¼r RÃ¼ckmeldung)
 	sta ls_flen
 	lda gd_modswitch	; Modul-Management
-	pha 
+	pha
 
 	jsr lddir		; gefiltertes Directory anzeigen (Filerequester)
 	jsr gd_eloop	; warten auf Mausklick (Load oder Cancel)
 
-	lda ls_flen	; kein File ausgewählt?
+	lda ls_flen	; kein File ausgewÃ¤hlt?
 	beq ++		; dann Abschluss
 
 	jsr readptr	; sonst: Mauszeiger einlesen
 	bcc +		; Fehler, Abbruch, alter Pointer bleibt
-	lda sprslot
+	lda #sprslot	; ### 2.02 (was variable formerly)
 	cmp #11		; is meant as system pointer?
 	beq ++
 +	lda cspr0		; no, break and repair
@@ -166,21 +169,21 @@ evload	jsr chgdrv	; Sysdrive auf Bootdrive umlenken
 	jsr gcp0
 ++	jsr sprcols
 
-after	pla 		; aufräumen
+after	pla 		; aufrÃ¤umen
 	sta gd_modswitch
 
-	jsr chgdrv	; Sysdrive zurück
+	jsr chgdrv	; Sysdrive zurÃ¼ck
 	jsr showscreen
 	jsr showspr
 	clc 		; Modul *nicht* verlassen
-	rts 
+	rts
 
 ; -------------------------------------- Event: Set Color
 
-evbground	ldx #0		; Index auf Background
+evbground	ldx #1		; Index auf Foreground	### 2.02
 	!by $2c
-evfground	ldx #1		; Index auf Foreground
-	lda bgcol,x
+evfground	ldx #0		; Index auf Background
+	lda fgcol,x
 	and #15
 	tax
 	stx curcol	; store current color
@@ -188,10 +191,10 @@ evfground	ldx #1		; Index auf Foreground
 	lda spalte	; wo geklickt?
 	cmp #37
 	bcs +
-	dex		; linke Hälfte: rückwärts zählen
+	dex		; linke HÃ¤lfte: rÃ¼ckwÃ¤rts zÃ¤hlen
 	bpl bgr0
 	ldx #14
-+	inx		; rechte Hälfte: vorwärts zählen
++	inx		; rechte HÃ¤lfte: vorwÃ¤rts zÃ¤hlen
 	cpx #16
 	bcc bgr0
 	ldx #0
@@ -231,7 +234,7 @@ colrize	lda zeile		; determine which gadget
 +	ldy #4		; Background
 	jsr out2		; 1st: colorize color gadget
 
-	lda curcol	; 2nd: colorize sprite 
+	lda curcol	; 2nd: colorize sprite
 	sta sc_chgcol
 	lda #3
 	sta sc_br
@@ -298,10 +301,10 @@ evmirror	lda #<sprite
 	lda byte
 	sta modify,x	; schreiben
 
-	inc move		; vorwärts lesen
+	inc move		; vorwÃ¤rts lesen
 	bne +
 	inc move+1
-+	dex		; rückwärts schreiben
++	dex		; rÃ¼ckwÃ¤rts schreiben
 	txa
 	ldy ymrk
 	cmp tab3,y
@@ -375,7 +378,7 @@ evclear	ldx #62
 
 evdefault	ldx #(pntlist-system-1)
 -	lda system,x
-	sta wid,x
+	sta xoff,x
 	dex
 	bpl -
 	stx cleared	; passed
@@ -430,7 +433,7 @@ pointer	lda scrlmode
 	sbc edarea+1
 	sbc #1		; 0..23 of %00000000 00000000 00000000
 	tax
-	and #7	
+	and #7
 	tay
 	lda bits,y
 	sta bitcnt	; store affected bit
@@ -442,7 +445,7 @@ pointer	lda scrlmode
 	clc
 	adc ymrk		; zu Zeilenindex
 	tay
-	lda sprite,y	; Bit setzen/löschen
+	lda sprite,y	; Bit setzen/lÃ¶schen
 	eor bitcnt
 	sta sprite,y
 	jsr showspr
@@ -451,7 +454,7 @@ pointer	lda scrlmode
 
 scroll	lda #0
 	sta directn
-	lda zeile	
+	lda zeile
 	cmp #4		; up?
 	bcc +
 	cmp #21		; down?
@@ -557,7 +560,7 @@ scrlft	ldx #0
 	lda #0		; no
 	!by $2c
 +	lda #1		; yes
-	ldx byte		
+	ldx byte
 	ora sprite,x	; combine to byte 3
 	sta sprite,x
 	ldx ymrk
@@ -585,7 +588,7 @@ scrrgt	ldx #0
 	lda #0		; no
 	!by $2c
 +	lda #128		; yes
-	ldx byte		
+	ldx byte
 	ora sprite,x	; combine to byte 3
 	sta sprite,x
 	ldx ymrk
@@ -640,12 +643,12 @@ showscreen
 	ldy sc_scvek2+1
 shs0	jsr gd_screen
 	jsr preparea	; Editarea vorbereiten
-shs1	jsr recolor	; ...einfärben
+shs1	jsr recolor	; ...einfÃ¤rben
 	lda fgcol		; und die Farben des Pointers anzeigen
 	ldx #7
 	jsr recolor2
 	stx sc_loop	; .x=0
-	jsr gd_esm3	; revert 
+	jsr gd_esm3	; revert
 	lda bgcol
 	ldx #11
 	jsr recolor2
@@ -655,7 +658,7 @@ shs1	jsr recolor	; ...einfärben
 ; ----------------------------------------- Show Pointer to be Edited
 
 showspr	ldy #62
--	lda sprite,y	; 63 Bytes übertragen
+-	lda sprite,y	; 63 Bytes Ã¼bertragen
 	sta spr255,y
 	dey
 	bpl -
@@ -668,7 +671,7 @@ showspr	ldy #62
 	sta sprite2y
 	lda #68
 	sta sprite3y
-	lda fgcol		; färben
+	lda fgcol		; fÃ¤rben
 	sta sprcol2
 	lda bgcol
 	sta sprcol3
@@ -740,7 +743,7 @@ mdt0	sty sc_chgcol
 	jmp gd_fcol
 
 prepshow	lda #<sprite	; address edit area
-	ldx #>sprite+1
+	ldx #>sprite
 	sta move
 	stx move+1
 	lda #$80		; set bitmask
@@ -847,16 +850,16 @@ svdir	lda #<ptr
 ; ----------------------------------------- Show Directory for "Load"
 
 lddir	lda #<ptr		; Zeiger auf Filter
-	pha 
+	pha
 	lda #>ptr
-	pha 
-	lda #8		; Flag für "nur Directory zeigen"
-	jmp gd_xloadm	; und ausführen
+	pha
+	lda #8		; Flag fÃ¼r "nur Directory zeigen"
+	jmp gd_xloadm	; und ausfÃ¼hren
 
 ; ----------------------------------------- Save Pointer
 
-writeptr	sta wflen		; .a: Filelänge
-	jsr wopen		; Datei öffnen für Ausgabe
+writeptr	sta wflen		; .a: FilelÃ¤nge
+	jsr wopen		; Datei Ã¶ffnen fÃ¼r Ausgabe
 	bne wp0
 	ldx #12
 	jsr ckout
@@ -867,32 +870,32 @@ wp1	lda (ls_adrmisc),y	; Daten schreiben
 	lda status
 	bne wp0		; bei Lesefehler: Abbruch
 	iny
-	cpy #84
+	cpy #73		; ### 2.02
 	bne wp1
 
-wp0	jsr clrch		; Datei schließen
+wp0	jsr clrch		; Datei schlieÃŸen
 	lda #12
 	jsr close
 	jmp err9
 
 ; ----------------------------------------- Mauszeiger einlesen
 
-readptr	jsr gd_xopen	; Datei öffnen
-	lda #83		; Bytezähler
+readptr	jsr gd_xopen	; Datei Ã¶ffnen
+	lda #72		; BytezÃ¤hler	### 2.02
 	sta ls_vekta8
 	lda #0
 	sta ls_vekta8+1
 
 	ldy #0
-ld6	jsr onebyte	; 83 Bytes einlesen
-	sta (sc_vekt20),y	; und in den Puffer übertragen
+ld6	jsr onebyte	; 72 Bytes einlesen
+	sta (sc_vekt20),y	; und in den Puffer Ã¼bertragen
 	bne lderr		; bei Lesefehler Abbruch
 	jsr count
 	bne ld6
 	dey
 	sty cleared	; Cleared-Flag initialisieren
 
-lderr	jsr gd_xclose	; Datei schließen
+lderr	jsr gd_xclose	; Datei schlieÃŸen
 
 ; ----------------------------------------- Check Filetype
 
@@ -984,7 +987,7 @@ cou7 	dec ls_vekta8
 
 onebyte	jsr basin
 	ldx status
-	rts 
+	rts
 
 ; ----------------------------------------- Change Sysdrive
 
@@ -1027,21 +1030,10 @@ carea	!by 7,27,8,7	;  3, Captions
 	!by 18,27,6,1	; 19, Scroll-Button
 
 buffer	!tx "god3"	; pointer data
-wid	!by $01		; width: 1 sprite
-hgt	!by $01		; height: 1 sprite
-mode	!by $00		; mode: hires
-xoff	!by $00		; hotspot x
-bgcol	!by $00		; pointer in background: black
-fgcol	!by $01		; pointer in foreground: white ($d025, pattern %01)
-mc1	!by $00		; if multi: multicolor 2       ($d026, pattern %11)
+xoff	!by $00		; hotspot x	### 2.02
 yoff	!by $00		; hotspot y
-compr	!by $00		; no compression
-aframes	!by $00		; not animated
-amnt	!by $01		; 1 frame
-follower	!by $00		; no follow up files
-animspeed	!by $00		; freeze frame (speed is 0)
-total	!by $01		; total number of frames
-sprslot	!by $0b		; location (11*64: $02c0)
+fgcol	!by $01		; pointer in foreground: white ($d025, pattern %01)
+bgcol	!by $00		; pointer in background: black
 
 sprite	!by $c0,$00,$00,$e0,$00,$00,$70,$00
 	!by $00,$38,$00,$00,$1c,$00,$00,$0e
@@ -1051,13 +1043,11 @@ sprite	!by $c0,$00,$00,$e0,$00,$00,$70,$00
 	!by $00,$00,$00,$00,$00,$00,$00,$00
 	!by $00,$00,$00,$00,$00,$00,$00,$00
 	!by $00,$00,$00,$00,$00,$00,$00
-	!by $00
 isgodot	!by $ad
 
 modify	!fill 64
 
-system	!by $01,$01,$00,$00,$00,$01,$00,$00	; Systemzeiger
-	!by $00,$00,$01,$00,$00,$01,$0b
+system	!by $00,$00,$01,$00			; Systemzeiger ### 2.02
 	!by $c0,$00,$00,$e0,$00,$00,$70,$00
 	!by $00,$38,$00,$00,$1c,$00,$00,$0e
 	!by $00,$00,$07,$00,$00,$03,$80,$00
@@ -1133,9 +1123,9 @@ bcoltx	!scr "blk@"
 	!scr "Use Pntr@"
 	!by $80
 
-; ----------------------------------------- 
+; -----------------------------------------
 
 modend	!eof
 
-; ----------------------------------------- 
+; -----------------------------------------
 
