@@ -38,6 +38,7 @@
 ;	1.57, 06.12.24	; added support of REU-equipped SuperCPU, bugfix in befptr
 ;	1.58, 12.06.25	; added recognition of a Mega65
 ;         1.59, 29.09.26      ; changed: sprite pointer format (POINTER), now also sets pointer colors
+;         1.60, 04.10.26	; changed: default palette for 7 colors (BWN instead of BLU)
 ;
 ; ------------------------------------------------------------
 
@@ -241,7 +242,7 @@ mkt0	lda tabs-$40,x
 
 ; ---------------------------------------
 
-version	!by $01,$59 	; Versionsnummer in SED-Format
+version	!by $01,$60 	; Versionsnummer in SED-Format
 release	!by 12,06,25	; Kernel Release Date in Byte-Format
 
 ; ---------------------------------------
@@ -1305,12 +1306,11 @@ cblu	!by 11,7,3,0,15
 baltab	!by $00,$01,$02,$03,$04,$05,$06,$07	; Default Balancing: 0,0 ($03b0)
 	!by $08,$09,$0a,$0b,$0c,$0d,$0e,$0f
 ;
-palhi	!by $80			; Defaultpaletten (14 Stück an $03c0)
-	!by $81,$91,$91,$90,$d0,$aa,$ab,$b3
-	!by $b1,$ff,$bf,$ef,$ff
-pallo	!by 1,1,1
-	!by $11,$8b,$8b,$4d,$55,$ab,$bf,$d1
-	!by $77,$ef,$ef
+palhi	!by $80,$81,$91,$91,$90,$b0,$aa	; ### 1.60 ($b0 instead of $d0)
+	!by $ab,$b3,$b1,$ff,$bf,$ef,$ff
+pallo	!by $01,$01,$01,$11,$8b,$8b,$4d	; Defaultpaletten (14 Stück an $03c0)
+	!by $55,$ab,$bf,$d1,$77,$ef,$ef
+
 ;
 lastn	!pet "Untitled"		; ls_lastname ($03dc)
 	!fill 8,32
@@ -1744,36 +1744,39 @@ cl0	inx
 
 befdefcol jsr gw		; DEFCOLORS n,a,..,n
 	bcc dce
-	cmp #2
+	cmp #2		; mindestens 2 Farben...
 dce	bcc dcende
-	cmp #16
+	cmp #16		; ...höchstens 16 (16 wird übergangen, da default)
 	bcs dcende
 	tax
-	stx zaehler
+	stx zaehler	; Anzahl Farben (2..15)
 	stx nummer
-	sty index
-dc0	jsr getword
+	sty index		; .y=0
+
+dc0	jsr getword	; nacheinander: Farbcodes holen
 	ldx index
 	bcs dc1
 	lda paldef,x
-dc1	sta palcol,x
+dc1	sta palcol,x	; puffern
 	inc index
 	dec zaehler
-	bne dc0
-	sty index
+	bne dc0		; bis alle durchgezählt
+
+	sty index		; index auf 0
 dc4	ldx index
-	lda palcol,y
+	lda palcol,y	; ordnen nach paldef (nach Helligkeit)
 dc3	cmp paldef,x
 	beq dc2
 	inx
 	cpx #16
 	bne dc3
 dc2	txa
-	sta palcol,y
+	sta palcol,y	; Dopplungen erlaubt
 	iny
 	cpy nummer
 	bne dc4
-	sty zaehler
+
+	sty zaehler	; kodieren in 2 Bytes:
 	dec nummer
 	dec nummer
 	ldy #0
@@ -1782,7 +1785,7 @@ dc2	txa
 dc6	lda #0
 	sta byte
 	sta byte+1
-	lda palcol,y
+	lda palcol,y	; Farbnummer = Bitnummer (Position)
 	tax
 	sec
 dc5	ror byte
@@ -1790,16 +1793,17 @@ dc5	ror byte
 	dex
 	bpl dc5
 
-	lda byte
+	lda byte		; Bitposition ins Ergebnis eintragen
 	ora hipal
 	sta hipal
 	lda byte+1
 	ora lopal
 	sta lopal
 	iny
-	cpy zaehler
-	bne dc6
-	ldx nummer
+	cpy zaehler	; alle Farben der Palette durch?
+	bne dc6		; nein, weiter
+
+	ldx nummer	; ja, kodierte Palette veröffentlichen
 	lda lopal
 	sta pallo,x
 	lda hipal
