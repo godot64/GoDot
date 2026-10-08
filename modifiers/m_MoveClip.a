@@ -1,5 +1,5 @@
 
-	!src "godotlib.lib"
+	!src <godotlib.lib>
 	*= $c000
 	!ct pet
 ;	!sl "labels.txt"
@@ -30,6 +30,7 @@
 ;     1.10, 28.05.18, bugfix: garbage when moved right on same row, fixed
 ;     1.11, 25.01.20, better matching translation, changed prio
 ;     1.12, 23.11.20, added: option to stay in module while copying
+;     1.13, 07.10.26, bugfix: regard hotspot offsets in mouse pointer
 ;
 ; --------------------------------------
 ;
@@ -40,7 +41,7 @@
 ;      selection; added selector sprites for choosing destination
 ;      area; added moving with chooseable transparency color
 ;
-; -------------------------------------- 
+; --------------------------------------
 
 
 ; -------------------------------------- Equates
@@ -76,6 +77,9 @@
 	check1		= $4c
 	check2		= $4d
 	vmflag		= $4e
+	hotspotx		= $4f
+	hotspotxhi	= $50
+	hotspoty		= $51
 
 	spalte		= sc_merk+1
 
@@ -107,12 +111,12 @@
 
 	jmp start
 
-	!by $20,$00,$00 
+	!by $20,$00,$00
 	!wo modend
 	!wo 0
 	!tx "Move the Clip ! "
-	!tx "1.12"
-	!tx "23.11.20"
+	!tx "1.13"
+	!tx "07.10.26"
 	!tx "M.Burggraf/$AD  "
 
 ; -------------------------------------- Main
@@ -153,8 +157,8 @@ cancel	lda dispmk
 	sta stay
 	lda #$ce
 	sta exitgad+4
-	sec 
-	rts 
+	sec
+	rts
 
 ; -------------------------------------- Event: Copy
 
@@ -181,14 +185,14 @@ cliptrans	jsr initad
 	beq +		; if equal do nothing
 	bmi bwards
 
-fwards	lda #$ff		; vorwärts: Höhenzähler vor 0 setzen
+fwards	lda #$ff		; vorwÃ¤rts: HÃ¶henzÃ¤hler vor 0 setzen
 	sta zaehlerzl
 
-lp1	lda #0		; Spaltenzähler auf Start (0)
+lp1	lda #0		; SpaltenzÃ¤hler auf Start (0)
 	sta zaehlersp
 	jsr countad	; Move activity bar
 	jsr countad
-	inc zaehlerzl	; Höhe abzählen
+	inc zaehlerzl	; HÃ¶he abzÃ¤hlen
 	lda zaehlerzl	; height complete?
 	cmp zhoehe
 	bcs trend		; yes, end
@@ -200,10 +204,10 @@ lp0	jsr blocktrans	; no, transport
 	bcc lp0
 	bcs lp1		; yes, next row
 
-bwards	lda zhoehe	; rückwärts: Höhenzähler auf Cliphöhe setzen
+bwards	lda zhoehe	; rÃ¼ckwÃ¤rts: HÃ¶henzÃ¤hler auf CliphÃ¶he setzen
 	sta zaehlerzl
 
-lp3	lda zbreite	; Spaltenzähler auf Clipbreite (-1)
+lp3	lda zbreite	; SpaltenzÃ¤hler auf Clipbreite (-1)
 	sta zaehlersp
 	dec zaehlersp
 	jsr countad	; Activity bar
@@ -235,16 +239,16 @@ trend	lda transfl
 +	sec		; no, leave
 	rts
 
-; -------------------------------------- 
+; --------------------------------------
 
 ; -------------------------------------- Transport one 4Bit-Tile
 
 blocktrans
 	jsr calcblock	; calculate source and target addresses
 
-	sei 
+	sei
 	lda pport
-	pha 
+	pha
 	lda #1
 	sta pport
 	ldy #31		; transport 32 bytes (1 tile)
@@ -253,13 +257,13 @@ blocktrans
 	jsr transsubt
 	jmp ++
 +	jsr transsubo
-++	dey 
+++	dey
 	bpl -
-	pla 
+	pla
 	sta pport
-	cli 
+	cli
 
-	rts 
+	rts
 
 ; -------------------------------------- Calculate Addresses
 
@@ -316,7 +320,7 @@ clcblksub	lda #$40		; rows from start of 4Bit ($4000+zl*$500)
 
 +	stx destin+1	; set destination
 	sta destin
-	rts 
+	rts
 
 ; -------------------------------------- Check for Overlap
 
@@ -396,14 +400,14 @@ ifrght	lda vmflag
 
 transsubo	ldx flag2
 	beq change
-	dex 
+	dex
 	beq move
 
 ; -------------------------------------- Perform Copy
 
 copy	lda (source),y	; just source to destination
 	sta (destin),y
-	rts 
+	rts
 
 ; -------------------------------------- Perform Move
 
@@ -419,19 +423,19 @@ move	lda (source),y	; source to destination, then
 ; -------------------------------------- Perform Exchange
 
 change	lda (source),y	; save source
-	pha 
+	pha
 	lda (destin),y	; destination to source
 	sta (source),y
-	pla 
+	pla
 	sta (destin),y	; re-get source and set destination
 	clc
-	rts 
+	rts
 
 ; -------------------------------------- Transparent-Distributor
 
 transsubt	ldx flag2
 	beq tchange
-	dex 
+	dex
 	beq tmove
 
 ; -------------------------------------- Perform Transparent-Copy
@@ -439,7 +443,7 @@ transsubt	ldx flag2
 tcopy	lda (source),y	; just source to destination
 	jsr tcheck	; check for transparent pixels
 	sta (destin),y
-	rts 
+	rts
 
 ; -------------------------------------- Perform Transparent-Move
 
@@ -457,14 +461,14 @@ tmove	lda (source),y	; source to destination, then
 
 tchange	lda (destin),y	; save destination (no transparency here)
 	jsr tcheck
-	pha 
+	pha
 	lda (source),y	; source to destination (with transparency)
 	jsr tcheck
 	sta (destin),y
-	pla 
+	pla
 	sta (source),y	; re-get destination and set source
 	clc
-	rts 
+	rts
 
 ; -------------------------------------- Check for Transparency
 
@@ -507,10 +511,10 @@ sevcolor	ldx curcol
 	lda spalte	; wo geklickt?
 	cmp #17
 	bcs +
-	dex		; linke Hälfte: rückwärts
+	dex		; linke HÃ¤lfte: rÃ¼ckwÃ¤rts
 	bpl ++
 	ldx #14
-+	inx		; rechte Hälfte: vorwärts
++	inx		; rechte HÃ¤lfte: vorwÃ¤rts
 	cpx #16
 	bne ++
 	ldx #0
@@ -686,26 +690,38 @@ sh0	jsr invertcl	; blink clip
 	beq sh1		; yes, finish
 	lda sy_tbuffer	; any key?
 	beq sh0		; no, loop
-
 sh1	lda togg		; finish
 	and #1		; clip in blink phase?
 	beq sh0		; no, add one blink
 	jsr invertcl	; yes, clip to off
 
+	lda spritehi	; Mauszeiger > 255 (Flag)
+	and #$03
+	sta hotspotxhi
+
 	jsr gd_spron
 	jsr swap252	; repair rendered image after task
 	jsr getcolors
-	lda spritehi	; don't care about lower selector pos
+
+	sec		; 			### 1.13
+	lda spritex+2
+	sbc hotspotx
+	sta spritex+2	; sync upper selector's x-position
+	bcs +
+	lda spritehi
 	and #$0f
+	ora #$0c
 	sta spritehi
-	lda spritex+2	; set correct selector position
++	lda spritex+2	; set correct selector position
 	sta spritex
-	lda spritey+2	; ### 1.09
-	sta spritey-2
-	jsr getpos	; get selector position for transport
-	lda spritehi	; leave only pointer
-	and #3
+	sec		; 			### 1.13
+	lda spritey+2	; set y-position of selectors
+	sbc hotspoty
+	sta spritey+2
+	sta spritey-2	; ### 1.09
+	lda hotspotxhi	; ensure pointer is visible
 	sta spritehi
+	jsr getpos	; get selector position for transport
 rdy	jmp dp20		; text mode on, finished
 
 ; -------------------------------------- Leading Zero to Space
@@ -714,7 +730,7 @@ getzif	jsr gd_xcnvdez	; Byte nach Ziffern
 	cpx #$30
 	bne +
 	ldx #$20
-+	rts 
++	rts
 
 ; ------------------------------------------------ Get Mouse Position
 
@@ -768,7 +784,7 @@ yinput	ldy #10		; valid chars (digits and space, 11 bytes)
 	sty sc_iflag
 -	lda zln,y
 	sta sy_global,y
-	dey 
+	dey
 	bpl -
 
 	lda #<sy_global	; perform Input (result at ls_nambuf)
@@ -799,9 +815,9 @@ gword	ldy #0
 
 	cmp #$3a
 	bcs +
-	sec 
+	sec
 	sbc #$30
-	sec 
+	sec
 	sbc #$d0
 	bcs +
 	sbc #$2f
@@ -831,12 +847,12 @@ gword	ldy #0
 +	lda int
 	rts
 
-; -------------------------------------- 
+; --------------------------------------
 
 inca8	inc ls_vekta8
 	bne +
 	inc ls_vekta8+1
-+	rts 
++	rts
 
 ; -------------------------------------- Save/Restore last 64 Bytes of rendered Image
 
@@ -920,7 +936,7 @@ setsprpos	lda spritex-2	; depending on mouse pointer
 	sta spritex+8
 
 	lda spritehi	; get register for "x above 255"
-+	and #$03		; check mouse pointer
+	and #$03		; check mouse pointer
 	beq +
 	ora #$3c		; sync selectors
 +	ldx spr2x+1	; lower sel above 255?
@@ -945,11 +961,20 @@ setsprpos	lda spritex-2	; depending on mouse pointer
 
 ; -------------------------------------- Initialize Position
 
-init	lda #0
+init	sec		; 			### 1.13
+	lda #24
+	sbc sy_soffx	; should be 0
+	sta hotspotx
+	sec
+	lda #50
+	sbc sy_soffy	; should be 0
+	sta hotspoty	; 			###
+
+	lda #0
 	sta spr2x+1
 	ldx #22
 -	sta zl,x
-	dex 
+	dex
 	bpl -
 	sta sc_keyprs	; clear keyboard
 	sta sc_loop	; clear flag for graphics mode
@@ -972,7 +997,7 @@ reinit	stx quellzeile
 	asl
 	sta spr2x		; save in spr2x
 	rol spr2x+1	; if wider than 255: (spr2x+1)=1
-+	lda sc_lastclpho
+	lda sc_lastclpho
 	sta zhoehe	; compute height of selector
 	tax
 	dex
@@ -981,7 +1006,7 @@ reinit	stx quellzeile
 	asl
 	asl
 	sta spr2y		; save in spr2y
-	rts 
+	rts
 
 ; ------------------------------------------------ Invert clip area
 
@@ -1027,9 +1052,9 @@ graphon	lda rahmen
 	clc
 	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 ; ------------------------------------------------ graphics display
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 checkcols	sei 		; GoDot off
 	ldx #$00
@@ -1056,17 +1081,17 @@ checkcols	sei 		; GoDot off
 
 	lda #$36		; GoDot on again
 	sta pport
-	cli 
-	rts 
+	cli
+	rts
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 sethicol	lda (slot,x)	; get type of module (at $c003): $20, $40, $80
-	tay 
+	tay
 	and #$40		; is saver there? (contains vram1)
 	beq +		; no, next type
 
-	jsr c147		; yes, set color buffer 
+	jsr c147		; yes, set color buffer
 	sta v1buf
 	bne ++
 
@@ -1080,13 +1105,13 @@ sethicol	lda (slot,x)	; get type of module (at $c003): $20, $40, $80
 +	jsr c147		; so, it's a modifier (contains vram2)
 	sta v2buf
 
-++	rts 
+++	rts
 
 c147 	lda slot+1	; get hibyte...
 	ora #$0e		; ...and OR %00001110 to it (ie $ce)
 	rts 		; thus: get correct hi address of color buffers
 
-; ------------------------------------------------ 
+; ------------------------------------------------
 
 redisplay	ldx gr_palette	; set border to color 0 (normally black)
 	stx rahmen
@@ -1136,12 +1161,12 @@ tmode	ldx #$13
 	sta backgr
 	rts
 
-; ------------------------------------------------ 
-; ------------------------------------------------ 
+; ------------------------------------------------
+; ------------------------------------------------
 ; Routines to handle GoDot's graphics color buffers
 ; for comments see sources for god.upmem
-; ------------------------------------------------ 
-; ------------------------------------------------ 
+; ------------------------------------------------
+; ------------------------------------------------
 
 setcveks	sei
 	lda #$35
@@ -1291,7 +1316,7 @@ gt0	jsr gd_setpos
 initad	ldy #63
 	lda #0
 -	sta $3fc0,y
-	dey 
+	dey
 	bpl -
 	sty $3fc0
 	sty $3fc1
@@ -1317,7 +1342,7 @@ initad	ldy #63
 	lda $d015
 	ora #$0c
 	sta $d015
-	rts 
+	rts
 
 ; -------------------------------------- Switch Activity Bar off
 
@@ -1327,7 +1352,7 @@ clearad	lda $d015
 	lda $d010
 	and #$f3
 	sta $d010
-	rts 
+	rts
 
 ; -------------------------------------- Perform Activity
 
@@ -1339,7 +1364,7 @@ countad	inc $d005
 	lda #$92
 	sta $d005
 	sta $d007
-+	rts 
++	rts
 
 ; --------------------------- Kringel definieren
 
@@ -1387,15 +1412,15 @@ liste	!by 0
 	!wo 0
 	!scr "MoveClip@"
 zielzl	!by 8,17,4,3,$e0
-	!wo row 
+	!wo row
 zzltx	!scr " 0@"
 zielsp	!by 8,24,4,3,$e0
-	!wo col 
+	!wo col
 zsptx	!scr " 0@"
 	!by 11,21,8,3,$dd
 	!wo sevsetcl
 	!scr "SetClp@"
-	!by 13,21,8,3,$ce 
+	!by 13,21,8,3,$ce
 	!wo befmove
 	!scr " Move@"
 	!by 15,21,8,3,$ce
@@ -1426,12 +1451,12 @@ exitgad	!by 19,21,8,3,$ce
 
 	!by $c0,6,14,12
 	!scr "Destination:@"
-	!by $c0,8,13,3 
+	!by $c0,8,13,3
 	!scr "Row@"
-	!by $c0,8,20,3 
+	!by $c0,8,20,3
 	!scr "Col@"
-	!by $80 
+	!by $80
 
-; -------------------------------------- 
+; --------------------------------------
 
 modend	!eof
