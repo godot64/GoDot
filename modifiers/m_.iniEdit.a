@@ -1,0 +1,1482 @@
+
+	!src <godotlib.lib>
+	*= $c000
+	!ct pet
+
+; -----------------------------------------
+;
+;  mod.iniEdit
+;   Module to edit GoDot's ini files
+;
+;  1.00, 17.11.26: first release
+;
+; -----------------------------------------
+
+; ----------------------------------------- Equates
+
+	dst	= $30	; /$31, where to write to in buffer
+	count	= $32	; count and countdown
+	temp	= count	; use address twice
+	amount	= $33	; final amount of ini lines
+	pagewise	= $34	; flag to view end of ini
+	holdpos	= $35	; /$36: top position of current text on screen
+	endpos	= $37	; /$38, end position of ini buffer
+	second	= $39	; second counter
+	resecond	= $3a
+	endflag	= $3b	; has reached end already
+	startln	= $3c	; /$3d start of line (in buffer) clicked in edit
+	clicked	= $3e	; line where clicked to edit
+	firsttime	= $3f	; just started program
+	pages	= $40	; amount of pages (minus 1)
+	lnlen1	= $41	; length of line before editing
+	lnlen2	= $42	; length of line after editing
+	bwvalue	= $43	; difference of edited line to original
+	bwvec	= $44	; /$45 vector for to copy backwards
+	edited	= $46	; file edited? (no if 0)
+
+	zeile	= sc_merk	; row of mouse click
+	spalte	= zeile+1	; column of mouse click
+	fileind	= file+4	; Einrückung bei god.ini
+
+	position	= $1289
+	blinkline	= $12f8
+	txstart	= $2000
+	rahmen	= $d020
+
+; ----------------------------------------- Header
+
+header	jmp start
+	!by $20		; = this is a modifier
+	!by 0
+	!by 0
+	!wo modend
+	!wo 0
+	!tx "Edit INI files  "
+	!tx "1.00"
+	!tx "17.11.26"
+	!tx "A.Dettke        "
+
+; ----------------------------------------- Main (Start Editor)
+
+start	lda gd_modswitch	; handle GoDot's RAM architecture
+	sta ramman
+	ldx sc_screenvek	; vector to current screenlist
+	ldy sc_screenvek+1
+	stx list
+	sty list + 1
+	ldy #$00
+	sty edited	; init edited to not yet edited
+	dey
+	sty newfile 	; init newfile to first start
+	ldx #4
+	jsr setnew 	; reset requester
+	jsr blankout	; clear filename in requester
+
+startover	jsr buildscrn	; build editor screen (returns .x=0)
+	lda ls_drive	; valid drive?
+	beq jfail		; no, error
+	cmp #8		; in case last "drive" was a datassette
+	bcc jfail
+	cmp #12		; drives >11 are not allowed
+	bcs jfail
+	jmp gd_eloop	; now wait for clicks
+
+; ----------------------------------------- Event: Leave Editor
+
+evleave	jsr isedited	; editiertes PRG noch nicht gesavet?
+	bne +		; "n" angeklickt
+	lda ramman	; "y" angeklickt
+	sta gd_modswitch
+	lda #0
+	sta success
+	sec 		; SEC lets you leave a modifier
+	!by $24
++	clc 		; CLC lets you stay
+	rts
+
+; ----------------------------------------- Screen nach Messages reparieren
+
+repair	jsr mainscr	; Hauptbildschirm ausgeben
+	jmp aftermess	; Requester und erste Textseite zeigen
+
+isedited	lda edited	; 0= ja, fortfahren (z.B. Datei laden)
+	beq +
+	jsr needalert 	; >0= nachfragen: Datei überschreiben?
+	jsr repair	; (Bildschirm reparieren)
+	lda edited	; Ergebnis
++	rts
+
+; ----------------------------------------- Failed Disk Operations
+
+abbruch	ldy #0
+	sty success 	; init success flag
+	dey
+	sty edited 	; set edited to not yet edited
+	sty newfile	; file contents have been descarded
+	jsr chnglst 	; so change screenlist accordingly
+	inc edited	; set: edited, but discarded (empty file)
+jfail	jmp fail
+
+; ----------------------------------------- Event: Load an INI
+
+evloadini	lda #0		; load special ini
+	!by $2c
+evloadgod	lda #$ff		; load god.ini
+	pha
+
+	lda success	; bereits Datei im Speicher?
+	beq +		; nein, Abfrage übergehen
+	jsr isedited	; Abfrage: soll fortgefahren werden?
+	beq + 		; ja (=0), fortfahren
+	pla		; nein (>0), Stack bereinigen...
+	jmp blinkgrn	; ...und laden abbrechen
+
++	pla		; Filetyp vom Stack holen, nach .y sichern
+	tay
+	sty iniflag	; as flag for which type of ini
+	sty firsttime	; as flag to reset display
+	jsr chgdrv	; this for: don't open RAM accidentally
+	lda #0
+	sta count		; reset entry counter
+	sta success	; reset load flag
+	sta pagewise	; reset flag how to proceed to last page of file
+	sta ls_flen	; reset flag that indicates valid filename
+	sta endpos	; reset address where file buffer ends
+	sta endpos+1
+	sta endflag 	; reset flag for having reached file's last line
+	ldy iniflag	; .y determines god.ini ($ff) / any ini (0)
+	bmi +
+
+; load ini.xxx:
+	jsr lddir		; any ini: show GoDot's directory requester
+	jsr gd_eloop	; and wait for clicks there
+	jsr mainscr	; restore GoDot's main screen (to get rid of dir window)
+	jsr buildscrn	; then re-build editor screen
+	jsr blankout	; clear display of file name
+	ldy ls_flen	; any file selected? (no when .y=0)
+	beq abbruch
+	jsr showfname	; yes, show filename
+	ldy ls_flen
+	lda #<ls_nambuf	; and set address of filename for load
+	ldx #>ls_nambuf
+	bne ++		; uncond. branch
+
+; load god.ini:
++	jsr godfname	; create "god.ini" filename
+	jsr textout	; show it
+
+	ldy godlen	; god.ini: set file parameters
+	lda #<godini
+	ldx #>godini
+
+++	sty ls_temp	; open ini file
+	sta ls_vekta8
+	stx ls_vekta8+1
+	jsr gd_xopen	; disk error?
+	bcs jfail
+
+	lda #0		; no, init STOP key and status, preset .x to 0
+	sta newfile	; flag: file can be edited
+	sta sc_stop
+	sta status
+	tax
+	jsr setstart	; init destination address ($2000, returns .y=0)
+
+--	jsr basin		; read data, 1st: skip line linker
+	inx		; .x: index in file (to skip line header)
+	cpx #7		; skip 6 bytes (start address, linker, line number)
+	bne --
+	lda status	; error so far?
+	beq +
+	jmp jfail
++
+-	lda sc_stop	; no, break on STOP?
+	bne ++
+	jsr basin		; no, read line data
+	sta (dst),y	; and store (end marker of a line is $00)
+	iny
+	bne +
+	inc dst+1
++	ora sc_stop	; so read until line end (.a=$00 or stop)
+	bne -
+	inc count		; count lines
+	ldx #3		; prepare turn over (only skip 4 bytes in following lines)
+	jsr basin		; check file end (two more $00s after line-end-$00)
+	bne --
+
+	sta (dst),y	; write End flag: ($00) $00 $00
+	iny
+	sta (dst),y
+	tya		; save end position of ini contents
+	clc
+	adc dst
+	sta endpos
+	lda dst+1
+	adc #0
+	sta endpos+1
+	stx success	; load was successful (.x>0)
+	stx pagewise 	; set flag: browse pagewise (wait after 1 page)
+	stx edited 	; set flag: buffer was "edited" (filled)
+	jsr chnglst 	; change screenlist if necessary ("New"->"Edit")
+
+++	jsr fclose	; close file
+	jsr chgdrv	; restore bootdrive
+	jsr tobcode 	; convert ini text to screen code, returns .a=0
+
+enlist	ldx #0		; compute amount of pages (minus 1) in file
+	lda count		; store amount of ini lines
+	pha
+	sta amount
+	sec
+	sbc #16
+	bpl +
+	txa
++	sta second	; set co-counter of lines to detect last line
+	sta resecond
+	dex
+	sec
+	pla		; re-get counted amount
+-	sbc #14		; subtract a screenful (14 lines)
+	inx		; add 1, all pages?
+	bcs -
+	dex		; yes, result minus 1
+	stx pages
+	bpl review
+	inc pages
+
+; ----------------------------------------- Show Contents
+
+review	jsr setstart	; re-init address ($2000) of buffered (god.)ini
+next	lda dst		; save top buffer position of current screen
+	sta holdpos
+	lda dst+1
+	sta holdpos+1
+	jsr showlines	; show 14 lines of (god.)ini (one window)
+	jsr restdescr	; restore output descriptor
+	lda count		; already all lines?
+	beq ++		; yes, end review routine
+
+	lda pagewise	; no, want to immediately see end of ini?
+	bne +		; yes, skip wait
+	jsr wait		; this waits for clicks, stop, or any other key
+	lda sc_stop
+	bne break		; blink green if aborted
+
++	lda firsttime	; first time to pass along?
+	bmi ++		; yes, end browsing
+	dec firsttime	; no, set flag down from value 0 to negative vals
+	jsr clrgad	; and clear output window
+	ldy #0		; restore .y, show next window
+	beq next		; uncond. branch
+
+++	ldy #0
+	sty pagewise	; reset flag to proceed to end of ini without wait
+	sty firsttime	; this was the first time
+onewnd	jsr restdescr	; again: restore output descriptor
+	clc
+	rts
+
+; ----------------------------------------- Break
+
+break	jsr blinkgrn
+	bcc onewnd	; uncond. branch
+
+; ----------------------------------------- Event: Go to top or end of ini
+
+evbrowse	lda success	; ini already loaded? (when .a>0)
+	beq blinkred
+
+	lda #$ff
+	sta endflag	; preset endflag-value to end reached
+	ldx pages		; preset number-of-pages-value
+
+	ldy spalte	; which arrow gadget was clicked? ("|< > >|")
+	cpy #8		; right one: go to end of text (skip all pages)
+	bcs +		; yes
+	inc endflag	; now set endflag to not having reached the end (=0)
+	tax		; .x=$ff
+	cpy #5		; left one: go to start of text (and don't proceed)
+	bcc ++		; yes
+	ldx pages		; middle one: proceed one page after the other
+	lda #0
+	beq ++		; uncond. branch
+
++	ldy resecond	; init linewise co-counter
+	sty second
+++	sta pagewise	; set flag to skip wait depending on .a (wait if .a>0)
+	stx firsttime
+	jsr clrgad	; clear text window
+	lda amount	; set the countdown counter to max entries
+	sta count
+	jmp review	; and show ini (pagewise)
+
+; ----------------------------------------- Blink Border: green or red
+
+blinkgrn	ldy #5		; blink border green (when break while browsing)
+	!by $2c
+blinkred	ldy #2		; blink border red (if no file loaded)
+	jmp graphon
+
+; ----------------------------------------- Event: Scroll one line up or down
+
+evoneline	lda spalte
+	cmp #34
+	bcc lineup
+
+; ----------------------------------------- Scroll one line down
+
+linedwn	lda success	; ini already loaded?
+	beq blinkred	; no (if .a=0)
+
+	lda endflag	; already at end?
+	bne onewnd	; yes, do nothing (onewnd is part of "review")
+
+	dec second	; on final window?
+	bmi +		; yes (if neg), leave
+	jsr clrgad	; no, clear window
+	jsr restdescr	; restore output descriptor
+	jsr forward	; find next line in file
+lastone	lda holdpos	; fetch buffer position of top line of current screen
+	sta dst
+	lda holdpos+1
+	sta dst+1
+	lda #18		; set the countdown counter to >14 (one window)
+	sta count
+	ldy #0
+	jsr showlines	; output one window
+-	sta pagewise	; set flag to skip wait (when .a>0)
+	jmp onewnd	; leave (now you scrolled down one line)
+
++	inc second	; restore counter-of-ini-lines-minus-last-window
+	jmp -		; leave (.a=0)
+
+; ----------------------------------------- Scroll one line up
+
+lineup	lda success	; ini already loaded?
+	beq blinkred	; no (if .a=0)
+
+	lda holdpos+1	; already up to start of ini buffer?
+	cmp #>txstart
+	bne +
+	lda holdpos
+	beq -
++	jsr clrgad	; no, clear window
+	jsr restdescr	; restore output descriptor
+	jsr backward	; find previous line
+	jmp lastone	; show last one (which is the very first one)
+
+; ----------------------------------------- Event: Edit
+
+evedit	lda newfile	; Buffer empty?
+	bmi sevnew	; yes, create a new file
+
+	lda success	; no, ini already loaded?
+	beq blinkred	; no, if 0
+
+	lda sc_screenvek+1	; save pointer to current screen list
+	pha		; (Edit has its own one)
+	lda sc_screenvek
+	pha
+
+	ldy #31
+-	lda bckedline,y	; prepare message
+	sta edline,y
+	dey
+	bpl -
+	jsr inactive	; set input gadget inactive
+	ldx #<editlst	; change screen
+	ldy #>editlst
+	jsr gd_screen
+	ldx #2		; erase some superfluous lines
+	lda #32
+-	sta $073c,x
+	dex
+	bpl -
+	jsr sevedit	; and wait for edit clicks
+
+return	ldx #1		; then prepare output of ini
+	stx count
+	jsr review	; first in input gadget (1 line)
+
+	jsr mainscr	; clear all to main screen
+	pla		; restore previous screen (editor requester)
+	sta sc_screenvek
+	pla
+	sta sc_screenvek+1
+aftermess	jsr buildscrn	; returns .x=0
+	lda #4
+	sta spalte
+	jmp evbrowse 	; output ini text from start, 
+			; we're back in start screen of editor
+
+; ----------------------------------------- Subevent: Create New INI
+
+sevnew	ldx #screenlst-newini
+	stx ls_temp
+-	lda newini,x	; Vorgabezeilen in die leere Ini eintragen (4 Stück)
+	sta txstart,x
+	dex
+	bpl -
+
+	clc
+	lda #<txstart	; Endadresse finden
+	adc ls_temp
+	sta endpos
+	lda #>txstart
+	adc #0
+	sta endpos+1
+
+	lda #4
+	sta count		; set: 4 lines
+	sta edited	; file is edited (newly created)
+	sta success	; activate as successful "load"
+	sta newfile	; this is a new file (value must be positive)
+	jsr chnglst 	; change screenlist to "Edit"
+	jmp enlist	; integrate file in ini editor and show lines
+
+; ----------------------------------------- Subevent: Line Edit
+
+sevedit	jsr wait		; edit shows message here, so wait until click
+	jsr gaugeout	; clear message
+	lda sc_stop	; click was STOP?
+	bne +		; yes, finish
+	sta lnlen1	; no, init lengths (.a=0)
+	sta lnlen2
+	jsr position	; where is the mouse?
+	lda zeile		; get row of click (inside text window?)
+	cmp #5
+	bcc +
+	cmp #19
+	bcs +		; if not: leave
+	sta clicked	; save line number where clicked for edit
+	ldx #4		; point GoDot there
+	ldy #32
+	jsr gd_setpar
+	jsr gd_initmove	; compute position in vector 20/21 (returns .y=0)
+-	lda (sc_vekt20),y	; copy from there to output buffer
+	sta sc_movetab,y
+	sta edline,y
+	iny
+	cpy #32
+	bne -
+	lda #0		; set delimiter $00
+	sta sc_movetab,y
+	jsr blinkline	; blink clicked line
+	jsr gd_setmess	; point again to output buffer
+	jsr gd_initmove
+	jsr gd_xtxout3	; and this time write buffer to screen
+	jsr blinkline
+	jsr active	; activate Edit line
+	jsr getstart 	; find start address of area to shift after editing
+
+-	jsr gd_eloop	; wait for clicks in edit screen
+	lda sc_stop	; until stop
+	beq -
+
++	sec		; leave edit screen (until stop flag set)
+	rts
+
+; ----------------------------------------- Subevent: Delete Line
+
+sevdelete	jsr initinput	; prepare input (find lnlen1: len of unedited line)
+	lda #0
+	ldx #2		; fake len of edited line to $00
+-	sta ls_nambuf,x	; prepare ls_nambuf to $00 $00 $00
+	dex
+	bpl -
+	inx
+	stx ls_len	; .x=0 (will be lnlen2: len of edited line)
+	txa		; set address of ls_nambuf
+	ldy #2
+	jmp sinp0		; delete clicked line
+
+; ----------------------------------------- Subevent: Insert Line
+
+sevinsert	jsr adjustinc	; adjust number of lines in file
+	ldy #34		; create new line (32 spaces):
+	sty ls_len
+	dey
+	dey
+	tya 		; neue Zeile: 32 Zeichen lang
+-	dey
+	sta ls_nambuf,y	; 32 Leerzeichen eintragen
+	bne -
+	sty lnlen1	; .y: "alte" Zeile:  0 Zeichen lang
+	jmp sinp1		; .x:  neue  Zeile: 32 Zeichen lang, aber leer
+
+; ----------------------------------------- Subevent: Input Line
+
+sevinput	jsr initinput	; prepare input
+	jsr gd_xinput	; GoDot input, returns .y=0, result in ls_nambuf
+	lda sc_stop	; aborted?
+	bne ++		; yes, don't convert
+
+sinp1	tya		; no, finish ls_nambuf w/ three $00 (.y=0)
+	dey
+	ldx ls_len	; get length of line after editing
+	inx		; Länge (+3)
+-	sta ls_nambuf,x	; noch zweimal $00
+	dex
+	iny
+	cpy #2
+	bne -
+
+	lda lnlen1 	; aktuelle Aktion: Insert Line?
+	beq sinp0		; ja, nächste Abfrage überspringen
+	cmp #32		; Abfrage: leere Zeile 32 Bytes lang?
+	bcc +
+	ldx ls_len 	; ja, echte Eingabelänge setzen
++	lda #0
+
+sinp0	stx lnlen2	; save length of line after editing (lnlen2)
+	sta dst		; point to input buffer (.a=0)
+	sty dst+1		; .y=2 (zeigt auf $0200: ls_nambuf)
+	sty edited	; set flag for file edited (>0, nachfragen beim Neuladen)
+	tay		; .y=0
+	jsr tb0		; convert input buffer to bcode
+	jsr endedit	; activate Stop flag (which will end edit mode)
+
+	txa		; get len of edited line (lnlen2)
+	eor lnlen1	; different lengths? (then it has surely changed)
+	bne +		; yes, insert edited line in file
+	jsr chkchngs	; lengths identical, but any other differences?
+	beq ++		; no, leave (!eq: different, .y>0; eq: same, .y=0)
++	jsr insertln	; yes, insert (in .x: still len of edited line)
+
+++	sec		; leave edit mode
+	rts
+
+; ----------------------------------------- Prepare Input
+
+initinput	lda #0
+	sta sc_stop	; clear stop flag
+	jsr inactive	; deactivate input Gadget
+	ldy #32		; compute len of line before editing (lnlen1)
+-	dey
+	lda edline,y
+	cmp #32
+	beq -
+	tya
+	bpl +
+	ldy #32
++	sty lnlen1	; save len
+	rts
+
+; ----------------------------------------- Check line for any changes
+
+chkchngs	lda ls_nambuf,y	; edited line
+	cmp (startln),y	; original line
+	bne +		; identical or not?
+	dey
+	bpl chkchngs
++	iny		; returns $00 if identical or
+	tya		; true pos in string if not (count starts w/ 1)
+	rts
+
+; ----------------------------------------- Convert ini to Screen Code
+
+tobcode	jsr setstart	; set pointer back to start
+tb0
+-	lda (dst),y	; read byte (possible petscii char)
+	beq ++		; is $00? (yes, check for next byte, so skip this $00)
+	eor #$e0		; otherwise, convert byte to screen code
+	clc
+	adc #32
+	bpl +
+	adc #64
+	bpl +
+	eor #$a0
++	sta (dst),y	; and write back
+	iny
+	bne -
+	inc dst+1
+	bne -		; proceed with next byte (unconditional branch)
+
+++	iny		; next byte after $00: one more $00?
+	ora (dst),y
+	bne -		; no, continue (was just a line end)
+	iny		; yes, third byte also $00? (then: end of file)
+	ora (dst),y
+	bne -		; no, continue (this was an empty line)
+	rts		; yes, finish
+
+; ----------------------------------------- Show one Window of INI lines
+
+showlines	jsr nextline	; prepare line for output
+	iny
+	sty edgad+2	; store len to line descriptor
+	txa		; end of file if .x=0 (then skip output)
+	beq +
+
+	ldy #2		; output line
+	jsr tout2
+	inc edgad		; address next screenrow
+	lda edgad
+	cmp #18		; up to screenrow 18
+	bcs ++		; then leave
+
++	ldy #0
+	dec count		; count lines (downto 0)
+	bne showlines	; show next line
+++	rts
+
+; -----------------------------------------
+
+nextline	lda (dst),y	; copy to output buffer, dst points to ini buffer
+	sta iniline,y	; .y must be $00, "count" must be set
+	beq +		; scan until $00 (end of line)
+	iny
+	bne nextline
++	tya		; if .y=0: empty line (and .y never exceeds 32)
+	tax 		; flag: empty line (if .x=0, used in "showlines")
+	iny 		; add len to buffer pointer DST (.y+1: skip line end $00) 
+
+	clc
+	tya
+	adc dst		; dst points to next line (after $00)
+	sta dst		; (.x indicates current line is empty)
+	bcc +
+	inc dst + 1
++	lda dst+1		; end of file found? (three $00)
+	cmp endpos+1
+	bcc +
+	lda dst
+	cmp endpos
+	bcc +
+	ldx #0		; yes, don't show data behind end
+	inc endflag 	; and don't scroll anymore
++	rts		; returns dst pointing to start of next line
+
+; -----------------------------------------
+
+insertln	sec
+	txa		; get len of edited line (lnlen2)
+	tay
+	sbc lnlen1	; subtract lnlen1, len of original line
+	sta bwvalue	; save difference
+	beq justcopy	; .e an : beide gleich lang
+	bcc lesscopy	; .c aus : edited line kleiner
+			; .c an: edited line größer:
+
+; ----------------------------------------- New Line is longer
+
+morecopy	lda startln	; save startline address
+	pha
+	lda startln+1
+	pha
+
+	jsr setdst 	; set destination address (startln plus len of edited line)
+	lda ls_len
+	cmp #34
+	bcc +
+	inc bwvalue
++	jsr copybw	; move all chars to gain room for new line
+
+	pla		; after transfer: restore address of startln
+	sta startln+1
+	pla
+	sta startln
+	ldy lnlen2	; am Ende edited line eintragen:
+
+; ----------------------------------------- New Line has same Length
+
+justcopy	tya
+	beq +
+-	lda ls_nambuf,y	; edited line in Buffer eintragen
+	sta (startln),y
+	dey
+	bpl -
++	rts
+
+; ----------------------------------------- New Line is shorter
+
+lesscopy	jsr justcopy	; insert edited line (none if empty)
+	jsr setdst 	; set destination address
+	lda ls_len	; function "delete"? (when .a=0)
+	bne +		; no, new line is shorter
+	jsr decdst	; yes, adjust addresses because new line is empty
+	jsr decdst
+	jmp ++
++	lda lnlen1
+	beq +
+	cmp #32
+	beq +
+++	jsr incdst
++	clc
+	lda startln	; set source
+	adc lnlen1
+	sta startln
+	bcc +
+	inc startln+1
+
++	tya		; function delete?
+	bne + 		; nein
+	ldy #2
+	lda ( startln ), y	; ja, folgt Leerzeile?
+	bne +		; nein
+	iny
+	ora ( startln ), y	; ja, sind wir am File-Ende?
+	beq + 		; ja, nichts tun
+	dec amount
+	jsr incstl	; nein, Leerzeile mitlöschen (einmal $00)
+
++	jsr incstl	; proceed 1 char (skip line end marker $00)
+
+copyall	ldy #0
+-	lda (startln),y	; Byte aus Buffer holen
+	sta (dst),y	; umkopieren, current byte: $00?
+	beq +		; yes, check for more $00s
+	jsr increment	; nächstes Byte ansteuern
+	bne -		; uncond. branch
+
++	jsr increment	; one more $00?
+	ora (startln),y
+	bne -		; no, was just a line end
+	sta (dst),y	; store that byte
+	jsr increment	; yes, (probably an empty line)
+	ora (startln),y	; is there a third $00?
+	sta (dst),y	; store that byte
+	bne -		; no, was an empty line, continue
+
+	clc
+	lda bwvalue	; yes, end of file, adjust end-position
+	eor #$ff		; (subtract difference between old and new line)
+	adc #1
+	sta bwvalue
+	sec
+	lda startln
+	sbc bwvalue
+	sta endpos
+	lda startln+1
+	sbc #0
+	sta endpos+1	; (point endpos to the third of three $00s)
+	rts		; leave copyall
+
+; ----------------------------------------- New Line is longer
+
+copybw	ldy #0
+	clc
+	lda endpos	; set vectors and adjust end-position of file
+	sta bwvec		; (add difference between old and new line)
+	adc bwvalue
+	sta dst
+	sta endpos
+	lda endpos+1
+	sta bwvec+1
+	adc #0
+	sta dst+1
+	sta endpos+1
+
+-	lda (bwvec),y	; Byte aus Buffer holen
+	sta (dst),y	; weiter hinten zurückschreiben
+	jsr decrement
+	lda dst
+	cmp startln
+	bne -
+	lda dst+1
+	cmp startln+1
+	bne -
+	rts
+
+; -----------------------------------------
+
+setstart	ldy #<txstart	; to start of ini buffer (.y=0)
+	lda #>txstart
+	sty dst
+	sta dst+1
+	sty holdpos
+	sta holdpos+1
+	rts
+
+; -----------------------------------------
+
+setdst	clc		; set destination
+	lda startln
+	adc lnlen2	; len of edited line
+	sta dst
+	lda startln+1
+	adc #0
+	sta dst+1
+	rts
+
+; ----------------------------------------- Adjust screenout indexes
+
+adjustinc	inc resecond
+	inc second
+	inc amount
+	rts
+
+; -----------------------------------------
+
+increment	jsr incdst
+incstl	inc startln
+	bne +
+	inc startln+1
++	rts
+
+incdst	inc dst
+	bne +
+	inc dst + 1
++	rts
+
+; -----------------------------------------
+
+decrement	lda bwvec
+	bne +
+	dec bwvec+1
++	dec bwvec
+decdst	lda dst
+	bne +
+	dec dst+1
++	dec dst
+	rts
+
+; ----------------------------------------- Find Line End (forwards)
+
+forward	ldy #0
+-	lda (holdpos),y	; find line end, holdpos points to ini buffer
+	beq fw0		; scan until $00 (line end)
+	iny
+	bne -
+fw0	iny
+	tya		; add position of $00 (+1) to buffer pointer
+	clc
+	adc holdpos	; holdpos points to start of next line
+	sta holdpos
+	bcc +
+	inc holdpos+1
++	rts
+
+; ----------------------------------------- Find Line End (backwards)
+
+backward	ldy #0
+	sty endflag
+	jsr countback	; skip current $00
+-	jsr countback	; find end of previous line
+	lda #>txstart	; reached start of ini buffer?
+	cmp holdpos+1
+	bcc +
+	lda #<txstart
+	cmp holdpos
+	bcc +
+	rts		; yes, leave
++	lda (holdpos),y	; no, scan until previous $00
+	bne -
+	rts
+
+countback	lda holdpos	; backwards counter
+	bne +
+	dec holdpos+1
++	dec holdpos
+	rts
+
+; ----------------------------------------- Clear Text Output Window
+
+clrgad	lda #5		; row (check values against screenlist!)
+	ldx #4		; column
+	ldy #32		; width
+	jsr gd_setpar
+	tax		; .a still 5
+-	stx sc_zl
+	jsr gd_clrline	; clear gadget (row 5 to 18)
+	inx
+	cpx #19
+	bcc -
+	rts
+
+; -----------------------------------------
+
+restdescr	lda #4		; restore line descriptor:
+	sta edgad		; row 4
+	lda #3
+	sta edgad+1	; col 3
+	lda #34
+	sta edgad+2	; len 34
+	rts
+
+; ----------------------------------------- Build GoDot's Main Screen
+
+mainscr	ldx list		; restore GoDot's main screen
+	ldy list+1
+	jmp gd_screen
+
+; ----------------------------------------- Build Editor Screen
+
+buildscrn	ldx #<screenlst	; build requester
+	ldy #>screenlst
+	jmp gd_screen	; (returns .x=0)
+
+; ----------------------------------------- Blink the Border
+
+graphon	lda rahmen	; save border color
+	pha
+	sty rahmen	; set new color (in .y, e.g. "2" for red)
+	ldx #$40
+	jsr gd_dl2	; delay
+	pla
+	sta rahmen	; reset old border color
+	stx sy_tbuffer	; clear key strokes
+	clc
+	rts
+
+; ----------------------------------------- Wait for Clicks
+
+wait	lda #0
+	sta sc_stop
+	sta sc_keyprs
+waiton	lda joy		; wait for click, fire, or STOP
+	eor #$ff
+	and #$10
+	ora sc_keyprs
+	ora sc_stop
+	beq waiton
+	rts
+
+; ----------------------------------------- Warning: File not yet saved
+
+needalert	ldy #31
+-	lda nsvline,y	; prepare message
+	sta alert,y
+	dey
+	bpl -
+	iny
+	sty edited	; clear flag to 0 (file buffer eraseable)
+	jsr gaugeout	; show gauge...
+
+-	jsr wait
+	jsr position 	; no, where is the mouse?
+	lda zeile
+	cmp #23
+	bne -
+	lda spalte	; get column of click
+	cmp #30		; means: yes, continue (eraseable)
+	beq +
+	cmp #32		; means: no, leave (not eraseable)
+	bne -
+	lda #2		; set result:
+	!by $2c
++	lda #0
+	sta edited	; .a: 0 or 2
+	rts
+
+; ----------------------------------------- Gauge
+
+gaugeout	lda sc_screenvek	; show "requester" (for messages)
+	pha
+	lda sc_screenvek+1
+	pha
+
+	lda edited	; call for an alert message?
+	beq +		; yes, skip clearing gadget
+
+	ldx #32		; no, clear gadget
+	txa
+-	dex
+	sta edline, x
+	sta alert,x
+	bne -
+
++	ldx #<gaugelst	; show gadget
+	ldy #>gaugelst
+	jsr gd_screen
+
+	pla		; then back to previous screen
+	sta sc_screenvek+1
+	pla
+	sta sc_screenvek
+	rts
+
+; -------------------------------------------------------------------------
+; -------------------------------------------------------- Disk Access Routines
+; -------------------------------------------------------------------------
+
+; ------------------------------------------------------------- Open Write File
+
+wopen	jsr inull		; Initialize
+	bne err8
+	ldy wflen		; ",p,w" anhängen
+	ldx #3
+wo1	lda pw,x
+	sta ls_nambuf,y
+	iny
+	dex
+	bpl wo1
+	sty wflen
+	lda #12		; OPEN 12,drive,12,"name,p,w"
+	tay
+	ldx ls_drive
+	jsr filpar
+	lda wflen
+	ldx #<ls_nambuf
+	ldy #>ls_nambuf
+	jsr filnam
+	jsr copen
+	jmp err9
+
+inull	ldx #<drinit	; Initialize Drive ("i0")
+	ldy #>drinit
+	lda #2
+	jsr gd_sendcom
+err9	jsr gd_xmess	; returns .x=0
+	lda ls_err2
+	and #15
+err8	sec
+	rts
+
+; ----------------------------------------- Close INI file (after Load)
+
+fclose	jsr gd_xclose	; close file
+	jsr gd_spron	; mouse pointer on
+	jmp clrgad	; clear gadget
+
+; ----------------------------------------- Save INI File
+
+evsave	lda success	; any ini present? (when .a>0)
+	bne +
+	jmp blinkred	; no, fail
+
++	lda sc_screenvek+1	; save pointer to current screen list
+	pha
+	lda sc_screenvek
+	pha
+	lda gd_modswitch	; care for memory management
+	pha
+	jsr chgdrv
+
+	jsr svdir		; open filerequester to define drive and filename
+	sta ls_loadsave	; ! this code line is mandatory here !
+	jsr gd_eloop	; now wait for clicks in filerequester
+
+	jsr gd_sproff	; dann: Maus aus
+	lda ls_flen	; Filenamen angegeben?
+	beq st1		; nein, Ende
+
+	sta wflen		; Namenslänge in .a
+	jsr wopen		; File eröffnen (returns .x=0)
+	bne wp0		; Fehler?
+	stx linenum+1	; no, preset basic line number to 90
+	ldx #90
+	stx linenum
+	ldx #12		; Output aktivieren
+	jsr ckout
+	jsr setstart
+	lda #1		; Startadresse schreiben ($0801)
+	jsr bsout
+	lda #$08
+	jsr bsout
+
+	ldy #0
+loop	jsr add10		; schreibe Zeilenlink und Zeilennummer:
+	jsr wlink		; Start mit 100, inc um 10
+
+wp1	lda (dst),y	; read ini text data
+	bne +
+
+	jsr findend	; if $00: reached end of file?
+	jsr advance	; (advance to next byte, in case)
+	tya		; .y carries flag for file end (then .y>0)
+	bne wp0		; yes, end found, finish save
+	beq loop		; no, was only end of line, so next line
+
++	jsr bc2pet	; if >$00: convert .a to petscii
+	jsr bsout		; write .a to file
+	jsr advance	; next byte
+	bne wp1		; uncond. branch
+
+wp0	jsr clrch		; File schließen (after save)
+	lda #12
+	jsr close		; via $ffc3
+	jsr err9		; Floppymeldung anzeigen, returns .x=0
+	stx edited	; set flag to 0, file is saved (eraseable now)
+
+st1	jsr gd_spron	; Mauszeiger wieder an
+	jsr chgdrv
+	pla		; Memory Management
+	sta gd_modswitch
+;	jsr mainscr	; optional: first reset screen, then
+	jmp return	; back to editor, save finished
+
+; -------------------------------------------------------------------------
+; ----------------------------------------- Subs
+; -------------------------------------------------------------------------
+
+findend	jsr bsout		; write $00 (line end, no. 1)
+-	iny		; folgen weitere $00 (weitere Line-End)?
+	beq +		; 256 Stück? (ja, dann auf jeden Fall end of file)
+	lda (dst),y	; das nächste Byte
+	beq -
+	cpy #3		; weniger als drei $00?
+	bcc ++		; ja, dann line end, Link schreiben
++	lda #0		; nein, end of file, drei $00 schreiben
+	jsr bsout		; no. 2
+	jsr bsout		; no. 3
+	ldy #1		; .y: flag für fertig
+	rts
+
+wlink	lda #1		; Linkadresse schreiben (immer $0801)
+	jsr bsout
+	lda #$08
+	jsr bsout
+	lda linenum	; Zeilennummer in Zehnerschritten
+	jsr bsout
+	lda linenum+1
+	jsr bsout
+	lda #34		; und Quote-Zeichen (dann folgt der eigentliche Text)
+	jsr bsout
+++	ldy #0		; .y wieder auf 0
+	rts
+
+add10	clc		; Zeilennummer um 10 erhöhen
+	lda linenum
+	adc #10
+	sta linenum
+	bcc +
+	inc linenum+1
++	rts
+
+advance	inc dst		; Lesezeiger erhöhen
+	bne +
+	inc dst+1
++	rts
+
+bc2pet	sta temp		; .a is bcode, wandeln nach petscii
+	and #$3f
+	asl temp
+	bit temp
+	bpl cva0
+	ora #$80
+cva0	bvs cva1
+	ora #$40
+cva1	rts		; returns .a as petscii
+
+; ----------------------------------------- Something went wrong
+
+fail	jsr fclose	; close file
+	lda ls_flen	; file selection cancelled?
+	beq +		; yes, no message necessary
+
+	jsr gaugeout	; no, give message
+	jsr gd_xmess	; from floppy drive
+	ldy #2		; blink border red
+	jsr graphon
+	jsr wait		; wait for clicks
+
++	jsr chgdrv	; back to bootdrive
+	sta ls_drive
+	jsr mainscr
+	jmp startover	; and re-build editor screen
+
+; ----------------------------------------- Get Directory to Load an INI
+
+lddir	lda #<ini		; open GoDot's directory (builds a new screen)
+	pha
+	lda #>ini
+	pha
+	lda #8		; dirmask: misc
+	jmp gd_xloadm
+
+; ----------------------------------------- Get Directory to Save an INI
+
+svdir	lda #<ini		; open GoDot's directory (builds a new screen)
+	pha
+	lda #>ini
+	pha
+	lda #8		; dirmask: misc
+	ldx #0		; mode: save
+	jmp gd_xloadsave
+
+; ----------------------------------------- Exchange Sysdrive and Boot Drive
+
+chgdrv	lda ls_sysdrive
+	ldx ls_bootdrive
+	sta ls_bootdrive
+	stx ls_sysdrive
+	rts
+
+; ----------------------------------------- Change Screenlist
+
+chnglst	ldx #4
+	ldy edited 	; File already edited?
+	bne +		; no, change Gadget (to "Edit")
+	rts 		; yes, do nothing
+
++	lda newfile	; "choose File" in File requester aborted?
+	bmi +		; yes, change Gadget (to "New")
+
+-	lda new2gad, x 	; change "New" to "Edit"
+	sta editgad, x
+	lda new2tx, x
+	sta edittx, x
+	dex
+	bpl -
+	bmi ++
+
++	jsr setnew
+
+++	jmp buildscrn	; rebuild ini requester
+
+setnew	lda new1gad, x 	; File discarded, change "Edit" to "New"
+	sta editgad, x
+	lda new1tx, x
+	sta edittx, x
+	dex
+	bpl setnew
+	rts
+
+; ----------------------------------------- End Edit
+
+endedit	lda sc_stop	; .c gets set after return from eloop (sevedit)
+	beq +
+	dec sc_stop
+	rts
++	inc sc_stop
+	rts
+
+; ----------------------------------------- Toggle Activity Flag for Input Gadget
+
+active	lda #$c2		; bit 6 set
+	!by $2c
+inactive	lda #$82		; not set
+	sta activate
+	rts
+
+; ----------------------------------------- Find Start Address of Current Line
+
+getstart	lda holdpos	; get start address of current text screen window
+	ldy holdpos+1
+	sta startln
+	sty startln+1
+	ldy #0
+	sec
+	lda clicked	; set counter target (lines to scan until current line)
+	sbc #5
+	sta ls_temp	; clicked already on first line?
+	beq ++		; yes, skip all scan
+
+	sty count		; deals only w/ inis smaller than 256 lines
+-	lda (startln),y	; determine lines from start of screen window
+	beq +		; found line end, so count
+--	iny		; next char
+	bne -
+	inc startln+1
+	bne -		; uncond. branch
+
++	iny
+	lda (startln),y	; following line: empty line?
+	beq +		; yes, don't count (wasn't displayed)
+	inc count		; no, count line
+	iny		; reset .y to first char in line
++	dey
+	lda count		; line where clicked is found?
+	cmp ls_temp
+	bne --		; no, continue scan
+
+++	clc		; compute start address of area to shift
+	tya
+	adc startln
+	sta startln
+	lda startln+1
+	adc #0
+	sta startln+1
+	rts
+
+; -------------------------------------------------------------------------
+; ----------------------------------------- Text Output Handler
+; -------------------------------------------------------------------------
+
+tabigad	!wo godgad	; .y=0
+	!wo edgad 	; .y=2
+	!wo inigad	; .y=4
+
+settxt	lda #<tabigad	; address gadget
+	sta sc_texttab
+	lda #>tabigad
+	sta sc_texttab+1
+
+	lda (sc_texttab),y	; set gadget parameters (where to output)
+	sta sc_screentab
+	iny
+	lda (sc_texttab),y
+	sta sc_screentab+1
+
+	lda #0		; compute gadget's addresses
+	tax
+	tay
+gt0	jsr gd_setpos
+	cpx #4
+	bne gt0
+	jsr gd_trim
+	jmp gd_initmove
+
+; ----------------------------------------- Blankout Filename
+
+blankout	ldx #15
+	lda #32
+-	sta initx,x
+	sta file,x
+	dex
+	bpl -
+	bmi sfn0
+
+; ----------------------------------------- Create "god.ini" name
+
+godfname	jsr blankout
+	ldx #6
+-	lda godtx, x
+	sta fileind, x
+	dex
+	bpl -
+	rts
+
+; ----------------------------------------- Create any ini name
+
+showfname	sec
+	lda #17		; (17-flen)/2: Einrückung (für Zentrierung)
+	sbc ls_flen
+	lsr
+	tay
+	ldx #0
+-	lda ls_nambuf,x
+	sta initx, y
+	sta file,y
+	iny
+	inx
+	cpx ls_flen
+	bcc -
+sfn0	ldy #4		; and show it
+	bne tout2
+	
+; ----------------------------------------- Output Single Gadget's Text
+
+textout	ldy #0
+tout2	jsr settxt	; in .y: index in tabigad
+	ldy #6		; offset to gadget caption (minus 1) in screenlist
+	jmp gd_xtxout1	; show text
+
+; -------------------------------------------------------------------------
+; ----------------------------------------- Data
+; -------------------------------------------------------------------------
+
+ramman	!by 0		; memory management
+wflen	!by 0		; len of filename
+pw	!tx "w,p,"
+drinit	!tx "i0"
+ini	!tx "ini.*",0
+godini	!tx "god.ini"
+godlen	!by 7
+
+iniflag	!by 0
+success	!by 0
+newfile	!by 0
+list	!wo 0
+linenum	!wo 90
+bckedline	!scr " Click line to edit or hit STOP "
+nsvline	!scr " Not yet saved. Continue (y/n)? "
+
+edgad	!by 4,3,34,3,$00,0,0		; row, col, len, hgt + 3 dummies (mandatory)
+iniline	!fill 32,32
+	!by 0
+godgad	!by 2,16,9,3,$80,0,0	; god.ini filename gadget
+godtx	!scr "god.ini"
+	!by 0
+inigad	!by 2,12,18,3,$80,0,0	; ini.* filename gadget
+initx	!fill 16, 32
+	!by 0
+new1gad	!by 20,18,7,3,$cc		; gadget data for New
+new1tx	!scr " New",0
+new2gad	!by 20,19,6,3,$dc		; gadget data for Edit
+new2tx	!scr "Edit",0
+
+newini	!scr "textcolors = 0,14,12,15,6",0
+	!scr "colors = 16", 0
+	!scr "ticks = 25", 0
+	!scr "mode = 1", 0
+	!wo 0
+
+; -------------------------------------------------------------------------
+; ----------------------------------------- Screenlists
+; -------------------------------------------------------------------------
+
+screenlst	!by 0		; don't clr screen ($93 would clr)
+
+	!by 1,2,36,22,$01	; main requester window w/ thick edges
+	!wo 0		; no Event-Routine
+
+	!by 4,3,34,16,$20	; gadget w/o caption (Text Window)
+	!wo 0		; no Event-Routine
+
+	!by 1,2,9,3,$c4	; arrow gadget left side
+	!wo evbrowse
+	!by $40,$5b,32,$5e,32,$5e,$6d,0
+	 	; Right Pipe, Left Arrow, 2 x Right Arrow, left Pipe
+
+	!by 1,31,7,3,$c6	; arrow gadget right side
+	!wo evoneline
+	!by $20, $1e, $20, $1f, $20, 0
+		; Up Arrow - Down Arrow
+
+	!by 20,2,9,3,$c7	; load god.ini gadget
+	!wo evloadgod
+	!scr "god.ini",0
+
+	!by 20,11,7,3,$cc	; load any ini gadget
+	!wo evloadini
+	!scr "ini.*",0
+
+editgad	!by 20,18,7,3,$cc	; new or edit gadget (when "Edit": 20,19,6,3,$dc)
+	!wo evedit
+edittx	!scr " New",0	; (when edited: "Edit", but starts w/ "New")
+
+	!by 20,25,6,3,$dc	; save ini gadget
+	!wo evsave
+	!scr "Save",0
+
+	!by 20,31,7,3,$dd	; exit gadget
+	!wo evleave
+	!scr "Leave",0
+
+	!by $c0,1,15,10	; Title
+	!scr "INI Editor",0
+
+	!by $c0,2,12,16	; ini.* filename subtitle (empty on startup)
+file	!fill 16, 32
+	!by 0
+
+	!by $80		; end of screen list
+
+; ----------------------------------------- Screenlist for Editbar and Messages
+
+gaugelst	!by 0,22,3,34,3,$82
+	!wo 0
+alert	!fill 32,32	; Message (empty on startup)
+	!by 0
+	!by $80
+
+; ----------------------------------------- Screenlist for Edit
+
+editlst	!by $00
+	!by 20,2,36,3,$09	; Requester
+	!wo 0
+
+	!by 20,2,13,3,$d7	; Insert Line gadget
+	!wo sevinsert
+	!scr "Insert Line",0
+
+	!by 20,15,13,3,$dc	; Delete Line gadget
+	!wo sevdelete
+	!scr "Delete Line",0
+
+	!by 20,31,7,3,$dd	; Leave Edit gadget
+	!wo endedit
+	!scr "Leave",0
+
+	!by 22,3,34,3	; message/input gadget
+activate	!by $82		; $82: inactive, $c2: active
+	!wo sevinput
+edline	!fill 32,32	; Message (empty on startup)
+	!by 0
+	!by $80
+
+; -----------------------------------------
+
+modend	!eof		; end of module
