@@ -1,17 +1,21 @@
 
+	!src <godotlib.lib>
+	*= $c000
+	!ct pet
+
 ; ------------------------------------------------ 
 ;
 ; GoDot Modifier SysColors
-; module to change GoDot's GUI colors
+; Modul zum Ändern von GoDots GUI-Farben
+; von Martin Burggraf
 ;
 ; 1.04: 29.09.95, public release
-; 1.05: 26.06.17, completely re-coded (by A.Dettke) for conformity
+; 1.05: 26.06.17, completely re-coded (by A.Dettke) for system conformity
 ; 1.06: 01.07.17, added cosmetics (unhilite)
+; 1.07: 26.03.18, added mouse colors
+; 1.08: 19.11.26, changed gui to better understand relation between ini and mod
 ;
 ; ------------------------------------------------     
-
-	!src "godotlib.lib"
-	*=$c000
 
 ; ------------------------------------------------ Equates
 
@@ -23,6 +27,8 @@
 
 	border	= $d020
 	backgr	= $d021
+	mausfront	= $d027
+	mausback	= $d028
 
 
 ; ------------------------------------------------  Header   
@@ -35,25 +41,26 @@
 	!wo modend
 	!wo $00
 	!pet "ChangeTextcolors"
-	!pet "1.06"
-	!pet "01.07.17"
-	!pet "M.Burggraf      "
+	!pet "1.08"
+	!pet "19.11.26"
+	!pet "M.Burggraf/$AD  "
 
 ; ------------------------------------------------ Main    
 
-start	ldx #<sclst	; display screenlist
+start	ldx #<sclst	; Zeiger auf Screenlist setzen
 	ldy #>sclst
-	jsr gd_screen
-
-	jsr svdefault	; store default
-	jsr unhilite	; 		### 1.06
-	jsr showall
-	jsr storedata	; store data
-	jmp gd_eloop
+	jsr gd_screen	; und anzeigen
+	lda #$6e		; repair
+	sta $05fb
+	jsr svdefault	; Defaultfarben sichern
+	jsr unhilite	; Teil des Requesters neu einfärben
+	jsr showall	; Farben anzeigen
+	jsr storedata	; Daten sichern
+	jmp gd_eloop	; warten auf Klicks (Events)
 
 ; ------------------------------------------------ Store Data
 
-svdefault	lda sc_light	; get Default
+svdefault	lda sc_light	; Aktuelle Farben holen und in Tabellen eintragen
 	sta nlite
 	sta defdata
 	lda sc_shadow
@@ -68,74 +75,103 @@ svdefault	lda sc_light	; get Default
 	lda sc_maincolor
 	sta nmain
 	sta defdata+4
+	lda mausfront
+	sta defdata+5
+	lda mausback
+	sta defdata+6
 	rts
 
 ; ------------------------------------------------ Event: Default
 
-evdefault	lda default+4
+evdefault	lda default+4	; GoDots Defaultfarben in die Farbtabelle eintragen
 	sta sc_maincolor
 	sta nmain
+	lda default+5
+	sta mausfront
+	lda default+6
+	sta mausback
+
 	ldx #3
 -	lda default,x
 	sta sc_shadow,x
 	sta nshadow,x
 	dex
 	bpl -
-	jmp showall
+			; und anzeigen:
 
 ; ------------------------------------------------ Show Current
 
-showall	lda nlite		; lite
+showall	lda nshadow	; Farbe: shadow
+	ldx #5		; Zeile
+	jsr so2		; anzeigen
+	lda nlite		; Farbe: lite
 	ldx #7
-	jsr so2
-	lda nshadow	; shadow
+	jsr so2		; anzeigen
+	lda nnorm		; Farbe: norm
 	ldx #9
-	jsr so2
-	lda nnorm		; norm
+	jsr so2		; anzeigen
+	lda nhilite	; Farbe: hilite
 	ldx #11
-	jsr so2
-	lda nhilite	; hilite
+	jsr so2		; anzeigen
+	lda nmain		; Farbe: main
 	ldx #13
-	jsr so2
-	lda nmain		; main
-	ldx #15
-so2	ldy #25
-	jmp showcol	; show all these
+	jsr so2		; anzeigen
+	lda mausfront	; Farbe: Maus vorn
+	ldx #16
+	jsr so2		; anzeigen
+	lda mausback	; Farbe: Maus hinten
+	ldx #18
+
+so2	ldy #25		; Spalte
+	jmp showcol	; auch anzeigen
 
 ; ------------------------------------------------ Event: INC Colors
 
-clite	ldx nlite		; inc lite 
+cmfront	ldx mausfront
 	jsr incit
-	sta nlite		; show
-	ldx #7		; Zeile
-	jmp cshow
+	sta mausfront
+	ldx #16		; Zeile
+	bne cshow
 
-cshadow	ldx nshadow	; inc shadow
+cmback	ldx mausback
+	jsr incit
+	sta mausback
+	ldx #18
+	bne cshow
+	
+cshadow	ldx nshadow	; ebenso für shadow
 	jsr incit
 	sta nshadow
-	ldx #9
-	jmp cshow
+	ldx #5
+	bne cshow
 
-cnorm	ldx nnorm		; inc norm
+clite	ldx nlite		; Farbwert für lite erhöhen
+	jsr incit
+	sta nlite
+	ldx #7		; Zeile angeben
+	bne cshow		; und anzeigen
+
+cnorm	ldx nnorm		; und für norm
 	jsr incit
 	sta nnorm
-	ldx #11
-	jmp cshow
+	ldx #9
+	bne cshow
 
-chilite	ldx nhilite	; inc hilite
+chilite	ldx nhilite	; für hilite
 	jsr incit
 	sta nhilite
-	ldx #13
-	jmp cshow
+	ldx #11
+	bne cshow
 
-cmain	ldx nmain		; inc main
+cmain	ldx nmain		; und main
 	jsr incit
 	sta nmain
-	ldx #15
-cshow	ldy #25
-	jmp showcol
+	ldx #13		; Zeile
 
-incit	inx 
+cshow	ldy #25		; Spalte
+	jmp showcol	; anzeigen
+
+incit	inx 		; Farbe erhöhen bis 15, dann zurück auf 0
 	cpx #16
 	bne +
 	ldx #0
@@ -144,30 +180,34 @@ incit	inx
 
 ; ------------------------------------------------ Get Data
 
-storedata	ldx #3		; store
+storedata	ldx #3		; aktuelle Farben holen
 -	lda sc_shadow,x
-	sta nshadow,x
+	sta nshadow,x	; und in Tabellen eintragen
 	sta defdata,x
 	dex 
 	bpl -
 	lda sc_maincolor
 	sta nmain
 	sta defdata+4
+	lda mausfront
+	sta defdata+5
+	lda mausback
+	sta defdata+6
 	clc
 	rts 
 
 ; ------------------------------------------------ UnHilite
 
-unhilite	ldx #11		; Breite		### 1.06 ab hier
+unhilite	ldx #11		; Breite
 	stx sc_br
-	ldx #9		; H�he
+	ldx #14		; Höhe
 	stx sc_ho
 	lda nnorm		; Farbe: Normal Text
-	ldx #7		; Zeile
+	ldx #5		; Zeile
 	ldy #13		; Spalte
-	bne encolor	; einf�rben
+	bne encolor	; neu einfärben
 
-; ------------------------------------------------ show
+; ------------------------------------------------ Farbe anzeigen
 
 showcol	pha		; Farbe retten
 	txa		; Zeile retten
@@ -175,16 +215,17 @@ showcol	pha		; Farbe retten
 	ldx #2
 	stx sc_br		; Breite: 2
 	dex 
-	stx sc_ho		; H�he: 1
+	stx sc_ho		; Höhe: 1
 	pla
 	tax
 	pla
 
-encolor	sta sc_chgcol	; Farbe
-	stx sc_zl		; Zeile
-	sty sc_sp		; Spalte
-	ldx #4
-	jmp gd_fcol	; .c=0		### 1.06 bis hier
+encolor	sta sc_chgcol	; Farbe in sc_chgcol schreiben
+	stx sc_zl		; Zeile angeben
+	sty sc_sp		; Spalte angeben
+	ldx #4		; Offset auf sc_chgcol setzen
+	jmp gd_fcol	; färben
+			; Rückgabe: .c=0 (im Modul bleiben)
 
 ; ------------------------------------------------ Event: Accept
 
@@ -198,14 +239,14 @@ evaccept	lda nlite		; lite
 	ldx nmain	
 	sta sc_normtext
 	stx sc_maincolor
-	stx border	; screen
+	stx border	; screen (Maus ist bereits gesetzt)
 	stx backgr
-	sec 
+	sec 		; Modul verlassen (.c=1)
 	rts 
 
 ; ------------------------------------------------ Event: Cancel
 
-evcancel	lda defdata+4
+evcancel	lda defdata+4	; Farben vom Aufruf des Moduls rekonstruieren
 	sta sc_maincolor
 	sta nmain
 	ldx #3
@@ -214,66 +255,93 @@ evcancel	lda defdata+4
 	sta nshadow,x
 	dex
 	bpl -
-	sec
+	sec		; Modul verlassen (.c=1)
 	rts
 
 ; ------------------------------------------------ Screenlist
 
 sclst
 
-	!by $00 
+	!by $00 			; Screen nicht löschen
 
-	!by $03,$0c,$10,$13,$91
+	!by 2,12,16,22,$91		; Requester, Type 1, mit gehilitetem Text
 	!wo $00 
-	!scr "SysColors@"
+	!scr "SysColors",0		; Titel: "SysColors"
 
-	!by $13,$0c,$08,$03,$c7
-	!wo evaccept
-	!scr "Accept@"
-
-	!by $13,$14,$08,$03,$cd
-	!wo evcancel
-	!scr "Cancel@"
-
-	!by $06,$18,$04,$03,$cf
-	!wo clite 
-	!by $a0,$a0,$00 
-
-	!by $08,$18,$04,$03,$ce
+	!by 4,24,4,3,$cd		; shadow, Farbe für den unbeleuchteten Rand
 	!wo cshadow 
-	!by $a0,$a0,$00 
+	!by $a0,$a0,$00  		; 2 Shift Space (für die Farbe)
 
-	!by $0a,$18,$04,$03,$ce
+	!by 6,24,4,3,$ce		; light, Farbe für den beleuchteten Rand
+	!wo clite 
+	!by $a0,$a0,$00 		; 2 Shift Space (für die Farbe)
+
+	!by 8,24,4,3,$ce		; norm, normale Textfarbe
 	!wo cnorm
-	!by $a0,$a0,$00 
+	!by $a0,$a0,$00  		; 2 Shift Space (für die Farbe)
 
-	!by $0c,$18,$04,$03,$ce
+	!by 10,24,4,3,$ce		; hilite, Farbe für gehighlighteten Text
 	!wo chilite
-	!by $a0,$a0,$00 
+	!by $a0,$a0,$00  		; 2 Shift Space (für die Farbe)
 
-	!by $0e,$18,$04,$03,$ce
+	!by 12,24,4,3,$cf		; main, Hintergrundfarbe
 	!wo cmain
-	!by $a0,$a0,$00 
+	!by $a0,$a0,$00  		; 2 Shift Space (für die Farbe)
 
-	!by $10,$13,$09,$03,$cf
+	!by 15,24,4,3,$cd		; foregrnd, Maus Vordergrundfarbe
+	!wo cmfront
+	!by $a0,$a0,$00  		; 2 Shift Space (für die Farbe)
+
+	!by 17,24,4,3,$ce		; backgrnd, Maus Hintergrundfarbe
+	!wo cmback
+	!by $a0,$a0,$00  		; 2 Shift Space (für die Farbe)
+
+	!by 19,12,16,3,$cb		; default, Rücksteller
 	!wo evdefault
-	!scr "Default@"
+	!scr "Default",0
 
-	!by $c0,$06,$0c,$05 
-	!scr "Light@"
-	!by $c0,$08,$0c,$06 
-	!scr "Shadow@"
-	!by $c0,$0a,$0c,$0b 
-	!scr "Normal Text@"
-	!by $c0,$0c,$0c,$06 
-	!scr "HiLite@"
-	!by $c0,$0e,$0c,$0a 
-	!scr "Main Color@"
-	!by $80 
+	!by 21,12,8,3,$c7		; Accept
+	!wo evaccept
+	!scr "Accept",0
+
+	!by 21,20,8,3,$ce		; Cancel
+	!wo evcancel
+	!scr "Cancel",0
+
+	!by $c0
+	!by 4,12,6 
+	!scr "Shadow",0
+	!by $c0			; Info
+	!by 6,12,5 
+	!scr "Light",0
+	!by $c0
+	!by 8,12,11 
+	!scr "Normal Text",0
+	!by $c0
+	!by 10,12,6 
+	!scr "HiLite",0
+	!by $c0
+	!by 12,12,10 
+	!scr "Main Color",0
+	!by $c0
+	!by 15,18,5
+	!scr "Front",0
+	!by $c0
+	!by 16,12,5
+	!scr "Mouse",0
+	!by $c0
+	!by 17,18,4
+	!scr "Back",0
+	!by $c0
+	!by 14,12,11
+	!fill 11, $5f
+	!by 0
+
+	!by $80 			; End
 
 ; ------------------------------------------------ Tables
 
-defdata 	!by $00,$00,$00,$00,$00
-default	!by $00,$0f,$0b,$01,$0c
+defdata 	!by $00,$00,$00,$00,$00,$00,$00
+default	!by $00,$0f,$0b,$01,$0c,$01,$00	; Standard-GoDot-Farben
 
 modend	!eof
